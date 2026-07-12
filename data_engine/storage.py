@@ -647,9 +647,16 @@ def count_rows(exchange, symbol):
 
 
 def count_all_rows():
+    """Approximate total candle count for the Home page's display stat only
+    -- MAX(_ROWID_) instead of COUNT(*). On this table's ~25M rows COUNT(*)
+    took 60-90s (a full index scan; SQLite keeps no cached row count),
+    which stalled /api/home (polled by every page). MAX(_ROWID_) reads the
+    rightmost b-tree leaf directly (<0.1s) and is off by only rows deleted
+    over the table's lifetime (~0.03% here) -- fine for a dashboard number,
+    not used anywhere that needs an exact count."""
     with get_conn() as conn:
-        row = conn.execute("SELECT COUNT(*) FROM klines_1m").fetchone()
-    return row[0]
+        row = conn.execute("SELECT MAX(_ROWID_) FROM klines_1m").fetchone()
+    return row[0] or 0
 
 
 def get_klines_range(exchange, symbol, start_ms=None, end_ms=None):
@@ -1012,14 +1019,26 @@ def list_activity(limit=50):
 
 
 def get_knowledge_report():
+    # lesson_applications has grown into the millions of rows (one row per
+    # lesson per bar checked during backtests) -- 3 separate COUNT(*) scans
+    # over it took ~60s combined. One conditional-aggregation query does a
+    # single scan instead of three.
     with get_conn() as conn:
-        total = conn.execute("SELECT COUNT(*) FROM lessons").fetchone()[0]
-        active = conn.execute("SELECT COUNT(*) FROM lessons WHERE status='active'").fetchone()[0]
-        disabled = conn.execute("SELECT COUNT(*) FROM lessons WHERE status='disabled'").fetchone()[0]
-        draft = conn.execute("SELECT COUNT(*) FROM lessons WHERE status='draft'").fetchone()[0]
-        applied = conn.execute("SELECT COUNT(*) FROM lesson_applications").fetchone()[0]
-        rejected = conn.execute("SELECT COUNT(*) FROM lesson_applications WHERE outcome='rejected'").fetchone()[0]
-        approved = conn.execute("SELECT COUNT(*) FROM lesson_applications WHERE outcome='approved'").fetchone()[0]
+        lessons_row = conn.execute(
+            "SELECT COUNT(*), "
+            "SUM(CASE WHEN status='active' THEN 1 ELSE 0 END), "
+            "SUM(CASE WHEN status='disabled' THEN 1 ELSE 0 END), "
+            "SUM(CASE WHEN status='draft' THEN 1 ELSE 0 END) "
+            "FROM lessons"
+        ).fetchone()
+        total, active, disabled, draft = (v or 0 for v in lessons_row)
+        applications_row = conn.execute(
+            "SELECT COUNT(*), "
+            "SUM(CASE WHEN outcome='rejected' THEN 1 ELSE 0 END), "
+            "SUM(CASE WHEN outcome='approved' THEN 1 ELSE 0 END) "
+            "FROM lesson_applications"
+        ).fetchone()
+        applied, rejected, approved = (v or 0 for v in applications_row)
         by_category = conn.execute("SELECT category, COUNT(*) FROM lessons GROUP BY category").fetchall()
     return {
         "total_lessons": total, "active_lessons": active, "disabled_lessons": disabled,

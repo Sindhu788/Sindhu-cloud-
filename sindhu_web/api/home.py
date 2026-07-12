@@ -3,7 +3,7 @@ from fastapi import APIRouter
 
 from data_engine import storage, config
 from data_engine.paths import disk_usage_bytes
-from backtest_engine.reports import generate_report
+from backtest_engine.reports import quick_batch_summary
 from paper_trading.engine import engine as paper_engine
 from paper_trading import risk_manager as paper_risk_manager, config as paper_config
 from sindhu_web import cache
@@ -87,7 +87,9 @@ def get_home():
         "ram_percent": psutil.virtual_memory().percent,
         "current_task": running_jobs[0] if running_jobs else None,
         "running_jobs": running_jobs,
-        "knowledge_score": compute_knowledge_score(),
+        "knowledge_score": compute_knowledge_score(
+            cache.cached("knowledge_report", 60, storage.get_knowledge_report)
+        ),
         "task_summary": task_summary,
         "module_status": module_status,
         "disk_usage_bytes": disk_usage_bytes(),
@@ -119,12 +121,20 @@ def _account_snapshot():
 
 
 def _latest_batch_snapshot():
+    # Uses quick_batch_summary() (not generate_report()) -- the Home page
+    # only ever shows these 6 fields, not the full coin/timeframe ranking
+    # or session analysis, so there's no need to re-scan every trade in the
+    # batch every 15 seconds. generate_report() over a 150k-trade batch
+    # took 20-45s and made /api/home (polled by every page's topbar) stall
+    # the whole app.
     for batch in storage.list_recent_batches(limit=10):
         if batch["status"] != "completed":
             continue
         try:
-            r = generate_report(batch["batch_id"])
+            r = quick_batch_summary(batch["batch_id"])
         except Exception:
+            continue
+        if not r:
             continue
         return {
             "strategy": r["strategy"], "final_balance": r["avg_final_balance"],

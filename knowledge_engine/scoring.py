@@ -10,8 +10,9 @@ _POINTS_PER_ACTIVE_LESSON = 3
 _POINTS_PER_APPROVED_APPLICATION = 0.1
 
 
-def compute_knowledge_score():
-    report = storage.get_knowledge_report()
+def compute_knowledge_score(report=None):
+    if report is None:
+        report = storage.get_knowledge_report()
     score = (
         report["total_lessons"] * _POINTS_PER_LESSON
         + report["active_lessons"] * _POINTS_PER_ACTIVE_LESSON

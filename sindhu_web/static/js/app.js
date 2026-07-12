@@ -13,10 +13,23 @@
     return apiToken;
   }
 
-  async function apiGet(path) {
-    const res = await fetch(path);
-    if (!res.ok) throw new Error(`GET ${path} -> ${res.status}`);
-    return res.json();
+  async function apiGet(path, timeoutMs = 15000) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(path, { signal: controller.signal });
+      if (!res.ok) throw new Error(`GET ${path} -> ${res.status}`);
+      return await res.json();
+    } catch (e) {
+      // A plain fetch() with no abort/timeout can hang forever if the
+      // server or network stalls, leaving a page stuck on "Loading..."
+      // indefinitely with no way to recover -- this turns that into a
+      // real error after timeoutMs so callers can show a retry state.
+      if (e.name === "AbortError") throw new Error(`GET ${path} timed out after ${timeoutMs}ms`);
+      throw e;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   async function apiSend(method, path, body) {
@@ -1204,7 +1217,18 @@
     const myToken = activeRouteToken;
 
     async function renderList() {
-      const { batches } = await apiGet("/api/backtest-history");
+      document.getElementById("histTableBody").innerHTML = '<tr><td colspan="7">Loading...</td></tr>';
+      let batches;
+      try {
+        ({ batches } = await apiGet("/api/backtest-history"));
+      } catch (e) {
+        if (isStaleRoute(myToken)) return;
+        document.getElementById("histTableBody").innerHTML =
+          `<tr><td colspan="7">Couldn't load backtest history: ${esc(e.message)}. ` +
+          `<button class="btn-ghost" id="histRetryBtn">Retry</button></td></tr>`;
+        document.getElementById("histRetryBtn").onclick = () => renderList().catch(console.error);
+        return;
+      }
       if (isStaleRoute(myToken)) return;
       document.getElementById("histTableBody").innerHTML = batches.map(b => {
         const pnlCls = b.total_pnl > 0 ? "positive" : b.total_pnl < 0 ? "negative" : "";
