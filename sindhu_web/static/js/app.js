@@ -832,6 +832,10 @@
     let wins = 0, total = 0;
     let cumulativePnl = 0, peakPnl = 0, jobStartTime = null;
     const equityCurve = [0];
+    // Matches RunRequest.initial_balance's backend default (sindhu_web/api/backtesting.py) --
+    // the "Run" button never overrides it, so each coin in the batch starts at this balance.
+    const BACKTEST_INITIAL_BALANCE = 1000;
+    let batchTotalCombos = 0;
 
     function drawEquitySparkline() {
       const svg = document.getElementById("equityChart");
@@ -960,6 +964,7 @@
       currentJobId = res.job_id;
       wins = 0; total = 0;
       cumulativePnl = 0; peakPnl = 0; jobStartTime = Date.now();
+      batchTotalCombos = 0;
       equityCurve.length = 0; equityCurve.push(0);
       document.getElementById("bPnl").textContent = "$0.00";
       document.getElementById("bDrawdown").textContent = "0.00%";
@@ -1035,6 +1040,7 @@
       if (msg.current_stage) document.getElementById("bStage").textContent = msg.current_stage;
       if (msg.bar_pct != null) document.getElementById("bBarProgressFill").style.width = `${msg.bar_pct}%`;
       if (msg.total != null) {
+        batchTotalCombos = msg.total;
         document.getElementById("bProgress").textContent = `${msg.done} / ${msg.total}`;
         document.getElementById("bProgressFill").style.width = `${(msg.done / Math.max(msg.total,1)) * 100}%`;
         if (msg.eta_seconds != null) {
@@ -1061,7 +1067,8 @@
         document.getElementById("bWinRate").textContent = `${((wins/total)*100).toFixed(1)}%`;
         document.getElementById("bPnl").textContent = `${cumulativePnl >= 0 ? "" : "-"}$${Math.abs(cumulativePnl).toFixed(2)}`;
         document.getElementById("bPnl").className = cumulativePnl > 0 ? "positive" : cumulativePnl < 0 ? "negative" : "";
-        document.getElementById("bDrawdown").textContent = `${((drawdown / 1000) * 100).toFixed(2)}%`;
+        const batchCapital = Math.max(batchTotalCombos, 1) * BACKTEST_INITIAL_BALANCE;
+        document.getElementById("bDrawdown").textContent = `${((drawdown / batchCapital) * 100).toFixed(2)}%`;
         document.getElementById("bCurTrade").textContent =
           `#${msg.last_trade.trade_num} ${msg.last_trade.side} ${msg.last_trade.symbol} pnl=${msg.last_trade.pnl.toFixed(2)}`;
         drawEquitySparkline();
