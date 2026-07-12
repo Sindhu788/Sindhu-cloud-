@@ -34,14 +34,20 @@ def backtest_history(limit: int = 200):
 
 @router.get("/api/reports/best-worst/strategies")
 def best_worst_strategies():
+    # Uses quick_batch_summary() (not generate_report()) -- this only needs
+    # avg_profit_pct per batch, so there's no reason to pay generate_report()'s
+    # full per-trade session-analysis scan (20-45s on a large batch) once for
+    # every completed batch in the list.
     batches = storage.list_recent_batches(limit=200)
     by_strategy = {}
     for b in batches:
         if b["status"] != "completed":
             continue
         try:
-            summary = generate_report(b["batch_id"])
+            summary = quick_batch_summary(b["batch_id"])
         except Exception:
+            continue
+        if not summary:
             continue
         by_strategy.setdefault(b["strategy_name"], []).append(summary["avg_profit_pct"])
 
