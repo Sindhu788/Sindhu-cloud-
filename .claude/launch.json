@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "sindhu-web",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["web_main.py"],
+      "port": 8420
+    }
+  ]
+}

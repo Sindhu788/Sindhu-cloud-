@@ -1,0 +1,131 @@
+"""Open Position Manager + Trade Monitor + Trade Close. Owns the
+lifecycle from "approved candidate" to "closed, reflected-on trade,"
+including automatic Trade Tagging and the per-stage lifecycle timestamps
+the spec asks for.
+"""
+
+import time
+import uuid
+from datetime import datetime, timezone
+
+from backtest_engine.engine import _apply_slippage
+from data_engine import storage
+from paper_trading import reflection, evolution
+
+
+def _now_iso():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def auto_tags(market_snapshot, timeframe):
+    tags = []
+    state = market_snapshot.get("market_state")
+    if state in ("trending_up", "trending_down"):
+        tags.append("Trend")
+    if state == "breakout":
+        tags.append("Breakout")
+    if timeframe in ("1m", "3m", "5m", "15m"):
+        tags.append("Scalping")
+    elif timeframe in ("4h", "6h", "12h", "1d", "1w"):
+        tags.append("Swing")
+    session = market_snapshot.get("session")
+    if session == "london":
+        tags.append("London")
+    elif session == "ny":
+        tags.append("New York")
+    if market_snapshot.get("volume_spike"):
+        tags.append("High Volume")
+    if market_snapshot.get("structure"):
+        tags.append("Liquidity")
+    return tags
+
+
+def open_position(exchange, symbol, candidate, size, risk_amount, confidence, market_snapshot):
+    position_id = uuid.uuid4().hex[:16]
+    side = "long" if candidate["direction"] == "bullish" else "short"
+    entry_price = _apply_slippage(candidate["entry_price"], side, False, 0.0005)
+    now_ms = int(time.time() * 1000)
+    now = _now_iso()
+
+    pos = {
+        "id": position_id, "exchange": exchange, "symbol": symbol,
+        "direction": side, "entry_price": entry_price,
+        "stop_loss": candidate["stop_loss"], "take_profit": candidate["take_profit"],
+        "size": size, "risk_amount": risk_amount, "entry_time": now_ms,
+        "entry_reason": candidate["entry_reason"],
+        "strategy_id": candidate.get("strategy_id"), "strategy_name": candidate.get("strategy_name"),
+        "strategy_version": candidate.get("strategy_version"),
+        "lesson_ids": candidate.get("lesson_ids", []), "confidence": confidence,
+        "market_snapshot": market_snapshot, "tags": auto_tags(market_snapshot, candidate.get("timeframe")),
+        "session": market_snapshot.get("session"), "timeframe": candidate.get("timeframe"),
+        "market_state": market_snapshot.get("market_state"),
+        "lifecycle": {
+            "signal_detected": now, "signal_validated": now,
+            "trade_reserved": now, "trade_opened": now,
+        },
+        "created_at": now,
+    }
+    storage.open_paper_position(pos)
+    return pos
+
+
+def _check_exit(position, latest_price):
+    sl, tp = position["stop_loss"], position["take_profit"]
+    if position["direction"] == "long":
+        if sl is not None and latest_price <= sl:
+            return "stop_loss"
+        if tp is not None and latest_price >= tp:
+            return "take_profit"
+    else:
+        if sl is not None and latest_price >= sl:
+            return "stop_loss"
+        if tp is not None and latest_price <= tp:
+            return "take_profit"
+    return None
+
+
+def monitor_and_close(exchange, symbol, latest_price):
+    """Trade Monitor + Trade Close: checked every tick for every coin that
+    currently has an open position."""
+    closed = []
+    for pos in storage.get_open_paper_positions(exchange, symbol):
+        reason = _check_exit(pos, latest_price)
+        if reason:
+            closed.append(_close(pos, latest_price, reason))
+    return closed
+
+
+def force_close(position_id, latest_price, reason="closed_manually"):
+    pos = storage.get_paper_position(position_id)
+    if not pos or pos["status"] != "open":
+        return None
+    return _close(pos, latest_price, reason)
+
+
+def _close(pos, exit_price, exit_reason):
+    exit_price = _apply_slippage(exit_price, pos["direction"], True, 0.0005)
+    if pos["direction"] == "long":
+        pnl = (exit_price - pos["entry_price"]) * pos["size"]
+    else:
+        pnl = (pos["entry_price"] - exit_price) * pos["size"]
+    notional = pos["entry_price"] * pos["size"]
+    pnl_pct = (pnl / notional * 100) if notional else 0.0
+    now_ms = int(time.time() * 1000)
+    now = _now_iso()
+
+    lifecycle = dict(pos.get("lifecycle") or {})
+    lifecycle["trade_managed"] = now
+    lifecycle["trade_closed"] = now
+
+    refl = reflection.build({**pos, "exit_time": now_ms}, exit_price, pnl, pnl_pct, exit_reason)
+    lifecycle["reflection"] = now
+
+    storage.close_paper_position(
+        pos["id"], exit_price, now_ms, pnl, pnl_pct, exit_reason, lifecycle, refl, now,
+    )
+
+    closed_pos = {**pos, "exit_price": exit_price, "exit_time": now_ms, "pnl": pnl,
+                  "pnl_pct": pnl_pct, "exit_reason": exit_reason, "reflection": refl}
+    evolution.record_outcome(closed_pos, pnl, pnl_pct)
+    lifecycle["evolution"] = _now_iso()
+    return closed_pos

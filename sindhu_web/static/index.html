@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SINDHU Dashboard</title>
+<link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <button id="navToggle" class="icon-btn nav-toggle" aria-label="Toggle navigation">
+        <svg viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+      </button>
+      <button id="railToggle" class="icon-btn rail-toggle" aria-label="Collapse sidebar">
+        <svg viewBox="0 0 24 24"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+      </button>
+      <div class="brand"><span class="brand-mark">S</span><span class="brand-text">SINDHU</span></div>
+
+      <div class="topbar-search">
+        <svg class="search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        <input id="globalSearch" type="text" placeholder="Search coins, strategies, lessons, reports, trades...">
+        <div id="searchResults" class="search-results"></div>
+      </div>
+
+      <div class="topbar-right">
+        <span class="pill pill-muted">CEO</span>
+        <span id="clockDisplay" class="clock">--:--:--</span>
+        <span id="versionPill" class="pill pill-muted">v-</span>
+        <span id="healthPill" class="pill pill-completed">OK</span>
+        <span id="connStatus" class="conn-status conn-offline">●&nbsp;offline</span>
+
+        <div class="dropdown-wrap">
+          <button id="notifBtn" class="icon-btn" aria-label="Notifications">
+            <svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg>
+            <span id="notifBadge" class="badge" style="display:none;">0</span>
+          </button>
+          <div id="notifMenu" class="dropdown-menu"></div>
+        </div>
+
+        <div class="dropdown-wrap">
+          <button id="quickActionsBtn" class="icon-btn" aria-label="Quick actions">
+            <svg viewBox="0 0 24 24"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg>
+          </button>
+          <div id="quickActionsMenu" class="dropdown-menu">
+            <button class="dropdown-item" id="qaDownload">Start / Resume Download</button>
+            <button class="dropdown-item" id="qaBackup">Create Backup Now</button>
+            <button class="dropdown-item" id="qaLogs">Open Logs</button>
+            <button class="dropdown-item" id="qaRestart">Restart Services</button>
+          </div>
+        </div>
+
+        <button id="logsToggle" class="icon-btn" aria-label="Logs">
+          <svg viewBox="0 0 24 24"><path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h8M8 17h4"/></svg>
+        </button>
+        <button id="themeToggle" class="icon-btn" aria-label="Toggle theme">
+          <svg viewBox="0 0 24 24"><path d="M12 3v2M12 19v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M3 12h2M19 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"/><circle cx="12" cy="12" r="4"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <nav id="sidebar" class="sidebar">
+      <ul id="navList" class="nav-list"></ul>
+    </nav>
+
+    <main id="content" class="content"></main>
+
+    <div id="toastStack" class="toast-stack"></div>
+
+    <aside id="logsPanel" class="logs-panel">
+      <div class="logs-header">
+        <span>Live Logs</span>
+        <button id="logsClose" class="btn-ghost">&times;</button>
+      </div>
+      <div id="logsBody" class="logs-body"></div>
+    </aside>
+
+    <div id="overlay" class="overlay"></div>
+  </div>
+
+<script src="/static/js/app.js"></script>
+</body>
+</html>

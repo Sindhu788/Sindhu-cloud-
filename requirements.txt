@@ -1,0 +1,15 @@
+requests
+pandas
+ccxt
+PySide6
+openpyxl
+reportlab
+pyqtgraph
+fastapi
+uvicorn[standard]
+psutil
+qrcode
+pypdf
+python-docx
+python-multipart
+youtube-transcript-api

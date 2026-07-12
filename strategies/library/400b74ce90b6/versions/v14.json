@@ -1,0 +1,103 @@
+{
+  "name": "S1",
+  "raw_text": "Strategy Name: Daily Low Liquidity Grab Long\n\nAnalysis: 1h\nEntry: 5m\n\nEntry Rules:\nliquidity sweep at support and bullish BOS and bullish FVG\n\nConfirmation:\nvolume\n\nSession: London\nSession: NY\n\nSL swing\nRR 1:2.5\nRisk 1%",
+  "timeframes": {
+    "analysis": "1h",
+    "entry": "5m"
+  },
+  "indicators": [],
+  "concepts_used": [
+    "liquidity_sweep",
+    "bos",
+    "fvg",
+    "support",
+    "volume",
+    "session_filter"
+  ],
+  "entry_conditions": [
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "liquidity_sweep",
+      "direction": "bullish",
+      "text": null,
+      "role": null,
+      "lookback_bars": null
+    },
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "liquidity_sweep",
+      "direction": "bullish",
+      "text": null,
+      "role": null,
+      "lookback_bars": null
+    },
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "bos",
+      "direction": "bullish",
+      "text": null,
+      "role": null,
+      "lookback_bars": null
+    },
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "fvg",
+      "direction": "bullish",
+      "text": null,
+      "role": null,
+      "lookback_bars": null
+    }
+  ],
+  "exit_conditions": [],
+  "confirmation_conditions": [
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "volume",
+      "direction": null,
+      "text": null,
+      "role": null,
+      "lookback_bars": null
+    }
+  ],
+  "stop_loss": {
+    "type": "structure",
+    "value": null,
+    "level": null
+  },
+  "take_profit": {
+    "type": "rr",
+    "value": 2.5,
+    "level": null
+  },
+  "risk_pct": 1,
+  "risk_reward": 2.5,
+  "session_filter": [
+    "london",
+    "ny"
+  ],
+  "trend_filter": null,
+  "tags": [],
+  "favourite": false,
+  "missing": [],
+  "warnings": []
+}

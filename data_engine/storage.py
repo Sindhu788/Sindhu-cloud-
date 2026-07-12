@@ -1,0 +1,1740 @@
+import json
+import sqlite3
+import os
+from contextlib import contextmanager
+
+from data_engine.paths import DB_PATH, DATABASE_DIR, ensure_folders
+
+DEFAULT_EXCHANGE = "binance"
+
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS symbols (
+    exchange TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    added_at TEXT NOT NULL,
+    PRIMARY KEY (exchange, symbol)
+);
+
+CREATE TABLE IF NOT EXISTS klines_1m (
+    exchange TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    open_time INTEGER NOT NULL,
+    open REAL NOT NULL,
+    high REAL NOT NULL,
+    low REAL NOT NULL,
+    close REAL NOT NULL,
+    volume REAL NOT NULL,
+    close_time INTEGER NOT NULL,
+    quote_volume REAL NOT NULL,
+    trades INTEGER NOT NULL,
+    PRIMARY KEY (exchange, symbol, open_time)
+);
+
+CREATE TABLE IF NOT EXISTS download_progress (
+    exchange TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    last_open_time INTEGER,
+    status TEXT NOT NULL DEFAULT 'pending',
+    updated_at TEXT,
+    PRIMARY KEY (exchange, symbol)
+);
+
+CREATE TABLE IF NOT EXISTS strategies (
+    name TEXT PRIMARY KEY,
+    file_path TEXT NOT NULL,
+    added_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS backtest_batches (
+    batch_id TEXT PRIMARY KEY,
+    strategy_name TEXT NOT NULL,
+    exchange TEXT NOT NULL,
+    settings_json TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'running',
+    created_at TEXT NOT NULL,
+    updated_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS backtest_results (
+    batch_id TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    timeframe TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    metrics_json TEXT,
+    completed_at TEXT,
+    PRIMARY KEY (batch_id, symbol, timeframe)
+);
+
+CREATE TABLE IF NOT EXISTS backtest_trades (
+    batch_id TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    timeframe TEXT NOT NULL,
+    trade_num INTEGER NOT NULL,
+    side TEXT NOT NULL,
+    entry_time INTEGER NOT NULL,
+    entry_price REAL NOT NULL,
+    exit_time INTEGER,
+    exit_price REAL,
+    size REAL NOT NULL,
+    pnl REAL,
+    pnl_pct REAL,
+    exit_reason TEXT,
+    stop_loss REAL,
+    take_profit REAL,
+    risk_amount REAL,
+    reward_amount REAL,
+    entry_reason TEXT,
+    PRIMARY KEY (batch_id, symbol, timeframe, trade_num)
+);
+
+CREATE TABLE IF NOT EXISTS lessons (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    category TEXT NOT NULL,
+    description TEXT,
+    priority TEXT NOT NULL DEFAULT 'Medium',
+    status TEXT NOT NULL DEFAULT 'active',
+    notes TEXT,
+    apply_backtesting INTEGER NOT NULL DEFAULT 1,
+    apply_paper_trading INTEGER NOT NULL DEFAULT 1,
+    apply_evolution INTEGER NOT NULL DEFAULT 1,
+    rule_type TEXT NOT NULL DEFAULT 'block_if_true',
+    direction TEXT,
+    conditions_json TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS lesson_applications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lesson_id TEXT NOT NULL,
+    batch_id TEXT,
+    symbol TEXT,
+    timeframe TEXT,
+    applied_at TEXT NOT NULL,
+    outcome TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS activity_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entity TEXT NOT NULL,
+    action TEXT NOT NULL,
+    message TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS paper_positions (
+    id TEXT PRIMARY KEY,
+    exchange TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    entry_price REAL NOT NULL,
+    exit_price REAL,
+    stop_loss REAL,
+    take_profit REAL,
+    size REAL NOT NULL,
+    risk_amount REAL,
+    entry_time INTEGER NOT NULL,
+    exit_time INTEGER,
+    pnl REAL,
+    pnl_pct REAL,
+    exit_reason TEXT,
+    entry_reason TEXT,
+    strategy_id TEXT,
+    strategy_name TEXT,
+    strategy_version INTEGER,
+    lesson_ids_json TEXT,
+    confidence REAL,
+    market_snapshot_json TEXT,
+    tags_json TEXT,
+    session TEXT,
+    timeframe TEXT,
+    market_state TEXT,
+    lifecycle_json TEXT,
+    reflection_json TEXT,
+    status TEXT NOT NULL DEFAULT 'open',
+    created_at TEXT NOT NULL,
+    closed_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS paper_decision_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    exchange TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    direction TEXT,
+    decision TEXT NOT NULL,
+    reason TEXT,
+    strategy_id TEXT,
+    strategy_name TEXT,
+    lesson_ids_json TEXT,
+    confidence REAL,
+    market_state TEXT,
+    session TEXT,
+    timeframe TEXT,
+    position_id TEXT,
+    market_snapshot_json TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS paper_strategy_performance (
+    strategy_id TEXT PRIMARY KEY,
+    strategy_name TEXT,
+    trades INTEGER NOT NULL DEFAULT 0,
+    wins INTEGER NOT NULL DEFAULT 0,
+    losses INTEGER NOT NULL DEFAULT 0,
+    total_pnl REAL NOT NULL DEFAULT 0,
+    avg_rr REAL,
+    score REAL,
+    updated_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS paper_lesson_performance (
+    lesson_id TEXT PRIMARY KEY,
+    lesson_title TEXT,
+    usage_count INTEGER NOT NULL DEFAULT 0,
+    wins INTEGER NOT NULL DEFAULT 0,
+    losses INTEGER NOT NULL DEFAULT 0,
+    total_pnl REAL NOT NULL DEFAULT 0,
+    confidence_avg REAL,
+    score REAL,
+    updated_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS paper_strategy_config (
+    strategy_id TEXT PRIMARY KEY,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    priority INTEGER NOT NULL DEFAULT 5,
+    supported_coins_json TEXT,
+    supported_market_types_json TEXT,
+    updated_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS compiled_documents (
+    id TEXT PRIMARY KEY,
+    title TEXT,
+    source_type TEXT,
+    doc_type TEXT NOT NULL,
+    classification_confidence REAL,
+    status TEXT NOT NULL,
+    raw_text TEXT,
+    sections_json TEXT,
+    strategy_ids_json TEXT,
+    lesson_ids_json TEXT,
+    concepts_json TEXT,
+    unresolved_json TEXT,
+    clarification_notes_json TEXT,
+    tags_json TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS knowledge_concepts (
+    canonical_name TEXT PRIMARY KEY,
+    category TEXT NOT NULL,
+    aliases_json TEXT,
+    usage_count INTEGER NOT NULL DEFAULT 0,
+    first_seen_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS knowledge_relationships (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    from_type TEXT NOT NULL,
+    from_id TEXT NOT NULL,
+    to_type TEXT NOT NULL,
+    to_id TEXT NOT NULL,
+    relation TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS backtest_condition_reports (
+    batch_id TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    timeframe TEXT NOT NULL,
+    report_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (batch_id, symbol, timeframe)
+);
+
+CREATE TABLE IF NOT EXISTS ai_usage_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider TEXT NOT NULL,
+    model TEXT,
+    endpoint TEXT NOT NULL,
+    status TEXT NOT NULL,
+    tokens_in INTEGER,
+    tokens_out INTEGER,
+    latency_ms INTEGER,
+    error_message TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS ai_import_queue (
+    id TEXT PRIMARY KEY,
+    title TEXT,
+    source_hint TEXT,
+    filename TEXT,
+    raw_text TEXT NOT NULL,
+    use_ai INTEGER NOT NULL DEFAULT 1,
+    status TEXT NOT NULL DEFAULT 'pending',
+    result_doc_id TEXT,
+    ai_assisted INTEGER,
+    ai_provider TEXT,
+    error_message TEXT,
+    processing_time_ms INTEGER,
+    created_at TEXT NOT NULL,
+    started_at TEXT,
+    finished_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS ai_dictionary_entries (
+    canonical_name TEXT PRIMARY KEY,
+    definition TEXT,
+    keywords_json TEXT,
+    category TEXT,
+    source_doc_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS ai_import_cache (
+    content_hash TEXT PRIMARY KEY,
+    ai_result_json TEXT NOT NULL,
+    provider TEXT,
+    created_at TEXT NOT NULL
+);
+"""
+
+_COMPILED_DOCUMENT_V6_COLUMNS = {
+    "hidden_rules_json": "TEXT",
+    "psychology_notes_json": "TEXT",
+    "deep_knowledge_json": "TEXT",
+}
+
+
+def _migrate_compiled_document_v6_columns(conn):
+    """AI Knowledge Learning Engine (v6): a compiled document can now carry
+    AI-inferred hidden rules (rule/confidence/reason/evidence), extracted
+    psychology notes, and the raw deep-understanding payload for audit --
+    additive columns only, existing rows default to NULL/empty."""
+    existing = {r[0] for r in
+                conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "compiled_documents" not in existing:
+        return
+    have_columns = {r[1] for r in conn.execute("PRAGMA table_info(compiled_documents)").fetchall()}
+    for col, col_type in _COMPILED_DOCUMENT_V6_COLUMNS.items():
+        if col not in have_columns:
+            conn.execute(f"ALTER TABLE compiled_documents ADD COLUMN {col} {col_type}")
+
+
+_AI_DICTIONARY_V6_COLUMNS = {
+    "aliases_json": "TEXT",
+    "examples_json": "TEXT",
+    "related_concepts_json": "TEXT",
+    "usage_notes": "TEXT",
+}
+
+
+_AI_IMPORT_QUEUE_V6_COLUMNS = {
+    "input_kind": "TEXT NOT NULL DEFAULT 'text'",
+}
+
+_AI_IMPORT_CACHE_V8_COLUMNS = {
+    "ai_result_json": "TEXT",
+    "provider": "TEXT",
+}
+
+
+def _migrate_ai_import_cache_v8_columns(conn):
+    """v8: the pre-AI dedup cache initially stored a compiled_document_id
+    pointer; redesigned to store the AI's structured result directly so a
+    cache hit can still go through the normal build/save/dedupe path
+    without ever re-calling AI. Additive-only -- any pre-v8 rows (from
+    development only, never real CEO data) simply have NULL ai_result_json
+    and are treated as a miss by get_ai_import_cache()."""
+    existing = {r[0] for r in
+                conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "ai_import_cache" not in existing:
+        return
+    have_columns = {r[1] for r in conn.execute("PRAGMA table_info(ai_import_cache)").fetchall()}
+    for col, col_type in _AI_IMPORT_CACHE_V8_COLUMNS.items():
+        if col not in have_columns:
+            conn.execute(f"ALTER TABLE ai_import_cache ADD COLUMN {col} {col_type}")
+
+
+def _migrate_ai_import_queue_v6_columns(conn):
+    """AI Knowledge Learning Engine (v6): a queued item can now be a YouTube
+    URL instead of pasted/uploaded text -- additive column only, existing
+    rows default to 'text' (unchanged behavior)."""
+    existing = {r[0] for r in
+                conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "ai_import_queue" not in existing:
+        return
+    have_columns = {r[1] for r in conn.execute("PRAGMA table_info(ai_import_queue)").fetchall()}
+    for col, col_type in _AI_IMPORT_QUEUE_V6_COLUMNS.items():
+        if col not in have_columns:
+            conn.execute(f"ALTER TABLE ai_import_queue ADD COLUMN {col} {col_type}")
+
+
+def _migrate_ai_dictionary_v6_columns(conn):
+    """AI Knowledge Learning Engine (v6): Self Building Dictionary entries now
+    carry aliases/examples/related concepts/usage notes, not just a bare
+    definition -- additive columns only."""
+    existing = {r[0] for r in
+                conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "ai_dictionary_entries" not in existing:
+        return
+    have_columns = {r[1] for r in conn.execute("PRAGMA table_info(ai_dictionary_entries)").fetchall()}
+    for col, col_type in _AI_DICTIONARY_V6_COLUMNS.items():
+        if col not in have_columns:
+            conn.execute(f"ALTER TABLE ai_dictionary_entries ADD COLUMN {col} {col_type}")
+
+_COMPILED_DOCUMENT_NEW_COLUMNS = {
+    "ai_assisted": "INTEGER NOT NULL DEFAULT 0",
+    "ai_provider": "TEXT",
+}
+
+
+def _migrate_compiled_document_ai_columns(conn):
+    """AI Integration Center (Phase 7) tags which compiled documents used an
+    AI provider as a pre-processing assist vs. pure rule-based extraction --
+    additive columns only, existing rows default to ai_assisted=0."""
+    existing = {r[0] for r in
+                conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "compiled_documents" not in existing:
+        return
+    have_columns = {r[1] for r in conn.execute("PRAGMA table_info(compiled_documents)").fetchall()}
+    for col, col_type in _COMPILED_DOCUMENT_NEW_COLUMNS.items():
+        if col not in have_columns:
+            conn.execute(f"ALTER TABLE compiled_documents ADD COLUMN {col} {col_type}")
+
+_LESSON_META_NEW_COLUMNS = {
+    "version": "INTEGER NOT NULL DEFAULT 1",
+    "tags_json": "TEXT",
+    "supported_market_types_json": "TEXT",
+    "supported_timeframes_json": "TEXT",
+}
+
+
+def _migrate_lesson_meta_columns(conn):
+    """Phase 5 (Paper Trading) needs a few extra lesson fields (version,
+    tags, supported market types/timeframes) that Phase 4 didn't need.
+    Additive-only: existing lessons get sensible defaults, nothing rebuilt."""
+    existing = {r[0] for r in
+                conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "lessons" not in existing:
+        return
+    have_columns = {r[1] for r in conn.execute("PRAGMA table_info(lessons)").fetchall()}
+    for col, col_type in _LESSON_META_NEW_COLUMNS.items():
+        if col not in have_columns:
+            conn.execute(f"ALTER TABLE lessons ADD COLUMN {col} {col_type}")
+
+_TRADE_HISTORY_NEW_COLUMNS = {
+    "stop_loss": "REAL", "take_profit": "REAL",
+    "risk_amount": "REAL", "reward_amount": "REAL", "entry_reason": "TEXT",
+}
+
+
+def _migrate_trade_history_columns(conn):
+    """2.1 professional update added SL/TP/risk/reward/entry_reason to
+    backtest_trades. Additive-only migration: existing rows get NULL for
+    the new columns, nothing is rebuilt or lost."""
+    existing = {r[0] for r in
+                conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "backtest_trades" not in existing:
+        return
+    have_columns = {r[1] for r in conn.execute("PRAGMA table_info(backtest_trades)").fetchall()}
+    for col, col_type in _TRADE_HISTORY_NEW_COLUMNS.items():
+        if col not in have_columns:
+            conn.execute(f"ALTER TABLE backtest_trades ADD COLUMN {col} {col_type}")
+
+
+@contextmanager
+def get_conn():
+    ensure_folders()
+    conn = sqlite3.connect(DB_PATH, timeout=30)
+    conn.execute("PRAGMA journal_mode=WAL;")
+    try:
+        yield conn
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _table_has_column(conn, table, column):
+    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    return any(r[1] == column for r in rows)
+
+
+def _migrate_add_exchange_column(conn):
+    """Older SINDHU databases (pre multi-exchange) have symbols / klines_1m /
+    download_progress tables without an `exchange` column, keyed only by
+    symbol. Since SQLite can't add a column into a PRIMARY KEY with ALTER
+    TABLE, we rename the old table, create the new schema, copy the data
+    back in tagging every existing row as 'binance' (the only exchange that
+    ever wrote this data), then drop the renamed table. Runs once; a fresh
+    or already-migrated database is untouched."""
+    existing_tables = {
+        r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
+    }
+
+    def needs_migration(table):
+        return table in existing_tables and not _table_has_column(conn, table, "exchange")
+
+    if not any(needs_migration(t) for t in ("symbols", "klines_1m", "download_progress")):
+        return
+
+    if needs_migration("symbols"):
+        conn.execute("ALTER TABLE symbols RENAME TO symbols_old")
+        conn.execute("""
+            CREATE TABLE symbols (
+                exchange TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                added_at TEXT NOT NULL,
+                PRIMARY KEY (exchange, symbol)
+            )
+        """)
+        conn.execute("""
+            INSERT INTO symbols (exchange, symbol, added_at)
+            SELECT ?, symbol, added_at FROM symbols_old
+        """, (DEFAULT_EXCHANGE,))
+        conn.execute("DROP TABLE symbols_old")
+
+    if needs_migration("klines_1m"):
+        conn.execute("ALTER TABLE klines_1m RENAME TO klines_1m_old")
+        conn.execute("""
+            CREATE TABLE klines_1m (
+                exchange TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                open_time INTEGER NOT NULL,
+                open REAL NOT NULL,
+                high REAL NOT NULL,
+                low REAL NOT NULL,
+                close REAL NOT NULL,
+                volume REAL NOT NULL,
+                close_time INTEGER NOT NULL,
+                quote_volume REAL NOT NULL,
+                trades INTEGER NOT NULL,
+                PRIMARY KEY (exchange, symbol, open_time)
+            )
+        """)
+        conn.execute("""
+            INSERT INTO klines_1m
+                (exchange, symbol, open_time, open, high, low, close, volume, close_time, quote_volume, trades)
+            SELECT ?, symbol, open_time, open, high, low, close, volume, close_time, quote_volume, trades
+            FROM klines_1m_old
+        """, (DEFAULT_EXCHANGE,))
+        conn.execute("DROP TABLE klines_1m_old")
+
+    if needs_migration("download_progress"):
+        conn.execute("ALTER TABLE download_progress RENAME TO download_progress_old")
+        conn.execute("""
+            CREATE TABLE download_progress (
+                exchange TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                last_open_time INTEGER,
+                status TEXT NOT NULL DEFAULT 'pending',
+                updated_at TEXT,
+                PRIMARY KEY (exchange, symbol)
+            )
+        """)
+        conn.execute("""
+            INSERT INTO download_progress (exchange, symbol, last_open_time, status, updated_at)
+            SELECT ?, symbol, last_open_time, status, updated_at FROM download_progress_old
+        """, (DEFAULT_EXCHANGE,))
+        conn.execute("DROP TABLE download_progress_old")
+
+
+def init_db():
+    with get_conn() as conn:
+        _migrate_add_exchange_column(conn)
+        conn.executescript(_SCHEMA)
+        _migrate_trade_history_columns(conn)
+        _migrate_lesson_meta_columns(conn)
+        _migrate_compiled_document_ai_columns(conn)
+        _migrate_compiled_document_v6_columns(conn)
+        _migrate_ai_dictionary_v6_columns(conn)
+        _migrate_ai_import_queue_v6_columns(conn)
+        _migrate_ai_import_cache_v8_columns(conn)
+
+
+def save_symbols(exchange, symbols, now_iso):
+    with get_conn() as conn:
+        conn.executemany(
+            "INSERT OR IGNORE INTO symbols (exchange, symbol, added_at) VALUES (?, ?, ?)",
+            [(exchange, s, now_iso) for s in symbols],
+        )
+        conn.executemany(
+            """INSERT OR IGNORE INTO download_progress (exchange, symbol, last_open_time, status)
+               VALUES (?, ?, NULL, 'pending')""",
+            [(exchange, s) for s in symbols],
+        )
+
+
+def load_symbols(exchange):
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT symbol FROM symbols WHERE exchange = ? ORDER BY symbol", (exchange,)
+        ).fetchall()
+    return [r[0] for r in rows]
+
+
+def load_all_exchanges():
+    with get_conn() as conn:
+        rows = conn.execute("SELECT DISTINCT exchange FROM symbols ORDER BY exchange").fetchall()
+    return [r[0] for r in rows]
+
+
+def get_progress(exchange, symbol):
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT last_open_time, status FROM download_progress WHERE exchange = ? AND symbol = ?",
+            (exchange, symbol),
+        ).fetchone()
+    return row if row else (None, "pending")
+
+
+def set_progress(exchange, symbol, last_open_time, status, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO download_progress (exchange, symbol, last_open_time, status, updated_at)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(exchange, symbol) DO UPDATE SET
+                 last_open_time=excluded.last_open_time,
+                 status=excluded.status,
+                 updated_at=excluded.updated_at""",
+            (exchange, symbol, last_open_time, status, now_iso),
+        )
+
+
+def insert_klines(exchange, symbol, rows):
+    """rows: iterable of raw OHLCV kline arrays
+    (open_time, open, high, low, close, volume, close_time, quote_volume, trades)."""
+    if not rows:
+        return 0
+    with get_conn() as conn:
+        conn.executemany(
+            """INSERT OR REPLACE INTO klines_1m
+               (exchange, symbol, open_time, open, high, low, close, volume, close_time, quote_volume, trades)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                (
+                    exchange,
+                    symbol,
+                    r[0],
+                    float(r[1]),
+                    float(r[2]),
+                    float(r[3]),
+                    float(r[4]),
+                    float(r[5]),
+                    r[6],
+                    float(r[7]),
+                    int(r[8]),
+                )
+                for r in rows
+            ],
+        )
+    return len(rows)
+
+
+def count_rows(exchange, symbol):
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM klines_1m WHERE exchange = ? AND symbol = ?", (exchange, symbol)
+        ).fetchone()
+    return row[0]
+
+
+def count_all_rows():
+    with get_conn() as conn:
+        row = conn.execute("SELECT COUNT(*) FROM klines_1m").fetchone()
+    return row[0]
+
+
+def get_klines_range(exchange, symbol, start_ms=None, end_ms=None):
+    """Return raw rows ordered by open_time for resampling / backtesting reads."""
+    query = (
+        "SELECT open_time, open, high, low, close, volume, close_time, quote_volume, trades "
+        "FROM klines_1m WHERE exchange = ? AND symbol = ?"
+    )
+    params = [exchange, symbol]
+    if start_ms is not None:
+        query += " AND open_time >= ?"
+        params.append(start_ms)
+    if end_ms is not None:
+        query += " AND open_time <= ?"
+        params.append(end_ms)
+    query += " ORDER BY open_time"
+    with get_conn() as conn:
+        return conn.execute(query, params).fetchall()
+
+
+def db_file_size_bytes():
+    try:
+        return os.path.getsize(DB_PATH)
+    except OSError:
+        return 0
+
+
+# --------------------------------------------------------------- backtesting
+
+def register_strategy(name, file_path, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO strategies (name, file_path, added_at) VALUES (?, ?, ?)
+               ON CONFLICT(name) DO UPDATE SET file_path=excluded.file_path""",
+            (name, file_path, now_iso),
+        )
+
+
+def create_batch(batch_id, strategy_name, exchange, settings, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO backtest_batches (batch_id, strategy_name, exchange, settings_json, status, created_at, updated_at)
+               VALUES (?, ?, ?, ?, 'running', ?, ?)""",
+            (batch_id, strategy_name, exchange, json.dumps(settings), now_iso, now_iso),
+        )
+
+
+def get_batch(batch_id):
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT batch_id, strategy_name, exchange, settings_json, status, created_at, updated_at "
+            "FROM backtest_batches WHERE batch_id = ?",
+            (batch_id,),
+        ).fetchone()
+    if not row:
+        return None
+    return {
+        "batch_id": row[0], "strategy_name": row[1], "exchange": row[2],
+        "settings": json.loads(row[3]), "status": row[4],
+        "created_at": row[5], "updated_at": row[6],
+    }
+
+
+def list_recent_batches(limit=30):
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT batch_id, strategy_name, exchange, settings_json, status, created_at, updated_at "
+            "FROM backtest_batches ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    return [
+        {"batch_id": r[0], "strategy_name": r[1], "exchange": r[2],
+         "settings": json.loads(r[3]), "status": r[4], "created_at": r[5], "updated_at": r[6]}
+        for r in rows
+    ]
+
+
+def update_batch_status(batch_id, status, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE backtest_batches SET status = ?, updated_at = ? WHERE batch_id = ?",
+            (status, now_iso, batch_id),
+        )
+
+
+def get_completed_result_keys(batch_id):
+    """{(symbol, timeframe)} already completed for this batch -- used to skip
+    finished work when a batch resumes."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT symbol, timeframe FROM backtest_results WHERE batch_id = ? AND status = 'completed'",
+            (batch_id,),
+        ).fetchall()
+    return {(r[0], r[1]) for r in rows}
+
+
+def save_result(batch_id, symbol, timeframe, status, metrics, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO backtest_results (batch_id, symbol, timeframe, status, metrics_json, completed_at)
+               VALUES (?, ?, ?, ?, ?, ?)
+               ON CONFLICT(batch_id, symbol, timeframe) DO UPDATE SET
+                 status=excluded.status, metrics_json=excluded.metrics_json, completed_at=excluded.completed_at""",
+            (batch_id, symbol, timeframe, status, json.dumps(metrics) if metrics is not None else None, now_iso),
+        )
+
+
+def save_trades(batch_id, symbol, timeframe, trades):
+    if not trades:
+        return
+    with get_conn() as conn:
+        conn.executemany(
+            """INSERT OR REPLACE INTO backtest_trades
+               (batch_id, symbol, timeframe, trade_num, side, entry_time, entry_price,
+                exit_time, exit_price, size, pnl, pnl_pct, exit_reason,
+                stop_loss, take_profit, risk_amount, reward_amount, entry_reason)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                (
+                    batch_id, symbol, timeframe, t["trade_num"], t["side"],
+                    t["entry_time"], t["entry_price"], t.get("exit_time"), t.get("exit_price"),
+                    t["size"], t.get("pnl"), t.get("pnl_pct"), t.get("exit_reason"),
+                    t.get("stop_loss"), t.get("take_profit"), t.get("risk_amount"),
+                    t.get("reward_amount"), t.get("entry_reason"),
+                )
+                for t in trades
+            ],
+        )
+
+
+def get_trades(batch_id, symbol=None, timeframe=None):
+    query = (
+        "SELECT batch_id, symbol, timeframe, trade_num, side, entry_time, entry_price, "
+        "exit_time, exit_price, size, pnl, pnl_pct, exit_reason, "
+        "stop_loss, take_profit, risk_amount, reward_amount, entry_reason "
+        "FROM backtest_trades WHERE batch_id = ?"
+    )
+    params = [batch_id]
+    if symbol is not None:
+        query += " AND symbol = ?"
+        params.append(symbol)
+    if timeframe is not None:
+        query += " AND timeframe = ?"
+        params.append(timeframe)
+    query += " ORDER BY symbol, timeframe, trade_num"
+
+    cols = ["batch_id", "symbol", "timeframe", "trade_num", "side", "entry_time", "entry_price",
+            "exit_time", "exit_price", "size", "pnl", "pnl_pct", "exit_reason",
+            "stop_loss", "take_profit", "risk_amount", "reward_amount", "entry_reason"]
+    with get_conn() as conn:
+        rows = conn.execute(query, params).fetchall()
+    return [dict(zip(cols, r)) for r in rows]
+
+
+def search_trades(query, limit=10):
+    """Global trade search (across every batch) by symbol substring, most
+    recent first -- backs the dashboard's Global Search box."""
+    like = f"%{query}%"
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT batch_id, symbol, timeframe, trade_num, side, pnl, pnl_pct, entry_time
+               FROM backtest_trades WHERE symbol LIKE ? ORDER BY entry_time DESC LIMIT ?""",
+            (like, limit),
+        ).fetchall()
+    return [
+        {"batch_id": r[0], "symbol": r[1], "timeframe": r[2], "trade_num": r[3],
+         "side": r[4], "pnl": r[5], "pnl_pct": r[6], "entry_time": r[7]}
+        for r in rows
+    ]
+
+
+def get_batch_results(batch_id):
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT symbol, timeframe, status, metrics_json, completed_at FROM backtest_results WHERE batch_id = ?",
+            (batch_id,),
+        ).fetchall()
+    return [
+        {"symbol": r[0], "timeframe": r[1], "status": r[2],
+         "metrics": json.loads(r[3]) if r[3] else None, "completed_at": r[4]}
+        for r in rows
+    ]
+
+
+# --------------------------------------------------------------- lessons (Knowledge Engine)
+
+_LESSON_COLUMNS = [
+    "id", "title", "category", "description", "priority", "status", "notes",
+    "apply_backtesting", "apply_paper_trading", "apply_evolution",
+    "rule_type", "direction", "conditions_json", "created_at", "updated_at",
+    "version", "tags_json", "supported_market_types_json", "supported_timeframes_json",
+]
+
+
+def _row_to_lesson_dict(row):
+    d = dict(zip(_LESSON_COLUMNS, row))
+    d["apply_backtesting"] = bool(d["apply_backtesting"])
+    d["apply_paper_trading"] = bool(d["apply_paper_trading"])
+    d["apply_evolution"] = bool(d["apply_evolution"])
+    d["conditions"] = json.loads(d.pop("conditions_json")) if d.get("conditions_json") else []
+    d["tags"] = json.loads(d.pop("tags_json")) if d.get("tags_json") else []
+    d["supported_market_types"] = json.loads(d.pop("supported_market_types_json")) if d.get("supported_market_types_json") else []
+    d["supported_timeframes"] = json.loads(d.pop("supported_timeframes_json")) if d.get("supported_timeframes_json") else []
+    return d
+
+
+def save_lesson(lesson):
+    """lesson: dict with the fields in _LESSON_COLUMNS (a "conditions" list
+    instead of conditions_json -- serialized here). Insert or update by id."""
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO lessons (id, title, category, description, priority, status, notes,
+                apply_backtesting, apply_paper_trading, apply_evolution, rule_type, direction,
+                conditions_json, created_at, updated_at, version, tags_json,
+                supported_market_types_json, supported_timeframes_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(id) DO UPDATE SET
+                 title=excluded.title, category=excluded.category, description=excluded.description,
+                 priority=excluded.priority, status=excluded.status, notes=excluded.notes,
+                 apply_backtesting=excluded.apply_backtesting, apply_paper_trading=excluded.apply_paper_trading,
+                 apply_evolution=excluded.apply_evolution, rule_type=excluded.rule_type,
+                 direction=excluded.direction, conditions_json=excluded.conditions_json,
+                 updated_at=excluded.updated_at, version=excluded.version, tags_json=excluded.tags_json,
+                 supported_market_types_json=excluded.supported_market_types_json,
+                 supported_timeframes_json=excluded.supported_timeframes_json""",
+            (
+                lesson["id"], lesson["title"], lesson["category"], lesson.get("description"),
+                lesson.get("priority", "Medium"), lesson.get("status", "active"), lesson.get("notes"),
+                int(lesson.get("apply_backtesting", True)), int(lesson.get("apply_paper_trading", True)),
+                int(lesson.get("apply_evolution", True)), lesson.get("rule_type", "block_if_true"),
+                lesson.get("direction"), json.dumps(lesson.get("conditions", [])),
+                lesson["created_at"], lesson["updated_at"], lesson.get("version", 1),
+                json.dumps(lesson.get("tags", [])), json.dumps(lesson.get("supported_market_types", [])),
+                json.dumps(lesson.get("supported_timeframes", [])),
+            ),
+        )
+
+
+def get_lesson(lesson_id):
+    with get_conn() as conn:
+        row = conn.execute(
+            f"SELECT {','.join(_LESSON_COLUMNS)} FROM lessons WHERE id = ?", (lesson_id,)
+        ).fetchone()
+    return _row_to_lesson_dict(row) if row else None
+
+
+def list_lessons(status=None, category=None, apply_backtesting=None):
+    query = f"SELECT {','.join(_LESSON_COLUMNS)} FROM lessons"
+    clauses, params = [], []
+    if status:
+        clauses.append("status = ?")
+        params.append(status)
+    if category:
+        clauses.append("category = ?")
+        params.append(category)
+    if apply_backtesting is not None:
+        clauses.append("apply_backtesting = ?")
+        params.append(int(apply_backtesting))
+    if clauses:
+        query += " WHERE " + " AND ".join(clauses)
+    query += " ORDER BY created_at DESC"
+    with get_conn() as conn:
+        rows = conn.execute(query, params).fetchall()
+    return [_row_to_lesson_dict(r) for r in rows]
+
+
+def delete_lesson(lesson_id):
+    with get_conn() as conn:
+        conn.execute("DELETE FROM lessons WHERE id = ?", (lesson_id,))
+        conn.execute("DELETE FROM lesson_applications WHERE lesson_id = ?", (lesson_id,))
+
+
+def record_lesson_application(lesson_id, batch_id, symbol, timeframe, outcome, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO lesson_applications (lesson_id, batch_id, symbol, timeframe, applied_at, outcome)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (lesson_id, batch_id, symbol, timeframe, now_iso, outcome),
+        )
+
+
+def record_lesson_applications_bulk(rows):
+    """Same as record_lesson_application but for many rows in one
+    connection/commit -- rows is an iterable of
+    (lesson_id, batch_id, symbol, timeframe, applied_at, outcome) tuples
+    (same column order as the table). Used by KnowledgeEngine to flush a
+    whole backtest run's worth of per-bar lesson checks in a single write
+    instead of one connection per bar."""
+    rows = list(rows)
+    if not rows:
+        return
+    with get_conn() as conn:
+        conn.executemany(
+            """INSERT INTO lesson_applications (lesson_id, batch_id, symbol, timeframe, applied_at, outcome)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            rows,
+        )
+
+
+def get_lesson_stats(lesson_id):
+    with get_conn() as conn:
+        row = conn.execute(
+            """SELECT COUNT(*),
+                 SUM(CASE WHEN outcome='approved' THEN 1 ELSE 0 END),
+                 SUM(CASE WHEN outcome='rejected' THEN 1 ELSE 0 END)
+               FROM lesson_applications WHERE lesson_id = ?""",
+            (lesson_id,),
+        ).fetchone()
+    times_used, approved, rejected = row
+    return {
+        "times_used": times_used or 0,
+        "trades_approved": approved or 0,
+        "trades_rejected": rejected or 0,
+    }
+
+
+def get_batch_lesson_stats(batch_id):
+    with get_conn() as conn:
+        row = conn.execute(
+            """SELECT
+                 SUM(CASE WHEN outcome='approved' THEN 1 ELSE 0 END),
+                 SUM(CASE WHEN outcome='rejected' THEN 1 ELSE 0 END),
+                 COUNT(DISTINCT lesson_id)
+               FROM lesson_applications WHERE batch_id = ?""",
+            (batch_id,),
+        ).fetchone()
+    approved, rejected, lessons_used = row
+    return {
+        "trades_approved_by_lessons": approved or 0,
+        "trades_rejected_by_lessons": rejected or 0,
+        "lessons_applied": lessons_used or 0,
+    }
+
+
+def log_activity(entity, action, message, now_iso):
+    """Append-only feed backing the dashboard's live Activity Feed. Capped
+    at the most recent 500 rows so it never grows unbounded."""
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO activity_log (entity, action, message, created_at) VALUES (?, ?, ?, ?)",
+            (entity, action, message, now_iso),
+        )
+        conn.execute(
+            """DELETE FROM activity_log WHERE id NOT IN (
+                 SELECT id FROM activity_log ORDER BY id DESC LIMIT 500
+               )"""
+        )
+
+
+def list_activity(limit=50):
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, entity, action, message, created_at FROM activity_log ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    return [
+        {"id": r[0], "entity": r[1], "action": r[2], "message": r[3], "created_at": r[4]}
+        for r in rows
+    ]
+
+
+def get_knowledge_report():
+    with get_conn() as conn:
+        total = conn.execute("SELECT COUNT(*) FROM lessons").fetchone()[0]
+        active = conn.execute("SELECT COUNT(*) FROM lessons WHERE status='active'").fetchone()[0]
+        disabled = conn.execute("SELECT COUNT(*) FROM lessons WHERE status='disabled'").fetchone()[0]
+        draft = conn.execute("SELECT COUNT(*) FROM lessons WHERE status='draft'").fetchone()[0]
+        applied = conn.execute("SELECT COUNT(*) FROM lesson_applications").fetchone()[0]
+        rejected = conn.execute("SELECT COUNT(*) FROM lesson_applications WHERE outcome='rejected'").fetchone()[0]
+        approved = conn.execute("SELECT COUNT(*) FROM lesson_applications WHERE outcome='approved'").fetchone()[0]
+        by_category = conn.execute("SELECT category, COUNT(*) FROM lessons GROUP BY category").fetchall()
+    return {
+        "total_lessons": total, "active_lessons": active, "disabled_lessons": disabled,
+        "draft_lessons": draft, "lessons_applied": applied,
+        "trades_rejected_by_lessons": rejected, "trades_approved_by_lessons": approved,
+        "categories": {c: n for c, n in by_category},
+    }
+
+
+# --------------------------------------------------------------- paper trading
+
+_PAPER_POSITION_COLUMNS = [
+    "id", "exchange", "symbol", "direction", "entry_price", "exit_price", "stop_loss",
+    "take_profit", "size", "risk_amount", "entry_time", "exit_time", "pnl", "pnl_pct",
+    "exit_reason", "entry_reason", "strategy_id", "strategy_name", "strategy_version",
+    "lesson_ids_json", "confidence", "market_snapshot_json", "tags_json", "session",
+    "timeframe", "market_state", "lifecycle_json", "reflection_json", "status",
+    "created_at", "closed_at",
+]
+
+
+def _row_to_paper_position(row):
+    d = dict(zip(_PAPER_POSITION_COLUMNS, row))
+    d["lesson_ids"] = json.loads(d.pop("lesson_ids_json")) if d.get("lesson_ids_json") else []
+    d["market_snapshot"] = json.loads(d.pop("market_snapshot_json")) if d.get("market_snapshot_json") else {}
+    d["tags"] = json.loads(d.pop("tags_json")) if d.get("tags_json") else []
+    d["lifecycle"] = json.loads(d.pop("lifecycle_json")) if d.get("lifecycle_json") else {}
+    d["reflection"] = json.loads(d.pop("reflection_json")) if d.get("reflection_json") else None
+    return d
+
+
+def open_paper_position(pos):
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO paper_positions
+               (id, exchange, symbol, direction, entry_price, stop_loss, take_profit, size,
+                risk_amount, entry_time, entry_reason, strategy_id, strategy_name, strategy_version,
+                lesson_ids_json, confidence, market_snapshot_json, tags_json, session, timeframe,
+                market_state, lifecycle_json, status, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)""",
+            (
+                pos["id"], pos["exchange"], pos["symbol"], pos["direction"], pos["entry_price"],
+                pos.get("stop_loss"), pos.get("take_profit"), pos["size"], pos.get("risk_amount"),
+                pos["entry_time"], pos.get("entry_reason"), pos.get("strategy_id"), pos.get("strategy_name"),
+                pos.get("strategy_version"), json.dumps(pos.get("lesson_ids", [])), pos.get("confidence"),
+                json.dumps(pos.get("market_snapshot", {})), json.dumps(pos.get("tags", [])),
+                pos.get("session"), pos.get("timeframe"), pos.get("market_state"),
+                json.dumps(pos.get("lifecycle", {})), pos["created_at"],
+            ),
+        )
+
+
+def close_paper_position(position_id, exit_price, exit_time, pnl, pnl_pct, exit_reason,
+                          lifecycle, reflection, closed_at):
+    with get_conn() as conn:
+        conn.execute(
+            """UPDATE paper_positions SET
+                 exit_price=?, exit_time=?, pnl=?, pnl_pct=?, exit_reason=?,
+                 lifecycle_json=?, reflection_json=?, status='closed', closed_at=?
+               WHERE id=?""",
+            (exit_price, exit_time, pnl, pnl_pct, exit_reason,
+             json.dumps(lifecycle), json.dumps(reflection), closed_at, position_id),
+        )
+
+
+def get_open_paper_positions(exchange=None, symbol=None, direction=None):
+    query = f"SELECT {','.join(_PAPER_POSITION_COLUMNS)} FROM paper_positions WHERE status='open'"
+    params = []
+    if exchange:
+        query += " AND exchange = ?"
+        params.append(exchange)
+    if symbol:
+        query += " AND symbol = ?"
+        params.append(symbol)
+    if direction:
+        query += " AND direction = ?"
+        params.append(direction)
+    with get_conn() as conn:
+        rows = conn.execute(query, params).fetchall()
+    return [_row_to_paper_position(r) for r in rows]
+
+
+def get_paper_position(position_id):
+    with get_conn() as conn:
+        row = conn.execute(
+            f"SELECT {','.join(_PAPER_POSITION_COLUMNS)} FROM paper_positions WHERE id=?", (position_id,)
+        ).fetchone()
+    return _row_to_paper_position(row) if row else None
+
+
+def list_closed_paper_positions(limit=100):
+    with get_conn() as conn:
+        rows = conn.execute(
+            f"SELECT {','.join(_PAPER_POSITION_COLUMNS)} FROM paper_positions "
+            "WHERE status='closed' ORDER BY closed_at DESC LIMIT ?", (limit,),
+        ).fetchall()
+    return [_row_to_paper_position(r) for r in rows]
+
+
+def last_closed_paper_position(exchange, symbol, direction=None):
+    """Most recently closed position for this coin -- used for Cooldown."""
+    query = ("SELECT " + ",".join(_PAPER_POSITION_COLUMNS) + " FROM paper_positions "
+             "WHERE status='closed' AND exchange=? AND symbol=?")
+    params = [exchange, symbol]
+    if direction:
+        query += " AND direction=?"
+        params.append(direction)
+    query += " ORDER BY closed_at DESC LIMIT 1"
+    with get_conn() as conn:
+        row = conn.execute(query, params).fetchone()
+    return _row_to_paper_position(row) if row else None
+
+
+def log_paper_decision(entry):
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO paper_decision_log
+               (exchange, symbol, direction, decision, reason, strategy_id, strategy_name,
+                lesson_ids_json, confidence, market_state, session, timeframe, position_id,
+                market_snapshot_json, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                entry["exchange"], entry["symbol"], entry.get("direction"), entry["decision"],
+                entry.get("reason"), entry.get("strategy_id"), entry.get("strategy_name"),
+                json.dumps(entry.get("lesson_ids", [])), entry.get("confidence"),
+                entry.get("market_state"), entry.get("session"), entry.get("timeframe"),
+                entry.get("position_id"), json.dumps(entry.get("market_snapshot", {})), entry["created_at"],
+            ),
+        )
+        conn.execute(
+            """DELETE FROM paper_decision_log WHERE id NOT IN (
+                 SELECT id FROM paper_decision_log ORDER BY id DESC LIMIT 2000
+               )"""
+        )
+
+
+def list_paper_decisions(decision=None, limit=100):
+    query = "SELECT id, exchange, symbol, direction, decision, reason, strategy_id, strategy_name, " \
+            "lesson_ids_json, confidence, market_state, session, timeframe, position_id, " \
+            "market_snapshot_json, created_at FROM paper_decision_log"
+    params = []
+    if decision:
+        query += " WHERE decision = ?"
+        params.append(decision)
+    query += " ORDER BY id DESC LIMIT ?"
+    params.append(limit)
+    cols = ["id", "exchange", "symbol", "direction", "decision", "reason", "strategy_id", "strategy_name",
+            "lesson_ids_json", "confidence", "market_state", "session", "timeframe", "position_id",
+            "market_snapshot_json", "created_at"]
+    with get_conn() as conn:
+        rows = conn.execute(query, params).fetchall()
+    result = []
+    for r in rows:
+        d = dict(zip(cols, r))
+        d["lesson_ids"] = json.loads(d.pop("lesson_ids_json")) if d.get("lesson_ids_json") else []
+        d["market_snapshot"] = json.loads(d.pop("market_snapshot_json")) if d.get("market_snapshot_json") else {}
+        result.append(d)
+    return result
+
+
+def update_paper_strategy_performance(strategy_id, strategy_name, pnl, is_win, rr, now_iso):
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT trades, wins, losses, total_pnl, avg_rr FROM paper_strategy_performance WHERE strategy_id=?",
+            (strategy_id,),
+        ).fetchone()
+        trades, wins, losses, total_pnl, avg_rr = row if row else (0, 0, 0, 0.0, None)
+        trades += 1
+        wins += 1 if is_win else 0
+        losses += 0 if is_win else 1
+        total_pnl += pnl
+        if rr is not None:
+            avg_rr = rr if avg_rr is None else (avg_rr * (trades - 1) + rr) / trades
+        win_rate = (wins / trades * 100) if trades else 0.0
+        score = round(win_rate * 0.5 + (avg_rr or 0) * 10 + min(total_pnl, 1000) * 0.01, 2)
+        conn.execute(
+            """INSERT INTO paper_strategy_performance
+               (strategy_id, strategy_name, trades, wins, losses, total_pnl, avg_rr, score, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(strategy_id) DO UPDATE SET
+                 strategy_name=excluded.strategy_name, trades=excluded.trades, wins=excluded.wins,
+                 losses=excluded.losses, total_pnl=excluded.total_pnl, avg_rr=excluded.avg_rr,
+                 score=excluded.score, updated_at=excluded.updated_at""",
+            (strategy_id, strategy_name, trades, wins, losses, total_pnl, avg_rr, score, now_iso),
+        )
+
+
+def list_paper_strategy_performance():
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT strategy_id, strategy_name, trades, wins, losses, total_pnl, avg_rr, score, updated_at "
+            "FROM paper_strategy_performance ORDER BY score DESC"
+        ).fetchall()
+    cols = ["strategy_id", "strategy_name", "trades", "wins", "losses", "total_pnl", "avg_rr", "score", "updated_at"]
+    return [dict(zip(cols, r)) for r in rows]
+
+
+def update_paper_lesson_performance(lesson_id, lesson_title, pnl, is_win, confidence, now_iso):
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT usage_count, wins, losses, total_pnl, confidence_avg FROM paper_lesson_performance WHERE lesson_id=?",
+            (lesson_id,),
+        ).fetchone()
+        usage, wins, losses, total_pnl, conf_avg = row if row else (0, 0, 0, 0.0, None)
+        usage += 1
+        wins += 1 if is_win else 0
+        losses += 0 if is_win else 1
+        total_pnl += pnl
+        if confidence is not None:
+            conf_avg = confidence if conf_avg is None else (conf_avg * (usage - 1) + confidence) / usage
+        win_rate = (wins / usage * 100) if usage else 0.0
+        score = round(win_rate * 0.5 + (conf_avg or 0) * 0.3 + min(total_pnl, 1000) * 0.01, 2)
+        conn.execute(
+            """INSERT INTO paper_lesson_performance
+               (lesson_id, lesson_title, usage_count, wins, losses, total_pnl, confidence_avg, score, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(lesson_id) DO UPDATE SET
+                 lesson_title=excluded.lesson_title, usage_count=excluded.usage_count, wins=excluded.wins,
+                 losses=excluded.losses, total_pnl=excluded.total_pnl, confidence_avg=excluded.confidence_avg,
+                 score=excluded.score, updated_at=excluded.updated_at""",
+            (lesson_id, lesson_title, usage, wins, losses, total_pnl, conf_avg, score, now_iso),
+        )
+
+
+def list_paper_lesson_performance():
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT lesson_id, lesson_title, usage_count, wins, losses, total_pnl, confidence_avg, score, updated_at "
+            "FROM paper_lesson_performance ORDER BY score DESC"
+        ).fetchall()
+    cols = ["lesson_id", "lesson_title", "usage_count", "wins", "losses", "total_pnl", "confidence_avg", "score", "updated_at"]
+    return [dict(zip(cols, r)) for r in rows]
+
+
+def get_paper_strategy_config(strategy_id):
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT strategy_id, enabled, priority, supported_coins_json, supported_market_types_json, updated_at "
+            "FROM paper_strategy_config WHERE strategy_id=?", (strategy_id,),
+        ).fetchone()
+    if not row:
+        return {"strategy_id": strategy_id, "enabled": True, "priority": 5,
+                "supported_coins": [], "supported_market_types": []}
+    return {
+        "strategy_id": row[0], "enabled": bool(row[1]), "priority": row[2],
+        "supported_coins": json.loads(row[3]) if row[3] else [],
+        "supported_market_types": json.loads(row[4]) if row[4] else [],
+        "updated_at": row[5],
+    }
+
+
+def list_paper_strategy_configs():
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT strategy_id, enabled, priority, supported_coins_json, supported_market_types_json, updated_at "
+            "FROM paper_strategy_config"
+        ).fetchall()
+    return {
+        r[0]: {
+            "strategy_id": r[0], "enabled": bool(r[1]), "priority": r[2],
+            "supported_coins": json.loads(r[3]) if r[3] else [],
+            "supported_market_types": json.loads(r[4]) if r[4] else [],
+            "updated_at": r[5],
+        } for r in rows
+    }
+
+
+def save_paper_strategy_config(strategy_id, enabled, priority, supported_coins, supported_market_types, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO paper_strategy_config
+               (strategy_id, enabled, priority, supported_coins_json, supported_market_types_json, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)
+               ON CONFLICT(strategy_id) DO UPDATE SET
+                 enabled=excluded.enabled, priority=excluded.priority,
+                 supported_coins_json=excluded.supported_coins_json,
+                 supported_market_types_json=excluded.supported_market_types_json,
+                 updated_at=excluded.updated_at""",
+            (strategy_id, int(enabled), priority, json.dumps(supported_coins or []),
+             json.dumps(supported_market_types or []), now_iso),
+        )
+
+
+# --------------------------------------------------------------- Knowledge Compiler
+
+def save_compiled_document(doc):
+    """doc: dict with title/source_type/doc_type/classification_confidence/status/
+    raw_text/sections(list)/strategy_ids(list)/lesson_ids(list)/concepts(list)/
+    unresolved(list)/clarification_notes(list)/tags(list)/created_at/
+    ai_assisted(bool, default False)/ai_provider(str or None)/
+    hidden_rules(list of {rule,confidence,reason,evidence}, default [])/
+    psychology_notes(list of str, default [])/
+    deep_knowledge(dict or None -- raw AI structured payload, for audit).
+    Insert-only -- a compiled document is a point-in-time record, never
+    edited in place."""
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO compiled_documents
+               (id, title, source_type, doc_type, classification_confidence, status,
+                raw_text, sections_json, strategy_ids_json, lesson_ids_json,
+                concepts_json, unresolved_json, clarification_notes_json, tags_json, created_at,
+                ai_assisted, ai_provider, hidden_rules_json, psychology_notes_json, deep_knowledge_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                doc["id"], doc.get("title"), doc.get("source_type"), doc["doc_type"],
+                doc.get("classification_confidence"), doc["status"], doc.get("raw_text"),
+                json.dumps(doc.get("sections", [])), json.dumps(doc.get("strategy_ids", [])),
+                json.dumps(doc.get("lesson_ids", [])), json.dumps(doc.get("concepts", [])),
+                json.dumps(doc.get("unresolved", [])), json.dumps(doc.get("clarification_notes", [])),
+                json.dumps(doc.get("tags", [])), doc["created_at"],
+                1 if doc.get("ai_assisted") else 0, doc.get("ai_provider"),
+                json.dumps(doc.get("hidden_rules", [])), json.dumps(doc.get("psychology_notes", [])),
+                json.dumps(doc.get("deep_knowledge")) if doc.get("deep_knowledge") is not None else None,
+            ),
+        )
+
+
+_COMPILED_DOCUMENT_COLUMNS = [
+    "id", "title", "source_type", "doc_type", "classification_confidence", "status",
+    "raw_text", "sections_json", "strategy_ids_json", "lesson_ids_json",
+    "concepts_json", "unresolved_json", "clarification_notes_json", "tags_json", "created_at",
+    "ai_assisted", "ai_provider", "hidden_rules_json", "psychology_notes_json", "deep_knowledge_json",
+]
+
+
+def _row_to_compiled_document(row):
+    d = dict(zip(_COMPILED_DOCUMENT_COLUMNS, row))
+    d["sections"] = json.loads(d.pop("sections_json")) if d.get("sections_json") else []
+    d["strategy_ids"] = json.loads(d.pop("strategy_ids_json")) if d.get("strategy_ids_json") else []
+    d["lesson_ids"] = json.loads(d.pop("lesson_ids_json")) if d.get("lesson_ids_json") else []
+    d["concepts"] = json.loads(d.pop("concepts_json")) if d.get("concepts_json") else []
+    d["unresolved"] = json.loads(d.pop("unresolved_json")) if d.get("unresolved_json") else []
+    d["clarification_notes"] = json.loads(d.pop("clarification_notes_json")) if d.get("clarification_notes_json") else []
+    d["tags"] = json.loads(d.pop("tags_json")) if d.get("tags_json") else []
+    d["hidden_rules"] = json.loads(d.pop("hidden_rules_json")) if d.get("hidden_rules_json") else []
+    d["psychology_notes"] = json.loads(d.pop("psychology_notes_json")) if d.get("psychology_notes_json") else []
+    d["deep_knowledge"] = json.loads(d.pop("deep_knowledge_json")) if d.get("deep_knowledge_json") else None
+    return d
+
+
+def get_compiled_document(doc_id):
+    with get_conn() as conn:
+        row = conn.execute(
+            f"SELECT {','.join(_COMPILED_DOCUMENT_COLUMNS)} FROM compiled_documents WHERE id = ?", (doc_id,)
+        ).fetchone()
+    return _row_to_compiled_document(row) if row else None
+
+
+def list_compiled_documents(doc_type=None, status=None, limit=100):
+    query = f"SELECT {','.join(_COMPILED_DOCUMENT_COLUMNS)} FROM compiled_documents"
+    clauses, params = [], []
+    if doc_type:
+        clauses.append("doc_type = ?")
+        params.append(doc_type)
+    if status:
+        clauses.append("status = ?")
+        params.append(status)
+    if clauses:
+        query += " WHERE " + " AND ".join(clauses)
+    query += " ORDER BY created_at DESC LIMIT ?"
+    params.append(limit)
+    with get_conn() as conn:
+        rows = conn.execute(query, params).fetchall()
+    return [_row_to_compiled_document(r) for r in rows]
+
+
+def touch_knowledge_concept(canonical_name, category, aliases, now_iso):
+    """Auto-growing usage tracker for dictionary terms actually seen in
+    compiled documents -- the static Trading Dictionary itself stays
+    code-defined; this just records real usage for the Concepts view."""
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO knowledge_concepts (canonical_name, category, aliases_json, usage_count, first_seen_at, last_seen_at)
+               VALUES (?, ?, ?, 1, ?, ?)
+               ON CONFLICT(canonical_name) DO UPDATE SET
+                 usage_count = usage_count + 1, last_seen_at = excluded.last_seen_at""",
+            (canonical_name, category, json.dumps(aliases or []), now_iso, now_iso),
+        )
+
+
+def list_knowledge_concepts():
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT canonical_name, category, aliases_json, usage_count, first_seen_at, last_seen_at "
+            "FROM knowledge_concepts ORDER BY usage_count DESC"
+        ).fetchall()
+    return [
+        {
+            "canonical_name": r[0], "category": r[1],
+            "aliases": json.loads(r[2]) if r[2] else [],
+            "usage_count": r[3], "first_seen_at": r[4], "last_seen_at": r[5],
+        }
+        for r in rows
+    ]
+
+
+def save_condition_report(batch_id, symbol, timeframe, report, now_iso):
+    """report: the dict produced by backtest_engine.diagnostics.condition_hit_report.
+    Insert-or-replace -- a re-run of the same (batch_id, symbol, timeframe)
+    combo (e.g. after a resume) simply overwrites its own prior report."""
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO backtest_condition_reports (batch_id, symbol, timeframe, report_json, created_at)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(batch_id, symbol, timeframe) DO UPDATE SET
+                 report_json=excluded.report_json, created_at=excluded.created_at""",
+            (batch_id, symbol, timeframe, json.dumps(report), now_iso),
+        )
+
+
+def get_condition_report(batch_id, symbol, timeframe):
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT report_json FROM backtest_condition_reports WHERE batch_id=? AND symbol=? AND timeframe=?",
+            (batch_id, symbol, timeframe),
+        ).fetchone()
+    return json.loads(row[0]) if row else None
+
+
+def list_condition_reports(batch_id):
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT symbol, timeframe, report_json, created_at FROM backtest_condition_reports WHERE batch_id=?",
+            (batch_id,),
+        ).fetchall()
+    return [{"symbol": r[0], "timeframe": r[1], "report": json.loads(r[2]), "created_at": r[3]} for r in rows]
+
+
+# --------------------------------------------------------------- AI Integration Center
+
+def save_ai_usage_log(provider, model, endpoint, status, now_iso,
+                       tokens_in=None, tokens_out=None, latency_ms=None, error_message=None):
+    """One row per AI provider call attempt (success or failure) -- used by
+    the AI Integration Center's View Usage / View Logs panels. Never raises;
+    callers (ai_integration/*) treat logging as best-effort."""
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO ai_usage_log
+               (provider, model, endpoint, status, tokens_in, tokens_out, latency_ms, error_message, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (provider, model, endpoint, status, tokens_in, tokens_out, latency_ms, error_message, now_iso),
+        )
+
+
+def list_ai_usage_log(provider=None, limit=200):
+    query = "SELECT id, provider, model, endpoint, status, tokens_in, tokens_out, latency_ms, error_message, created_at FROM ai_usage_log"
+    params = []
+    if provider:
+        query += " WHERE provider = ?"
+        params.append(provider)
+    query += " ORDER BY created_at DESC LIMIT ?"
+    params.append(limit)
+    with get_conn() as conn:
+        rows = conn.execute(query, params).fetchall()
+    return [
+        {
+            "id": r[0], "provider": r[1], "model": r[2], "endpoint": r[3], "status": r[4],
+            "tokens_in": r[5], "tokens_out": r[6], "latency_ms": r[7], "error_message": r[8], "created_at": r[9],
+        }
+        for r in rows
+    ]
+
+
+def ai_usage_summary():
+    """Aggregate call counts/tokens per provider -- feeds the AI Center's
+    usage cards without needing to pull every raw log row client-side."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT provider,
+                      COUNT(*) AS total_calls,
+                      SUM(CASE WHEN status='success' THEN 1 ELSE 0 END) AS success_calls,
+                      SUM(CASE WHEN status!='success' THEN 1 ELSE 0 END) AS failed_calls,
+                      COALESCE(SUM(tokens_in), 0) AS tokens_in,
+                      COALESCE(SUM(tokens_out), 0) AS tokens_out,
+                      COALESCE(AVG(latency_ms), 0) AS avg_latency_ms,
+                      COALESCE(AVG(tokens_in + tokens_out), 0) AS avg_tokens,
+                      MAX(created_at) AS last_used_at
+               FROM ai_usage_log GROUP BY provider"""
+        ).fetchall()
+    return [
+        {
+            "provider": r[0], "total_calls": r[1], "success_calls": r[2], "failed_calls": r[3],
+            "tokens_in": r[4], "tokens_out": r[5], "avg_latency_ms": round(r[6], 1),
+            "avg_tokens": round(r[7], 1), "last_used_at": r[8],
+        }
+        for r in rows
+    ]
+
+
+def ai_usage_since(since_iso):
+    """Per-provider call/token counts for ai_usage_log rows with
+    created_at >= since_iso -- ISO8601 timestamps sort lexicographically, so
+    a plain string comparison is exact and index-friendly. Used for the
+    Usage Monitor's 'today' / 'this month' cards and quota tracking."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT provider,
+                      COUNT(*) AS total_calls,
+                      COALESCE(SUM(tokens_in), 0) AS tokens_in,
+                      COALESCE(SUM(tokens_out), 0) AS tokens_out
+               FROM ai_usage_log WHERE created_at >= ? GROUP BY provider""",
+            (since_iso,),
+        ).fetchall()
+    return {r[0]: {"total_calls": r[1], "tokens_in": r[2], "tokens_out": r[3]} for r in rows}
+
+
+_QUEUE_COLUMNS = [
+    "id", "title", "source_hint", "filename", "raw_text", "use_ai", "status",
+    "result_doc_id", "ai_assisted", "ai_provider", "error_message", "processing_time_ms",
+    "created_at", "started_at", "finished_at", "input_kind",
+]
+
+
+def _row_to_queue_item(row):
+    d = dict(zip(_QUEUE_COLUMNS, row))
+    d["use_ai"] = bool(d["use_ai"])
+    d["ai_assisted"] = bool(d["ai_assisted"]) if d["ai_assisted"] is not None else None
+    d["input_kind"] = d.get("input_kind") or "text"
+    return d
+
+
+def enqueue_ai_import(item_id, title, source_hint, filename, raw_text, use_ai, now_iso, input_kind="text"):
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO ai_import_queue (id, title, source_hint, filename, raw_text, use_ai, status, created_at, input_kind)
+               VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)""",
+            (item_id, title, source_hint, filename, raw_text, 1 if use_ai else 0, now_iso, input_kind),
+        )
+
+
+def update_ai_import_queue(item_id, **fields):
+    """fields may include: status, result_doc_id, ai_assisted, ai_provider,
+    error_message, processing_time_ms, started_at, finished_at."""
+    if not fields:
+        return
+    allowed = {"status", "result_doc_id", "ai_assisted", "ai_provider", "error_message",
+               "processing_time_ms", "started_at", "finished_at"}
+    set_clauses, params = [], []
+    for key, value in fields.items():
+        if key not in allowed:
+            continue
+        if key == "ai_assisted" and value is not None:
+            value = 1 if value else 0
+        set_clauses.append(f"{key} = ?")
+        params.append(value)
+    if not set_clauses:
+        return
+    params.append(item_id)
+    with get_conn() as conn:
+        conn.execute(f"UPDATE ai_import_queue SET {', '.join(set_clauses)} WHERE id = ?", params)
+
+
+def get_ai_import_queue_item(item_id):
+    with get_conn() as conn:
+        row = conn.execute(
+            f"SELECT {','.join(_QUEUE_COLUMNS)} FROM ai_import_queue WHERE id = ?", (item_id,)
+        ).fetchone()
+    return _row_to_queue_item(row) if row else None
+
+
+def list_ai_import_queue(status=None, limit=100):
+    query = f"SELECT {','.join(_QUEUE_COLUMNS)} FROM ai_import_queue"
+    params = []
+    if status:
+        query += " WHERE status = ?"
+        params.append(status)
+    query += " ORDER BY created_at DESC LIMIT ?"
+    params.append(limit)
+    with get_conn() as conn:
+        rows = conn.execute(query, params).fetchall()
+    return [_row_to_queue_item(r) for r in rows]
+
+
+def ai_import_queue_stats():
+    """Aggregate status counts for the CEO Dashboard's success-rate/failed-
+    imports cards, without pulling every queue row client-side."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT status, COUNT(*) FROM ai_import_queue GROUP BY status"
+        ).fetchall()
+    counts = {"pending": 0, "processing": 0, "completed": 0, "failed": 0}
+    counts.update({r[0]: r[1] for r in rows})
+    total_finished = counts["completed"] + counts["failed"]
+    success_rate = round(counts["completed"] / total_finished * 100, 1) if total_finished else None
+    return {**counts, "success_rate_pct": success_rate}
+
+
+def claim_next_pending_ai_import():
+    """Atomically claims the oldest pending queue row by flipping it to
+    'processing' in the same transaction as the SELECT, so two worker
+    threads (or a worker plus a restart) can never both pick up the same
+    item. Returns the claimed item dict, or None if the queue is empty."""
+    with get_conn() as conn:
+        row = conn.execute(
+            f"SELECT {','.join(_QUEUE_COLUMNS)} FROM ai_import_queue WHERE status='pending' ORDER BY created_at ASC LIMIT 1"
+        ).fetchone()
+        if not row:
+            return None
+        item = _row_to_queue_item(row)
+        conn.execute("UPDATE ai_import_queue SET status='processing' WHERE id = ? AND status='pending'", (item["id"],))
+    return item
+
+
+def save_ai_dictionary_entry(
+    canonical_name, definition, keywords, category, source_doc_id, now_iso,
+    aliases=None, examples=None, related_concepts=None, usage_notes=None,
+):
+    """Insert-or-update: a term seen again from a new document refreshes its
+    definition/keywords/aliases/examples/related_concepts/usage_notes/updated_at
+    but keeps the original created_at and source_doc_id (first-seen
+    provenance). aliases/examples/related_concepts/usage_notes are optional --
+    the deterministic acronym-scan discovery path (no AI involved) only ever
+    supplies canonical_name/definition/keywords/category, exactly as before."""
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO ai_dictionary_entries
+               (canonical_name, definition, keywords_json, category, source_doc_id, created_at, updated_at,
+                aliases_json, examples_json, related_concepts_json, usage_notes)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(canonical_name) DO UPDATE SET
+                 definition=excluded.definition, keywords_json=excluded.keywords_json,
+                 category=excluded.category, updated_at=excluded.updated_at,
+                 aliases_json=excluded.aliases_json, examples_json=excluded.examples_json,
+                 related_concepts_json=excluded.related_concepts_json, usage_notes=excluded.usage_notes""",
+            (
+                canonical_name, definition, json.dumps(keywords or []), category, source_doc_id, now_iso, now_iso,
+                json.dumps(aliases or []), json.dumps(examples or []), json.dumps(related_concepts or []),
+                usage_notes,
+            ),
+        )
+
+
+_AI_DICT_COLUMNS = [
+    "canonical_name", "definition", "keywords_json", "category", "source_doc_id", "created_at", "updated_at",
+    "aliases_json", "examples_json", "related_concepts_json", "usage_notes",
+]
+
+
+def _row_to_ai_dictionary_entry(row):
+    d = dict(zip(_AI_DICT_COLUMNS, row))
+    d["keywords"] = json.loads(d.pop("keywords_json")) if d.get("keywords_json") else []
+    d["aliases"] = json.loads(d.pop("aliases_json")) if d.get("aliases_json") else []
+    d["examples"] = json.loads(d.pop("examples_json")) if d.get("examples_json") else []
+    d["related_concepts"] = json.loads(d.pop("related_concepts_json")) if d.get("related_concepts_json") else []
+    return d
+
+
+def get_ai_dictionary_entry(canonical_name):
+    with get_conn() as conn:
+        row = conn.execute(
+            f"SELECT {','.join(_AI_DICT_COLUMNS)} FROM ai_dictionary_entries WHERE canonical_name = ?",
+            (canonical_name,),
+        ).fetchone()
+    return _row_to_ai_dictionary_entry(row) if row else None
+
+
+def list_ai_dictionary_entries():
+    with get_conn() as conn:
+        rows = conn.execute(
+            f"SELECT {','.join(_AI_DICT_COLUMNS)} FROM ai_dictionary_entries ORDER BY canonical_name ASC"
+        ).fetchall()
+    return [_row_to_ai_dictionary_entry(r) for r in rows]
+
+
+def get_ai_import_cache(content_hash):
+    """v8: pre-AI dedup lookup -- if this exact document (by normalized
+    content hash) was already understood by AI before, the same structured
+    result (ai_result dict, JSON-encoded) is returned so the caller can
+    build/save the strategy/lessons through the normal path WITHOUT calling
+    any AI provider again. Returns (ai_result_dict, provider) or (None, None)
+    on a cache miss."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT ai_result_json, provider FROM ai_import_cache WHERE content_hash = ?", (content_hash,)
+        ).fetchone()
+    if not row or not row[0]:
+        return None, None
+    return json.loads(row[0]), row[1]
+
+
+def save_ai_import_cache(content_hash, ai_result, provider, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO ai_import_cache (content_hash, ai_result_json, provider, created_at)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(content_hash) DO UPDATE SET
+                 ai_result_json=excluded.ai_result_json, provider=excluded.provider, created_at=excluded.created_at""",
+            (content_hash, json.dumps(ai_result), provider, now_iso),
+        )
+
+
+def save_knowledge_relationship(from_type, from_id, to_type, to_id, relation, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO knowledge_relationships (from_type, from_id, to_type, to_id, relation, created_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (from_type, from_id, to_type, to_id, relation, now_iso),
+        )
+
+
+def list_knowledge_relationships(from_id=None, to_id=None):
+    query = "SELECT id, from_type, from_id, to_type, to_id, relation, created_at FROM knowledge_relationships"
+    clauses, params = [], []
+    if from_id:
+        clauses.append("from_id = ?")
+        params.append(from_id)
+    if to_id:
+        clauses.append("to_id = ?")
+        params.append(to_id)
+    if clauses:
+        query += " WHERE " + " AND ".join(clauses)
+    query += " ORDER BY id DESC"
+    with get_conn() as conn:
+        rows = conn.execute(query, params).fetchall()
+    return [
+        {"id": r[0], "from_type": r[1], "from_id": r[2], "to_type": r[3], "to_id": r[4], "relation": r[5], "created_at": r[6]}
+        for r in rows
+    ]

@@ -1,0 +1,31 @@
+# Runtime/generated data -- databases, logs, market data cache, reports,
+# backtest history, and config (which includes API keys/secrets such as
+# data/config/ai_settings.json and data/config/api_token.json). None of
+# this is source code; all of it is either regenerated on first run or is
+# a private secret that must never be committed.
+data/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+.pytest_cache/
+*.egg-info/
+
+# Environment / secrets
+.env
+.env.*
+*.key
+*.pem
+
+# Node (in case any frontend tooling is added later)
+node_modules/
+
+# Local Claude Code state (machine-specific, not shared project config)
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.swp
