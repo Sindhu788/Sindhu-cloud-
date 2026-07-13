@@ -203,6 +203,68 @@
     }
   });
 
+  // Automation Pipeline (Part 2): auto backtest -> optimize -> compare ->
+  // paper trading, triggered the moment a strategy import succeeds (no
+  // manual click anywhere). Same app-wide-visibility treatment as the
+  // backtest toast above, plus a live-updating banner through every stage
+  // since this runs unattended and can take several minutes.
+  let activePipelineJobId = null;
+  let pipelineBannerEl = null;
+
+  function _pipelineStageLabel(msg) {
+    const labels = {
+      backtesting: "Backtesting", optimizing: "Optimizing (math-based, no AI calls)",
+      comparing: "Comparing original vs optimized", starting_paper_trading: "Starting Paper Trading",
+      completed: "Completed", aborted: "Aborted -- see logs",
+    };
+    let text = labels[msg.current_stage] || msg.current_stage || "Starting";
+    if (msg.current_strategy) text = `${msg.current_strategy} -- ${text}`;
+    if (msg.done != null && msg.total != null) text += ` (${msg.done}/${msg.total} coins)`;
+    return text;
+  }
+
+  onGlobalLive((msg) => {
+    if (msg.channel === "job" && msg.event === "started" && msg.kind === "pipeline") {
+      activePipelineJobId = msg.job_id;
+      showToast({
+        title: "Automation pipeline started",
+        body: "Backtesting -> Optimizing -> Comparing -> Paper Trading, fully automatic.",
+        timeoutMs: 6000,
+      });
+      return;
+    }
+    if (msg.channel === "progress" && msg.job_id === activePipelineJobId) {
+      const stack = document.getElementById("toastStack");
+      if (!pipelineBannerEl || !document.body.contains(pipelineBannerEl)) {
+        pipelineBannerEl = document.createElement("div");
+        pipelineBannerEl.className = "toast";
+        pipelineBannerEl.innerHTML = `<div class="toast-title">Automation Pipeline</div><div class="toast-body" id="pipelineBannerBody"></div>`;
+        stack.appendChild(pipelineBannerEl);
+      }
+      const body = pipelineBannerEl.querySelector("#pipelineBannerBody");
+      if (body) body.textContent = _pipelineStageLabel(msg);
+      return;
+    }
+    if (msg.channel === "job" && msg.event === "finished" && msg.kind === "pipeline") {
+      if (pipelineBannerEl) { pipelineBannerEl.remove(); pipelineBannerEl = null; }
+      activePipelineJobId = null;
+      const ok = msg.status === "completed";
+      showToast({
+        title: ok ? "Automation pipeline finished" : `Automation pipeline ${msg.status}`,
+        body: msg.batch_id
+          ? "Backtest + optimization complete -- view the comparison in Backtest History."
+          : "Check Logs for details.",
+        isError: !ok,
+        actionLabel: msg.batch_id ? "View Results" : undefined,
+        onAction: msg.batch_id ? () => {
+          pendingHistoryBatchId = msg.batch_id || null;
+          if (location.hash === "#backtest_history") route();
+          else location.hash = "#backtest_history";
+        } : undefined,
+      });
+    }
+  });
+
   // ------------------------------------------------------------ chrome (nav/sidebar/theme/logs)
   const sidebar = document.getElementById("sidebar");
   const overlay = document.getElementById("overlay");
@@ -787,7 +849,7 @@
           </div>
           <div id="previewBox" class="card" style="white-space:pre-wrap;font-family:Consolas,monospace;font-size:12px;"></div>
           <div class="section-title">Saved Strategies</div>
-          <div class="table-wrap"><table><thead><tr><th>Name</th><th>Tags</th><th></th></tr></thead>
+          <div class="table-wrap"><table><thead><tr><th>Name</th><th>Tags</th><th>Status</th><th></th></tr></thead>
             <tbody id="stratTableBody"></tbody></table></div>
         </div>
         <div>
@@ -829,6 +891,12 @@
     let currentConfig = null;
     let currentStrategyId = null;
     let currentJobId = null;
+    // Set whenever a saved strategy is Loaded, alongside currentConfig --
+    // lets doParse() tell "user hasn't touched the text since Load" apart
+    // from "user is typing/pasting new directive text to parse."
+    let loadedRawText = null;
+    let loadedValid = false;
+    let loadedErrors = [];
     let wins = 0, total = 0;
     let cumulativePnl = 0, peakPnl = 0, jobStartTime = null;
     const equityCurve = [0];
@@ -847,17 +915,28 @@
       const res = await apiGet("/api/backtesting/strategies").catch(() => ({ strategies: [] }));
       document.getElementById("stratTableBody").innerHTML = res.strategies.map(s => `
         <tr><td>${esc(s.name)}</td><td>${(s.tags||[]).join(", ")}</td>
+        <td>${strategyStatusPill(s.status)}</td>
         <td><button class="btn-ghost load-strategy" data-id="${s.id}">Load</button></td></tr>
-      `).join("") || '<tr><td colspan="3">No saved strategies yet</td></tr>';
+      `).join("") || '<tr><td colspan="4">No saved strategies yet</td></tr>';
 
       document.querySelectorAll(".load-strategy").forEach(btn => {
         btn.onclick = async () => {
           const res = await apiGet(`/api/backtesting/strategies/${btn.dataset.id}`);
+          if (!res.valid) {
+            const proceed = confirm(
+              `"${res.config.name}" is marked Needs Clarification and will NOT generate any ` +
+              `backtest trades as saved (${res.errors.join("; ")}). Load it anyway to inspect or edit it?`
+            );
+            if (!proceed) return;
+          }
           document.getElementById("stratText").value = res.config.raw_text;
           document.getElementById("stratName").value = res.config.name;
           currentConfig = res.config;
           currentStrategyId = btn.dataset.id;
-          document.getElementById("btnRun").disabled = false;
+          loadedRawText = res.config.raw_text;
+          loadedValid = res.valid;
+          loadedErrors = res.errors || [];
+          renderConfigPreview(res.config, res.valid, res.errors);
         };
       });
     }
@@ -897,8 +976,10 @@
         document.getElementById("stratName").value = res.config.name;
         currentConfig = res.config;
         currentStrategyId = id;
-        document.getElementById("btnRun").disabled = false;
-        document.getElementById("previewBox").textContent = "Loaded from Strategies page -- click Parse & Validate to refresh the preview.";
+        loadedRawText = res.config.raw_text;
+        loadedValid = res.valid;
+        loadedErrors = res.errors || [];
+        renderConfigPreview(res.config, res.valid, res.errors);
       } catch (e) { /* strategy may have been deleted meanwhile */ }
     }
 
@@ -920,20 +1001,33 @@
       }
     }, 800);
 
+    function renderConfigPreview(config, valid, errors) {
+      document.getElementById("previewBox").textContent =
+        `Timeframes: ${JSON.stringify(config.timeframes)}\n` +
+        `Entry conditions: ${config.entry_conditions.length}\n` +
+        `Exit conditions: ${config.exit_conditions.length}\n` +
+        `Stop Loss: ${config.stop_loss.type}\nTake Profit: ${config.take_profit.type}\n` +
+        `Risk%: ${config.risk_pct}  RR: ${config.risk_reward}\n\n` +
+        (valid ? "STATUS: VALID" : "STATUS: INVALID\n" + errors.map(e => " - " + e).join("\n"));
+      document.getElementById("btnRun").disabled = !valid;
+    }
+
     async function doParse() {
       const text = document.getElementById("stratText").value;
       const name = document.getElementById("stratName").value || "Unnamed Strategy";
       if (!text.trim()) return;
+      // A Loaded strategy's raw_text is often the ORIGINAL source document
+      // fed to the AI Center (analysis prose, not SINDHU's directive
+      // syntax) -- it was never meant to be re-parsed by the regex parser
+      // below. If the text still matches what Load put there, just
+      // re-show the already-valid loaded config instead of mangling it.
+      if (currentConfig && text === loadedRawText && name === currentConfig.name) {
+        renderConfigPreview(currentConfig, loadedValid, loadedErrors);
+        return;
+      }
       const res = await apiPost("/api/backtesting/parse", { text, name });
       currentConfig = res.config;
-      document.getElementById("previewBox").textContent =
-        `Timeframes: ${JSON.stringify(res.config.timeframes)}\n` +
-        `Entry conditions: ${res.config.entry_conditions.length}\n` +
-        `Exit conditions: ${res.config.exit_conditions.length}\n` +
-        `Stop Loss: ${res.config.stop_loss.type}\nTake Profit: ${res.config.take_profit.type}\n` +
-        `Risk%: ${res.config.risk_pct}  RR: ${res.config.risk_reward}\n\n` +
-        (res.valid ? "STATUS: VALID" : "STATUS: INVALID\n" + res.errors.map(e => " - " + e).join("\n"));
-      document.getElementById("btnRun").disabled = !res.valid;
+      renderConfigPreview(res.config, res.valid, res.errors);
       if (res.valid) doAutosaveStrategy();
     }
 
@@ -1222,6 +1316,7 @@
   // without the Reports page's best/worst-strategy framing getting in the way.
   async function renderBacktestHistory() {
     const myToken = activeRouteToken;
+    let lastBatches = [];
 
     async function renderList() {
       document.getElementById("histTableBody").innerHTML = '<tr><td colspan="7">Loading...</td></tr>';
@@ -1237,11 +1332,19 @@
         return;
       }
       if (isStaleRoute(myToken)) return;
+      lastBatches = batches;
       document.getElementById("histTableBody").innerHTML = batches.map(b => {
         const pnlCls = b.total_pnl > 0 ? "positive" : b.total_pnl < 0 ? "negative" : "";
+        const optBadge = b.optimization
+          ? `<span class="pill pill-completed" style="cursor:pointer;" title="This batch was compared by the automation pipeline -- click View to see original vs optimized." >⚖ ${esc(b.optimization.winner === "optimized" && b.batch_id === b.optimization.optimized_batch_id ? "Optimized (winner)" : b.optimization.winner === "original" && b.batch_id === b.optimization.original_batch_id ? "Original (winner)" : b.optimization.original_batch_id === b.batch_id ? "Original" : "Optimized")}</span>`
+          : "";
         return `<tr>
           <td>${esc((b.created_at || "").slice(0, 19))}</td>
-          <td>${esc(b.strategy)}</td>
+          <td>
+            <span class="hist-name-display" data-id="${b.batch_id}">${esc(b.display_name || b.strategy)}</span>
+            <button class="btn-ghost hist-rename-btn" data-id="${b.batch_id}" data-name="${esc(b.display_name || b.strategy)}" title="Rename">✎</button>
+            ${optBadge}
+          </td>
           <td>${b.symbol_count}</td>
           <td>${b.total_trades}</td>
           <td>${b.win_rate}%</td>
@@ -1254,6 +1357,10 @@
         btn.onclick = () => openHistoryDetail(btn.dataset.id);
       });
 
+      document.querySelectorAll(".hist-rename-btn").forEach(btn => {
+        btn.onclick = () => startRename(btn.dataset.id, btn.dataset.name);
+      });
+
       // Auto-open a specific batch if we arrived here via the completion
       // notification banner's "View Results" link.
       if (pendingHistoryBatchId) {
@@ -1263,8 +1370,68 @@
       }
     }
 
+    function startRename(batchId, currentName) {
+      const span = document.querySelector(`.hist-name-display[data-id="${batchId}"]`);
+      if (!span) return;
+      const wrap = document.createElement("span");
+      wrap.innerHTML = `<input type="text" class="hist-rename-input" value="${esc(currentName)}" style="width:180px;">` +
+        `<button class="btn-ghost hist-rename-save">Save</button>` +
+        `<button class="btn-ghost hist-rename-cancel">Cancel</button>`;
+      span.replaceWith(wrap);
+      const input = wrap.querySelector(".hist-rename-input");
+      input.focus();
+      input.select();
+      const cancel = () => renderList().catch(console.error);
+      wrap.querySelector(".hist-rename-cancel").onclick = cancel;
+      const save = async () => {
+        const newName = input.value.trim();
+        if (!newName) { cancel(); return; }
+        try {
+          await apiPost(`/api/backtest-history/${batchId}/rename`, { display_name: newName });
+        } catch (e) {
+          alert(`Rename failed: ${e.message}`);
+        }
+        renderList().catch(console.error);
+      };
+      wrap.querySelector(".hist-rename-save").onclick = save;
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") save();
+        if (e.key === "Escape") cancel();
+      });
+    }
+
+    async function renderComparison(optRecord) {
+      const box = document.getElementById("histComparisonBox");
+      if (!optRecord) { box.style.display = "none"; box.innerHTML = ""; return; }
+      const [orig, opt] = await Promise.all([
+        apiGet(`/api/reports/${optRecord.original_batch_id}`).catch(() => null),
+        optRecord.optimized_batch_id ? apiGet(`/api/reports/${optRecord.optimized_batch_id}`).catch(() => null) : Promise.resolve(null),
+      ]);
+      if (!orig) { box.style.display = "none"; box.innerHTML = ""; return; }
+      const rows = [
+        ["Total PnL", orig.total_pnl, opt && opt.total_pnl],
+        ["Win Rate", `${orig.win_rate}%`, opt && `${opt.win_rate}%`],
+        ["Max Drawdown", `${orig.max_drawdown_pct}%`, opt && `${opt.max_drawdown_pct}%`],
+        ["Trade Count", orig.total_trades, opt && opt.total_trades],
+      ];
+      const winnerIsOptimized = optRecord.winner === "optimized";
+      box.style.display = "block";
+      box.innerHTML = `
+        <div class="section-title">Automation Pipeline: Original vs Optimized</div>
+        <p class="muted">Winner: <b class="${winnerIsOptimized ? 'positive' : ''}">${winnerIsOptimized ? "Optimized" : "Original"}</b>
+          ${optRecord.params_changed && optRecord.params_changed.length ? " -- " + esc(optRecord.params_changed.map(p => p.description).join(", ")) : ""}</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Metric</th><th${!winnerIsOptimized ? ' style="font-weight:700;"' : ''}>Original</th><th${winnerIsOptimized ? ' style="font-weight:700;"' : ''}>Optimized${opt ? "" : " (none beat original)"}</th></tr></thead>
+          <tbody>
+            ${rows.map(([label, o, n]) => `<tr><td>${label}</td><td${!winnerIsOptimized ? ' style="font-weight:700;"' : ''}>${o != null ? o : "-"}</td><td${winnerIsOptimized ? ' style="font-weight:700;"' : ''}>${n != null ? n : "-"}</td></tr>`).join("")}
+          </tbody>
+        </table></div>`;
+    }
+
     function openHistoryDetail(batchId) {
       document.getElementById("histDetail").scrollIntoView({ behavior: "smooth", block: "start" });
+      const b = lastBatches.find(x => x.batch_id === batchId);
+      renderComparison(b ? b.optimization : null).catch(console.error);
       return renderBatchDetailInto(batchId, histDetailIds);
     }
 
@@ -1282,6 +1449,7 @@
         <tbody id="histTableBody"><tr><td colspan="7">Loading...</td></tr></tbody>
       </table></div>
       <div id="histDetail" style="display:none;margin-top:16px;">
+        <div id="histComparisonBox" class="card" style="display:none;margin-bottom:16px;"></div>
         <div id="histSummary" class="card" style="white-space:pre-wrap;font-family:Consolas,monospace;font-size:12px;"></div>
         <div class="section-title">Per-Coin Breakdown</div>
         <div class="table-wrap"><table>
@@ -1306,8 +1474,10 @@
     // A newly completed backtest must appear here without a manual
     // refresh -- re-fetching the list on every "finished" event is cheap
     // (it's a lightweight per-batch aggregate, not the full report).
+    // kind === "pipeline" is included so a batch produced by the
+    // automation pipeline (Part 2) also shows up without a manual refresh.
     onLive((msg) => {
-      if (msg.channel === "job" && msg.event === "finished" && msg.kind === "backtest") {
+      if (msg.channel === "job" && msg.event === "finished" && (msg.kind === "backtest" || msg.kind === "pipeline")) {
         renderList().catch(console.error);
       }
     });

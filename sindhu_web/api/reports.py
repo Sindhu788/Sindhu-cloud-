@@ -2,6 +2,7 @@ import os
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 
 from data_engine import storage
 from backtest_engine.reports import generate_report, quick_batch_summary
@@ -28,8 +29,31 @@ def backtest_history(limit: int = 200):
         s = quick_batch_summary(b["batch_id"])
         if s:
             s["created_at"] = b["created_at"]
+            # Present when the automation pipeline (Part 2) ran an
+            # optimization pass involving this batch, either as the
+            # original or the optimized side -- lets the Backtest History
+            # page show the original-vs-optimized comparison inline
+            # without a separate request per row.
+            s["optimization"] = storage.get_optimization_for_batch(b["batch_id"])
             summaries.append(s)
     return {"batches": summaries}
+
+
+class RenameBatchRequest(BaseModel):
+    display_name: str
+
+
+@router.post("/api/backtest-history/{batch_id}/rename")
+def rename_batch(batch_id: str, req: RenameBatchRequest):
+    """Purely a display label (Part 3) -- never touches strategy_name,
+    settings, or any trade/result row for this batch."""
+    name = req.display_name.strip()
+    if not name:
+        raise HTTPException(400, "Name cannot be empty.")
+    if not storage.get_batch(batch_id):
+        raise HTTPException(404, "Batch not found.")
+    storage.set_batch_display_name(batch_id, name)
+    return {"ok": True, "batch_id": batch_id, "display_name": name}
 
 
 @router.get("/api/reports/best-worst/strategies")

@@ -252,6 +252,22 @@ def compile_document(
         hidden_rules=hidden_rules or [], psychology_notes=psychology_notes or [], deep_knowledge=deep_knowledge,
     )
 
+    # Part 2.1 (auto-trigger backtest on import) -- the Knowledge Compiler
+    # page's manual "Compile" flow doesn't route through
+    # ai_integration.importer.import_document() at all (see that module's
+    # own _maybe_trigger_pipeline for the AI Center / Import Queue side),
+    # so this is the matching hook for the Knowledge Compiler side. Same
+    # "must be READY_FOR_BACKTEST and actually saved" gate, same
+    # never-let-a-pipeline-failure-break-the-import guarantee.
+    for s in strategies:
+        if s.saved_strategy_id and s.status == READY_FOR_BACKTEST:
+            try:
+                from automation_pipeline.pipeline import trigger_pipeline_for_strategy
+                trigger_pipeline_for_strategy(s.saved_strategy_id, s.config.name)
+            except Exception as exc:
+                from data_engine.logging_setup import log as file_log
+                file_log(f"[automation-pipeline] Failed to auto-trigger for strategy {s.saved_strategy_id}: {exc!r}")
+
     storage.save_compiled_document({
         "id": doc.id, "title": doc.title, "source_type": doc.source_type, "doc_type": doc.doc_type,
         "classification_confidence": doc.classification_confidence, "status": doc.status,

@@ -20,6 +20,7 @@ def quick_batch_summary(batch_id):
     if not completed:
         return {
             "batch_id": batch_id, "strategy": batch["strategy_name"],
+            "display_name": batch.get("display_name") or batch["strategy_name"],
             "symbol_count": len(results), "combos_completed": 0, "combos_total": len(results),
             "total_trades": 0, "win_rate": 0.0, "total_pnl": None,
             "avg_profit_pct": 0.0, "avg_final_balance": None, "max_drawdown_pct": 0.0,
@@ -38,6 +39,7 @@ def quick_batch_summary(batch_id):
     max_drawdown = max((r["metrics"]["max_drawdown_pct"] for r in completed), default=0.0)
     return {
         "batch_id": batch_id, "strategy": batch["strategy_name"],
+        "display_name": batch.get("display_name") or batch["strategy_name"],
         "symbol_count": len(results), "combos_completed": len(completed), "combos_total": len(results),
         "total_trades": total_trades, "win_rate": round(win_rate, 2), "total_pnl": total_pnl,
         "avg_profit_pct": round(avg_profit_pct, 2), "avg_final_balance": round(avg_final_balance, 2),

@@ -302,6 +302,17 @@ CREATE TABLE IF NOT EXISTS ai_import_cache (
     provider TEXT,
     created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS strategy_optimizations (
+    id TEXT PRIMARY KEY,
+    strategy_id TEXT NOT NULL,
+    original_batch_id TEXT NOT NULL,
+    optimized_batch_id TEXT,
+    winner TEXT NOT NULL,
+    params_changed_json TEXT,
+    candidates_tried_json TEXT,
+    created_at TEXT NOT NULL
+);
 """
 
 _COMPILED_DOCUMENT_V6_COLUMNS = {
@@ -359,6 +370,26 @@ def _migrate_ai_import_cache_v8_columns(conn):
     for col, col_type in _AI_IMPORT_CACHE_V8_COLUMNS.items():
         if col not in have_columns:
             conn.execute(f"ALTER TABLE ai_import_cache ADD COLUMN {col} {col_type}")
+
+
+_BACKTEST_BATCH_NEW_COLUMNS = {
+    "display_name": "TEXT",
+}
+
+
+def _migrate_backtest_batch_columns(conn):
+    """A saved batch was only ever identified by strategy_name + timestamp
+    -- display_name is a purely cosmetic, optional rename the CEO can set
+    from the Backtest History page (falls back to strategy_name wherever
+    it's NULL). Additive-only, existing rows default to NULL."""
+    existing = {r[0] for r in
+                conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "backtest_batches" not in existing:
+        return
+    have_columns = {r[1] for r in conn.execute("PRAGMA table_info(backtest_batches)").fetchall()}
+    for col, col_type in _BACKTEST_BATCH_NEW_COLUMNS.items():
+        if col not in have_columns:
+            conn.execute(f"ALTER TABLE backtest_batches ADD COLUMN {col} {col_type}")
 
 
 def _migrate_ai_import_queue_v6_columns(conn):
@@ -557,6 +588,7 @@ def init_db():
         _migrate_ai_dictionary_v6_columns(conn)
         _migrate_ai_import_queue_v6_columns(conn)
         _migrate_ai_import_cache_v8_columns(conn)
+        _migrate_backtest_batch_columns(conn)
 
 
 def save_symbols(exchange, symbols, now_iso):
@@ -707,7 +739,7 @@ def create_batch(batch_id, strategy_name, exchange, settings, now_iso):
 def get_batch(batch_id):
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT batch_id, strategy_name, exchange, settings_json, status, created_at, updated_at "
+            "SELECT batch_id, strategy_name, exchange, settings_json, status, created_at, updated_at, display_name "
             "FROM backtest_batches WHERE batch_id = ?",
             (batch_id,),
         ).fetchone()
@@ -716,20 +748,21 @@ def get_batch(batch_id):
     return {
         "batch_id": row[0], "strategy_name": row[1], "exchange": row[2],
         "settings": json.loads(row[3]), "status": row[4],
-        "created_at": row[5], "updated_at": row[6],
+        "created_at": row[5], "updated_at": row[6], "display_name": row[7],
     }
 
 
 def list_recent_batches(limit=30):
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT batch_id, strategy_name, exchange, settings_json, status, created_at, updated_at "
+            "SELECT batch_id, strategy_name, exchange, settings_json, status, created_at, updated_at, display_name "
             "FROM backtest_batches ORDER BY created_at DESC LIMIT ?",
             (limit,),
         ).fetchall()
     return [
         {"batch_id": r[0], "strategy_name": r[1], "exchange": r[2],
-         "settings": json.loads(r[3]), "status": r[4], "created_at": r[5], "updated_at": r[6]}
+         "settings": json.loads(r[3]), "status": r[4], "created_at": r[5], "updated_at": r[6],
+         "display_name": r[7]}
         for r in rows
     ]
 
@@ -740,6 +773,73 @@ def update_batch_status(batch_id, status, now_iso):
             "UPDATE backtest_batches SET status = ?, updated_at = ? WHERE batch_id = ?",
             (status, now_iso, batch_id),
         )
+
+
+def set_batch_display_name(batch_id, display_name):
+    """Purely a display label (Part 3) -- never touches strategy_name,
+    settings_json, or any result/trade row, so renaming can never affect
+    what the batch actually contains or how it's re-derived."""
+    with get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE backtest_batches SET display_name = ? WHERE batch_id = ?",
+            (display_name, batch_id),
+        )
+        return cur.rowcount > 0
+
+
+def save_optimization(opt_id, strategy_id, original_batch_id, optimized_batch_id,
+                       winner, params_changed, candidates_tried, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO strategy_optimizations
+               (id, strategy_id, original_batch_id, optimized_batch_id, winner,
+                params_changed_json, candidates_tried_json, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (opt_id, strategy_id, original_batch_id, optimized_batch_id, winner,
+             json.dumps(params_changed), json.dumps(candidates_tried), now_iso),
+        )
+
+
+def get_optimization_for_batch(batch_id):
+    """The optimization record (if any) where this batch_id is either the
+    original or the optimized side -- used by the Backtest History
+    comparison view to know which other batch to show alongside this one."""
+    with get_conn() as conn:
+        row = conn.execute(
+            """SELECT id, strategy_id, original_batch_id, optimized_batch_id, winner,
+                      params_changed_json, candidates_tried_json, created_at
+               FROM strategy_optimizations
+               WHERE original_batch_id = ? OR optimized_batch_id = ?
+               ORDER BY created_at DESC LIMIT 1""",
+            (batch_id, batch_id),
+        ).fetchone()
+    if not row:
+        return None
+    return {
+        "id": row[0], "strategy_id": row[1], "original_batch_id": row[2],
+        "optimized_batch_id": row[3], "winner": row[4],
+        "params_changed": json.loads(row[5]) if row[5] else [],
+        "candidates_tried": json.loads(row[6]) if row[6] else [],
+        "created_at": row[7],
+    }
+
+
+def list_optimizations(limit=200):
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT id, strategy_id, original_batch_id, optimized_batch_id, winner,
+                      params_changed_json, candidates_tried_json, created_at
+               FROM strategy_optimizations ORDER BY created_at DESC LIMIT ?""",
+            (limit,),
+        ).fetchall()
+    return [
+        {"id": r[0], "strategy_id": r[1], "original_batch_id": r[2],
+         "optimized_batch_id": r[3], "winner": r[4],
+         "params_changed": json.loads(r[5]) if r[5] else [],
+         "candidates_tried": json.loads(r[6]) if r[6] else [],
+         "created_at": r[7]}
+        for r in rows
+    ]
 
 
 def get_completed_result_keys(batch_id):

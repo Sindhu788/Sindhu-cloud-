@@ -114,7 +114,12 @@ def get_strategy(strategy_id: str):
         cfg = lib.load(strategy_id)
     except FileNotFoundError:
         raise HTTPException(404, "strategy not found")
-    return {"config": cfg.to_dict()}
+    # Includes the same validity check the strategy list uses -- the
+    # Backtesting page needs this to show an accurate preview right after
+    # Load without re-parsing raw_text (see frontend comment for why that's
+    # unsafe for AI-imported strategies).
+    errors = validate(cfg)
+    return {"config": cfg.to_dict(), "errors": errors, "valid": not errors}
 
 
 @router.delete("/api/backtesting/strategies/{strategy_id}")

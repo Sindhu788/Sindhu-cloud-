@@ -129,7 +129,19 @@ def force_ready(config, clarification_notes, resolved_defaults):
     since the caller no longer treats them as blocking -- never re-derived
     from validate() again here, which would just duplicate them. Never used
     by the old text-parser path -- that path's exact behavior (including
-    genuinely blocking on an unresolved strategy) is completely unchanged."""
+    genuinely blocking on an unresolved strategy) is completely unchanged.
+
+    Exception: an entry_conditions list where every condition is type="raw"
+    is not a "missing detail" force_ready can safely paper over -- it means
+    the AI recognized the entry rule but couldn't map it to anything the
+    backtest engine can execute (ai_integration.strategy_builder demotes it
+    rather than inventing fake logic), so the strategy would silently
+    produce zero trades forever if marked Ready. That's exactly the
+    "Devansh Rai Trend Following" case (trendline-break entry, not in the
+    executable vocabulary) -- surface it as NEEDS_CLARIFICATION instead of
+    hiding it behind a confident-looking "Ready" label."""
+    if config.entry_conditions and all(c.type == "raw" for c in config.entry_conditions):
+        return config, NEEDS_CLARIFICATION, clarification_notes, resolved_defaults
     if config.stop_loss.type == "unknown":
         config.stop_loss = SLTPSpec(type="fixed_pct", value=DEFAULT_STOP_LOSS_PCT)
         resolved_defaults = resolved_defaults + [

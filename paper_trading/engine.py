@@ -50,17 +50,24 @@ class PaperTradingEngine:
         self._last_summary = {"shortlisted": [], "opened": 0, "closed": 0, "rejected": 0}
         self._tick_count = 0
         self._started_at = None
+        self._only_strategy_id = None
 
     # ------------------------------------------------------------ control
     def is_running(self):
         return self._running
 
-    def start(self, log=None, on_event=None):
+    def start(self, log=None, on_event=None, only_strategy_id=None):
+        """only_strategy_id: scopes every tick to just this one strategy
+        (see paper_trading.strategy_matcher.relevant_strategies) instead of
+        the whole library -- used by the automation pipeline's auto Paper
+        Trading handoff (Part 2.4) so the just-optimized strategy trades
+        alone rather than competing with everything else already saved."""
         with self._lock:
             if self._running:
                 return False
             self._log = log or default_log
             self._on_event = on_event
+            self._only_strategy_id = only_strategy_id
             self._stop_flag.clear()
             self._running = True
             self._started_at = _now_iso()
@@ -88,6 +95,7 @@ class PaperTradingEngine:
             "queue": len(self._last_summary.get("shortlisted", [])),
             "balance": round(risk_manager.account_balance(settings.get("initial_balance", 10000.0)), 2),
             "last_summary": self._last_summary,
+            "only_strategy_id": self._only_strategy_id,
         }
 
     def run_single_tick_now(self):
@@ -108,6 +116,7 @@ class PaperTradingEngine:
             interval = pt_config.load().get("tick_interval_seconds", 60)
             self._stop_flag.wait(interval)
         self._running = False
+        self._only_strategy_id = None
         self._log("[paper-trading] engine stopped")
         self._emit({"type": "engine_stopped"})
 
@@ -193,7 +202,7 @@ class PaperTradingEngine:
 
     def _process_coin(self, exchange, symbol, snapshot, settings):
         market_type = snapshot["market_state"]
-        strategies = strategy_matcher.relevant_strategies(symbol, market_type)
+        strategies = strategy_matcher.relevant_strategies(symbol, market_type, only_strategy_id=self._only_strategy_id)
         lessons = lesson_matcher.relevant_lessons(market_type, settings.get("lesson_default_timeframe", "1h"))
 
         candidates = signal_generator.generate_candidates(exchange, symbol, strategies, lessons, settings)

@@ -164,7 +164,15 @@ def duplicate(strategy_id, new_name=None):
 
 
 def delete(strategy_id):
-    shutil.rmtree(_strategy_dir(strategy_id), ignore_errors=True)
+    """ignore_errors=False (the default) on purpose: a silent partial
+    failure here (e.g. a locked file on Windows) previously left a
+    half-deleted strategy folder -- meta.json present, versions/ gone --
+    which the API then reported as "deleted" while it actually still
+    existed in a newly-corrupted state. Better to raise and let the
+    caller see the real error than to lie about success."""
+    path = _strategy_dir(strategy_id)
+    if os.path.isdir(path):
+        shutil.rmtree(path)
 
 
 def version_history(strategy_id):

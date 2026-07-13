@@ -77,6 +77,27 @@ def _categorize_notes(notes):
     return report
 
 
+def _maybe_trigger_pipeline(doc_dict):
+    """Part 2.1 (auto-trigger backtest on import): the single choke point
+    both callers below (_offline_result and the AI-native success path)
+    share -- so every import_document() entry point (text paste, file
+    upload, YouTube, and the Import Queue worker, which all call
+    import_document() directly) triggers the automation pipeline
+    identically, without needing a separate hook at each API route. Never
+    lets a pipeline-start failure break the import itself."""
+    if not doc_dict:
+        return
+    for s in doc_dict.get("strategies", []):
+        strategy_id = s.get("saved_strategy_id")
+        if strategy_id and s.get("status") == "READY_FOR_BACKTEST":
+            try:
+                from automation_pipeline.pipeline import trigger_pipeline_for_strategy
+                trigger_pipeline_for_strategy(strategy_id, s.get("config", {}).get("name"))
+            except Exception as exc:
+                from data_engine.logging_setup import log as file_log
+                file_log(f"[automation-pipeline] Failed to auto-trigger for strategy {strategy_id}: {exc!r}")
+
+
 def _empty_input_result(error_text):
     return {
         "document": None, "ai_assisted": False, "ai_provider": None,
@@ -106,6 +127,7 @@ def _offline_result(raw_text, title, source_hint, ai_error):
     notes = list(doc.unresolved) + [n for n in doc.clarification_notes if n not in doc.unresolved]
     doc_dict = doc.to_dict()
     new_dictionary_entries = dictionary_builder.save_discovered_terms(dictionary_entries, doc.id)
+    _maybe_trigger_pipeline(doc_dict)
     return {
         "document": doc_dict,
         "ai_assisted": False,
@@ -208,6 +230,7 @@ def import_document(raw_text, title=None, source_hint=None, use_ai=True, input_k
     notes = list(doc.unresolved) + [n for n in doc.clarification_notes if n not in doc.unresolved]
     doc_dict = doc.to_dict()
     new_dictionary_entries = dictionary_builder.save_discovered_terms(dictionary_entries, doc.id)
+    _maybe_trigger_pipeline(doc_dict)
     return {
         "document": doc_dict,
         "ai_assisted": True,
