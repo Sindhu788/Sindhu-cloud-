@@ -5,7 +5,7 @@ from data_engine import storage, config
 from data_engine.paths import disk_usage_bytes
 from backtest_engine.reports import quick_batch_summary
 from paper_trading.engine import engine as paper_engine
-from paper_trading import risk_manager as paper_risk_manager, config as paper_config
+from paper_trading import config as paper_config
 from sindhu_web import cache
 from sindhu_web.jobs import job_manager
 from knowledge_engine.scoring import compute_knowledge_score
@@ -18,9 +18,10 @@ NAV_ICONS = {
     "knowledge": "book", "backtesting": "flask", "paper_trading": "wallet",
     "reflection": "mirror", "evolution": "dna", "reports": "chart", "news": "news",
     "telegram": "send", "settings": "gear", "knowledge_compiler": "compiler",
-    "ai_center": "ai_center", "backtest_history": "history",
+    "ai_center": "ai_center", "backtest_history": "history", "ceo": "ceo",
 }
 NAV_PAGES = [
+    {"id": "ceo", "label": "SINDHU CEO", "enabled": True, "icon": NAV_ICONS["ceo"]},
     {"id": "home", "label": "Dashboard", "enabled": True, "icon": NAV_ICONS["home"]},
     {"id": "market", "label": "Market", "enabled": True, "icon": NAV_ICONS["market"]},
     {"id": "data", "label": "Data", "enabled": True, "icon": NAV_ICONS["data"]},
@@ -104,18 +105,25 @@ def _account_snapshot():
     cards. Prefers the live Paper Trading account (real, running balance
     from data_engine's own trade ledger) once it has any trade history;
     falls back to the most recent completed Backtest so the cards aren't
-    empty before Paper Trading has run its first trade."""
-    closed = storage.list_closed_paper_positions(limit=100000)
-    if closed:
+    empty before Paper Trading has run its first trade.
+
+    Reads storage.get_paper_account_summary() (an O(1) running total kept in
+    sync by close_paper_position()) instead of materializing every closed
+    position via list_closed_paper_positions(limit=100000) just to count
+    wins/trades -- this endpoint is polled by every page's topbar, so it
+    needs to stay cheap as paper trade history grows."""
+    summary = storage.get_paper_account_summary()
+    closed_count = summary["closed_count"]
+    if closed_count:
         settings = paper_config.load()
-        balance = paper_risk_manager.account_balance(settings.get("initial_balance", 10000.0))
-        wins = sum(1 for t in closed if (t.get("pnl") or 0) > 0)
-        win_rate = wins / len(closed) * 100
-        profit_pct = (balance - settings.get("initial_balance", 10000.0)) / settings.get("initial_balance", 10000.0) * 100
+        initial_balance = settings.get("initial_balance", 10000.0)
+        balance = initial_balance + summary["realized_pnl_total"]
+        win_rate = summary["win_count"] / closed_count * 100
+        profit_pct = (balance - initial_balance) / initial_balance * 100
         return {
             "strategy": "Paper Trading (live account)", "final_balance": round(balance, 2),
             "profit_pct": round(profit_pct, 2), "win_rate": round(win_rate, 2),
-            "total_trades": len(closed), "max_drawdown_pct": None,
+            "total_trades": closed_count, "max_drawdown_pct": None,
         }
     return _latest_batch_snapshot()
 

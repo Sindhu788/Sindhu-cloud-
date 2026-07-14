@@ -175,6 +175,32 @@ def delete(strategy_id):
         shutil.rmtree(path)
 
 
+def set_clarification(strategy_id, data):
+    """Persists (or clears, if data is None) the "why this strategy needs
+    clarification" record directly on the strategy's own meta.json --
+    independent of the originating compiled_document, which has no reverse
+    index from strategy_id back to it (see knowledge_compiler/compiler.py's
+    _finalize_and_save_strategy). `data` shape (when not None):
+    {"notes": [str], "hidden_rules": [{"field","confidence","reason","evidence"}],
+     "confidence_pct": float|None, "updated_at": iso}. Cleared automatically
+    once a strategy re-validates as READY_FOR_BACKTEST so a resolved
+    strategy never keeps showing stale clarification data."""
+    meta = _read_meta(strategy_id)
+    if data is None:
+        meta.pop("clarification", None)
+    else:
+        meta["clarification"] = data
+    _write_meta(strategy_id, meta)
+
+
+def get_clarification(strategy_id):
+    try:
+        meta = _read_meta(strategy_id)
+    except FileNotFoundError:
+        return None
+    return meta.get("clarification")
+
+
 def version_history(strategy_id):
     versions = []
     vdir = _versions_dir(strategy_id)

@@ -10,17 +10,22 @@ from sindhu_web import sync
 router = APIRouter()
 
 
+_VALID_CONTENT_TYPES = {"strategy", "lesson", "mixed"}
+
+
 class CompileRequest(BaseModel):
     text: str
     title: Optional[str] = None
     source_hint: Optional[str] = None
+    content_type: Optional[str] = None  # "strategy" | "lesson" | "mixed" (Part 2)
 
 
 @router.post("/api/knowledge-compiler/compile")
 def compile_text(req: CompileRequest):
     if not req.text or not req.text.strip():
         raise HTTPException(400, "No text provided.")
-    doc = compile_document(req.text, title=req.title, source_hint=req.source_hint)
+    content_type = req.content_type if req.content_type in _VALID_CONTENT_TYPES else None
+    doc = compile_document(req.text, title=req.title, source_hint=req.source_hint, content_type=content_type)
     saved_strategies = sum(1 for s in doc.strategies if s.saved_strategy_id)
     saved_lessons = sum(1 for l in doc.lessons if l.saved)
     sync.notify(

@@ -107,7 +107,7 @@ def _empty_input_result(error_text):
     }
 
 
-def _offline_result(raw_text, title, source_hint, ai_error):
+def _offline_result(raw_text, title, source_hint, ai_error, content_type=None):
     """Pure rule-based pipeline -- the ONLY path that ever calls
     compile_document()'s text-based extraction (rule_extractor/
     strategy_parser/lesson_extractor). Used when AI is disabled,
@@ -115,7 +115,7 @@ def _offline_result(raw_text, title, source_hint, ai_error):
     an AI-extracted structure somehow still failed to save. Never raises."""
     dictionary_entries = dictionary_builder.discover_from_raw_text(raw_text)
     try:
-        doc = compile_document(raw_text, title=title, source_hint=source_hint)
+        doc = compile_document(raw_text, title=title, source_hint=source_hint, content_type=content_type)
     except Exception as exc:
         return {
             "document": None, "ai_assisted": False, "ai_provider": None,
@@ -143,12 +143,24 @@ def _offline_result(raw_text, title, source_hint, ai_error):
     }
 
 
-def import_document(raw_text, title=None, source_hint=None, use_ai=True, input_kind="text"):
+def import_document(raw_text, title=None, source_hint=None, use_ai=True, input_kind="text", content_type=None):
     """The single entry point for every supported input.
 
     input_kind: "text" (default -- pasted strategy/lesson/notes, or text
     already extracted from a PDF/DOCX upload) or "youtube" (raw_text is
     treated as the video URL and its transcript is fetched/cleaned first).
+
+    content_type (Part 2): "strategy" | "lesson" | "mixed"/None -- an
+    explicit up-front declaration of what kind of content this is, instead
+    of leaving the classifier/AI to guess purely from the text (a real
+    source of strategies coming back low-confidence/misclassified). "mixed"
+    and None behave identically to the pre-Part-2 default (free guess);
+    "strategy"/"lesson" steer both the AI prompt (schema.py) and, on the
+    Offline Mode path, the old classifier-driven compile_document() call.
+    "lesson" is additionally enforced in code below (not just prompted) --
+    strategy_config is forced to None even if the AI ignored the
+    instruction, since prompt-following alone isn't reliable enough for a
+    hard guarantee.
 
     Returns a dict: {"document": CompiledDocument.to_dict() or None,
     "ai_assisted": bool, "ai_provider": str|None, "ai_error": str|None,
@@ -184,21 +196,24 @@ def import_document(raw_text, title=None, source_hint=None, use_ai=True, input_k
             ai_result, provider_name, served_from_cache = cached_result, cached_provider, True
 
     if not served_from_cache:
-        understanding = deep_understanding.understand_document_structured(raw_text, use_ai, source_hint=resolved_source_hint)
+        understanding = deep_understanding.understand_document_structured(
+            raw_text, use_ai, source_hint=resolved_source_hint, content_type=content_type,
+        )
         ai_result, provider_name, ai_error = understanding["result"], understanding["provider"], understanding["error"]
 
     if ai_result is None:
         # AI disabled, unconfigured, or every provider failed on the whole
         # document -- Offline Mode, the only case the old parser ever runs.
-        return _offline_result(raw_text, title, resolved_source_hint, ai_error)
+        return _offline_result(raw_text, title, resolved_source_hint, ai_error, content_type=content_type)
 
     # AI-Native Structured Extraction: build real objects directly from the
     # AI's own output (fresh or cached). The old text-parser pipeline is
-    # never touched here.
+    # never touched here. content_type == "lesson" is enforced here, not
+    # just prompted -- a hard guarantee, not a suggestion the AI might miss.
     confidence_pct = ai_result["confidence"]
     strategy_config = (
         strategy_builder.build_strategy_config(ai_result["strategy"], title, raw_text)
-        if ai_result["strategy"] else None
+        if ai_result["strategy"] and content_type != "lesson" else None
     )
     lesson_objects = [strategy_builder.build_lesson(l) for l in ai_result["lessons"]]
 

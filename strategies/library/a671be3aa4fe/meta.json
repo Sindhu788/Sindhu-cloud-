@@ -1,0 +1,38 @@
+{
+  "id": "a671be3aa4fe",
+  "name": "Turtle Trader",
+  "tags": [
+    "support",
+    "resistance",
+    "strategy",
+    "1d",
+    "1h"
+  ],
+  "favourite": false,
+  "created_at": "2026-07-14T01:30:42.447988+00:00",
+  "updated_at": "2026-07-14T01:30:42.447988+00:00",
+  "current_version": 1,
+  "clarification": {
+    "notes": [
+      "Unclear entry rule, needs clarification: \"price > 200 sma\"",
+      "Unclear entry rule, needs clarification: \"close > 20-period high\"",
+      "Unclear exit rule, needs clarification: \"price < 20-period low\""
+    ],
+    "hidden_rules": [
+      {
+        "field": "stop_loss",
+        "confidence": 0.9,
+        "reason": "The strategy uses a 2x ATR stop loss",
+        "evidence": "Stop Loss Placement: Multiply the ATR value by two (2x ATR)"
+      },
+      {
+        "field": "take_profit",
+        "confidence": 0.8,
+        "reason": "The strategy uses a structural trailing exit",
+        "evidence": "Exit Trigger: Keep the trade open until the price breaks the previous 20-period low"
+      }
+    ],
+    "confidence_pct": 95.0,
+    "updated_at": "2026-07-14T01:30:42.443275+00:00"
+  }
+}

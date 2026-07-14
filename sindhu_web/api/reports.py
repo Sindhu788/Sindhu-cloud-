@@ -56,6 +56,51 @@ def rename_batch(batch_id: str, req: RenameBatchRequest):
     return {"ok": True, "batch_id": batch_id, "display_name": name}
 
 
+@router.get("/api/backtest-history/{batch_id}/comparison")
+def get_comparison(batch_id: str):
+    """Single shared source for the Original vs Optimized comparison table
+    -- used by both the Backtest History page and the SINDHU CEO
+    Backtesting card, so the two views can never show conflicting numbers
+    (per the standing "SINDHU CEO stays current with every feature" rule).
+    Works whether `batch_id` is the original or the optimized side, since
+    storage.get_optimization_for_batch() already matches either.
+    has_optimization=False (with no other fields) means this batch was
+    never run through the auto-optimizer -- original-only, nothing to
+    compare."""
+    opt = storage.get_optimization_for_batch(batch_id)
+    if not opt:
+        return {"has_optimization": False}
+
+    original = quick_batch_summary(opt["original_batch_id"])
+    optimized = quick_batch_summary(opt["optimized_batch_id"]) if opt["optimized_batch_id"] else None
+
+    why = None
+    if opt["winner"] == "optimized" and optimized and original:
+        reasons = []
+        if optimized.get("total_pnl") is not None and original.get("total_pnl") is not None \
+                and optimized["total_pnl"] > original["total_pnl"]:
+            reasons.append("higher total PnL")
+        if optimized.get("max_drawdown_pct") is not None and original.get("max_drawdown_pct") is not None \
+                and optimized["max_drawdown_pct"] < original["max_drawdown_pct"]:
+            reasons.append("lower max drawdown")
+        why = f"Optimized won -- {' and '.join(reasons)}" if reasons else "Optimized won -- higher total PnL on the full re-backtest"
+    elif opt["winner"] == "original" and optimized:
+        why = "Original won -- the optimized candidate did not beat it on the full re-backtest"
+    elif opt["winner"] == "original":
+        why = "Original won -- no parameter combination beat it on the fast screen, so no full re-backtest was run"
+
+    return {
+        "has_optimization": True,
+        "winner": opt["winner"],
+        "why": why,
+        "original": original,
+        "optimized": optimized,
+        "params_changed": opt["params_changed"],
+        "candidates_tried": len(opt["candidates_tried"]),
+        "created_at": opt["created_at"],
+    }
+
+
 @router.get("/api/reports/best-worst/strategies")
 def best_worst_strategies():
     # Uses quick_batch_summary() (not generate_report()) -- this only needs

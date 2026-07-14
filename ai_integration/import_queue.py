@@ -28,23 +28,26 @@ def _now_iso():
     return datetime.now(timezone.utc).isoformat()
 
 
-def enqueue(raw_text, title=None, source_hint=None, use_ai=True, filename=None, input_kind="text"):
+def enqueue(raw_text, title=None, source_hint=None, use_ai=True, filename=None, input_kind="text", content_type=None):
     if not raw_text or not raw_text.strip():
         raise ValueError("No text/URL provided to enqueue.")
     item_id = uuid.uuid4().hex[:12]
-    storage.enqueue_ai_import(item_id, title, source_hint, filename, raw_text, use_ai, _now_iso(), input_kind=input_kind)
+    storage.enqueue_ai_import(
+        item_id, title, source_hint, filename, raw_text, use_ai, _now_iso(),
+        input_kind=input_kind, content_type=content_type,
+    )
     ensure_worker_running()
     return item_id
 
 
 def enqueue_batch(items):
-    """items: list of dicts with raw_text/title/source_hint/use_ai/filename/input_kind.
+    """items: list of dicts with raw_text/title/source_hint/use_ai/filename/input_kind/content_type.
     Returns the list of queue ids in the same order."""
     return [
         enqueue(
             item["raw_text"], title=item.get("title"), source_hint=item.get("source_hint"),
             use_ai=item.get("use_ai", True), filename=item.get("filename"),
-            input_kind=item.get("input_kind", "text"),
+            input_kind=item.get("input_kind", "text"), content_type=item.get("content_type"),
         )
         for item in items
     ]
@@ -80,7 +83,7 @@ def _process_one(item):
     try:
         result = import_document(
             item["raw_text"], title=item["title"], source_hint=item["source_hint"], use_ai=item["use_ai"],
-            input_kind=item.get("input_kind", "text"),
+            input_kind=item.get("input_kind", "text"), content_type=item.get("content_type"),
         )
         elapsed_ms = int((time.time() - started) * 1000)
         if result.get("document"):

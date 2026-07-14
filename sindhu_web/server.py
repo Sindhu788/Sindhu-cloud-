@@ -19,6 +19,7 @@ from sindhu_web.api import (
     knowledge, network as network_api, activity as activity_api, search as search_api,
     system as system_api, paper_trading as paper_trading_api, knowledge_compiler as knowledge_compiler_api,
     ai_integration as ai_integration_api, automation_pipeline as automation_pipeline_api,
+    clarification as clarification_api,
 )
 
 _STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -73,7 +74,7 @@ def create_app():
                    reports.router, settings_api.router, backup.router, jobs.router, ws.router,
                    knowledge.router, network_api.router, activity_api.router, search_api.router,
                    system_api.router, paper_trading_api.router, knowledge_compiler_api.router,
-                   ai_integration_api.router, automation_pipeline_api.router):
+                   ai_integration_api.router, automation_pipeline_api.router, clarification_api.router):
         app.include_router(router)
 
     @app.get("/api/token")

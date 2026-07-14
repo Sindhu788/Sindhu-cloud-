@@ -9,13 +9,13 @@ from data_engine import storage
 
 
 def account_balance(initial_balance):
-    """initial_balance + every closed paper trade's realized pnl -- there's
-    no separate "account" table, the ledger is the trade history itself."""
-    balance = initial_balance
-    for pos in storage.list_closed_paper_positions(limit=100000):
-        if pos.get("pnl") is not None:
-            balance += pos["pnl"]
-    return balance
+    """initial_balance + every closed paper trade's realized pnl, read from
+    the O(1) running total in paper_account_state (kept in sync by
+    storage.close_paper_position()) instead of scanning every closed
+    position on every call -- this is called on every /api/paper-trading/status
+    poll and every trade-sizing decision, so it needs to stay cheap as trade
+    history grows."""
+    return initial_balance + storage.get_paper_realized_pnl_total()
 
 
 def evaluate(candidate, settings):

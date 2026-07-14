@@ -38,25 +38,52 @@ KNOWN_SLTP_TYPES = ["fixed_pct", "atr_multiple", "structure", "rr", "level", "un
 _CONDITION_SCHEMA_NOTE = """Each condition object: {"type": one of indicator_compare|price_compare|concept|session|trend|raw, "indicator": indicator name (only for indicator_compare/price_compare), "params": {"period": N} if applicable else {}, "op": ">" or "<" only, "value": number (for indicator_compare), "name": concept/session name (for concept/session types), "direction": "bullish"|"bearish"|null (for concept/trend types), "text": the original phrase (required when type="raw" -- use raw ONLY when you cannot express the rule with the vocabulary below), "role": null (leave null), "lookback_bars": null (leave null)."""
 
 
-def build_structured_extraction_prompt(source_hint=None):
+def build_structured_extraction_prompt(source_hint=None, content_type=None):
     """Returns the system prompt instructing the AI to directly produce a
     StrategyConfig/Lesson-shaped JSON structure using only the backtest
-    engine's real executable vocabulary."""
+    engine's real executable vocabulary.
+
+    content_type (Part 2, explicit type selector): "strategy" | "lesson" |
+    "mixed"/None. Previously the AI had to guess purely from the text
+    whether a document was a strategy, a lesson, or both -- a real
+    contributor to strategies coming back low-confidence/misclassified
+    (needing clarification) or lesson content getting forced into a
+    half-built "strategy". When the CEO tells us up front, that guess is
+    replaced with a direct instruction. "mixed"/None leaves the AI's
+    existing free judgment completely unchanged (this is also what an
+    unspecified selector defaults to, in sindhu_web/api/ai_integration.py)."""
     hint_note = ""
+    if content_type == "strategy":
+        hint_note += (
+            "The user has told you in advance that this document is a TRADING STRATEGY "
+            "(not a general lesson document): focus on extracting complete, executable "
+            "entry/exit/confirmation/stop-loss/take-profit/risk rules into the `strategy` "
+            "field. Still record any genuine standalone lessons/psychology notes you notice, "
+            "but do not leave `strategy` null just because the document also contains "
+            "commentary -- look hard for the actual trade rules.\n\n"
+        )
+    elif content_type == "lesson":
+        hint_note += (
+            "The user has told you in advance that this document is a LESSON / KNOWLEDGE "
+            "document, NOT a trading strategy: you MUST set `strategy` to null, even if the "
+            "text mentions trade-like rules or numbers -- put that content into `lessons` "
+            "and `psychology_notes` instead. Do not attempt to build an executable strategy "
+            "from this document.\n\n"
+        )
     if source_hint == "youtube_transcript":
-        hint_note = (
+        hint_note += (
             "This text is a raw YouTube video transcript: expect filler words, "
             "false starts, repeated phrases, and missing punctuation -- read "
             "through that noise to the actual trading content.\n\n"
         )
     elif source_hint == "notebooklm":
-        hint_note = (
+        hint_note += (
             "This text is a NotebookLM-style research report: it may combine "
             "several sub-topics (strategy, lessons, psychology, risk, "
             "definitions) in one document -- extract and combine all of them.\n\n"
         )
     elif source_hint == "pdf_text":
-        hint_note = (
+        hint_note += (
             "This text was extracted from a PDF and may contain page-break "
             "artifacts, broken line wraps, or repeated headers/footers -- read "
             "through that noise to the actual trading content.\n\n"

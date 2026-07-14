@@ -60,15 +60,24 @@ def save_strategy(req: SaveRequest):
     return {"id": strategy_id}
 
 
-def _strategy_last_batch_result(strategy_name):
+def _strategy_last_batch_result(strategy_name, recent_batches):
     """Lightweight summary straight from each result's already-computed
     metrics_json -- deliberately NOT generate_report(), which also builds
     full rankings/session analysis and writes report.json/.txt to disk on
     every call. That's the right tool for viewing one report, but calling
     it once per strategy just to populate a list view made this endpoint
     scale badly (measured ~800ms per strategy) and made the Strategies/
-    Backtesting pages feel like they'd hung on load."""
-    for batch in storage.list_recent_batches(limit=100):
+    Backtesting pages feel like they'd hung on load.
+
+    `recent_batches` is fetched once by the caller and reused across every
+    strategy in the list -- list_strategies() used to call
+    storage.list_recent_batches(limit=100) freshly inside this function for
+    EVERY strategy (a DB round trip + JSON-parsing up to 100 batches, N
+    times over for N strategies), which is exactly the kind of redundant
+    per-item query this endpoint is also polled by the Paper Trading page
+    load (it lists available strategies), so it compounds with everything
+    else fetched on that page."""
+    for batch in recent_batches:
         if batch["strategy_name"] != strategy_name:
             continue
         if batch["status"] != "completed":
@@ -91,6 +100,7 @@ def _strategy_last_batch_result(strategy_name):
 @router.get("/api/backtesting/strategies")
 def list_strategies(q: str = ""):
     strategies = lib.search(q)
+    recent_batches = storage.list_recent_batches(limit=100)
     for meta in strategies:
         try:
             cfg = lib.load(meta["id"])
@@ -99,7 +109,7 @@ def list_strategies(q: str = ""):
             meta["status"] = "READY_FOR_BACKTEST" if not validate(cfg) else "NEEDS_CLARIFICATION"
         except Exception:
             meta["concepts_used"], meta["timeframes"], meta["status"] = [], {}, "NEEDS_CLARIFICATION"
-        meta["last_batch_result"] = _strategy_last_batch_result(meta["name"])
+        meta["last_batch_result"] = _strategy_last_batch_result(meta["name"], recent_batches)
     return {"strategies": strategies}
 
 

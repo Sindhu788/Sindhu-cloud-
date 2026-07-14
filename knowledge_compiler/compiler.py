@@ -70,14 +70,22 @@ def _existing_lesson_dna_map():
     return dna_map
 
 
-def _finalize_and_save_strategy(config, doc_id, now, force_backtest_ready=False):
+def _finalize_and_save_strategy(config, doc_id, now, force_backtest_ready=False, hidden_rules=None, confidence_pct=None):
     """Shared by both pipelines: dedup/merge/conflict-check an already-built
     StrategyConfig, resolve safe defaults, and save with the same duplicate/
     version-by-name logic either path uses. `force_backtest_ready` is only
     ever passed True by the AI-Native Structured Extraction path (v7), when
     the AI's own confidence was >= AI_CONFIDENCE_ACCEPT_THRESHOLD -- the old
     text-parser path never sets it, so its exact existing behavior
-    (including genuinely blocking on an unresolved strategy) is unchanged."""
+    (including genuinely blocking on an unresolved strategy) is unchanged.
+
+    `hidden_rules`/`confidence_pct`: only ever populated by the AI-Native
+    path (the AI's own per-field {field,confidence,reason,evidence} reasoning
+    -- see ai_integration/schema.py). Persisted onto the saved strategy's own
+    record (Part 1, clarification flow) so the Strategies page can show
+    exactly why a strategy needs clarification without having to trace back
+    through compiled_documents, and cleared the moment the strategy
+    re-validates as ready."""
     quality.dedupe_rules(config)
     config.concepts_used = quality.merge_concepts(config.concepts_used)
     conflicts = quality.detect_conflicts(config)
@@ -115,8 +123,18 @@ def _finalize_and_save_strategy(config, doc_id, now, force_backtest_ready=False)
         for concept in config.concepts_used:
             storage.save_knowledge_relationship("strategy", saved_id, "concept", concept, "uses", now)
 
+    all_notes = clarification_notes + conflicts
+    if saved_id:
+        if status == NEEDS_CLARIFICATION:
+            strategy_library.set_clarification(saved_id, {
+                "notes": all_notes, "hidden_rules": hidden_rules or [],
+                "confidence_pct": confidence_pct, "updated_at": now,
+            })
+        else:
+            strategy_library.set_clarification(saved_id, None)
+
     return CompiledStrategyResult(
-        config=config, status=status, clarification_notes=clarification_notes + conflicts,
+        config=config, status=status, clarification_notes=all_notes,
         resolved_defaults=resolved_defaults, dna=dna, saved_strategy_id=saved_id or dup_id,
     )
 
@@ -187,7 +205,7 @@ def _compile_lessons(text, detected_sections, doc_id, now):
 
 def compile_document(
     raw_text, title=None, source_hint=None, ai_assisted=False, ai_provider=None,
-    hidden_rules=None, psychology_notes=None, deep_knowledge=None,
+    hidden_rules=None, psychology_notes=None, deep_knowledge=None, content_type=None,
 ):
     """The text-based entry point: classify -> detect sections -> extract ->
     validate/resolve -> quality-check -> auto-save -> return a CompiledDocument.
@@ -219,8 +237,22 @@ def compile_document(
     concepts_found = _concepts_in_text(working_text)
     _touch_concepts(concepts_found, now)
 
+    # Part 2 (explicit type selector): "strategy"/"lesson" override the
+    # classifier's own guess outright -- that guess is a real source of
+    # strategies coming back misclassified/low-quality. "mixed" (the
+    # selector's own default) and unspecified (None) both leave the
+    # classifier's free judgment completely unchanged, exactly matching
+    # pre-Part-2 behavior -- "Mixed" means "still figure it out yourself",
+    # not "force both".
+    if content_type == "lesson":
+        should_extract_strategy = False
+    elif content_type == "strategy":
+        should_extract_strategy = True
+    else:
+        should_extract_strategy = classification.doc_type in (classifier.DOC_STRATEGY, classifier.DOC_MIXED)
+
     strategies = []
-    if classification.doc_type in (classifier.DOC_STRATEGY, classifier.DOC_MIXED):
+    if should_extract_strategy:
         strategies.append(_compile_strategy(working_text, title, detected_sections, doc_id, now))
 
     lessons = _compile_lessons(working_text, detected_sections, doc_id, now)
@@ -321,6 +353,7 @@ def compile_from_ai_extraction(
         strategies.append(_finalize_and_save_strategy(
             strategy_config, doc_id, now,
             force_backtest_ready=(confidence_pct >= AI_CONFIDENCE_ACCEPT_THRESHOLD),
+            hidden_rules=inferred_fields, confidence_pct=confidence_pct,
         ))
 
     lesson_entries = [{"lesson": lesson_obj, "kind": "ai_extracted", "source_section": "AI"} for lesson_obj in lesson_objects]

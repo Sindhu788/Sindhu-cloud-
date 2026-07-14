@@ -137,18 +137,34 @@ def test_provider(name: str):
     return {"ok": ok, "message": message, "latency_ms": latency_ms}
 
 
+_VALID_CONTENT_TYPES = {"strategy", "lesson", "mixed"}
+
+
+def _normalize_content_type(value):
+    """Part 2: "mixed" and unspecified/unrecognized both mean "let the
+    classifier/AI decide, exactly like before this feature existed" --
+    only "strategy"/"lesson" actually steer anything (see schema.py /
+    knowledge_compiler/compiler.py). Never raises on a bad value; just
+    treats it as unspecified."""
+    return value if value in _VALID_CONTENT_TYPES else None
+
+
 class ImportTextRequest(BaseModel):
     text: str
     title: Optional[str] = None
     source_hint: Optional[str] = None
     use_ai: bool = True
+    content_type: Optional[str] = None  # "strategy" | "lesson" | "mixed"
 
 
 @router.post("/api/ai/import")
 def import_text(req: ImportTextRequest):
     if not req.text or not req.text.strip():
         raise HTTPException(400, "No text provided.")
-    result = import_document(req.text, title=req.title, source_hint=req.source_hint, use_ai=req.use_ai)
+    result = import_document(
+        req.text, title=req.title, source_hint=req.source_hint, use_ai=req.use_ai,
+        content_type=_normalize_content_type(req.content_type),
+    )
     if result.get("error") and not result.get("document"):
         raise HTTPException(422, result["error"])
     doc = result["document"]
@@ -168,6 +184,7 @@ async def import_file(
     file: UploadFile = File(...),
     title: Optional[str] = Form(None),
     use_ai: bool = Form(True),
+    content_type: Optional[str] = Form(None),
 ):
     raw_bytes = await file.read()
     try:
@@ -178,7 +195,10 @@ async def import_file(
     if not text or not text.strip():
         raise HTTPException(422, f"No extractable text found in '{file.filename}'.")
 
-    result = import_document(text, title=title or file.filename, source_hint=file.filename, use_ai=use_ai)
+    result = import_document(
+        text, title=title or file.filename, source_hint=file.filename, use_ai=use_ai,
+        content_type=_normalize_content_type(content_type),
+    )
     if result.get("error") and not result.get("document"):
         raise HTTPException(422, result["error"])
     doc = result["document"]
@@ -194,13 +214,17 @@ class ImportYoutubeRequest(BaseModel):
     url: str
     title: Optional[str] = None
     use_ai: bool = True
+    content_type: Optional[str] = None
 
 
 @router.post("/api/ai/import/youtube")
 def import_youtube(req: ImportYoutubeRequest):
     if not req.url or not req.url.strip():
         raise HTTPException(400, "No YouTube URL provided.")
-    result = import_document(req.url, title=req.title, use_ai=req.use_ai, input_kind="youtube")
+    result = import_document(
+        req.url, title=req.title, use_ai=req.use_ai, input_kind="youtube",
+        content_type=_normalize_content_type(req.content_type),
+    )
     if result.get("error") and not result.get("document"):
         raise HTTPException(422, result["error"])
     doc = result["document"]
@@ -280,6 +304,7 @@ class QueueImportItem(BaseModel):
     source_hint: Optional[str] = None
     use_ai: bool = True
     input_kind: str = "text"   # "text" or "youtube" (text field holds the URL)
+    content_type: Optional[str] = None  # "strategy" | "lesson" | "mixed"
 
 
 class QueueImportBatchRequest(BaseModel):
@@ -294,6 +319,7 @@ def enqueue_import(req: QueueImportBatchRequest):
         {
             "raw_text": item.text, "title": item.title, "source_hint": item.source_hint,
             "use_ai": item.use_ai, "input_kind": item.input_kind,
+            "content_type": _normalize_content_type(item.content_type),
         }
         for item in req.items
     ])

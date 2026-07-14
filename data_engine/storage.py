@@ -115,6 +115,34 @@ CREATE TABLE IF NOT EXISTS lesson_applications (
     outcome TEXT NOT NULL
 );
 
+-- This table grows one row per lesson per bar checked during backtests --
+-- millions of rows in practice. get_lesson_stats()/get_lesson_stats_bulk()
+-- filter by lesson_id, and get_batch_lesson_stats() filters by batch_id;
+-- without these, both are full-table scans that get slower as the table
+-- grows (measured: 90+s for a lesson-stats pass at 3.6M rows). Additive,
+-- CREATE INDEX IF NOT EXISTS is safe to run on every startup.
+CREATE INDEX IF NOT EXISTS idx_lesson_applications_lesson_id ON lesson_applications(lesson_id);
+CREATE INDEX IF NOT EXISTS idx_lesson_applications_batch_id ON lesson_applications(batch_id);
+
+-- Running per-lesson totals, kept in sync incrementally by
+-- record_lesson_application()/record_lesson_applications_bulk() every time
+-- a row is written to lesson_applications. Even WITH the index above,
+-- COUNT(*)/SUM(...) over a lesson's full history still means reading every
+-- one of its (tens of thousands of) matching rows -- measured 5-11s for
+-- all lessons combined even with the index, because SQLite still has to
+-- walk every matching index entry to aggregate. This table turns that into
+-- a single O(1) primary-key lookup per lesson: the aggregate is computed
+-- once, incrementally, at write time, not recomputed from scratch on every
+-- Knowledge page load. _migrate_lesson_stats_summary_backfill() seeds this
+-- once from existing history for anyone upgrading from before this table
+-- existed.
+CREATE TABLE IF NOT EXISTS lesson_stats_summary (
+    lesson_id TEXT PRIMARY KEY,
+    times_used INTEGER NOT NULL DEFAULT 0,
+    trades_approved INTEGER NOT NULL DEFAULT 0,
+    trades_rejected INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS activity_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     entity TEXT NOT NULL,
@@ -155,6 +183,16 @@ CREATE TABLE IF NOT EXISTS paper_positions (
     status TEXT NOT NULL DEFAULT 'open',
     created_at TEXT NOT NULL,
     closed_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_paper_positions_status_closed
+    ON paper_positions(status, closed_at);
+
+CREATE TABLE IF NOT EXISTS paper_account_state (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    realized_pnl_total REAL NOT NULL DEFAULT 0.0,
+    closed_count INTEGER NOT NULL DEFAULT 0,
+    win_count INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS paper_decision_log (
@@ -349,6 +387,10 @@ _AI_IMPORT_QUEUE_V6_COLUMNS = {
     "input_kind": "TEXT NOT NULL DEFAULT 'text'",
 }
 
+_AI_IMPORT_QUEUE_CONTENT_TYPE_COLUMNS = {
+    "content_type": "TEXT",
+}
+
 _AI_IMPORT_CACHE_V8_COLUMNS = {
     "ai_result_json": "TEXT",
     "provider": "TEXT",
@@ -404,6 +446,78 @@ def _migrate_ai_import_queue_v6_columns(conn):
     for col, col_type in _AI_IMPORT_QUEUE_V6_COLUMNS.items():
         if col not in have_columns:
             conn.execute(f"ALTER TABLE ai_import_queue ADD COLUMN {col} {col_type}")
+
+
+def _migrate_ai_import_queue_content_type_column(conn):
+    """Part 2 (explicit Strategy/Lesson/Mixed selector): the user's choice
+    at queue-time needs to survive until the worker thread actually
+    processes the item, so it's a persisted column, not just an in-memory
+    call argument. Additive-only, existing rows default to NULL (treated
+    as "mixed"/unspecified -- unchanged old behavior)."""
+    existing = {r[0] for r in
+                conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "ai_import_queue" not in existing:
+        return
+    have_columns = {r[1] for r in conn.execute("PRAGMA table_info(ai_import_queue)").fetchall()}
+    for col, col_type in _AI_IMPORT_QUEUE_CONTENT_TYPE_COLUMNS.items():
+        if col not in have_columns:
+            conn.execute(f"ALTER TABLE ai_import_queue ADD COLUMN {col} {col_type}")
+
+
+def _migrate_lesson_stats_summary_backfill(conn):
+    """One-time seed of lesson_stats_summary from whatever's already in
+    lesson_applications, for anyone upgrading from before this table
+    existed. Only runs the (expensive, one-time) aggregation when the
+    summary table is empty but lesson_applications has data -- every
+    startup after that is a single trivial COUNT check, and every write
+    going forward is kept in sync incrementally by
+    record_lesson_application()/record_lesson_applications_bulk() instead
+    of ever being recomputed from full history again."""
+    existing = {r[0] for r in
+                conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "lesson_stats_summary" not in existing or "lesson_applications" not in existing:
+        return
+    already_seeded = conn.execute("SELECT COUNT(*) FROM lesson_stats_summary").fetchone()[0]
+    if already_seeded:
+        return
+    has_applications = conn.execute("SELECT EXISTS(SELECT 1 FROM lesson_applications LIMIT 1)").fetchone()[0]
+    if not has_applications:
+        return
+    conn.execute(
+        """INSERT INTO lesson_stats_summary (lesson_id, times_used, trades_approved, trades_rejected)
+           SELECT lesson_id, COUNT(*),
+                  SUM(CASE WHEN outcome='approved' THEN 1 ELSE 0 END),
+                  SUM(CASE WHEN outcome='rejected' THEN 1 ELSE 0 END)
+           FROM lesson_applications GROUP BY lesson_id"""
+    )
+
+
+def _migrate_paper_account_state_backfill(conn):
+    """One-time seed of paper_account_state (realized_pnl_total, closed_count,
+    win_count) from whatever closed positions already exist, for anyone
+    upgrading from before this running total existed. Mirrors
+    _migrate_lesson_stats_summary_backfill: only runs the one-time aggregation
+    when the state row doesn't exist yet; every close_paper_position() call
+    afterward keeps it in sync incrementally instead of
+    risk_manager.account_balance() and the Home page's account snapshot each
+    re-scanning every closed position on every call (that scan is what made
+    both get slower as paper trade history grew)."""
+    existing = {r[0] for r in
+                conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "paper_account_state" not in existing or "paper_positions" not in existing:
+        return
+    already_seeded = conn.execute("SELECT COUNT(*) FROM paper_account_state").fetchone()[0]
+    if already_seeded:
+        return
+    total, closed_count, win_count = conn.execute(
+        """SELECT COALESCE(SUM(pnl), 0.0), COUNT(*),
+                  SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END)
+           FROM paper_positions WHERE status='closed' AND pnl IS NOT NULL"""
+    ).fetchone()
+    conn.execute(
+        "INSERT INTO paper_account_state (id, realized_pnl_total, closed_count, win_count) VALUES (1, ?, ?, ?)",
+        (total, closed_count, win_count or 0),
+    )
 
 
 def _migrate_ai_dictionary_v6_columns(conn):
@@ -587,8 +701,11 @@ def init_db():
         _migrate_compiled_document_v6_columns(conn)
         _migrate_ai_dictionary_v6_columns(conn)
         _migrate_ai_import_queue_v6_columns(conn)
+        _migrate_ai_import_queue_content_type_column(conn)
         _migrate_ai_import_cache_v8_columns(conn)
         _migrate_backtest_batch_columns(conn)
+        _migrate_lesson_stats_summary_backfill(conn)
+        _migrate_paper_account_state_backfill(conn)
 
 
 def save_symbols(exchange, symbols, now_iso):
@@ -707,6 +824,20 @@ def get_klines_range(exchange, symbol, start_ms=None, end_ms=None):
     query += " ORDER BY open_time"
     with get_conn() as conn:
         return conn.execute(query, params).fetchall()
+
+
+def get_symbol_time_bounds(exchange, symbol):
+    """(min_open_time, max_open_time) for a symbol's 1m klines, or (None, None)
+    if none stored. Used as a cheap freshness signature for the resample
+    cache: SQLite answers MIN/MAX on an indexed column via a direct b-tree
+    seek, not a full scan, so this stays fast even on a multi-hundred-
+    thousand-row symbol."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT MIN(open_time), MAX(open_time) FROM klines_1m WHERE exchange = ? AND symbol = ?",
+            (exchange, symbol),
+        ).fetchone()
+    return (row[0], row[1]) if row else (None, None)
 
 
 def db_file_size_bytes():
@@ -1027,6 +1158,24 @@ def delete_lesson(lesson_id):
     with get_conn() as conn:
         conn.execute("DELETE FROM lessons WHERE id = ?", (lesson_id,))
         conn.execute("DELETE FROM lesson_applications WHERE lesson_id = ?", (lesson_id,))
+        conn.execute("DELETE FROM lesson_stats_summary WHERE lesson_id = ?", (lesson_id,))
+
+
+def _bump_lesson_stats_summary(conn, lesson_id, outcome):
+    """Incrementally keeps lesson_stats_summary in sync with every row
+    written to lesson_applications -- an UPSERT that adds 1 to times_used
+    (always) and to trades_approved/trades_rejected (only for a matching
+    outcome), so get_lesson_stats()/get_lesson_stats_bulk() never need to
+    re-aggregate lesson_applications' full history again."""
+    conn.execute(
+        """INSERT INTO lesson_stats_summary (lesson_id, times_used, trades_approved, trades_rejected)
+           VALUES (?, 1, ?, ?)
+           ON CONFLICT(lesson_id) DO UPDATE SET
+             times_used = times_used + 1,
+             trades_approved = trades_approved + excluded.trades_approved,
+             trades_rejected = trades_rejected + excluded.trades_rejected""",
+        (lesson_id, 1 if outcome == "approved" else 0, 1 if outcome == "rejected" else 0),
+    )
 
 
 def record_lesson_application(lesson_id, batch_id, symbol, timeframe, outcome, now_iso):
@@ -1036,6 +1185,7 @@ def record_lesson_application(lesson_id, batch_id, symbol, timeframe, outcome, n
                VALUES (?, ?, ?, ?, ?, ?)""",
             (lesson_id, batch_id, symbol, timeframe, now_iso, outcome),
         )
+        _bump_lesson_stats_summary(conn, lesson_id, outcome)
 
 
 def record_lesson_applications_bulk(rows):
@@ -1044,32 +1194,76 @@ def record_lesson_applications_bulk(rows):
     (lesson_id, batch_id, symbol, timeframe, applied_at, outcome) tuples
     (same column order as the table). Used by KnowledgeEngine to flush a
     whole backtest run's worth of per-bar lesson checks in a single write
-    instead of one connection per bar."""
+    instead of one connection per bar. Aggregates per lesson_id in Python
+    first so the summary UPSERT is one statement per distinct lesson in
+    this batch, not one per row."""
     rows = list(rows)
     if not rows:
         return
+    deltas = {}
+    for lesson_id, _batch_id, _symbol, _timeframe, _applied_at, outcome in rows:
+        d = deltas.setdefault(lesson_id, {"times_used": 0, "trades_approved": 0, "trades_rejected": 0})
+        d["times_used"] += 1
+        if outcome == "approved":
+            d["trades_approved"] += 1
+        elif outcome == "rejected":
+            d["trades_rejected"] += 1
     with get_conn() as conn:
         conn.executemany(
             """INSERT INTO lesson_applications (lesson_id, batch_id, symbol, timeframe, applied_at, outcome)
                VALUES (?, ?, ?, ?, ?, ?)""",
             rows,
         )
+        conn.executemany(
+            """INSERT INTO lesson_stats_summary (lesson_id, times_used, trades_approved, trades_rejected)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(lesson_id) DO UPDATE SET
+                 times_used = times_used + excluded.times_used,
+                 trades_approved = trades_approved + excluded.trades_approved,
+                 trades_rejected = trades_rejected + excluded.trades_rejected""",
+            [(lesson_id, d["times_used"], d["trades_approved"], d["trades_rejected"]) for lesson_id, d in deltas.items()],
+        )
+
+
+_EMPTY_LESSON_STATS = {"times_used": 0, "trades_approved": 0, "trades_rejected": 0}
 
 
 def get_lesson_stats(lesson_id):
+    """Reads the incrementally-maintained summary (O(1) primary-key lookup)
+    instead of aggregating lesson_applications' full history on every call
+    -- see lesson_stats_summary's schema comment and _bump_lesson_stats_summary()."""
     with get_conn() as conn:
         row = conn.execute(
-            """SELECT COUNT(*),
-                 SUM(CASE WHEN outcome='approved' THEN 1 ELSE 0 END),
-                 SUM(CASE WHEN outcome='rejected' THEN 1 ELSE 0 END)
-               FROM lesson_applications WHERE lesson_id = ?""",
+            "SELECT times_used, trades_approved, trades_rejected FROM lesson_stats_summary WHERE lesson_id = ?",
             (lesson_id,),
         ).fetchone()
+    if not row:
+        return dict(_EMPTY_LESSON_STATS)
     times_used, approved, rejected = row
+    return {"times_used": times_used, "trades_approved": approved, "trades_rejected": rejected}
+
+
+def get_lesson_stats_bulk(lesson_ids):
+    """Same shape as get_lesson_stats(), but for many lessons in one query
+    instead of one query per lesson -- what the Knowledge page's lesson
+    list actually needs. Reads lesson_stats_summary directly (no
+    aggregation at read time at all -- see that table's schema comment).
+    Lesson ids with no applications yet simply aren't in
+    lesson_stats_summary -- callers get all-zero stats for those via the
+    .get(..., default) at the call site."""
+    lesson_ids = list(lesson_ids)
+    if not lesson_ids:
+        return {}
+    placeholders = ",".join("?" for _ in lesson_ids)
+    with get_conn() as conn:
+        rows = conn.execute(
+            f"""SELECT lesson_id, times_used, trades_approved, trades_rejected
+                FROM lesson_stats_summary WHERE lesson_id IN ({placeholders})""",
+            lesson_ids,
+        ).fetchall()
     return {
-        "times_used": times_used or 0,
-        "trades_approved": approved or 0,
-        "trades_rejected": rejected or 0,
+        lesson_id: {"times_used": times_used, "trades_approved": approved, "trades_rejected": rejected}
+        for lesson_id, times_used, approved, rejected in rows
     }
 
 
@@ -1202,6 +1396,39 @@ def close_paper_position(position_id, exit_price, exit_time, pnl, pnl_pct, exit_
             (exit_price, exit_time, pnl, pnl_pct, exit_reason,
              json.dumps(lifecycle), json.dumps(reflection), closed_at, position_id),
         )
+        if pnl is not None:
+            conn.execute(
+                """INSERT INTO paper_account_state (id, realized_pnl_total, closed_count, win_count)
+                   VALUES (1, ?, 1, ?)
+                   ON CONFLICT(id) DO UPDATE SET
+                     realized_pnl_total = realized_pnl_total + excluded.realized_pnl_total,
+                     closed_count = closed_count + 1,
+                     win_count = win_count + excluded.win_count""",
+                (pnl, 1 if pnl > 0 else 0),
+            )
+
+
+def get_paper_realized_pnl_total():
+    """O(1) running total kept in sync by close_paper_position() -- see
+    _migrate_paper_account_state_backfill() for why this replaced a live
+    SUM() scan over every closed position on every call."""
+    with get_conn() as conn:
+        row = conn.execute("SELECT realized_pnl_total FROM paper_account_state WHERE id=1").fetchone()
+    return row[0] if row else 0.0
+
+
+def get_paper_account_summary():
+    """{realized_pnl_total, closed_count, win_count}, O(1) via the running
+    total kept in sync by close_paper_position() -- used by the Home page's
+    account snapshot instead of materializing every closed position (with
+    its JSON columns) just to compute a win rate and a trade count."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT realized_pnl_total, closed_count, win_count FROM paper_account_state WHERE id=1"
+        ).fetchone()
+    if not row:
+        return {"realized_pnl_total": 0.0, "closed_count": 0, "win_count": 0}
+    return {"realized_pnl_total": row[0], "closed_count": row[1], "win_count": row[2]}
 
 
 def get_open_paper_positions(exchange=None, symbol=None, direction=None):
@@ -1648,7 +1875,7 @@ def ai_usage_since(since_iso):
 _QUEUE_COLUMNS = [
     "id", "title", "source_hint", "filename", "raw_text", "use_ai", "status",
     "result_doc_id", "ai_assisted", "ai_provider", "error_message", "processing_time_ms",
-    "created_at", "started_at", "finished_at", "input_kind",
+    "created_at", "started_at", "finished_at", "input_kind", "content_type",
 ]
 
 
@@ -1660,12 +1887,12 @@ def _row_to_queue_item(row):
     return d
 
 
-def enqueue_ai_import(item_id, title, source_hint, filename, raw_text, use_ai, now_iso, input_kind="text"):
+def enqueue_ai_import(item_id, title, source_hint, filename, raw_text, use_ai, now_iso, input_kind="text", content_type=None):
     with get_conn() as conn:
         conn.execute(
-            """INSERT INTO ai_import_queue (id, title, source_hint, filename, raw_text, use_ai, status, created_at, input_kind)
-               VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)""",
-            (item_id, title, source_hint, filename, raw_text, 1 if use_ai else 0, now_iso, input_kind),
+            """INSERT INTO ai_import_queue (id, title, source_hint, filename, raw_text, use_ai, status, created_at, input_kind, content_type)
+               VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)""",
+            (item_id, title, source_hint, filename, raw_text, 1 if use_ai else 0, now_iso, input_kind, content_type),
         )
 
 

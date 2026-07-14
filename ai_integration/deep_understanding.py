@@ -27,12 +27,12 @@ def _now_iso():
     return datetime.now(timezone.utc).isoformat()
 
 
-def _call_provider_chain(text, chain, source_hint):
+def _call_provider_chain(text, chain, source_hint, content_type=None):
     """One structured-extraction attempt over a single piece of text (the
     whole document, or one chunk of it), trying each provider in `chain` in
     order. Returns (parsed_dict_or_None, provider_name_or_None,
     error_summary_or_None). Never raises."""
-    system_prompt = schema.build_structured_extraction_prompt(source_hint)
+    system_prompt = schema.build_structured_extraction_prompt(source_hint, content_type)
     attempts = []
     for provider_name in chain:
         try:
@@ -163,7 +163,7 @@ def _merge_strategies(strategies):
     return merged
 
 
-def understand_document_structured(raw_text, use_ai, source_hint=None):
+def understand_document_structured(raw_text, use_ai, source_hint=None, content_type=None):
     """The single AI-Native Structured Extraction entry point. Returns:
     {"result": {...schema.parse_structured_response() shape...} or None,
      "provider": str or None, "error": str or None}.
@@ -186,7 +186,7 @@ def understand_document_structured(raw_text, use_ai, source_hint=None):
         return {"result": None, "provider": None, "error": None}
 
     if not chunking.needs_chunking(raw_text):
-        parsed, provider_name, error = _call_provider_chain(raw_text, chain, source_hint)
+        parsed, provider_name, error = _call_provider_chain(raw_text, chain, source_hint, content_type)
         if parsed is not None:
             return {"result": parsed, "provider": provider_name, "error": None}
         return {
@@ -202,7 +202,7 @@ def understand_document_structured(raw_text, use_ai, source_hint=None):
     failed_chunks = 0
 
     for chunk in chunks:
-        parsed, provider_name, error = _call_provider_chain(chunk, chain, source_hint)
+        parsed, provider_name, error = _call_provider_chain(chunk, chain, source_hint, content_type)
         if parsed is not None:
             if parsed.get("strategy"):
                 strategies.append(parsed["strategy"])

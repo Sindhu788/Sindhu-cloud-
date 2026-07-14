@@ -30,6 +30,12 @@ class KnowledgeEngine:
         # single biggest per-bar cost in the whole backtest. Buffered in
         # memory here instead and flushed in one bulk write -- see flush().
         self._pending_applications = []
+        # Per-symbol-backtest cache of column -> numpy array, reused across
+        # every check() call against the same df (fresh per instance, and a
+        # new KnowledgeEngine is created per symbol) -- see condition_eval's
+        # evaluate_condition() docstring for why this avoids re-slicing a
+        # pandas Series on every bar.
+        self._arr_cache = {}
 
     @classmethod
     def for_backtesting(cls, batch_id=None, symbol=None, timeframe=None, log_fn=None):
@@ -68,7 +74,7 @@ class KnowledgeEngine:
             if lesson.direction and lesson.direction != direction:
                 continue
 
-            condition_true = all(evaluate_condition(df, i, c) for c in lesson.conditions)
+            condition_true = all(evaluate_condition(df, i, c, self._arr_cache) for c in lesson.conditions)
             triggered = condition_true if lesson.rule_type == "block_if_true" else not condition_true
 
             outcome = "rejected" if triggered else "approved"

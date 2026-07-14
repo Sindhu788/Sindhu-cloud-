@@ -1,0 +1,96 @@
+{
+  "name": "Turtle Trader",
+  "raw_text": "To backtest Richard Dennis's Turtle Trader strategy effectively, you need to understand both the technical setup and the core risk management philosophy that made it successful. Below is a detailed breakdown based on the source.\n\n### 1. The Core Philosophy\nBefore implementing technical rules, you must adopt the \"Turtle\" mindset:\n*   **Trend Following:** Trade trends, not predictions [1].\n*   **Asymmetric Returns:** Dennis expected to **lose on most trades** [2]. Profitability comes from cutting losses quickly and letting winners run for weeks or months [1, 2].\n*   **Math over Psychology:** The strategy is based on numbers and mathematics rather than trader psychology [3].\n*   **Win Rate vs. Profit:** You do not need a positive win rate to be profitable; a single trade making 25% can compensate for nine consecutive 1% losses [4].\n\n### 2. Indicator Configuration\nTo set up your charts for backtesting, use the following indicators and settings:\n*   **Highest High / Lowest Low (Donchian Style):**\n    *   **Short/Medium Term (e.g., 1-hour timeframe):** Set the length to **20 periods** [5-7].\n    *   **Longer Term (Daily/Weekly):** Set the upper band to **55 periods** to identify safer entries in broader structures [8].\n*   **Average True Range (ATR):**\n    *   **Length:** 20 periods [9].\n    *   **Smoothing:** Set to Simple Moving Average (SMA) with a length of 20 [9].\n    *   **Additional Average:** Add a 20-period moving average directly to the ATR data to track its volatility trend [9].\n*   **200-Period Simple Moving Average (SMA):** This acts as a global trend filter [10].\n\n### 3. Entry Rules\nFor a **Long (Bullish)** trade:\n1.  **Trend Filter:** The price must be **above the 200-period SMA** [10].\n2.  **Breakout Trigger:** Wait for a candle to **close above the previous 20-period high** (or 55-period high for higher timeframes) [8, 10, 11].\n3.  **Entry Point:** Enter the trade immediately at the close of the breakout candle [10].\n\n### 4. Risk Management and Stop Loss\nThis is the most critical part of the backtest:\n*   **Account Risk:** Never risk more than **2% of your total account balance** on a single trade [1].\n*   **Stop Loss Placement:** \n    *   Identify the ATR value at the time of entry.\n    *   **Multiply the ATR value by two (2x ATR)** [10, 11].\n    *   For a long trade, subtract this 2x ATR value from the closing price of the entry candle. This is your initial stop loss [10].\n\n### 5. Exit Rules (Taking Profits)\nThe strategy does not use fixed profit targets. Instead, it uses a structural trailing exit:\n*   **Exit Trigger:** Keep the trade open until the price breaks the **previous 20-period low** [11].\n*   **Execution:** At the exact point the price breaks this structural low, exit the trade entirely to lock in the trend's gains [7, 11].\n\n### 6. Backtesting Summary Table\n| Component | Setting/Rule |\n| :--- | :--- |\n| **Primary Timeframe** | 1-Hour (for 20-period settings) or Daily (for 55-period) [7, 8] |\n| **Trend Filter** | Price > 200 SMA (for longs) [10] |\n| **Entry Trigger** | Candle close above 20 (or 55) period high [8, 10] |\n| **Stop Loss** | Entry Price - (2 * ATR) [10] |\n| **Exit (Take Profit)** | Price breaks 20-period low [11] |\n| **Risk per Trade** | Max 2% of account [1] |\n\nBy strictly following these rules during your backtest, you can replicate the disciplined approach that allowed Dennis\u2019s \"Turtles\" to generate $175 million in profit over five years [2, 12].",
+  "timeframes": {
+    "bias": "1d",
+    "trend": "1d",
+    "analysis": "1h",
+    "entry": "1h"
+  },
+  "indicators": [
+    {
+      "name": "sma",
+      "params": {
+        "period": 200
+      },
+      "role": "trend"
+    },
+    {
+      "name": "sma",
+      "params": {
+        "period": 20
+      },
+      "role": "analysis"
+    },
+    {
+      "name": "atr",
+      "params": {
+        "period": 20
+      },
+      "role": "risk"
+    }
+  ],
+  "concepts_used": [
+    "support",
+    "resistance"
+  ],
+  "entry_conditions": [
+    {
+      "type": "raw",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": "price > 200 sma",
+      "role": null,
+      "lookback_bars": null
+    },
+    {
+      "type": "raw",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": "close > 20-period high",
+      "role": null,
+      "lookback_bars": null
+    }
+  ],
+  "exit_conditions": [
+    {
+      "type": "raw",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": "price < 20-period low",
+      "role": null,
+      "lookback_bars": null
+    }
+  ],
+  "confirmation_conditions": [],
+  "stop_loss": {
+    "type": "atr_multiple",
+    "value": 2.0,
+    "level": null
+  },
+  "take_profit": {
+    "type": "structure",
+    "value": null,
+    "level": null
+  },
+  "risk_pct": 2.0,
+  "risk_reward": null,
+  "session_filter": [],
+  "trend_filter": null,
+  "tags": [],
+  "favourite": false,
+  "missing": [],
+  "warnings": []
+}

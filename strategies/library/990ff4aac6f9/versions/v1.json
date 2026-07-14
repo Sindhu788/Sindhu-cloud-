@@ -1,0 +1,156 @@
+{
+  "name": "Untitled Document",
+  "raw_text": "To backtest Richard Dennis\u2019s \"Turtle Trader\" strategy effectively, you need to define several specific parameters based on his rules for risk, entries, exits, and indicators.\nThe foundation of the strategy is mathematical risk management rather than trader psychology [1].\n*   **Risk Per Trade:** You should set your\nrisk to no more than **2% of your total account balance** on any single trade [2]. \n*   **Philosophy:** The backtest must account for a high frequency of small, controlled losses, which are eventually offset by a few \"big wins\" when catching a major trend [3, 4].\nThe sources specify the following technical setups for a standard short-to-medium-term (e.g., 1-hour) backtest:\n*   **trend_filter:** A **200-period Simple Moving Average (SMA)**. You only look for bullish breakouts if the price is currently above this average [5].\n*   **Price Action Channels:** Use a **Highest High/Lowest Low indicator** set to a **20-period** length [6, 7].\n*   **Volatility Measurement:** Use the **Average True Range (ATR)** indicator set to **20 periods** [8]. \n*   **ATR Smoothing:** Apply a **20-period SMA to the ATR data** itself; this smoothed value is what Dennis used to calculate stops [5, 8].\n3. Entry Rules:\nYour backtest should trigger an entry when the following conditions are met:\n*   **Trend Alignment:** Price must be above the 200 SMA for a long entry [5].\n*   **Structural Breakout:** The price must break and close above the **20-period structural high** [5, 9].\n*   **Execution:** The entry is placed at the **closing point** of the candle that successfully breaks that previous high [5].\nIf you want to backtest on different time frames, the settings change:",
+  "timeframes": {
+    "entry": "1h"
+  },
+  "indicators": [],
+  "concepts_used": [
+    "ema",
+    "sma",
+    "atr"
+  ],
+  "entry_conditions": [
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "ema",
+      "direction": null,
+      "text": null,
+      "role": null,
+      "lookback_bars": null
+    },
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "atr",
+      "direction": null,
+      "text": null,
+      "role": null,
+      "lookback_bars": null
+    },
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "sma",
+      "direction": null,
+      "text": null,
+      "role": null,
+      "lookback_bars": null
+    },
+    {
+      "type": "raw",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": "8]",
+      "role": null,
+      "lookback_bars": null
+    },
+    {
+      "type": "raw",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": "*   **Structural Breakout:** The price must break",
+      "role": null,
+      "lookback_bars": null
+    },
+    {
+      "type": "raw",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": "close above the **20-period structural high** [5",
+      "role": null,
+      "lookback_bars": null
+    },
+    {
+      "type": "raw",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": "9]",
+      "role": null,
+      "lookback_bars": null
+    },
+    {
+      "type": "raw",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": "If you want to backtest on different time frames",
+      "role": null,
+      "lookback_bars": null
+    },
+    {
+      "type": "raw",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": "the settings change:",
+      "role": null,
+      "lookback_bars": null
+    }
+  ],
+  "exit_conditions": [],
+  "confirmation_conditions": [],
+  "stop_loss": {
+    "type": "unknown",
+    "value": null,
+    "level": null
+  },
+  "take_profit": {
+    "type": "rr",
+    "value": 2.0,
+    "level": null
+  },
+  "risk_pct": 1.0,
+  "risk_reward": 2.0,
+  "session_filter": [],
+  "trend_filter": null,
+  "tags": [],
+  "favourite": false,
+  "missing": [
+    "entry timeframe",
+    "exit rules (no exit conditions or stop-loss detected)",
+    "stop loss",
+    "take profit",
+    "risk %"
+  ],
+  "warnings": [
+    "Unclear entry conditions: \"8]\"",
+    "Unclear entry conditions: \"*   **Structural Breakout:** The price must break\"",
+    "Unclear entry conditions: \"close above the **20-period structural high** [5\"",
+    "Unclear entry conditions: \"9]\"",
+    "Unclear entry conditions: \"If you want to backtest on different time frames\"",
+    "Unclear entry conditions: \"the settings change:\""
+  ]
+}

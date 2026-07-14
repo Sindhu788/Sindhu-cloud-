@@ -32,13 +32,29 @@
     }
   }
 
-  async function apiSend(method, path, body) {
+  // Part 4 (reliability): a plain fetch() with no abort/timeout can hang
+  // forever if the server stalls (crashed mid-request, port conflict,
+  // network drop) -- every POST/DELETE/upload gets the same bounded-wait
+  // treatment apiGet already had, just with a longer default since some of
+  // these (AI import, file upload) can legitimately take a while.
+  async function apiSend(method, path, body, timeoutMs = 120000) {
     await ensureToken();
-    const res = await fetch(path, {
-      method,
-      headers: { "Content-Type": "application/json", "X-Sindhu-Token": apiToken },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let res;
+    try {
+      res = await fetch(path, {
+        method,
+        headers: { "Content-Type": "application/json", "X-Sindhu-Token": apiToken },
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+        signal: controller.signal,
+      });
+    } catch (e) {
+      if (e.name === "AbortError") throw new Error(`${method} ${path} timed out after ${timeoutMs}ms`);
+      throw e;
+    } finally {
+      clearTimeout(timer);
+    }
     if (!res.ok) {
       let detail = `${method} ${path} -> ${res.status}`;
       try { detail = JSON.stringify(await res.json()); } catch (e) {}
@@ -46,12 +62,22 @@
     }
     return res.json();
   }
-  const apiPost = (path, body) => apiSend("POST", path, body);
+  const apiPost = (path, body, timeoutMs) => apiSend("POST", path, body, timeoutMs);
   const apiDelete = (path) => apiSend("DELETE", path);
 
-  async function apiUpload(path, formData) {
+  async function apiUpload(path, formData, timeoutMs = 180000) {
     await ensureToken();
-    const res = await fetch(path, { method: "POST", headers: { "X-Sindhu-Token": apiToken }, body: formData });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let res;
+    try {
+      res = await fetch(path, { method: "POST", headers: { "X-Sindhu-Token": apiToken }, body: formData, signal: controller.signal });
+    } catch (e) {
+      if (e.name === "AbortError") throw new Error(`POST ${path} timed out after ${timeoutMs}ms`);
+      throw e;
+    } finally {
+      clearTimeout(timer);
+    }
     if (!res.ok) {
       let detail = `POST ${path} -> ${res.status}`;
       try { detail = JSON.stringify(await res.json()); } catch (e) {}
@@ -212,14 +238,26 @@
   let pipelineBannerEl = null;
 
   function _pipelineStageLabel(msg) {
-    const labels = {
-      backtesting: "Backtesting", optimizing: "Optimizing (math-based, no AI calls)",
-      comparing: "Comparing original vs optimized", starting_paper_trading: "Starting Paper Trading",
-      completed: "Completed", aborted: "Aborted -- see logs",
+    // Part 4 (plain-language live logs): the backend now sends its own
+    // plain-English stage_label alongside current_stage (see
+    // automation_pipeline/pipeline.py) -- this fallback map only covers
+    // stage values that predate that field or arrive without it.
+    const fallbackLabels = {
+      backtesting: "Running the strategy against historical price data",
+      optimizing: "Testing different settings to find the best version of this strategy",
+      comparing: "Saving the original vs optimized comparison",
+      starting_paper_trading: "Starting Paper Trading with the winning version",
+      completed: "Done -- see the results in Backtest History",
+      aborted: "Could not continue -- see Live Logs for why",
+      stopped: "Stopped by request -- see Live Logs for details",
     };
-    let text = labels[msg.current_stage] || msg.current_stage || "Starting";
+    let text = msg.stage_label || fallbackLabels[msg.current_stage] || msg.current_stage || "Starting";
     if (msg.current_strategy) text = `${msg.current_strategy} -- ${text}`;
-    if (msg.done != null && msg.total != null) text += ` (${msg.done}/${msg.total} coins)`;
+    if (msg.current_stage === "optimizing" && msg.optimizer_tried != null && msg.optimizer_total != null) {
+      text += ` (${msg.optimizer_tried}/${msg.optimizer_total} combinations tried)`;
+    } else if (msg.done != null && msg.total != null) {
+      text += ` (${msg.done}/${msg.total} coins)`;
+    }
     return text;
   }
 
@@ -429,6 +467,7 @@
     compiler: '<path d="M9 3L5 21"/><path d="M15 3l4 18"/><path d="M12 3v18"/><circle cx="12" cy="12" r="2"/>',
     ai_center: '<rect x="5" y="7" width="14" height="12" rx="2"/><circle cx="9.5" cy="13" r="1.3"/><circle cx="14.5" cy="13" r="1.3"/><path d="M12 7V3"/><circle cx="12" cy="2.3" r="1"/><path d="M3 12h2M19 12h2"/>',
     history: '<path d="M3 12a9 9 0 109-9 9 9 0 00-6.4 2.6"/><path d="M3 3v6h6"/><path d="M12 7v5l4 2"/>',
+    ceo: '<path d="M12 2l2.5 5 5.5.8-4 3.9.9 5.5-4.9-2.6L6.6 17.2l.9-5.5-4-3.9 5.5-.8z"/>',
   };
 
   async function renderNav() {
@@ -455,6 +494,7 @@
     knowledge: renderKnowledge, strategies: renderStrategies,
     paper_trading: renderPaperTrading, knowledge_compiler: renderKnowledgeCompiler,
     ai_center: renderAiCenter, backtest_history: renderBacktestHistory,
+    ceo: renderCEO,
   };
   let refreshTimer = null;
   let pendingStrategyLoadId = null;
@@ -676,6 +716,51 @@
     return `<svg viewBox="0 0 400 160" preserveAspectRatio="none">${sparklineInner(series, 400, 160, 6)}</svg>`;
   }
 
+  // ------------------------------------------------------------ shared Original vs Optimized comparison
+  // Single component used by both the Backtest History page and the
+  // SINDHU CEO Backtesting card, backed by the single shared endpoint
+  // /api/backtest-history/{batch_id}/comparison -- per the standing rule
+  // that SINDHU CEO must never show data that could conflict with the
+  // dedicated page it mirrors. Works whether `batchId` is the original or
+  // the optimized side of the pair.
+  function comparisonBoxHtml(data) {
+    if (!data || !data.has_optimization) {
+      return `<div class="card muted">Not optimized -- original strategy only, no comparison available.</div>`;
+    }
+    const { winner, why, original, optimized, params_changed, candidates_tried } = data;
+    const winnerIsOptimized = winner === "optimized";
+    const rows = [
+      ["Total PnL", original && original.total_pnl, optimized && optimized.total_pnl],
+      ["Win Rate", original && `${original.win_rate}%`, optimized && `${optimized.win_rate}%`],
+      ["Max Drawdown", original && `${original.max_drawdown_pct}%`, optimized && `${optimized.max_drawdown_pct}%`],
+      ["Total Trades", original && original.total_trades, optimized && optimized.total_trades],
+    ];
+    return `
+      <div class="card">
+        <div style="font-weight:700;margin-bottom:6px;">Original vs Optimized</div>
+        <p class="muted" style="margin:0 0 10px;">Winner: <b class="${winnerIsOptimized ? 'positive' : ''}">${winnerIsOptimized ? "Optimized" : "Original"}</b>
+          ${why ? ` -- ${esc(why)}` : ""}
+          <span class="muted"> (${candidates_tried} combination${candidates_tried === 1 ? "" : "s"} tried${params_changed && params_changed.length ? ": " + esc(params_changed.map(p => p.description).join(", ")) : ""})</span></p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Metric</th><th${!winnerIsOptimized ? ' style="font-weight:700;"' : ''}>Original</th><th${winnerIsOptimized ? ' style="font-weight:700;"' : ''}>Optimized${optimized ? "" : " (none beat original)"}</th></tr></thead>
+          <tbody>
+            ${rows.map(([label, o, n]) => `<tr><td>${label}</td><td${!winnerIsOptimized ? ' style="font-weight:700;"' : ''}>${o != null ? o : "-"}</td><td${winnerIsOptimized ? ' style="font-weight:700;"' : ''}>${n != null ? n : "-"}</td></tr>`).join("")}
+          </tbody>
+        </table></div>
+      </div>`;
+  }
+
+  async function loadComparisonBox(container, batchId) {
+    if (!container) return;
+    container.innerHTML = `<div class="muted">Loading comparison...</div>`;
+    try {
+      const data = await apiGet(`/api/backtest-history/${batchId}/comparison`);
+      container.innerHTML = comparisonBoxHtml(data);
+    } catch (e) {
+      container.innerHTML = `<div class="card muted">Could not load comparison: ${esc(e.message)}</div>`;
+    }
+  }
+
   // ------------------------------------------------------------ MARKET
   async function renderMarket() {
     const myToken = activeRouteToken;
@@ -772,6 +857,7 @@
           <td>V${s.current_version || 1} <button class="btn-ghost strat-versions" data-id="${s.id}" data-name="${esc(s.name)}">History</button></td>
           <td>
             <button class="btn-ghost strat-edit" data-id="${s.id}">Edit</button>
+            ${s.status !== "READY_FOR_BACKTEST" ? `<button class="btn-ghost strat-clarify" data-id="${s.id}" data-name="${esc(s.name)}">Clarify</button>` : ""}
             <button class="btn-ghost strat-fav" data-id="${s.id}" data-fav="${s.favourite}">${s.favourite ? "★" : "☆"}</button>
             <button class="btn-ghost strat-dup" data-id="${s.id}">Duplicate</button>
             <button class="btn-ghost strat-del" data-id="${s.id}" data-name="${esc(s.name)}">Delete</button>
@@ -794,6 +880,10 @@
             <thead><tr><th>Version</th><th>Modified</th></tr></thead>
             <tbody id="versionHistoryBody"></tbody>
           </table></div>
+        </div>
+        <div id="clarifyBox" style="display:none;">
+          <div class="section-title" id="clarifyTitle">Clarification Needed</div>
+          <div id="clarifyBody"></div>
         </div>`;
 
       document.getElementById("stratLibSearch").addEventListener("input", debounce(render, 300));
@@ -825,9 +915,149 @@
         document.getElementById("versionHistoryBox").style.display = "block";
         document.getElementById("versionHistoryBox").scrollIntoView({ behavior: "smooth", block: "nearest" });
       });
+      document.querySelectorAll(".strat-clarify").forEach(btn => btn.onclick = () => {
+        openClarifyBox(btn.dataset.id, btn.dataset.name, render);
+      });
     };
     await render();
     onLive((msg) => { if (msg.channel === "sync" && msg.entity === "strategy") render().catch(console.error); });
+  }
+
+  // Part 1: the clarification flow. issueControlHtml() renders the right
+  // control per issue "kind" (free-text redescribe, a small set of
+  // suggested options, or a reject button) -- see
+  // sindhu_web/api/clarification.py::build_issues() for the shape.
+  function issueControlHtml(issue) {
+    const reasonBlock = `
+      <div><b>${esc(issue.reason)}</b></div>
+      ${issue.detail ? `<div class="muted" style="margin-top:2px;">${esc(issue.detail)}</div>` : ""}
+      ${issue.ai_reason ? `<div class="muted" style="margin-top:4px;">AI's own note: "${esc(issue.ai_reason)}"${issue.ai_confidence != null ? ` (${Math.round(issue.ai_confidence * 100)}% confidence)` : ""}</div>` : ""}`;
+
+    if (issue.kind === "raw_condition" || issue.kind === "missing_conditions") {
+      return `
+        <div class="card" data-issue-id="${esc(issue.id)}" data-issue-kind="${issue.kind}">
+          ${reasonBlock}
+          ${issue.original_text ? `<div class="muted" style="margin-top:6px;">Original text: "${esc(issue.original_text)}"</div>` : ""}
+          <div class="form-row" style="margin-top:8px;"><label>Redescribe this rule</label>
+            <input class="issue-text-input" placeholder="e.g. RSI 14 below 30, or close above EMA50">
+          </div>
+          <div class="btn-row">
+            <button class="btn btn-ghost issue-apply-edit">Try This Instead</button>
+            ${issue.can_reject ? `<button class="btn btn-ghost issue-apply-reject">Remove This Rule</button>` : ""}
+          </div>
+        </div>`;
+    }
+    if (issue.kind === "invalid_indicator") {
+      const options = (issue.suggested_options || []).map(o =>
+        `<button class="btn btn-ghost issue-pick-indicator" data-value="${esc(o.value)}">${esc(o.label)}</button>`).join("");
+      return `
+        <div class="card" data-issue-id="${esc(issue.id)}" data-issue-kind="${issue.kind}">
+          ${reasonBlock}
+          ${options ? `<div class="btn-row" style="margin-top:8px;">${options}</div>` : ""}
+          <div class="form-row" style="margin-top:8px;"><label>Or redescribe the whole rule</label>
+            <input class="issue-text-input" placeholder="e.g. RSI 14 below 30">
+          </div>
+          <div class="btn-row">
+            <button class="btn btn-ghost issue-apply-edit">Try This Instead</button>
+            ${issue.can_reject ? `<button class="btn btn-ghost issue-apply-reject">Remove This Rule</button>` : ""}
+          </div>
+        </div>`;
+    }
+    if (issue.kind === "missing_field") {
+      const options = (issue.suggested_options || []).map(o =>
+        `<button class="btn btn-ghost issue-pick-field" data-value='${esc(JSON.stringify(o.value))}'>${esc(o.label)}</button>`).join("");
+      return `
+        <div class="card" data-issue-id="${esc(issue.id)}" data-issue-kind="${issue.kind}">
+          ${reasonBlock}
+          <div class="btn-row" style="margin-top:8px;">${options}</div>
+        </div>`;
+    }
+    return `<div class="card" data-issue-id="${esc(issue.id)}">${reasonBlock}</div>`;
+  }
+
+  async function openClarifyBox(strategyId, name, refreshList) {
+    const box = document.getElementById("clarifyBox");
+    const body = document.getElementById("clarifyBody");
+    document.getElementById("clarifyTitle").textContent = `Clarification Needed -- ${name}`;
+    body.innerHTML = `<div class="muted">Loading...</div>`;
+    box.style.display = "block";
+    box.scrollIntoView({ behavior: "smooth", block: "nearest" });
+
+    async function load() {
+      const data = await apiGet(`/api/backtesting/strategies/${strategyId}/clarification`).catch(() => null);
+      if (!data) { body.innerHTML = `<div class="muted">Could not load clarification details.</div>`; return; }
+      if (data.status === "READY_FOR_BACKTEST") {
+        body.innerHTML = `<div class="card"><span class="pill pill-completed">Ready for Backtesting</span> Nothing left to clarify -- this strategy is fully executable.</div>`;
+        return;
+      }
+      const confidenceNote = data.confidence_pct != null
+        ? `<div class="muted" style="margin-bottom:8px;">AI import confidence: ${data.confidence_pct}%</div>` : "";
+      body.innerHTML = `
+        ${confidenceNote}
+        ${data.issues.map(issueControlHtml).join("")}
+        <div class="btn-row" style="margin-top:10px;">
+          <button class="btn" id="btnApplyClarifications">Apply Changes</button>
+          <button class="btn btn-ghost" id="btnCloseClarify">Close</button>
+          <span id="clarifyStatus" class="muted"></span>
+        </div>`;
+      wireIssueCards();
+    }
+
+    function wireIssueCards() {
+      const pending = new Map();  // issue id -> resolution payload
+
+      body.querySelectorAll(".issue-apply-edit").forEach(btn => btn.onclick = () => {
+        const card = btn.closest("[data-issue-id]");
+        const text = card.querySelector(".issue-text-input").value;
+        if (!text || !text.trim()) { alert("Type a replacement description first."); return; }
+        pending.set(card.dataset.issueId, { id: card.dataset.issueId, action: "edit", text });
+        btn.textContent = "Queued ✓";
+      });
+      body.querySelectorAll(".issue-apply-reject").forEach(btn => btn.onclick = () => {
+        const card = btn.closest("[data-issue-id]");
+        pending.set(card.dataset.issueId, { id: card.dataset.issueId, action: "reject" });
+        btn.textContent = "Queued ✓";
+      });
+      body.querySelectorAll(".issue-pick-indicator").forEach(btn => btn.onclick = () => {
+        const card = btn.closest("[data-issue-id]");
+        pending.set(card.dataset.issueId, { id: card.dataset.issueId, action: "replace_indicator", value: btn.dataset.value });
+        card.querySelectorAll(".issue-pick-indicator").forEach(b => b.classList.remove("btn-active"));
+        btn.classList.add("btn-active");
+      });
+      body.querySelectorAll(".issue-pick-field").forEach(btn => btn.onclick = () => {
+        const card = btn.closest("[data-issue-id]");
+        pending.set(card.dataset.issueId, { id: card.dataset.issueId, action: "set_field", value: JSON.parse(btn.dataset.value) });
+        card.querySelectorAll(".issue-pick-field").forEach(b => b.classList.remove("btn-active"));
+        btn.classList.add("btn-active");
+      });
+
+      document.getElementById("btnCloseClarify").onclick = () => { box.style.display = "none"; };
+      document.getElementById("btnApplyClarifications").onclick = async () => {
+        if (!pending.size) { alert("Pick or type at least one resolution first."); return; }
+        const status = document.getElementById("clarifyStatus");
+        status.textContent = "Applying...";
+        try {
+          const result = await apiPost(`/api/backtesting/strategies/${strategyId}/clarify`, {
+            resolutions: Array.from(pending.values()),
+          });
+          const failedNote = result.failed.length
+            ? ` ${result.failed.length} still unresolved: ${result.failed.map(f => esc(f.detail)).join(" | ")}`
+            : "";
+          if (result.status === "READY_FOR_BACKTEST") {
+            status.textContent = "Resolved -- strategy is now Ready for Backtesting." +
+              (result.pipeline_job_id ? " Automation pipeline started automatically." : "");
+          } else {
+            status.textContent = `Applied ${result.applied.length} change(s).${failedNote}`;
+          }
+          if (refreshList) refreshList();
+          await load();
+        } catch (e) {
+          status.textContent = `Failed: ${e.message}`;
+        }
+      };
+    }
+
+    await load();
   }
 
   // ------------------------------------------------------------ BACKTESTING
@@ -1316,7 +1546,6 @@
   // without the Reports page's best/worst-strategy framing getting in the way.
   async function renderBacktestHistory() {
     const myToken = activeRouteToken;
-    let lastBatches = [];
 
     async function renderList() {
       document.getElementById("histTableBody").innerHTML = '<tr><td colspan="7">Loading...</td></tr>';
@@ -1332,7 +1561,6 @@
         return;
       }
       if (isStaleRoute(myToken)) return;
-      lastBatches = batches;
       document.getElementById("histTableBody").innerHTML = batches.map(b => {
         const pnlCls = b.total_pnl > 0 ? "positive" : b.total_pnl < 0 ? "negative" : "";
         const optBadge = b.optimization
@@ -1400,38 +1628,11 @@
       });
     }
 
-    async function renderComparison(optRecord) {
-      const box = document.getElementById("histComparisonBox");
-      if (!optRecord) { box.style.display = "none"; box.innerHTML = ""; return; }
-      const [orig, opt] = await Promise.all([
-        apiGet(`/api/reports/${optRecord.original_batch_id}`).catch(() => null),
-        optRecord.optimized_batch_id ? apiGet(`/api/reports/${optRecord.optimized_batch_id}`).catch(() => null) : Promise.resolve(null),
-      ]);
-      if (!orig) { box.style.display = "none"; box.innerHTML = ""; return; }
-      const rows = [
-        ["Total PnL", orig.total_pnl, opt && opt.total_pnl],
-        ["Win Rate", `${orig.win_rate}%`, opt && `${opt.win_rate}%`],
-        ["Max Drawdown", `${orig.max_drawdown_pct}%`, opt && `${opt.max_drawdown_pct}%`],
-        ["Trade Count", orig.total_trades, opt && opt.total_trades],
-      ];
-      const winnerIsOptimized = optRecord.winner === "optimized";
-      box.style.display = "block";
-      box.innerHTML = `
-        <div class="section-title">Automation Pipeline: Original vs Optimized</div>
-        <p class="muted">Winner: <b class="${winnerIsOptimized ? 'positive' : ''}">${winnerIsOptimized ? "Optimized" : "Original"}</b>
-          ${optRecord.params_changed && optRecord.params_changed.length ? " -- " + esc(optRecord.params_changed.map(p => p.description).join(", ")) : ""}</p>
-        <div class="table-wrap"><table>
-          <thead><tr><th>Metric</th><th${!winnerIsOptimized ? ' style="font-weight:700;"' : ''}>Original</th><th${winnerIsOptimized ? ' style="font-weight:700;"' : ''}>Optimized${opt ? "" : " (none beat original)"}</th></tr></thead>
-          <tbody>
-            ${rows.map(([label, o, n]) => `<tr><td>${label}</td><td${!winnerIsOptimized ? ' style="font-weight:700;"' : ''}>${o != null ? o : "-"}</td><td${winnerIsOptimized ? ' style="font-weight:700;"' : ''}>${n != null ? n : "-"}</td></tr>`).join("")}
-          </tbody>
-        </table></div>`;
-    }
-
     function openHistoryDetail(batchId) {
       document.getElementById("histDetail").scrollIntoView({ behavior: "smooth", block: "start" });
-      const b = lastBatches.find(x => x.batch_id === batchId);
-      renderComparison(b ? b.optimization : null).catch(console.error);
+      const box = document.getElementById("histComparisonBox");
+      box.style.display = "block";
+      loadComparisonBox(box, batchId).catch(console.error);
       return renderBatchDetailInto(batchId, histDetailIds);
     }
 
@@ -2100,6 +2301,13 @@
             <option value="journal">Trading Journal</option>
           </select>
         </div>
+        <div class="form-row"><label>What kind of content is this? (helps SINDHU avoid guessing wrong)</label>
+          <select id="kcContentType">
+            <option value="mixed" selected>Mixed (both / not sure)</option>
+            <option value="strategy">Strategy (entry/exit/risk rules)</option>
+            <option value="lesson">Lesson (knowledge, psychology, notes -- no strategy)</option>
+          </select>
+        </div>
         <div class="form-row"><label>Paste strategy, lesson, transcript, report, or notes -- English, Roman Urdu, or mixed</label>
           <textarea id="kcText" style="min-height:260px;" placeholder="Paste anything: a strategy, a lesson, a YouTube transcript, a NotebookLM/ChatGPT/Claude report, book notes..."></textarea>
         </div>
@@ -2140,6 +2348,7 @@
           text,
           title: document.getElementById("kcTitle").value || null,
           source_hint: document.getElementById("kcSource").value || null,
+          content_type: document.getElementById("kcContentType").value,
         });
         if (isStaleRoute(myToken)) return;
         status.textContent = "Compiled.";
@@ -2253,6 +2462,13 @@
             <option value="book_notes">Book Notes</option>
             <option value="article">Article / Blog Post</option>
             <option value="journal">Trading Journal</option>
+          </select>
+        </div>
+        <div class="form-row"><label>What kind of content is this? (applies to text, file, and YouTube import below -- helps SINDHU avoid guessing wrong)</label>
+          <select id="aiContentType">
+            <option value="mixed" selected>Mixed (both / not sure)</option>
+            <option value="strategy">Strategy (entry/exit/risk rules)</option>
+            <option value="lesson">Lesson (knowledge, psychology, notes -- no strategy)</option>
           </select>
         </div>
         <div class="form-row"><label>Paste strategy, lesson, transcript, or report text</label>
@@ -2469,6 +2685,7 @@
           title: document.getElementById("aiTitle").value || null,
           source_hint: document.getElementById("aiSource").value || null,
           use_ai: document.getElementById("aiUseAi").checked,
+          content_type: document.getElementById("aiContentType").value,
         });
         if (isStaleRoute(myToken)) return;
         status.textContent = "Imported.";
@@ -2489,6 +2706,7 @@
             title: document.getElementById("aiTitle").value || null,
             source_hint: document.getElementById("aiSource").value || null,
             use_ai: document.getElementById("aiUseAi").checked,
+            content_type: document.getElementById("aiContentType").value,
           }],
         });
         if (isStaleRoute(myToken)) return;
@@ -2506,6 +2724,7 @@
       fd.append("file", fileInput.files[0]);
       if (document.getElementById("aiTitle").value) fd.append("title", document.getElementById("aiTitle").value);
       fd.append("use_ai", document.getElementById("aiUseAi").checked);
+      fd.append("content_type", document.getElementById("aiContentType").value);
       try {
         const result = await apiUpload("/api/ai/import/upload", fd);
         if (isStaleRoute(myToken)) return;
@@ -2525,6 +2744,7 @@
           url,
           title: document.getElementById("aiTitle").value || null,
           use_ai: document.getElementById("aiUseAi").checked,
+          content_type: document.getElementById("aiContentType").value,
         });
         if (isStaleRoute(myToken)) return;
         status.textContent = "Imported.";
@@ -2545,6 +2765,7 @@
             title: document.getElementById("aiTitle").value || null,
             use_ai: document.getElementById("aiUseAi").checked,
             input_kind: "youtube",
+            content_type: document.getElementById("aiContentType").value,
           }],
         });
         if (isStaleRoute(myToken)) return;
@@ -2653,6 +2874,772 @@
     }
 
     await Promise.all([loadProviders(), loadUsageAndLogs(), loadDashboard(), loadQueue(), loadDictionary()]);
+  }
+
+  // ------------------------------------------------------------ SINDHU CEO (control room)
+  // Every card's summary and every control in its expanded view calls the
+  // exact same REST endpoints the module's own dedicated page already
+  // uses -- this is a new way to reach existing functionality (a single
+  // in-place command center), not a reimplementation of any backend logic.
+  const CEO_MODULES = [
+    "home", "market", "data", "strategies", "knowledge", "knowledge_compiler",
+    "ai_center", "backtesting", "backtest_history", "paper_trading", "reports", "settings",
+  ];
+  const CEO_LABELS = {
+    home: "Dashboard", market: "Market", data: "Data", strategies: "Strategies",
+    knowledge: "Knowledge", knowledge_compiler: "Knowledge Compiler", ai_center: "AI Center",
+    backtesting: "Backtesting", backtest_history: "Backtest History",
+    paper_trading: "Paper Trading", reports: "Reports", settings: "Settings",
+  };
+
+  function statusDot(level) {
+    // level: "active" (green, pulsing) | "attention" (amber) | "idle" (grey)
+    return `<span class="status-dot status-${level}"></span>`;
+  }
+
+  async function renderCEO() {
+    const myToken = activeRouteToken;
+    let expandedId = null;          // null = grid view
+    let ceoPendingRunStrategyId = null; // set by Strategies "Run" -> read by Backtesting expand
+
+    async function fetchAll() {
+      const [home, market, data, strategies, knowledgeReport, lessons, kcDocs, aiDash,
+             history, paperStatus, paperPositions, bestWorst, settings, jobsRes] = await Promise.all([
+        apiGet("/api/home").catch(() => null),
+        apiGet("/api/market").catch(() => ({ coins: [], exchange: "-" })),
+        apiGet("/api/data").catch(() => ({ coins: [], total_coins: 0, missing_data: [] })),
+        apiGet("/api/backtesting/strategies").catch(() => ({ strategies: [] })),
+        apiGet("/api/knowledge/report").catch(() => ({})),
+        apiGet("/api/knowledge/lessons").catch(() => ({ lessons: [] })),
+        apiGet("/api/knowledge-compiler/documents").catch(() => ({ documents: [] })),
+        apiGet("/api/ai/dashboard").catch(() => ({})),
+        apiGet("/api/backtest-history?limit=20").catch(() => ({ batches: [] })),
+        apiGet("/api/paper-trading/status").catch(() => ({ running: false })),
+        apiGet("/api/paper-trading/positions").catch(() => ({ positions: [] })),
+        apiGet("/api/reports/best-worst/strategies").catch(() => ({ ranking: [] })),
+        apiGet("/api/settings").catch(() => ({})),
+        apiGet("/api/jobs").catch(() => ({ jobs: [] })),
+      ]);
+      return {
+        home, market, data, strategies: strategies.strategies || [],
+        knowledgeReport, lessons: lessons.lessons || [], kcDocs: kcDocs.documents || [],
+        aiDash, history: history.batches || [], paperStatus, paperPositions: paperPositions.positions || [],
+        bestWorst, settings, jobs: jobsRes.jobs || [],
+      };
+    }
+
+    function runningJobOf(jobs, kind) { return jobs.find(j => j.kind === kind && j.status === "running"); }
+
+    function cardSummary(id, d) {
+      const jobs = d.jobs;
+      switch (id) {
+        case "home": {
+          const anyRunning = jobs.some(j => j.status === "running") || (d.paperStatus && d.paperStatus.running);
+          return {
+            level: anyRunning ? "active" : "idle",
+            text: d.home
+              ? `${fmtNum(d.home.total_coins)} coins, ${fmtNum(d.home.total_candles)} candles -- CPU ${d.home.cpu_percent}%, RAM ${d.home.ram_percent}%`
+              : "Could not load.",
+          };
+        }
+        case "market":
+          return { level: "idle", text: `${d.market.coins.length} coins tracked on ${esc(d.market.exchange || "-")}` };
+        case "data": {
+          const dl = runningJobOf(jobs, "download");
+          const missing = d.data.missing_data || [];
+          const level = dl ? "active" : missing.length ? "attention" : "idle";
+          const text = dl
+            ? `Syncing -- ${dl.progress.done || 0}/${dl.progress.total || d.data.total_coins} coins (${esc(dl.progress.current_coin || "")})`
+            : missing.length
+              ? `${missing.length}/${d.data.total_coins} coin(s) have no data yet`
+              : `${d.data.total_coins} coins synced`;
+          return { level, text, progressPct: dl && dl.progress.total ? (dl.progress.done / dl.progress.total * 100) : null };
+        }
+        case "strategies": {
+          const needsClar = d.strategies.filter(s => s.status !== "READY_FOR_BACKTEST").length;
+          return {
+            level: needsClar ? "attention" : "idle",
+            text: `${d.strategies.length} saved${needsClar ? `, ${needsClar} need clarification` : ""}`,
+          };
+        }
+        case "knowledge": {
+          const active = d.lessons.filter(l => l.status === "active").length;
+          return {
+            level: "idle",
+            text: `${d.lessons.length} lessons (${active} active) -- knowledge score ${d.knowledgeReport.knowledge_score ?? "-"}%`,
+          };
+        }
+        case "knowledge_compiler":
+          return { level: "idle", text: `${d.kcDocs.length} document(s) compiled` };
+        case "ai_center": {
+          const pending = d.aiDash.pending_imports || 0;
+          return {
+            level: pending ? "active" : (d.aiDash.failed_imports ? "attention" : "idle"),
+            text: `${d.aiDash.total_strategies ?? 0} strategies, ${d.aiDash.total_lessons ?? 0} lessons imported${pending ? `, ${pending} pending` : ""}`,
+          };
+        }
+        case "backtesting": {
+          const bt = runningJobOf(jobs, "backtest") || runningJobOf(jobs, "pipeline");
+          return {
+            level: bt ? "active" : "idle",
+            text: bt
+              ? `${esc(bt.progress.current_strategy || "Running")} -- ${bt.progress.done || 0}/${bt.progress.total || "?"} coins`
+              : "No backtest running",
+            progressPct: bt && bt.progress.total ? (bt.progress.done / bt.progress.total * 100) : null,
+          };
+        }
+        case "backtest_history": {
+          const best = d.history.slice().sort((a, b) => (b.avg_profit_pct || -Infinity) - (a.avg_profit_pct || -Infinity))[0];
+          return {
+            level: "idle",
+            text: `${d.history.length} completed batch(es)${best ? ` -- best: ${esc(best.strategy)} (${best.avg_profit_pct}%)` : ""}`,
+          };
+        }
+        case "paper_trading": {
+          const s = d.paperStatus;
+          const pnl = s.balance != null && d.settings ? null : null;
+          return {
+            level: s.running ? "active" : "idle",
+            text: s.running
+              ? `Balance $${Number(s.balance).toFixed(2)}, ${s.open_trades} open trade(s)`
+              : "Engine stopped",
+          };
+        }
+        case "reports":
+          return {
+            level: "idle",
+            text: d.bestWorst.best_strategy
+              ? `Best: ${esc(d.bestWorst.best_strategy)} -- Worst: ${esc(d.bestWorst.worst_strategy || "-")}`
+              : "No completed backtests yet",
+          };
+        case "settings":
+          return { level: "idle", text: `${esc(d.settings.exchange || "-")} -- ${d.settings.num_coins ?? "-"} coins -- ${esc(d.settings.theme || "-")} theme` };
+        default:
+          return { level: "idle", text: "" };
+      }
+    }
+
+    function allTasksList(d) {
+      const tasks = d.jobs.filter(j => j.status === "running").map(j => ({
+        kind: "job", id: j.id, jobKind: j.kind,
+        title: `${j.kind === "backtest" ? "Backtest" : j.kind === "download" ? "Data Download" : j.kind === "pipeline" ? "Automation Pipeline" : j.kind}`,
+        sub: [
+          j.progress.current_strategy, j.progress.current_coin,
+          j.progress.total != null ? `${j.progress.done || 0}/${j.progress.total}` : null,
+          j.progress.stage_label || j.progress.stage,
+        ].filter(Boolean).join(" -- ") || "Running...",
+        pct: j.progress.total ? (j.progress.done / j.progress.total * 100) : (j.progress.bar_pct || null),
+      }));
+      if (d.paperStatus && d.paperStatus.running) {
+        tasks.push({
+          kind: "paper", id: "paper_trading", jobKind: "paper_trading",
+          title: "Paper Trading Engine",
+          sub: `Balance $${Number(d.paperStatus.balance).toFixed(2)} -- tick #${d.paperStatus.tick_count} -- ${d.paperStatus.open_trades} open`,
+          pct: null,
+        });
+      }
+      return tasks;
+    }
+
+    // ------------------------------------------------------------ grid
+    function moduleCardHtml(id, d) {
+      const s = cardSummary(id, d);
+      return `
+        <div class="ceo-card" data-ceo-card="${id}">
+          <div class="ceo-card-head">
+            <div class="ceo-card-title">${esc(CEO_LABELS[id])}</div>
+            ${statusDot(s.level)}
+          </div>
+          <div class="ceo-card-summary">${s.text}</div>
+          ${s.progressPct != null ? `<div class="progress-bar"><div class="progress-bar-fill" style="width:${s.progressPct}%"></div></div>` : ""}
+        </div>`;
+    }
+
+    function tasksCardHtml(d) {
+      const tasks = allTasksList(d);
+      return `
+        <div class="ceo-card ceo-card-tasks" data-ceo-card="all_tasks">
+          <div class="ceo-card-head">
+            <div class="ceo-card-title">⚡ All Tasks</div>
+            ${statusDot(tasks.length ? "active" : "idle")}
+          </div>
+          <div class="ceo-card-summary">${tasks.length ? `${tasks.length} task(s) running right now` : "Nothing running -- all quiet"}</div>
+        </div>`;
+    }
+
+    // A showGrid() triggered by a debounced live-update or the 15s
+    // autoRefresh can still be awaiting its fetchAll() when the user clicks
+    // a card to expand it -- without this guard, that stale grid render
+    // lands right after the expand and silently clobbers it back to the
+    // grid, so the click looks like it "didn't work." showGridSeq is bumped
+    // by showExpanded() below so any in-flight or pending showGrid() knows
+    // it's been superseded and skips its own render.
+    let showGridSeq = 0;
+    async function showGrid() {
+      const mySeq = ++showGridSeq;
+      expandedId = null;
+      const d = await fetchAll();
+      if (isStaleRoute(myToken) || mySeq !== showGridSeq) return;
+      content.innerHTML = `
+        <div class="section-title">SINDHU CEO -- Control Room</div>
+        <div class="muted" style="margin:-10px 0 16px;font-size:12.5px;">Every module in one place. Click any card to monitor and control it without leaving this page.</div>
+        <div class="ceo-grid">
+          ${tasksCardHtml(d)}
+          ${CEO_MODULES.map(id => moduleCardHtml(id, d)).join("")}
+        </div>`;
+      document.querySelectorAll("[data-ceo-card]").forEach(el => {
+        el.onclick = () => showExpanded(el.dataset.ceoCard);
+      });
+    }
+
+    // ------------------------------------------------------------ expanded views
+    function expandedShell(title, bodyHtml) {
+      content.innerHTML = `
+        <div class="ceo-expanded-head">
+          <h2>${esc(title)}</h2>
+          <button class="ceo-close-btn" id="ceoClose" title="Back to CEO grid">&times;</button>
+        </div>
+        ${bodyHtml}`;
+      document.getElementById("ceoClose").onclick = () => showGrid();
+    }
+
+    async function showExpanded(id) {
+      showGridSeq++; // supersede any pending/in-flight showGrid() so it can't clobber this expand
+      if (refreshTimer) { clearTimeout(refreshTimer); refreshTimer = null; }
+      expandedId = id;
+      try {
+        if (id === "all_tasks") return await expandAllTasks();
+        if (id === "home") return await expandHome();
+        if (id === "market") return await expandMarket();
+        if (id === "data") return await expandData();
+        if (id === "strategies") return await expandStrategies();
+        if (id === "knowledge") return await expandKnowledge();
+        if (id === "knowledge_compiler") return await expandKnowledgeCompiler();
+        if (id === "ai_center") return await expandAiCenter();
+        if (id === "backtesting" || id === "backtest_history") return await expandBacktesting(id);
+        if (id === "paper_trading") return await expandPaperTrading();
+        if (id === "reports") return await expandReports();
+        if (id === "settings") return await expandSettings();
+      } catch (e) {
+        expandedShell(CEO_LABELS[id] || id, `<div class="card">Failed to load: ${esc(e.message)}</div>`);
+      }
+    }
+
+    // ---- All Tasks
+    async function expandAllTasks() {
+      const d = await fetchAll();
+      if (isStaleRoute(myToken)) return;
+      const tasks = allTasksList(d);
+      expandedShell("⚡ All Tasks -- every background job, in one place", `
+        <div class="card">
+          ${tasks.length ? tasks.map(t => `
+            <div class="ceo-task-row" data-task-id="${esc(t.id)}" data-task-kind="${t.kind}">
+              <div class="ceo-task-info">
+                <div class="ceo-task-title">${esc(t.title)}</div>
+                <div class="ceo-task-sub">${esc(t.sub)}</div>
+              </div>
+              ${t.pct != null ? `<div class="progress-bar"><div class="progress-bar-fill" style="width:${t.pct}%"></div></div>` : ""}
+              <div class="btn-row" style="width:auto;">
+                ${t.kind === "job" ? `
+                  <button class="btn-ghost ceo-task-pause" data-id="${t.id}">Pause</button>
+                  <button class="btn-ghost ceo-task-resume" data-id="${t.id}">Resume</button>
+                  <button class="btn-ghost ceo-task-stop" data-id="${t.id}">Stop</button>
+                ` : `
+                  <button class="btn-ghost ceo-task-stop-paper">Stop</button>
+                `}
+              </div>
+            </div>`).join("") : `<div class="muted">Nothing running right now.</div>`}
+        </div>`);
+      content.querySelectorAll(".ceo-task-pause").forEach(b => b.onclick = async () => { await apiPost(`/api/jobs/${b.dataset.id}/pause`); expandAllTasks(); });
+      content.querySelectorAll(".ceo-task-resume").forEach(b => b.onclick = async () => { await apiPost(`/api/jobs/${b.dataset.id}/resume`); expandAllTasks(); });
+      content.querySelectorAll(".ceo-task-stop").forEach(b => b.onclick = async () => { await apiPost(`/api/jobs/${b.dataset.id}/stop`); expandAllTasks(); });
+      const stopPaperBtn = content.querySelector(".ceo-task-stop-paper");
+      if (stopPaperBtn) stopPaperBtn.onclick = async () => { await apiPost("/api/paper-trading/stop").catch(() => {}); expandAllTasks(); };
+    }
+
+    // ---- Dashboard
+    async function expandHome() {
+      const d = await fetchAll();
+      if (isStaleRoute(myToken)) return;
+      const h = d.home;
+      expandedShell("Dashboard", !h ? `<div class="card">Could not load.</div>` : `
+        <div class="grid">
+          ${card("CPU Usage", `${h.cpu_percent}%`)}
+          ${card("RAM Usage", `${h.ram_percent}%`)}
+          ${card("Disk Usage", fmtBytes(h.disk_usage_bytes))}
+          ${card("Database Size", fmtBytes(h.database_size_bytes))}
+          ${card("Total Coins", fmtNum(h.total_coins))}
+          ${card("Total Candles", fmtNum(h.total_candles))}
+          ${card("Knowledge Score", `${h.knowledge_score}%`)}
+          ${card("Exchange", esc(h.exchange))}
+        </div>
+        <div class="section-title">Quick Actions</div>
+        <div class="btn-row">
+          <button class="btn-ghost" id="ceoStart">Start Download</button>
+          <button class="btn-ghost" id="ceoPause">Pause Current Task</button>
+          <button class="btn-ghost" id="ceoStop">Stop Current Task</button>
+          <button class="btn-ghost" id="ceoBackup">Backup Now</button>
+          <button class="btn-ghost" id="ceoRestart">Restart Services</button>
+          <span id="ceoHomeStatus" class="muted"></span>
+        </div>`);
+      if (!h) return;
+      const status = document.getElementById("ceoHomeStatus");
+      document.getElementById("ceoStart").onclick = async () => { await apiPost("/api/data/download"); status.textContent = "Download started."; };
+      document.getElementById("ceoPause").onclick = async () => { if (h.current_task) { await apiPost(`/api/jobs/${h.current_task.id}/pause`); status.textContent = "Paused."; } };
+      document.getElementById("ceoStop").onclick = async () => { if (h.current_task) { await apiPost(`/api/jobs/${h.current_task.id}/stop`); status.textContent = "Stopped."; } };
+      document.getElementById("ceoBackup").onclick = async () => { await apiPost("/api/backup/create"); status.textContent = "Backup created."; };
+      document.getElementById("ceoRestart").onclick = async () => { await apiPost("/api/system/restart-services"); status.textContent = "Services soft-restarted."; };
+    }
+
+    // ---- Market
+    async function expandMarket() {
+      const d = await fetchAll();
+      if (isStaleRoute(myToken)) return;
+      const signalCls = s => s === "Bullish" ? "pill-bullish" : s === "Bearish" ? "pill-bearish" : "pill-neutral";
+      expandedShell("Market", `
+        <div class="table-wrap"><table>
+          <thead><tr><th>Coin</th><th>Price</th><th>Change</th><th>Signal</th><th>Volatility</th></tr></thead>
+          <tbody>${d.market.coins.map(c => `
+            <tr>
+              <td>${esc(c.symbol)}</td><td>${c.price}</td>
+              <td class="${c.change_pct >= 0 ? 'pill-up' : 'pill-down'}">${c.change_pct.toFixed(2)}%</td>
+              <td><span class="pill ${signalCls(c.signal)}">${esc(c.signal)}</span></td>
+              <td>${c.volatility_pct != null ? c.volatility_pct + "%" : "-"}</td>
+            </tr>`).join("") || '<tr><td colspan="5">No market data yet.</td></tr>'}</tbody>
+        </table></div>`);
+    }
+
+    // ---- Data
+    async function expandData() {
+      const d = await fetchAll();
+      if (isStaleRoute(myToken)) return;
+      expandedShell("Data", `
+        <div class="grid">
+          ${card("Downloaded Coins", fmtNum(d.data.total_coins))}
+          ${card("Database Size", fmtBytes(d.data.database_size_bytes))}
+          ${card("Missing Data", d.data.missing_data.length ? d.data.missing_data.join(", ") : "None")}
+        </div>
+        <div class="btn-row"><button class="btn" id="ceoDlBtn">Start / Resume Download</button><span id="ceoDlStatus" class="muted"></span></div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Coin</th><th>Candles</th><th>Status</th></tr></thead>
+          <tbody>${d.data.coins.map(c => `<tr><td>${esc(c.symbol)}</td><td>${fmtNum(c.candles)}</td><td><span class="pill pill-${c.status}">${esc(c.status)}</span></td></tr>`).join("")}</tbody>
+        </table></div>`);
+      document.getElementById("ceoDlBtn").onclick = async () => {
+        await apiPost("/api/data/download");
+        document.getElementById("ceoDlStatus").textContent = "Download started.";
+      };
+    }
+
+    // ---- Strategies (reuses the exact same clarification flow: openClarifyBox/issueControlHtml)
+    // A batch's stored status can say "running" long after the process
+    // that was running it has died (crash, kill, interrupted server
+    // restart) -- backtest_batches has no heartbeat, so a stuck batch looks
+    // identical to a genuinely active one unless we cross-check against
+    // job_manager's live job list (the one source of truth for "is
+    // something actually happening right now"). One backtest/pipeline job
+    // runs at a time system-wide, matched here by strategy name (the only
+    // identifier progress carries), so this match is unambiguous.
+    function ceoLastBacktestCell(r, runningJob) {
+      if (!r) return `<span class="muted">Never run</span>`;
+      if (r.status === "running") {
+        if (runningJob) {
+          const p = runningJob.progress || {};
+          const coinInfo = p.total != null ? ` (${p.done}/${p.total} coins)` : "";
+          return `<span class="pill pill-running">Running now${coinInfo}${p.current_coin ? ` -- ${esc(p.current_coin)}` : ""}</span>`;
+        }
+        return `<span class="pill pill-error" title="Batch ${esc(r.batch_id)} is marked running but no active job is processing it -- it was interrupted (crash/restart) and never finished.">Interrupted -- never finished</span>`;
+      }
+      if (r.status !== "completed") return `<span class="pill pill-pending">${esc(r.status)}</span>`;
+      const pnlCls = r.avg_profit_pct > 0 ? "positive" : r.avg_profit_pct < 0 ? "negative" : "";
+      return `${fmtNum(r.total_trades)} trades, ${r.win_rate}% win, <span class="${pnlCls}">${r.avg_profit_pct}%</span>`;
+    }
+
+    async function expandStrategies() {
+      const d = await fetchAll();
+      if (isStaleRoute(myToken)) return;
+      const runningBacktestJob = d.jobs.find(j => (j.kind === "backtest" || j.kind === "pipeline") && j.status === "running");
+      const rows = d.strategies.map(s => {
+        const matchingJob = runningBacktestJob && runningBacktestJob.progress
+          && runningBacktestJob.progress.current_strategy === s.name ? runningBacktestJob : null;
+        return `
+        <tr data-strat-row="${s.id}">
+          <td class="ceo-strat-name">${esc(s.name)}</td>
+          <td>${strategyStatusPill(s.status)}</td>
+          <td>${ceoLastBacktestCell(s.last_batch_result, matchingJob)}</td>
+          <td>
+            <button class="btn-ghost ceo-strat-rename" data-id="${s.id}" data-name="${esc(s.name)}">Rename</button>
+            <button class="btn-ghost ceo-strat-run" data-id="${s.id}" data-name="${esc(s.name)}">Run</button>
+            ${s.status !== "READY_FOR_BACKTEST" ? `<button class="btn-ghost ceo-strat-clarify" data-id="${s.id}" data-name="${esc(s.name)}">Clarify</button>` : ""}
+            <button class="btn-ghost ceo-strat-del" data-id="${s.id}" data-name="${esc(s.name)}">Delete</button>
+          </td>
+        </tr>`;
+      }).join("");
+      expandedShell("Strategies", `
+        <div class="table-wrap"><table>
+          <thead><tr><th>Name</th><th>Status</th><th>Last Backtest</th><th></th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="4">No saved strategies yet.</td></tr>'}</tbody>
+        </table></div>
+        <div id="clarifyBox" style="display:none;margin-top:16px;">
+          <div class="section-title" id="clarifyTitle">Clarification Needed</div>
+          <div id="clarifyBody"></div>
+        </div>`);
+
+      content.querySelectorAll(".ceo-strat-rename").forEach(btn => btn.onclick = async () => {
+        const row = content.querySelector(`[data-strat-row="${btn.dataset.id}"] .ceo-strat-name`);
+        const newName = prompt("New name for this strategy:", btn.dataset.name);
+        if (!newName || !newName.trim() || newName === btn.dataset.name) return;
+        const full = await apiGet(`/api/backtesting/strategies/${btn.dataset.id}`);
+        full.config.name = newName.trim();
+        await apiPost("/api/backtesting/strategies", { config: full.config, strategy_id: btn.dataset.id });
+        row.textContent = newName.trim();
+        btn.dataset.name = newName.trim();
+      });
+      content.querySelectorAll(".ceo-strat-run").forEach(btn => btn.onclick = async () => {
+        if (!confirm(`Run a full backtest for "${btn.dataset.name}" across all coins now?`)) return;
+        try {
+          await apiPost("/api/backtesting/run", { strategy_id: btn.dataset.id, all_coins: true });
+          ceoPendingRunStrategyId = btn.dataset.id;
+          showExpanded("backtesting");
+        } catch (e) { alert(`Could not start: ${e.message}`); }
+      });
+      content.querySelectorAll(".ceo-strat-del").forEach(btn => btn.onclick = async () => {
+        if (!confirm(`Delete strategy "${btn.dataset.name}"? This cannot be undone.`)) return;
+        await apiSend("DELETE", `/api/backtesting/strategies/${btn.dataset.id}`);
+        expandStrategies();
+      });
+      content.querySelectorAll(".ceo-strat-clarify").forEach(btn => btn.onclick = () => {
+        openClarifyBox(btn.dataset.id, btn.dataset.name, () => expandStrategies());
+      });
+    }
+
+    // ---- Knowledge (Lessons)
+    async function expandKnowledge() {
+      const d = await fetchAll();
+      if (isStaleRoute(myToken)) return;
+      const rows = d.lessons.map(l => `
+        <tr data-lesson-row="${l.id}">
+          <td class="ceo-lesson-title">${esc(l.title)}</td>
+          <td>${esc(l.category)}</td>
+          <td><span class="pill pill-${l.status === 'active' ? 'completed' : 'pending'}">${esc(l.status)}</span></td>
+          <td>
+            <button class="btn-ghost ceo-lesson-rename" data-id="${l.id}" data-title="${esc(l.title)}">Rename</button>
+            <button class="btn-ghost ceo-lesson-del" data-id="${l.id}" data-title="${esc(l.title)}">Delete</button>
+          </td>
+        </tr>`).join("");
+      expandedShell("Knowledge -- Lessons", `
+        <div class="grid">${card("Knowledge Score", `${d.knowledgeReport.knowledge_score ?? "-"}%`)}${card("Total Lessons", fmtNum(d.lessons.length))}</div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Title</th><th>Category</th><th>Status</th><th></th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="4">No lessons yet.</td></tr>'}</tbody>
+        </table></div>`);
+      content.querySelectorAll(".ceo-lesson-rename").forEach(btn => btn.onclick = async () => {
+        const newTitle = prompt("New title for this lesson:", btn.dataset.title);
+        if (!newTitle || !newTitle.trim() || newTitle === btn.dataset.title) return;
+        const full = await apiGet(`/api/knowledge/lessons/${btn.dataset.id}`);
+        await apiSend("PUT", `/api/knowledge/lessons/${btn.dataset.id}`, {
+          title: newTitle.trim(), category: full.category, description: full.description,
+          priority: full.priority, notes: full.notes, status: full.status,
+          apply_backtesting: full.apply_backtesting, apply_paper_trading: full.apply_paper_trading,
+          apply_evolution: full.apply_evolution,
+        });
+        expandKnowledge();
+      });
+      content.querySelectorAll(".ceo-lesson-del").forEach(btn => btn.onclick = async () => {
+        if (!confirm(`Delete lesson "${btn.dataset.title}"? This cannot be undone.`)) return;
+        await apiSend("DELETE", `/api/knowledge/lessons/${btn.dataset.id}`);
+        expandKnowledge();
+      });
+    }
+
+    // ---- Knowledge Compiler
+    async function expandKnowledgeCompiler() {
+      const d = await fetchAll();
+      if (isStaleRoute(myToken)) return;
+      expandedShell("Knowledge Compiler", `
+        <div class="card">
+          <div class="form-row"><label>Paste text to compile</label><textarea id="ceoKcText" style="min-height:140px;" placeholder="Paste strategy/lesson text..."></textarea></div>
+          <div class="form-row"><label>Content type</label>
+            <select id="ceoKcType"><option value="mixed" selected>Mixed</option><option value="strategy">Strategy</option><option value="lesson">Lesson</option></select>
+          </div>
+          <div class="btn-row"><button class="btn" id="ceoKcCompile">Compile</button><span id="ceoKcStatus" class="muted"></span></div>
+        </div>
+        <div class="section-title">Compiled Documents</div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Title</th><th>Type</th><th>Status</th><th>Compiled</th></tr></thead>
+          <tbody>${d.kcDocs.map(doc => `
+            <tr><td>${esc(doc.title)}</td><td>${esc(doc.doc_type)}</td>
+            <td><span class="pill pill-${doc.status === 'READY_FOR_BACKTEST' ? 'completed' : 'pending'}">${esc(doc.status)}</span></td>
+            <td>${timeAgo(doc.created_at)}</td></tr>`).join("") || '<tr><td colspan="4">No documents compiled yet.</td></tr>'}</tbody>
+        </table></div>`);
+      document.getElementById("ceoKcCompile").onclick = async () => {
+        const text = document.getElementById("ceoKcText").value;
+        if (!text.trim()) { alert("Paste some text first."); return; }
+        const status = document.getElementById("ceoKcStatus");
+        status.textContent = "Compiling...";
+        try {
+          await apiPost("/api/knowledge-compiler/compile", { text, content_type: document.getElementById("ceoKcType").value });
+          status.textContent = "Compiled.";
+          expandKnowledgeCompiler();
+        } catch (e) { status.textContent = `Failed: ${e.message}`; }
+      };
+    }
+
+    // ---- AI Center
+    async function expandAiCenter() {
+      const d = await fetchAll();
+      if (isStaleRoute(myToken)) return;
+      expandedShell("AI Center", `
+        <div class="grid">
+          ${card("Strategies Imported", fmtNum(d.aiDash.total_strategies))}
+          ${card("Lessons Imported", fmtNum(d.aiDash.total_lessons))}
+          ${card("Pending Imports", fmtNum(d.aiDash.pending_imports))}
+          ${card("Failed Imports", fmtNum(d.aiDash.failed_imports))}
+        </div>
+        <div class="card">
+          <div class="form-row"><label>What kind of content is this?</label>
+            <select id="ceoAiType"><option value="mixed" selected>Mixed (not sure)</option><option value="strategy">Strategy</option><option value="lesson">Lesson</option></select>
+          </div>
+          <div class="form-row"><label>Paste strategy, lesson, transcript, or report text</label>
+            <textarea id="ceoAiText" style="min-height:200px;" placeholder="Paste anything..."></textarea>
+          </div>
+          <div class="btn-row"><button class="btn" id="ceoAiImport">Import Now</button><span id="ceoAiStatus" class="muted"></span></div>
+          <div id="ceoAiResult"></div>
+        </div>`);
+      document.getElementById("ceoAiImport").onclick = async () => {
+        const text = document.getElementById("ceoAiText").value;
+        if (!text.trim()) { alert("Paste some text first."); return; }
+        const status = document.getElementById("ceoAiStatus");
+        status.textContent = "Importing -- this runs the full pipeline (import -> auto-backtest -> optimizer -> re-backtest -> compare -> paper trading)...";
+        try {
+          const result = await apiPost("/api/ai/import", {
+            text, use_ai: true, content_type: document.getElementById("ceoAiType").value,
+          });
+          status.textContent = "Imported.";
+          const doc = result.document;
+          const savedStrategies = doc ? doc.strategies.filter(s => s.saved_strategy_id).length : 0;
+          const savedLessons = doc ? doc.lessons.filter(l => l.saved).length : 0;
+          document.getElementById("ceoAiResult").innerHTML = `
+            <div class="card">
+              <span class="pill ${result.ai_assisted ? 'pill-completed' : 'pill-muted'}">${result.ai_assisted ? `AI-assisted (${esc(result.ai_provider)})` : "Rule-based"}</span>
+              Saved ${savedStrategies} strategy(ies), ${savedLessons} lesson(s).
+              ${doc && doc.status === "READY_FOR_BACKTEST" ? `<div style="margin-top:8px;"><span class="pill pill-completed">READY FOR BACKTEST</span> The automation pipeline was triggered automatically -- check the Backtesting or All Tasks card.</div>` : ""}
+            </div>`;
+        } catch (e) { status.textContent = `Failed: ${e.message}`; }
+      };
+    }
+
+    // ---- Backtesting + Backtest History (combined, per Part 4.2)
+    async function expandBacktesting(focusId) {
+      const d = await fetchAll();
+      if (isStaleRoute(myToken)) return;
+      const job = runningJobOf(d.jobs, "backtest") || runningJobOf(d.jobs, "pipeline");
+      const readyToRun = ceoPendingRunStrategyId
+        ? d.strategies.find(s => s.id === ceoPendingRunStrategyId) : null;
+      const latestBatch = d.history[0]; // most recently completed batch, if any
+
+      expandedShell(focusId === "backtest_history" ? "Backtest History" : "Backtesting", `
+        ${readyToRun && !job ? `
+        <div class="card">
+          Ready to run: <b>${esc(readyToRun.name)}</b>
+          <div class="btn-row" style="margin-top:8px;">
+            <button class="btn" id="ceoRunNow">Run Now (all coins)</button>
+            <button class="btn-ghost" id="ceoRunCancel">Cancel</button>
+          </div>
+        </div>` : ""}
+        <div class="section-title">Live Status</div>
+        ${job ? `
+        <div class="grid">
+          ${card("Strategy", esc(job.progress.current_strategy || "-"))}
+          ${card("Coin", esc(job.progress.current_coin || "-"))}
+          ${card("Stage", esc(job.progress.stage_label || job.progress.current_stage || job.progress.stage || "-"))}
+          ${card("Coins Progress", job.progress.total != null ? `${job.progress.done}/${job.progress.total}` : "-")}
+        </div>
+        <div class="progress-bar"><div class="progress-bar-fill" style="width:${job.progress.total ? (job.progress.done / job.progress.total * 100) : 0}%"></div></div>
+        <div class="btn-row" style="margin-top:10px;">
+          <button class="btn-ghost" id="ceoBtPause">Pause</button>
+          <button class="btn-ghost" id="ceoBtResume">Resume</button>
+          <button class="btn-ghost" id="ceoBtStop">Stop</button>
+        </div>
+        <div class="section-title">Live Log</div>
+        <div class="card" id="ceoBtLog" style="height:180px;overflow-y:auto;font-family:Consolas,monospace;font-size:12px;white-space:pre-wrap;"></div>
+        ` : `<div class="card muted">No backtest or pipeline running right now.</div>`}
+
+        <div class="section-title">Auto-Optimizer: Original vs Optimized</div>
+        <div id="ceoOptComparisonBox">${job
+          ? `<div class="card muted">A run is in progress -- the comparison will appear here once it finishes (or check the last completed run below).</div>`
+          : `<div class="muted">Loading comparison...</div>`}</div>
+
+        <div class="section-title">Recent Results</div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Strategy</th><th>Trades</th><th>Win Rate</th><th>Profit %</th><th>When</th></tr></thead>
+          <tbody>${d.history.slice(0, 15).map(b => `
+            <tr><td>${esc(b.display_name || b.strategy)}</td><td>${fmtNum(b.total_trades)}</td><td>${b.win_rate}%</td>
+            <td class="${b.avg_profit_pct > 0 ? 'positive' : b.avg_profit_pct < 0 ? 'negative' : ''}">${b.avg_profit_pct}%</td>
+            <td>${timeAgo(b.created_at)}</td></tr>`).join("") || '<tr><td colspan="5">No completed backtests yet.</td></tr>'}</tbody>
+        </table></div>`);
+
+      // Same shared endpoint + renderer as Backtest History (see
+      // comparisonBoxHtml/loadComparisonBox) -- per the standing CEO-parity
+      // rule, this can never show different numbers than that page.
+      if (!job && latestBatch) {
+        loadComparisonBox(document.getElementById("ceoOptComparisonBox"), latestBatch.batch_id).catch(console.error);
+      } else if (!job) {
+        document.getElementById("ceoOptComparisonBox").innerHTML = `<div class="card muted">No completed backtests yet.</div>`;
+      }
+
+      if (readyToRun && !job) {
+        document.getElementById("ceoRunNow").onclick = async () => {
+          try {
+            await apiPost("/api/backtesting/run", { strategy_id: readyToRun.id, all_coins: true });
+            expandBacktesting(focusId);
+          } catch (e) { alert(`Could not start: ${e.message}`); }
+        };
+        document.getElementById("ceoRunCancel").onclick = () => { ceoPendingRunStrategyId = null; expandBacktesting(focusId); };
+      }
+      if (job) {
+        document.getElementById("ceoBtPause").onclick = async () => { await apiPost(`/api/jobs/${job.id}/pause`); };
+        document.getElementById("ceoBtResume").onclick = async () => { await apiPost(`/api/jobs/${job.id}/resume`); };
+        document.getElementById("ceoBtStop").onclick = async () => { await apiPost(`/api/jobs/${job.id}/stop`); expandBacktesting(focusId); };
+      }
+    }
+
+    // ---- Paper Trading
+    async function expandPaperTrading() {
+      const d = await fetchAll();
+      if (isStaleRoute(myToken)) return;
+      const s = d.paperStatus;
+      expandedShell("Paper Trading", `
+        <div class="grid">
+          ${cardClass("Engine Status", s.running ? "<span class=\"pill pill-completed\">Running</span>" : "<span class=\"pill pill-muted\">Stopped</span>", "")}
+          ${card("Balance", `$${Number(s.balance).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}`)}
+          ${card("Open Trades", fmtNum(s.open_trades))}
+          ${card("Queue", fmtNum(s.queue))}
+        </div>
+        <div class="btn-row">
+          <button class="btn" id="ceoPtStart" ${s.running ? "disabled" : ""}>Start Engine</button>
+          <button class="btn-ghost" id="ceoPtStop" ${s.running ? "" : "disabled"}>Stop Engine</button>
+          <span id="ceoPtStatus" class="muted"></span>
+        </div>
+        <div class="section-title">Open Positions</div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Coin</th><th>Direction</th><th>Entry</th><th>Size</th><th>Strategy</th></tr></thead>
+          <tbody>${d.paperPositions.map(p => `
+            <tr><td>${esc(p.symbol)}</td><td><span class="pill ${p.direction === 'long' ? 'pill-bullish' : 'pill-bearish'}">${esc(p.direction)}</span></td>
+            <td>${p.entry_price}</td><td>${p.size.toFixed(4)}</td><td>${esc(p.strategy_name || "-")}</td></tr>`).join("") || '<tr><td colspan="5">No open positions.</td></tr>'}</tbody>
+        </table></div>`);
+      document.getElementById("ceoPtStart").onclick = async () => {
+        try { await apiPost("/api/paper-trading/start"); expandPaperTrading(); }
+        catch (e) { document.getElementById("ceoPtStatus").textContent = `Failed: ${e.message}`; }
+      };
+      document.getElementById("ceoPtStop").onclick = async () => {
+        try { await apiPost("/api/paper-trading/stop"); expandPaperTrading(); }
+        catch (e) { document.getElementById("ceoPtStatus").textContent = `Failed: ${e.message}`; }
+      };
+    }
+
+    // ---- Reports
+    async function expandReports() {
+      const d = await fetchAll();
+      if (isStaleRoute(myToken)) return;
+      expandedShell("Reports", `
+        <div class="section-title">Best / Worst Strategies</div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Strategy</th><th>Avg Profit %</th><th>Batches</th></tr></thead>
+          <tbody>${(d.bestWorst.ranking || []).map(r => `
+            <tr><td>${esc(r.strategy)}</td><td class="${r.avg_profit_pct > 0 ? 'positive' : r.avg_profit_pct < 0 ? 'negative' : ''}">${r.avg_profit_pct}%</td><td>${r.batches}</td></tr>`).join("") || '<tr><td colspan="3">No completed backtests yet.</td></tr>'}</tbody>
+        </table></div>
+        <div class="section-title">Recent Batches</div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Strategy</th><th>Profit %</th><th>When</th><th></th></tr></thead>
+          <tbody>${d.history.slice(0, 15).map(b => `
+            <tr><td>${esc(b.display_name || b.strategy)}</td><td class="${b.avg_profit_pct > 0 ? 'positive' : b.avg_profit_pct < 0 ? 'negative' : ''}">${b.avg_profit_pct}%</td>
+            <td>${timeAgo(b.created_at)}</td><td><a href="/api/reports/${b.batch_id}/export/csv" class="btn-ghost" style="text-decoration:none;display:inline-block;">Export CSV</a></td></tr>`).join("") || '<tr><td colspan="4">No completed backtests yet.</td></tr>'}</tbody>
+        </table></div>`);
+    }
+
+    // ---- Settings
+    async function expandSettings() {
+      const d = await fetchAll();
+      if (isStaleRoute(myToken)) return;
+      const st = d.settings;
+      expandedShell("Settings", `
+        <div class="card" style="max-width:520px;">
+          <div class="form-row"><label>Exchange</label>
+            <select id="ceoSetExchange">${(st.available_exchanges || []).map(e => `<option ${e === st.exchange ? "selected" : ""}>${esc(e)}</option>`).join("")}</select>
+          </div>
+          <div class="form-row"><label>Quote Asset</label><input id="ceoSetQuote" value="${esc(st.quote_asset || "")}"></div>
+          <div class="form-row"><label>Number of Coins</label><input id="ceoSetNumCoins" type="number" value="${st.num_coins ?? 50}"></div>
+          <div class="form-row"><label>Default Risk %</label><input id="ceoSetRisk" type="number" step="0.1" value="${st.default_risk_pct ?? 1}"></div>
+          <div class="form-row"><label>Theme</label>
+            <select id="ceoSetTheme"><option value="dark" ${st.theme === "dark" ? "selected" : ""}>Dark</option><option value="light" ${st.theme === "light" ? "selected" : ""}>Light</option></select>
+          </div>
+          <div class="btn-row"><button class="btn" id="ceoSetSave">Save Settings</button><span id="ceoSetStatus" class="muted"></span></div>
+        </div>`);
+      document.getElementById("ceoSetSave").onclick = async () => {
+        const status = document.getElementById("ceoSetStatus");
+        status.textContent = "Saving...";
+        try {
+          await autosave("POST", "/api/settings", {
+            exchange: document.getElementById("ceoSetExchange").value,
+            quote_asset: document.getElementById("ceoSetQuote").value,
+            num_coins: parseInt(document.getElementById("ceoSetNumCoins").value, 10),
+            default_risk_pct: parseFloat(document.getElementById("ceoSetRisk").value),
+            theme: document.getElementById("ceoSetTheme").value,
+          });
+          document.documentElement.setAttribute("data-theme", document.getElementById("ceoSetTheme").value);
+          status.textContent = "Saved.";
+        } catch (e) { status.textContent = `Failed (queued for retry): ${e.message}`; }
+      };
+    }
+
+    // ------------------------------------------------------------ boot + live updates
+    // fetchAll() fires ~13 parallel requests. Paper Trading alone broadcasts
+    // very frequently (every tick, every position open/close), so a naive
+    // "re-render on every WS message" handler fires a fresh fetchAll() many
+    // times per second -- Chrome's per-origin connection pool exhausts
+    // almost immediately (net::ERR_INSUFFICIENT_RESOURCES) and every card
+    // silently falls back to its empty/failed state. Debounce bursts into
+    // one refresh, and never let two refreshes overlap in flight.
+    let refreshTimer = null;
+    let refreshInFlight = false;
+    let refreshQueuedAgain = false;
+    function scheduleRefresh(fn) {
+      if (refreshTimer) return;
+      refreshTimer = setTimeout(async () => {
+        refreshTimer = null;
+        if (refreshInFlight) { refreshQueuedAgain = true; return; }
+        refreshInFlight = true;
+        try { await fn(); } catch (e) { console.error(e); }
+        refreshInFlight = false;
+        if (refreshQueuedAgain) { refreshQueuedAgain = false; scheduleRefresh(fn); }
+      }, 800);
+    }
+
+    await showGrid();
+
+    onLive((msg) => {
+      if (isStaleRoute(myToken)) return;
+      const relevant = msg.channel === "job" || msg.channel === "progress" || msg.channel === "sync";
+      if (!relevant) return;
+      if (expandedId === null) { scheduleRefresh(showGrid); return; }
+      if ((expandedId === "backtesting" || expandedId === "backtest_history") && (msg.channel === "job" || msg.channel === "progress")) {
+        scheduleRefresh(() => expandBacktesting(expandedId));
+      } else if (expandedId === "all_tasks") {
+        scheduleRefresh(expandAllTasks);
+      }
+    });
+    onLive((msg) => {
+      if (msg.channel === "log" && expandedId === "backtesting") {
+        const box = document.getElementById("ceoBtLog");
+        if (box) {
+          const div = document.createElement("div");
+          div.textContent = msg.message;
+          box.appendChild(div);
+          box.scrollTop = box.scrollHeight;
+        }
+      }
+    });
+    autoRefresh(() => { if (expandedId === null) return scheduleRefresh(showGrid) || Promise.resolve(); return Promise.resolve(); }, 15);
   }
 
   // ------------------------------------------------------------ init

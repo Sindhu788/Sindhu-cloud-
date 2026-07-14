@@ -16,6 +16,7 @@ class ConfiguredStrategy(Strategy):
     def __init__(self, config):
         self.config = config
         self.name = config.name
+        self._arr_cache = {}
 
     # -------------------------------------------------- multi-timeframe prep
     def prepare_context(self, ctx):
@@ -88,7 +89,25 @@ class ConfiguredStrategy(Strategy):
             entry_col = f"entry_{col}"
             if entry_col in df.columns and col not in df.columns:
                 df[col] = df[entry_col]
+        # Fresh per run: on_bar is called hundreds of thousands of times
+        # against this same `df`, so every column it touches is converted to
+        # a plain numpy array once (via _array()) instead of re-slicing a
+        # pandas Series on every single bar -- profiling a real backtest
+        # showed pandas Series.iloc/slicing overhead (Index rebuilding,
+        # __finalize__, metadata propagation) was the dominant cost, not the
+        # actual condition math. Numpy array indexing returns the exact same
+        # values, just without that overhead.
+        self._arr_cache = {}
         return df
+
+    def _array(self, df, col):
+        arr = self._arr_cache.get(col)
+        if arr is None:
+            if col not in df.columns:
+                return None
+            arr = df[col].to_numpy()
+            self._arr_cache[col] = arr
+        return arr
 
     def on_bar(self, df, i, position):
         cfg = self.config
@@ -109,7 +128,7 @@ class ConfiguredStrategy(Strategy):
                 return None
 
             direction = self._infer_direction()
-            price = df["close"].iloc[i]
+            price = self._array(df, "close")[i]
             sl = self._compute_stop_loss(df, i, price, direction)
             tp = self._compute_take_profit(df, i, price, direction, sl)
             action = "buy" if direction == "bullish" else "sell"
@@ -142,9 +161,10 @@ class ConfiguredStrategy(Strategy):
         return f"{role}_{indicator_name}"
 
     def _get(self, df, i, col):
-        if col not in df.columns:
+        arr = self._array(df, col)
+        if arr is None:
             return None
-        val = df[col].iloc[i]
+        val = arr[i]
         return None if pd.isna(val) else val
 
     def _eval(self, cond, df, i):
@@ -162,9 +182,14 @@ class ConfiguredStrategy(Strategy):
             window = cond.lookback_bars if cond.lookback_bars is not None else 10
 
             def _within(col):
-                if col not in df.columns:
+                # Same math as concepts.true_within_lookback(), just against
+                # the cached numpy array instead of a pandas Series -- see
+                # the note in prepare() for why.
+                arr = self._array(df, col)
+                if arr is None:
                     return False
-                return concepts.true_within_lookback(df[col], i, window)
+                start = max(0, i - window + 1)
+                return bool(arr[start:i + 1].any())
 
             event_colmap = {
                 "bos": ("entry_bull_bos", "entry_bear_bos"),

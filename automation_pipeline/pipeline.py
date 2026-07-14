@@ -40,7 +40,7 @@ def _default_exchange():
     return cfg["default"]
 
 
-def trigger_pipeline_for_strategy(strategy_id, strategy_name=None):
+def trigger_pipeline_for_strategy(strategy_id, strategy_name=None, symbols=None):
     """Starts the pipeline as a background "pipeline" job and returns
     immediately, exactly like job_manager.create_job("backtest", ...) in
     sindhu_web/api/backtesting.py. Skips (rather than queues) if a
@@ -48,7 +48,16 @@ def trigger_pipeline_for_strategy(strategy_id, strategy_name=None):
     for the same multiprocessing worker pool -- consistent with the
     existing one-backtest-at-a-time rule, just extended to this new job
     kind. Never raises: a skip is logged and returned as None, so an
-    import request is never blocked or failed by this."""
+    import request is never blocked or failed by this.
+
+    `symbols`: optional explicit coin list, overriding the normal "every
+    downloaded coin for this exchange" default. Every real auto-trigger
+    (import/clarification) always passes None -- this exists purely so a
+    manual verification run (see /api/automation/trigger) can exercise the
+    full backtest -> optimize -> re-backtest -> compare -> paper-trading
+    chain quickly against a handful of coins instead of waiting on the
+    full universe, without touching the production auto-trigger behavior
+    at all."""
     if job_manager.get_running_job_of_kind("pipeline") is not None:
         file_log(f"[automation-pipeline] Skipped auto-pipeline for '{strategy_name or strategy_id}' "
                   f"-- another pipeline is already running.")
@@ -62,7 +71,7 @@ def trigger_pipeline_for_strategy(strategy_id, strategy_name=None):
     control = DownloadControl()
 
     def _target():
-        return run_pipeline(job_id, strategy_id, control)
+        return run_pipeline(job_id, strategy_id, control, symbols=symbols)
 
     job_manager.create_job("pipeline", _target, control=control, job_id=job_id)
     sync.notify("automation_pipeline", "started",
@@ -70,28 +79,50 @@ def trigger_pipeline_for_strategy(strategy_id, strategy_name=None):
     return job_id
 
 
-def run_pipeline(job_id, strategy_id, control=None):
+def run_pipeline(job_id, strategy_id, control=None, symbols=None):
+    """Part 4 (plain-language live logs + reliability): every log_fn() call
+    below is written for a non-programmer reading the Live Logs panel in
+    real time, not as an internal debug trace -- it says what SINDHU is
+    doing and why, in plain English, at every stage from import through
+    Paper Trading. `[automation-pipeline]` is kept as a prefix purely so
+    these lines are easy to filter/grep in the log file; it's not meant to
+    read as jargon on its own.
+
+    Reliability: `control.should_stop()` is checked between every stage
+    (not just inside runner.run_mtf_batch's own per-coin loop) so hitting
+    Stop on this job halts it promptly at a clean boundary instead of
+    powering through the remaining stages regardless."""
     log_fn = job_manager.make_log_fn(job_id)
 
     def _stage(stage, **extra):
         job_manager.update_progress(job_id, current_stage=stage, **extra)
 
+    def _say(msg):
+        log_fn(f"[automation-pipeline] {msg}")
+
+    def _stopped(after_stage):
+        _say(f"Stopped by request after the {after_stage} stage -- nothing further was started.")
+        _stage("stopped", reason=after_stage)
+        return {"error": "stopped", "stopped_after": after_stage}
+
     try:
         cfg = lib.load(strategy_id)
     except FileNotFoundError:
-        log_fn(f"[automation-pipeline] Strategy {strategy_id} not found -- aborting.")
+        _say(f"Could not find strategy {strategy_id} -- stopping here.")
         _stage("aborted", reason="strategy_not_found")
         return {"error": "strategy not found"}
 
     if validate(cfg):
-        log_fn(f"[automation-pipeline] '{cfg.name}' is not Backtesting Ready -- aborting pipeline.")
+        _say(f"'{cfg.name}' still has unresolved issues and isn't ready to backtest -- stopping here. "
+             f"Resolve them from the Strategies page (Clarify) and it will run automatically once ready.")
         _stage("aborted", reason="not_ready")
         return {"error": "strategy not ready"}
 
     exchange = _default_exchange()
-    symbols = storage.load_symbols(exchange)
+    symbols = symbols or storage.load_symbols(exchange)
     if not symbols:
-        log_fn("[automation-pipeline] No coins available for this exchange -- aborting.")
+        _say("No coin price data is available yet for this exchange -- stopping here. "
+             "Download data from the Data page first.")
         _stage("aborted", reason="no_symbols")
         return {"error": "no symbols"}
 
@@ -102,15 +133,16 @@ def run_pipeline(job_id, strategy_id, control=None):
     }
 
     # ---------------------------------------------------------- Stage 1/4: backtesting
-    _stage("backtesting", current_strategy=cfg.name)
-    log_fn(f"[automation-pipeline] Stage 1/4 (backtesting): running the original backtest for "
-           f"'{cfg.name}' across {len(symbols)} coins...")
+    _stage("backtesting", current_strategy=cfg.name, stage_label="Running the strategy against historical price data")
+    _say(f"Step 1 of 4 -- Backtesting: testing '{cfg.name}' against real historical price data for "
+         f"{len(symbols)} coins, to see how it would actually have performed.")
 
     def _progress_cb(done, total, symbol, timeframe, stage=None, bar_pct=None, trades_so_far=None, eta_seconds=None):
         job_manager.update_progress(
             job_id, current_stage="backtesting", done=done, total=total,
             current_coin=symbol, current_timeframe=timeframe, current_strategy=cfg.name,
             backtest_stage=stage, bar_pct=bar_pct, trades_so_far=trades_so_far, eta_seconds=eta_seconds,
+            stage_label="Running the strategy against historical price data",
         )
 
     original_batch_id = runner.run_mtf_batch(
@@ -119,37 +151,56 @@ def run_pipeline(job_id, strategy_id, control=None):
     )
     generate_report(original_batch_id)
     original_summary = quick_batch_summary(original_batch_id) or {}
-    log_fn(f"[automation-pipeline] Original backtest complete: batch {original_batch_id}, "
-           f"{original_summary.get('total_trades', 0)} trades, {original_summary.get('win_rate', 0)}% win rate, "
-           f"PnL {original_summary.get('total_pnl')}.")
+    _say(f"Backtest finished: {original_summary.get('total_trades', 0)} trades, "
+         f"{original_summary.get('win_rate', 0)}% win rate, "
+         f"total profit/loss {original_summary.get('total_pnl')}.")
+
+    if control and control.should_stop():
+        return _stopped("backtesting")
 
     # ---------------------------------------------------------- Stage 2/4: optimizing
-    _stage("optimizing")
-    log_fn("[automation-pipeline] Stage 2/4 (optimizing): running the math-based optimizer -- "
-           "pure grid search over this strategy's own tunable parameters, no AI provider is called.")
+    optimizer_total = {"n": 0}
+
+    def _opt_progress(tried_so_far, total_candidates):
+        optimizer_total["n"] = total_candidates
+        job_manager.update_progress(
+            job_id, current_stage="optimizing", optimizer_tried=tried_so_far, optimizer_total=total_candidates,
+            stage_label="Testing different settings to find the best version of this strategy",
+        )
+
+    _stage("optimizing", stage_label="Testing different settings to find the best version of this strategy")
+    _say("Step 2 of 4 -- Finding better settings: trying different combinations of this strategy's own "
+         "numeric settings (things like lookback windows, stop-loss size, risk per trade, session "
+         "filters) to see if any version performs better. This is pure math/combinatorics -- no AI "
+         "provider is called and no AI tokens are used for this step.")
     end_ms = int(time.time() * 1000)
     start_ms = end_ms - FAST_SCREEN_WINDOW_DAYS * 24 * 3600 * 1000
     screen_symbol = symbols[0]
-    log_fn(f"[automation-pipeline] Fast screen uses {screen_symbol} over the last "
-           f"{FAST_SCREEN_WINDOW_DAYS} days (in-memory, no database writes).")
+    _say(f"To keep this quick, each combination is first tried on just {screen_symbol}'s last "
+         f"{FAST_SCREEN_WINDOW_DAYS} days (no data is saved during this quick-test pass) -- "
+         f"only the single best combination goes on to a full, real test next.")
 
     def _opt_log(msg):
-        log_fn(f"[automation-pipeline] {msg}")
-        job_manager.update_progress(job_id, current_stage="optimizing", last_optimizer_log=msg)
+        _say(msg)
 
     best_candidate, tried, best_desc = optimizer.optimize(
-        cfg, exchange, screen_symbol, dict(settings), start_ms, end_ms, log_fn=_opt_log,
+        cfg, exchange, screen_symbol, dict(settings), start_ms, end_ms,
+        log_fn=_opt_log, control=control, progress_cb=_opt_progress,
     )
+
+    if control and control.should_stop():
+        return _stopped("optimizing")
 
     optimized_batch_id = None
     optimized_summary = None
     winner = "original"
 
     if best_candidate is not None:
-        _stage("optimizing", validating_candidate=best_desc)
-        log_fn(f"[automation-pipeline] Validating best candidate ({best_desc}) on the FULL dataset "
-               f"({len(symbols)} coins, same range as the original backtest) to confirm it isn't "
-               f"overfit to the fast subset...")
+        _stage("optimizing", validating_candidate=best_desc,
+               stage_label="Double-checking the best combination on the full history")
+        _say(f"Found a promising combination ({best_desc}). Now running a REAL, full backtest with it "
+             f"-- same {len(symbols)} coins and the same full date range as the original -- to make "
+             f"sure it's a genuine improvement and not just a lucky result on the small quick-test sample.")
 
         def _val_progress_cb(done, total, symbol, timeframe, stage=None, bar_pct=None, trades_so_far=None, eta_seconds=None):
             job_manager.update_progress(
@@ -157,6 +208,7 @@ def run_pipeline(job_id, strategy_id, control=None):
                 current_coin=symbol, current_timeframe=timeframe,
                 current_strategy=f"{cfg.name} (optimized candidate)",
                 backtest_stage=stage, bar_pct=bar_pct, trades_so_far=trades_so_far, eta_seconds=eta_seconds,
+                stage_label="Double-checking the best combination on the full history",
             )
 
         optimized_batch_id = runner.run_mtf_batch(
@@ -165,29 +217,34 @@ def run_pipeline(job_id, strategy_id, control=None):
         )
         generate_report(optimized_batch_id)
         optimized_summary = quick_batch_summary(optimized_batch_id) or {}
-        log_fn(f"[automation-pipeline] Optimized candidate full-dataset result: batch {optimized_batch_id}, "
-               f"{optimized_summary.get('total_trades', 0)} trades, {optimized_summary.get('win_rate', 0)}% win rate, "
-               f"PnL {optimized_summary.get('total_pnl')}.")
+        _say(f"Full test of the optimized version finished: {optimized_summary.get('total_trades', 0)} trades, "
+             f"{optimized_summary.get('win_rate', 0)}% win rate, "
+             f"total profit/loss {optimized_summary.get('total_pnl')}.")
 
         orig_pnl = original_summary.get("total_pnl")
         opt_pnl = optimized_summary.get("total_pnl")
         if opt_pnl is not None and (orig_pnl is None or opt_pnl > orig_pnl):
             winner = "optimized"
-        log_fn(f"[automation-pipeline] Winner: {winner} (original PnL {orig_pnl}, optimized PnL {opt_pnl}).")
+        _say(f"Result: the {winner.upper()} version performed better "
+             f"(original: {orig_pnl}, optimized: {opt_pnl}).")
     else:
-        log_fn("[automation-pipeline] Optimizer found no improving candidate on the fast subset -- "
-               "keeping the original strategy, no full-dataset validation run needed.")
+        _say("None of the combinations tried beat the original on the quick test, so the optimized "
+             "version is skipped -- no need to spend time on a full test that won't win anyway. "
+             "Keeping the strategy exactly as imported.")
+
+    if control and control.should_stop():
+        return _stopped("optimizing")
 
     # ---------------------------------------------------------- Stage 3/4: comparing
-    _stage("comparing", winner=winner)
+    _stage("comparing", winner=winner, stage_label="Saving the original vs optimized comparison")
     opt_id = uuid.uuid4().hex[:12]
     params_changed = [{"description": best_desc}] if (winner == "optimized" and best_desc) else []
     storage.save_optimization(
         opt_id, strategy_id, original_batch_id, optimized_batch_id, winner,
         params_changed, tried, _now_iso(),
     )
-    log_fn(f"[automation-pipeline] Stage 3/4 (comparing): saved comparison record {opt_id} "
-           f"(original={original_batch_id}, optimized={optimized_batch_id}, winner={winner}).")
+    _say(f"Step 3 of 4 -- Saving the comparison: you can see the original vs optimized side by side "
+         f"any time in Backtest History (winner: {winner}).")
 
     # If the optimized candidate won, persist it as a new version of the
     # SAME saved strategy -- strategy_library.load(strategy_id) always
@@ -196,18 +253,22 @@ def run_pipeline(job_id, strategy_id, control=None):
     if winner == "optimized" and best_candidate is not None:
         best_candidate.name = cfg.name
         lib.save_version(strategy_id, best_candidate)
-        log_fn(f"[automation-pipeline] Saved the optimized parameters as a new version of '{cfg.name}'.")
+        _say(f"Saved the optimized settings as the new version of '{cfg.name}' -- "
+             f"nothing to export or re-import.")
+
+    if control and control.should_stop():
+        return _stopped("comparing")
 
     # ---------------------------------------------------------- Stage 4/4: paper trading handoff
-    _stage("starting_paper_trading", winner=winner)
-    log_fn(f"[automation-pipeline] Stage 4/4 (starting_paper_trading): starting Paper Trading with the "
-           f"{winner} version of '{cfg.name}'...")
+    _stage("starting_paper_trading", winner=winner, stage_label="Starting Paper Trading with the winning version")
+    _say(f"Step 4 of 4 -- Starting Paper Trading: handing the {winner.upper()} version of '{cfg.name}' "
+         f"to Paper Trading so SINDHU can start trading it live (simulated) automatically.")
 
     from paper_trading.engine import engine as pt_engine
     from sindhu_web.api.paper_trading import _log_and_broadcast, _on_engine_event
 
     if pt_engine.is_running():
-        log_fn("[automation-pipeline] Paper Trading was already running -- restopping it scoped to this strategy.")
+        _say("Paper Trading was already running with a different setup -- restarting it scoped to just this strategy.")
         pt_engine.stop()
         waited = 0.0
         while pt_engine.is_running() and waited < 15.0:
@@ -216,11 +277,13 @@ def run_pipeline(job_id, strategy_id, control=None):
 
     started = pt_engine.start(log=_log_and_broadcast, on_event=_on_engine_event, only_strategy_id=strategy_id)
     if started:
-        log_fn(f"[automation-pipeline] Paper Trading is now running, scoped to '{cfg.name}' only.")
+        _say(f"Done -- Paper Trading is now running '{cfg.name}' live (simulated), and only this strategy.")
     else:
-        log_fn("[automation-pipeline] Could not start Paper Trading (engine reported still busy stopping).")
+        _say("Could not start Paper Trading (it reported it was still busy shutting down) -- "
+             "you can start it manually from the Paper Trading page.")
 
-    _stage("completed", winner=winner, paper_trading_started=started)
+    _stage("completed", winner=winner, paper_trading_started=started,
+           stage_label="Done -- see the results in Backtest History")
     sync.notify(
         "automation_pipeline", "finished",
         f"Automation pipeline finished for '{cfg.name}': winner={winner}, "
