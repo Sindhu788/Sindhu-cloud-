@@ -18,16 +18,29 @@ def _apply_slippage(price, side, is_exit, slippage_pct):
     return price * (1 + slippage_pct) if worse_is_higher else price * (1 - slippage_pct)
 
 
-def _position_size(balance, entry_price, stop_loss, risk_pct, position_size_pct):
+def _position_size(risk_base, available_balance, entry_price, stop_loss, risk_pct, position_size_pct):
     """Risk-based sizing when the strategy gives a stop-loss (classic
     risk-per-trade position sizing); otherwise a fixed fraction of equity.
-    Capped at 1x balance -- this engine doesn't model margin/leverage."""
+
+    `risk_base` and `available_balance` are deliberately separate:
+    - `risk_base` is what the risk % is calculated against. A backtest
+      passes a FIXED value (initial capital) so thousands of trades can't
+      compound the position size into runaway numbers; live/paper trading
+      passes the real current (compounding) balance, which is correct for
+      an actual account.
+    - `available_balance` is always the real current balance, regardless of
+      `risk_base` -- it caps how much can actually be bought (can't risk
+      money that isn't there) and returns 0 once the account is wiped out,
+      exactly like a real broker would stop letting you open new positions
+      at (or past) zero equity."""
+    if available_balance <= 0:
+        return 0.0
     if stop_loss is not None and stop_loss != entry_price:
         stop_distance = abs(entry_price - stop_loss)
-        size = (balance * risk_pct) / stop_distance
+        size = (risk_base * risk_pct) / stop_distance
     else:
-        size = (balance * position_size_pct) / entry_price
-    return max(min(size, balance / entry_price), 0.0)
+        size = (risk_base * position_size_pct) / entry_price
+    return max(min(size, available_balance / entry_price), 0.0)
 
 
 def _risk_amount(position):
@@ -75,6 +88,16 @@ def run_backtest(df, strategy, settings, control=None, on_trade=None, knowledge_
     df = strategy.prepare(df)
 
     balance = float(settings["initial_balance"])
+    # Position sizing risks a % of this FIXED starting capital, not the
+    # ever-growing `balance` below. Risking a % of current equity compounds
+    # every single trade -- over the thousands of trades a single backtest
+    # coin can produce, that's mathematically guaranteed to blow up to
+    # fantasy numbers (verified: one coin went from $1,000 to $164,586 over
+    # 1,766 trades this way), regardless of whether the strategy's edge is
+    # even real. A live/paper account sizing off its current balance is
+    # correct there (trades happen slowly, in real time) -- this only
+    # applies to the backtest's single-pass replay of historical bars.
+    initial_balance = balance
     commission_pct = settings.get("commission_pct", 0.0) / 100.0
     slippage_pct = settings.get("slippage_pct", 0.0) / 100.0
     risk_pct = settings.get("risk_pct", 1.0) / 100.0
@@ -154,7 +177,7 @@ def run_backtest(df, strategy, settings, control=None, on_trade=None, knowledge_
 
             if signal is not None:
                 fill_price = _apply_slippage(price, side, False, slippage_pct)
-                size = _position_size(balance, fill_price, signal.stop_loss, risk_pct, position_size_pct)
+                size = _position_size(initial_balance, balance, fill_price, signal.stop_loss, risk_pct, position_size_pct)
                 if size > 0:
                     position = {
                         "side": side,

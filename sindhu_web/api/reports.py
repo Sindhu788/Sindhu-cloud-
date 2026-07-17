@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from data_engine import storage
 from backtest_engine.reports import generate_report, quick_batch_summary
 from backtest_engine import export
+from backtest_engine.diagnostics import plain_language_diagnosis
 
 router = APIRouter()
 
@@ -148,10 +149,18 @@ def get_condition_reports(batch_id: str):
     batch -- for each entry condition, how many bars it was actually true
     (respecting its lookback window), and how many bars every condition
     was true together. Rule-based counting only, computed once when the
-    backtest itself ran and stored alongside the batch."""
+    backtest itself ran and stored alongside the batch.
+
+    Each report also carries a `diagnosis` plain-English sentence (Part 2:
+    auto-surfaced 0-trade diagnosis) computed here once so Backtest History
+    and the SINDHU CEO Backtesting card show the exact same wording for the
+    exact same data -- neither builds its own copy of this logic."""
     if not storage.get_batch(batch_id):
         raise HTTPException(404, "batch not found")
-    return {"reports": storage.list_condition_reports(batch_id)}
+    reports = storage.list_condition_reports(batch_id)
+    for r in reports:
+        r["diagnosis"] = plain_language_diagnosis(r["report"])
+    return {"reports": reports}
 
 
 @router.get("/api/reports/{batch_id}/trades")

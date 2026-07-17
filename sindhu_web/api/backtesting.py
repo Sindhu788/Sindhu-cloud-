@@ -11,6 +11,7 @@ from backtest_engine.strategy_config import StrategyConfig
 from backtest_engine.validator import validate
 from backtest_engine import strategy_library as lib
 from backtest_engine import runner
+from backtest_engine import sanity_check
 from backtest_engine.reports import generate_report
 from sindhu_web.jobs import job_manager
 from sindhu_web.api.data import _default_exchange
@@ -213,6 +214,18 @@ def run_backtest(req: RunRequest):
         "position_size_pct": req.position_size_pct,
         "start_ms": req.start_ms, "end_ms": req.end_ms,
     }
+
+    # Part 3: a fast 1-2 coin / short-date-range check BEFORE committing to
+    # the full (potentially 50-coin) run below -- catches a structural
+    # 0-trade strategy (a condition that never fires even once) right away
+    # instead of after the whole backtest finishes.
+    sanity = sanity_check.run_sanity_check(cfg.to_dict(), exchange, symbols, settings)
+    if not sanity["ok"]:
+        raise HTTPException(400, {
+            "errors": [sanity["reason"]],
+            "diagnosis": sanity["diagnosis"],
+            "sanity_check_failed": True,
+        })
 
     control = DownloadControl()
     job_id = uuid.uuid4().hex[:12]

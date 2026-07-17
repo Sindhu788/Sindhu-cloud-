@@ -33,7 +33,13 @@ def evaluate(candidate, settings):
         return False, "account balance depleted", None, None
 
     risk_pct = settings.get("risk_pct_default", 1.0) / 100.0
-    size = _position_size(balance, candidate["entry_price"], candidate["stop_loss"], risk_pct, 0.1)
+    # Live/paper trading risks a % of the real current balance (both
+    # arguments are the same value here) -- unlike a backtest's single-pass
+    # replay of thousands of historical bars, trades here happen slowly in
+    # real time, so compounding off current equity is the correct, standard
+    # behavior for an actual account, not the runaway-growth bug that
+    # affected backtesting.
+    size = _position_size(balance, balance, candidate["entry_price"], candidate["stop_loss"], risk_pct, 0.1)
     if size <= 0:
         return False, "computed position size is zero", None, None
 

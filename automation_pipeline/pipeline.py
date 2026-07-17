@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from backtest_engine import runner, strategy_library as lib
 from backtest_engine.reports import generate_report, quick_batch_summary
 from backtest_engine.validator import validate
+from backtest_engine import sanity_check
 from data_engine import storage, config as base_config
 from data_engine.control import DownloadControl
 from data_engine.logging_setup import log as file_log
@@ -131,6 +132,21 @@ def run_pipeline(job_id, strategy_id, control=None, symbols=None):
         "commission_pct": 0.1, "slippage_pct": 0.05, "position_size_pct": 10.0,
         "start_ms": None, "end_ms": None,
     }
+
+    # Part 3: fast sanity check on a couple of coins / a short recent window
+    # BEFORE committing to the full (potentially 50-coin) backtest below --
+    # catches a structural 0-trade strategy immediately instead of after the
+    # whole pipeline (backtest + optimizer + re-backtest) has already run.
+    _say(f"Sanity check: quickly testing '{cfg.name}' on a couple of coins over a short recent window "
+         f"before running the full backtest, to catch a broken strategy early.")
+    sanity = sanity_check.run_sanity_check(cfg.to_dict(), exchange, symbols, settings)
+    if not sanity["ok"]:
+        _say(f"Sanity check failed: {sanity['reason']} {sanity['diagnosis'] or ''}".strip())
+        _say(f"Stopping here -- fix '{cfg.name}' and it will run automatically once it passes.")
+        _stage("aborted", reason="sanity_check_failed", sanity_check=sanity)
+        return {"error": "sanity check failed", "sanity_check": sanity}
+    _say(f"Sanity check passed ({sanity['trades_found']} trade(s) found on "
+         f"{', '.join(sanity['symbols_checked'])}) -- proceeding to the full backtest.")
 
     # ---------------------------------------------------------- Stage 1/4: backtesting
     _stage("backtesting", current_strategy=cfg.name, stage_label="Running the strategy against historical price data")

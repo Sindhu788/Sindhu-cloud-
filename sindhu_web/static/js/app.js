@@ -761,6 +761,34 @@
     }
   }
 
+  // ------------------------------------------------------------ shared 0-trade condition-hit diagnosis
+  // Part 2 (auto-surfaced 0-trade diagnosis): single component used by both
+  // Backtest History and the SINDHU CEO Backtesting card, backed by the
+  // single shared endpoint /api/reports/{batch_id}/condition-reports --
+  // same CEO-parity rule as the comparison box above. Requires no extra
+  // clicks: rendered directly wherever a batch is shown, not tucked behind
+  // an expandable section.
+  function zeroTradeBoxHtml(data) {
+    const reports = (data && data.reports) || [];
+    if (!reports.length) return "";
+    return `
+      <div class="card" style="background:var(--yellow-dim);border-left:3px solid var(--yellow);">
+        <div style="font-weight:700;margin-bottom:6px;">${reports.length} coin${reports.length === 1 ? "" : "s"} produced 0 trades</div>
+        ${reports.map(r => `<p style="margin:4px 0;"><b>${esc(r.symbol)}</b>: ${esc(r.diagnosis || "No diagnosis available.")}</p>`).join("")}
+      </div>`;
+  }
+
+  async function loadZeroTradeBox(container, batchId) {
+    if (!container) return;
+    container.innerHTML = "";
+    try {
+      const data = await apiGet(`/api/reports/${batchId}/condition-reports`);
+      container.innerHTML = zeroTradeBoxHtml(data);
+    } catch (e) {
+      container.innerHTML = "";
+    }
+  }
+
   // ------------------------------------------------------------ MARKET
   async function renderMarket() {
     const myToken = activeRouteToken;
@@ -1421,8 +1449,13 @@
       `Max Drawdown: ${r.max_drawdown_pct}%  Profit Factor: ${r.avg_profit_factor}\n\n` +
       `Lessons Applied: ${r.lessons_applied}  ` +
       `Trades Approved by Lessons: ${r.trades_approved_by_lessons}  ` +
-      `Trades Rejected by Lessons: ${r.trades_rejected_by_lessons}` +
-      ((crs.reports || []).length ? `\n\n0-Trade Coins: ${crs.reports.length} (see breakdown below)` : "");
+      `Trades Rejected by Lessons: ${r.trades_rejected_by_lessons}`;
+
+    // Part 2 (auto-surfaced 0-trade diagnosis): shown immediately, right
+    // after the summary -- no extra clicks needed to discover why a coin
+    // got 0 trades, unlike the detailed raw breakdown table further below.
+    const diagBox = document.getElementById(ids.zeroDiagnosis);
+    if (diagBox) diagBox.innerHTML = zeroTradeBoxHtml(crs);
 
     document.getElementById(ids.coinBody).innerHTML =
       (r.coin_ranking || []).map(c => {
@@ -1497,6 +1530,7 @@
       </table></div>
       <div id="reportDetail" style="display:none;">
         <div id="reportSummary" class="card" style="white-space:pre-wrap;font-family:Consolas,monospace;font-size:12px;"></div>
+        <div id="reportZeroDiagnosis"></div>
         <div class="section-title">Per-Coin Breakdown</div>
         <div class="table-wrap"><table>
           <thead><tr><th>Coin</th><th>Trades</th><th>Win Rate</th><th>Profit %</th><th>Total PnL</th><th>Max Drawdown</th></tr></thead>
@@ -1518,7 +1552,7 @@
     const reportDetailIds = {
       detail: "reportDetail", summary: "reportSummary", coinBody: "coinBreakdownBody",
       equityBox: "equityChartBox", drawdownBox: "drawdownChartBox",
-      zeroSection: "zeroTradeSection", zeroBody: "zeroTradeBody",
+      zeroSection: "zeroTradeSection", zeroBody: "zeroTradeBody", zeroDiagnosis: "reportZeroDiagnosis",
     };
     document.querySelectorAll(".view-report").forEach(btn => {
       btn.onclick = () => renderBatchDetailInto(btn.dataset.id, reportDetailIds);
@@ -1639,7 +1673,7 @@
     const histDetailIds = {
       detail: "histDetail", summary: "histSummary", coinBody: "histCoinBreakdownBody",
       equityBox: "histEquityChartBox", drawdownBox: "histDrawdownChartBox",
-      zeroSection: "histZeroTradeSection", zeroBody: "histZeroTradeBody",
+      zeroSection: "histZeroTradeSection", zeroBody: "histZeroTradeBody", zeroDiagnosis: "histZeroDiagnosis",
     };
 
     content.innerHTML = `
@@ -1652,6 +1686,7 @@
       <div id="histDetail" style="display:none;margin-top:16px;">
         <div id="histComparisonBox" class="card" style="display:none;margin-bottom:16px;"></div>
         <div id="histSummary" class="card" style="white-space:pre-wrap;font-family:Consolas,monospace;font-size:12px;"></div>
+        <div id="histZeroDiagnosis"></div>
         <div class="section-title">Per-Coin Breakdown</div>
         <div class="table-wrap"><table>
           <thead><tr><th>Coin</th><th>Trades</th><th>Win Rate</th><th>Profit %</th><th>Total PnL</th><th>Max Drawdown</th></tr></thead>
@@ -3464,6 +3499,8 @@
         <div class="card" id="ceoBtLog" style="height:180px;overflow-y:auto;font-family:Consolas,monospace;font-size:12px;white-space:pre-wrap;"></div>
         ` : `<div class="card muted">No backtest or pipeline running right now.</div>`}
 
+        <div id="ceoZeroTradeBox"></div>
+
         <div class="section-title">Auto-Optimizer: Original vs Optimized</div>
         <div id="ceoOptComparisonBox">${job
           ? `<div class="card muted">A run is in progress -- the comparison will appear here once it finishes (or check the last completed run below).</div>`
@@ -3483,6 +3520,7 @@
       // rule, this can never show different numbers than that page.
       if (!job && latestBatch) {
         loadComparisonBox(document.getElementById("ceoOptComparisonBox"), latestBatch.batch_id).catch(console.error);
+        loadZeroTradeBox(document.getElementById("ceoZeroTradeBox"), latestBatch.batch_id).catch(console.error);
       } else if (!job) {
         document.getElementById("ceoOptComparisonBox").innerHTML = `<div class="card muted">No completed backtests yet.</div>`;
       }

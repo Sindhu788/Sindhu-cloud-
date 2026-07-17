@@ -10,8 +10,8 @@
   ],
   "favourite": false,
   "created_at": "2026-07-14T03:09:22.512023+00:00",
-  "updated_at": "2026-07-14T03:09:22.512023+00:00",
-  "current_version": 1,
+  "updated_at": "2026-07-14T23:07:07.225619+00:00",
+  "current_version": 2,
   "clarification": {
     "notes": [
       "Unclear entry rule, needs clarification: \"8]\"",
@@ -19,12 +19,10 @@
       "Unclear entry rule, needs clarification: \"close above the **20-period structural high** [5\"",
       "Unclear entry rule, needs clarification: \"9]\"",
       "Unclear entry rule, needs clarification: \"If you want to backtest on different time frames\"",
-      "Unclear entry rule, needs clarification: \"the settings change:\"",
-      "Missing exit rules. No exit conditions or stop-loss were detected.",
-      "Missing stop loss. Specify a fixed %, an ATR multiple, or a structure-based SL."
+      "Unclear entry rule, needs clarification: \"the settings change:\""
     ],
     "hidden_rules": [],
     "confidence_pct": null,
-    "updated_at": "2026-07-14T03:09:16.295456+00:00"
+    "updated_at": "2026-07-14T23:07:07.254065+00:00"
   }
 }

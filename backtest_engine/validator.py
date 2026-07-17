@@ -14,6 +14,42 @@ _KNOWN_INDICATORS = {
 
 _KNOWN_CONDITION_TYPES = {"indicator_compare", "price_compare", "concept", "session", "trend"}
 
+# Mirrors the OR-gates in ConfiguredStrategy.prepare_context() (backtest_engine/
+# configured_strategy.py): each concept-type condition name only gets its
+# underlying column(s) actually computed if concepts_used contains at least
+# one of the names listed here. If a condition references a concept whose
+# gate is never satisfied, prepare_context() never builds that column, so
+# _get()/_within() silently return None/False on every bar -- the condition
+# can never be true, with no error, just zero trades forever.
+_CONCEPT_REQUIRES_ANY_OF = {
+    "bos": {"bos", "choch"},
+    "choch": {"choch"},
+    "fvg": {"fvg"},
+    "order_block": {"order_block", "breaker_block"},
+    "breaker_block": {"breaker_block"},
+    "support": {"support", "resistance", "liquidity_sweep"},
+    "resistance": {"support", "resistance", "liquidity_sweep"},
+    "liquidity_sweep": {"liquidity_sweep"},
+    "volume": {"volume"},
+    "pdh": {"pdh", "pdl", "pdh_sweep", "pdl_sweep"},
+    "pdl": {"pdh", "pdl", "pdh_sweep", "pdl_sweep"},
+    "pdh_sweep": {"pdh_sweep", "pdl_sweep"},
+    "pdl_sweep": {"pdh_sweep", "pdl_sweep"},
+}
+
+
+def _numeric_bound(cond):
+    """For an indicator_compare condition with a numeric threshold, returns
+    ("lower", value) if it requires the indicator ABOVE value (>, >=), or
+    ("upper", value) if it requires it BELOW value (<, <=). None otherwise."""
+    if cond.type != "indicator_compare" or cond.value is None:
+        return None
+    if cond.op in (">", ">="):
+        return ("lower", cond.value)
+    if cond.op in ("<", "<="):
+        return ("upper", cond.value)
+    return None
+
 
 def validate(config):
     """Returns a list of human-readable error strings. Empty list = valid,
@@ -60,6 +96,78 @@ def validate(config):
                 errors.append(f"Invalid indicator in {bucket_name.replace('_', ' ')}: {cond.indicator!r}")
             if cond.type == "concept" and cond.name not in _KNOWN_INDICATORS:
                 errors.append(f"Invalid indicator/concept in {bucket_name.replace('_', ' ')}: {cond.name!r}")
+
+    # An indicator's role must be one of the strategy's OWN declared
+    # timeframes -- ConfiguredStrategy._indicator_column() builds the
+    # evaluation column name from that role (e.g. role "confirmation" ->
+    # column "confirmation_volume"). If no timeframe was declared for that
+    # role, MultiTimeframeContext never builds a dataframe for it, so the
+    # column never exists: any condition referencing that indicator is
+    # silently always false forever, with no error and zero trades.
+    for ind in config.indicators:
+        role = ind.get("role")
+        if role and role not in config.timeframes:
+            errors.append(
+                f"Indicator '{ind.get('name')}' has role '{role}' but no '{role}' timeframe is "
+                f"declared -- add a '{role}' timeframe or change the indicator's role."
+            )
+
+    # A concept condition (bos/fvg/support/pdh/...) only gets its column
+    # computed if concepts_used actually lists a name that satisfies its
+    # gate in prepare_context() -- see _CONCEPT_REQUIRES_ANY_OF above. This
+    # catches the same "silently always false" failure mode as the role
+    # check, via a different mechanism: the condition references a concept
+    # that was never added to concepts_used.
+    concepts_used_set = set(config.concepts_used)
+    for bucket_name in ("entry_conditions", "exit_conditions", "confirmation_conditions"):
+        for cond in getattr(config, bucket_name):
+            if cond.type != "concept" or cond.name not in _CONCEPT_REQUIRES_ANY_OF:
+                continue
+            required_any = _CONCEPT_REQUIRES_ANY_OF[cond.name]
+            if not (required_any & concepts_used_set):
+                errors.append(
+                    f"Concept '{cond.name}' is used in {bucket_name.replace('_', ' ')} but "
+                    f"concepts_used doesn't include any of {sorted(required_any)} -- its indicator "
+                    f"is never computed, so this condition can never be true. "
+                    f"Add one of {sorted(required_any)} to concepts_used."
+                )
+
+    # Two numeric-threshold conditions on the SAME indicator+params can
+    # never both be true if one requires the value ABOVE X and another
+    # requires it BELOW Y with Y <= X (e.g. "rsi < 30" AND "rsi > 70",
+    # required together) -- proven root cause of a real 0-trade strategy
+    # (Daily High-Low Liquidity Strategy: confirmation_conditions required
+    # rsi(5) < 30 AND rsi(5) > 70 simultaneously, 0 of 107k+ bars). Checked
+    # across entry_conditions + confirmation_conditions combined, since
+    # ConfiguredStrategy.on_bar() ANDs both buckets together before ever
+    # producing a signal -- that's the real all-must-be-true gate.
+    # exit_conditions is its own independent AND-gate (only evaluated once
+    # a position is already open) so it's checked separately.
+    entry_gate = list(config.entry_conditions) + list(config.confirmation_conditions)
+    for label, bucket in (
+        ("entry conditions + confirmation conditions", entry_gate),
+        ("exit conditions", config.exit_conditions),
+    ):
+        by_key = {}
+        for cond in bucket:
+            bound = _numeric_bound(cond)
+            if bound is None:
+                continue
+            key = (cond.indicator, tuple(sorted((cond.params or {}).items())))
+            by_key.setdefault(key, []).append((bound, cond))
+        for (indicator, _params), items in by_key.items():
+            lowers = [(v, c) for (kind, v), c in items if kind == "lower"]
+            uppers = [(v, c) for (kind, v), c in items if kind == "upper"]
+            if not lowers or not uppers:
+                continue
+            lower_v, lower_c = max(lowers, key=lambda t: t[0])
+            upper_v, upper_c = min(uppers, key=lambda t: t[0])
+            if lower_v >= upper_v:
+                errors.append(
+                    f"Impossible combination in {label}: '{indicator} {lower_c.op} {lower_v}' and "
+                    f"'{indicator} {upper_c.op} {upper_v}' are both required together but can never "
+                    f"both be true on the same bar -- remove or correct one of these conditions."
+                )
 
     return errors
 

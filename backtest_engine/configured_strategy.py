@@ -263,20 +263,31 @@ class ConfiguredStrategy(Strategy):
             # support/resistance -- whichever structural anchor is actually
             # available on this bar. Same priority for every strategy,
             # doesn't depend on which specific word the CEO used.
+            #
+            # Bug fix: these zone columns are forward-filled from the last
+            # CONFIRMED structural level, which can be stale by the time a
+            # later bar triggers a new entry -- e.g. an old bullish FVG/OB
+            # low that price has since moved below, leaving it ABOVE the
+            # new entry price. A "stop-loss" on the wrong side of entry
+            # (above entry for a long, below entry for a short) means
+            # _check_forced_exit() triggers "stop_loss" on a price move
+            # that's actually favorable, mislabeling a chunk of wins as
+            # losses -- confirmed against real trade data: 98% of one
+            # coin's stop_loss values were on the wrong side of entry, and
+            # 78% of its "stop_loss" exits were secretly profitable. Each
+            # candidate is now checked against `price` and skipped (falling
+            # through to the next one) if it's on the wrong side.
             if direction == "bullish":
-                zone = self._get(df, i, "entry_bull_ob_low")
-                if zone is None:
-                    zone = self._get(df, i, "entry_fvg_bull_low")
-                if zone is None:
-                    zone = self._get(df, i, "entry_support")
-                return zone
+                for col in ("entry_bull_ob_low", "entry_fvg_bull_low", "entry_support"):
+                    zone = self._get(df, i, col)
+                    if zone is not None and zone < price:
+                        return zone
             else:
-                zone = self._get(df, i, "entry_bear_ob_high")
-                if zone is None:
-                    zone = self._get(df, i, "entry_fvg_bear_high")
-                if zone is None:
-                    zone = self._get(df, i, "entry_resistance")
-                return zone
+                for col in ("entry_bear_ob_high", "entry_fvg_bear_high", "entry_resistance"):
+                    zone = self._get(df, i, col)
+                    if zone is not None and zone > price:
+                        return zone
+            return None
         return None
 
     def _compute_take_profit(self, df, i, price, direction, sl):
