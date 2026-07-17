@@ -37,6 +37,50 @@ _CONCEPT_REQUIRES_ANY_OF = {
     "pdl_sweep": {"pdh_sweep", "pdl_sweep"},
 }
 
+# A "structure" stop-loss reads the zone columns ConfiguredStrategy.
+# _compute_stop_loss() looks up (order block -> FVG -> support/resistance).
+# Those columns only exist if prepare_context() computed them, which it only
+# does when concepts_used names one of these. With none of them, EVERY bar
+# returns a null stop-loss forever: in backtesting the trade silently falls
+# back to fixed-fraction sizing with no protective stop, and in paper
+# trading risk_manager.evaluate() rejects the trade outright ("no stop-loss
+# could be computed"), so the strategy can never trade at all. Measured on
+# the real "LSI plus Halftrend" strategy: 54,138 bars checked, 54,138 null
+# stop-losses, zero usable.
+_STRUCTURE_SL_SOURCES = {"order_block", "breaker_block", "fvg", "support", "resistance", "liquidity_sweep"}
+
+# The engine resamples to these exact interval strings (data_engine.config
+# .SUPPORTED_INTERVALS). Friendly aliases like "daily" reach the resampler
+# and raise "Unsupported interval 'daily'", which aborts the whole backtest
+# with a hard crash rather than a clear validation message -- measured on
+# the real "Break and Bounce" strategy (bias='daily').
+_VALID_INTERVALS = {"1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d", "1w"}
+_INTERVAL_ALIASES = {
+    "daily": "1d", "day": "1d", "1day": "1d", "d": "1d",
+    "weekly": "1w", "week": "1w", "1week": "1w", "w": "1w",
+    "hourly": "1h", "hour": "1h", "1hour": "1h", "h": "1h",
+    "4hour": "4h", "4hr": "4h",
+    "minute": "1m", "1min": "1m", "5min": "5m", "15min": "15m", "30min": "30m",
+}
+
+
+def normalize_timeframes(timeframes):
+    """Maps friendly interval names onto the exact strings the resampler
+    accepts ("daily" -> "1d"). Returns (normalized_dict, changed_list) and
+    never invents a value it doesn't recognise -- anything unknown is left
+    untouched so validate() reports it instead of silently guessing."""
+    normalized, changed = {}, []
+    for role, tf in (timeframes or {}).items():
+        key = str(tf).strip().lower()
+        if key in _VALID_INTERVALS:
+            normalized[role] = key
+        elif key in _INTERVAL_ALIASES:
+            normalized[role] = _INTERVAL_ALIASES[key]
+            changed.append((role, tf, _INTERVAL_ALIASES[key]))
+        else:
+            normalized[role] = tf
+    return normalized, changed
+
 
 def _numeric_bound(cond):
     """For an indicator_compare condition with a numeric threshold, returns
@@ -58,6 +102,34 @@ def validate(config):
 
     if "entry" not in config.timeframes:
         errors.append("Missing entry timeframe. Specify which timeframe entries are evaluated on.")
+
+    # Every declared timeframe must be an interval the resampler actually
+    # supports -- otherwise the backtest dies mid-run with a raw
+    # "Unsupported interval" exception instead of failing cleanly here.
+    for role, tf in (config.timeframes or {}).items():
+        key = str(tf).strip().lower()
+        if key in _VALID_INTERVALS:
+            continue
+        if key in _INTERVAL_ALIASES:
+            errors.append(
+                f"Timeframe '{tf}' (role '{role}') isn't a supported interval -- "
+                f"use '{_INTERVAL_ALIASES[key]}' instead."
+            )
+        else:
+            errors.append(
+                f"Timeframe '{tf}' (role '{role}') isn't a supported interval. "
+                f"Choose one of: {', '.join(sorted(_VALID_INTERVALS))}."
+            )
+
+    # A structure-based stop-loss needs at least one concept that actually
+    # produces a structural zone, or it can never compute a stop at all.
+    if config.stop_loss.type == "structure" and not (_STRUCTURE_SL_SOURCES & set(config.concepts_used)):
+        errors.append(
+            "Stop loss is 'structure' but concepts_used has none of "
+            f"{sorted(_STRUCTURE_SL_SOURCES)} -- no structural zone is ever computed, so no "
+            "stop-loss can be calculated and the strategy can never place a protected trade. "
+            "Add the concept this strategy's stop is based on, or use a fixed % / ATR stop."
+        )
 
     if not config.entry_conditions:
         errors.append("Missing entry rules. No entry conditions were detected.")

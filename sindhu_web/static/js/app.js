@@ -1304,6 +1304,18 @@
 
     document.getElementById("btnRun").onclick = async () => {
       let res;
+      // /api/backtesting/run does NOT return immediately: it first runs the
+      // pre-flight sanity check (a real 2-coin backtest, measured 2.2s on a
+      // 5m strategy and far longer on 1m) before it will start the job.
+      // Without this feedback the button looked completely dead for those
+      // seconds -- click, nothing happens -- which is exactly what "the
+      // Backtesting page does not respond to clicks" was. Re-enabled in
+      // finally so a failed run never leaves the button stuck disabled.
+      const runBtn = document.getElementById("btnRun");
+      const originalLabel = runBtn.textContent;
+      runBtn.disabled = true;
+      runBtn.textContent = "Checking strategy...";
+      appendLog("Running pre-flight sanity check (2 coins, recent data) before the full backtest...");
       try {
         res = await apiPost("/api/backtesting/run", { config: currentConfig, all_coins: true });
       } catch (e) {
@@ -1312,6 +1324,9 @@
         appendLog(`Backtest not started: ${msg}`);
         alert(msg);
         return;
+      } finally {
+        runBtn.disabled = false;
+        runBtn.textContent = originalLabel;
       }
       currentJobId = res.job_id;
       wins = 0; total = 0;

@@ -1,0 +1,16 @@
+{
+  "id": "a62b54b55dac",
+  "name": "Daily Liquidity Scalping (LQDTY) Strategy",
+  "tags": [
+    "support",
+    "resistance",
+    "liquidity_sweep",
+    "strategy",
+    "1d",
+    "1m"
+  ],
+  "favourite": false,
+  "created_at": "2026-07-16T01:58:40.392039+00:00",
+  "updated_at": "2026-07-16T01:58:40.392039+00:00",
+  "current_version": 1
+}

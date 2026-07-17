@@ -69,29 +69,57 @@ def open_position(exchange, symbol, candidate, size, risk_amount, confidence, ma
     return pos
 
 
-def _check_exit(position, latest_price):
+def _check_exit(position, latest_price, high=None, low=None):
+    """Mirrors backtest_engine.engine._check_forced_exit(), which tests the
+    bar's HIGH and LOW rather than a single price.
+
+    Paper trading only samples a spot price once per tick (60s by default).
+    Checking that spot price alone silently missed every stop-loss that was
+    touched and then recovered between two ticks -- and since a stop sits
+    much closer to entry than a 2.5:1 target does, those missed touches were
+    overwhelmingly stop-losses, systematically inflating the paper win rate
+    versus a backtest of the same strategy on the same data. Passing the
+    latest closed candle's high/low makes both engines apply the same rule.
+
+    high/low default to latest_price so any caller that genuinely has only a
+    spot price (e.g. the orphaned-position ticker path) keeps working
+    exactly as before. Stop-loss is checked before take-profit, same as the
+    backtest, so a bar that spans both is recorded as the loss."""
+    if high is None:
+        high = latest_price
+    if low is None:
+        low = latest_price
     sl, tp = position["stop_loss"], position["take_profit"]
     if position["direction"] == "long":
-        if sl is not None and latest_price <= sl:
+        if sl is not None and low <= sl:
             return "stop_loss"
-        if tp is not None and latest_price >= tp:
+        if tp is not None and high >= tp:
             return "take_profit"
     else:
-        if sl is not None and latest_price >= sl:
+        if sl is not None and high >= sl:
             return "stop_loss"
-        if tp is not None and latest_price <= tp:
+        if tp is not None and low <= tp:
             return "take_profit"
     return None
 
 
-def monitor_and_close(exchange, symbol, latest_price):
+def monitor_and_close(exchange, symbol, latest_price, high=None, low=None):
     """Trade Monitor + Trade Close: checked every tick for every coin that
-    currently has an open position."""
+    currently has an open position. `high`/`low` are the latest closed
+    candle's range when the caller has it, so an intrabar stop/target touch
+    is caught the same way the backtest catches it."""
     closed = []
     for pos in storage.get_open_paper_positions(exchange, symbol):
-        reason = _check_exit(pos, latest_price)
+        reason = _check_exit(pos, latest_price, high, low)
         if reason:
-            closed.append(_close(pos, latest_price, reason))
+            # Fill at the stop/target level itself, not the sampled spot
+            # price -- again matching the backtest, which exits at sl/tp.
+            fill = latest_price
+            if reason == "stop_loss" and pos["stop_loss"] is not None:
+                fill = pos["stop_loss"]
+            elif reason == "take_profit" and pos["take_profit"] is not None:
+                fill = pos["take_profit"]
+            closed.append(_close(pos, fill, reason))
     return closed
 
 

@@ -93,7 +93,12 @@ def get_home():
         ),
         "task_summary": task_summary,
         "module_status": module_status,
-        "disk_usage_bytes": disk_usage_bytes(),
+        # Cached: disk_usage_bytes() walks the whole data tree (an 8.9GB
+        # database plus candle/report files) and measured 5.0 SECONDS
+        # uncached. /api/home is polled by every page's topbar, so paying
+        # that on every single poll made the entire app feel frozen. Disk
+        # usage changes slowly -- a 5-minute-old number is fine here.
+        "disk_usage_bytes": cache.cached("disk_usage_bytes", 300, disk_usage_bytes),
         "exchange": exchanges_cfg["default"],
         "latest_batch": account,
         "evolution_score": None,

@@ -1,5 +1,6 @@
 import asyncio
 import os
+import socket
 import threading
 import time
 import webbrowser
@@ -42,10 +43,36 @@ async def _broadcast_loop():
             broadcast.clients.discard(client)
 
 
+def _warm_caches():
+    """Pre-computes the few genuinely expensive endpoint payloads in the
+    background at startup.
+
+    sindhu_web.cache already serves a stale value while refreshing, so a
+    warm cache never blocks a request -- but the very FIRST call for a key
+    has nothing to serve and must compute inline. For /api/market that
+    meant one unlucky user waiting ~57s after every restart (a 66s Binance
+    get_tickers() call plus a 50-coin indicator pass), and ~8s for
+    /api/data. Doing that work here, off the request path, means whoever
+    opens those pages first gets an already-populated cache instead."""
+    import time as _time
+    for label, fn in (
+        ("market", lambda: market.get_market()),
+        ("data", lambda: data.get_data_overview()),
+        ("home", lambda: home.get_home()),
+    ):
+        try:
+            t0 = _time.perf_counter()
+            fn()
+            log(f"Cache warmed: {label} ({(_time.perf_counter() - t0) * 1000:.0f}ms)")
+        except Exception as exc:
+            log(f"Cache warm for {label} failed (non-fatal): {exc!r}")
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     storage.init_db()
     backup.start_auto_backup_thread()
+    threading.Thread(target=_warm_caches, daemon=True).start()
     task = asyncio.create_task(_broadcast_loop())
     yield
     task.cancel()
@@ -110,6 +137,38 @@ def create_app():
 app = create_app()
 
 
+def _dual_stack_socket(port):
+    """A single listening socket serving BOTH IPv4 and IPv6.
+
+    Binding plain "0.0.0.0" listens on IPv4 only. On Windows, "localhost"
+    resolves to the IPv6 address ::1 FIRST, so every browser request to
+    http://localhost:8420 spent ~2 SECONDS failing the IPv6 attempt before
+    falling back to IPv4 (measured: 2029ms to ::1 vs 0.7ms to 127.0.0.1).
+    That 2s tax applied to every request -- API calls AND static files --
+    which is what made the whole dashboard feel broken and unusable.
+
+    Explicitly clearing IPV6_V6ONLY (it defaults to 1 on Windows) makes one
+    "::" socket accept IPv4 connections too, so both ::1 and 127.0.0.1
+    connect instantly. Falls back to a normal IPv4 socket if the platform
+    refuses dual-stack, so this can never stop the server from starting."""
+    try:
+        sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+        sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(("::", port))
+        sock.listen(2048)
+        sock.set_inheritable(True)
+        return sock
+    except OSError as exc:
+        log(f"Dual-stack (IPv6+IPv4) bind failed ({exc!r}); falling back to IPv4-only.")
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(("0.0.0.0", port))
+        sock.listen(2048)
+        sock.set_inheritable(True)
+        return sock
+
+
 def run(host="0.0.0.0", port=8420, open_browser=True):
     import uvicorn
 
@@ -119,4 +178,6 @@ def run(host="0.0.0.0", port=8420, open_browser=True):
             webbrowser.open(f"http://127.0.0.1:{port}")
         threading.Thread(target=_open, daemon=True).start()
 
-    uvicorn.run(app, host=host, port=port, log_level="info")
+    sock = _dual_stack_socket(port)
+    config = uvicorn.Config(app, log_level="info")
+    uvicorn.Server(config).run(sockets=[sock])

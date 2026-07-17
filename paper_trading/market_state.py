@@ -72,6 +72,14 @@ def classify(exchange, symbol):
     return {
         "exchange": exchange, "symbol": symbol,
         "price": float(closes.iloc[-1]),
+        # The latest closed candle's full range, so the Trade Monitor can
+        # detect a stop/target that was touched INSIDE this bar rather than
+        # only when the sampled close happens to be beyond it -- the same
+        # rule backtest_engine.engine._check_forced_exit() applies. Without
+        # these, any stop brushed and recovered between two 60s ticks was
+        # invisible to paper trading but always caught by the backtest.
+        "high": float(df["high"].iloc[-1]),
+        "low": float(df["low"].iloc[-1]),
         "market_state": state,
         "trend_strength_pct": round(trend_strength, 4),
         "volatility_pct": round(volatility_pct, 4),

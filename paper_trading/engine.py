@@ -154,7 +154,10 @@ class PaperTradingEngine:
             if snapshot is None:
                 continue
 
-            closed += len(position_manager.monitor_and_close(exchange, symbol, snapshot["price"]))
+            closed += len(position_manager.monitor_and_close(
+                exchange, symbol, snapshot["price"],
+                high=snapshot.get("high"), low=snapshot.get("low"),
+            ))
 
             events = self._event_tracker.check(snapshot)
             if not events:
