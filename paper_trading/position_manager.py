@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from backtest_engine.engine import _apply_slippage
 from data_engine import storage
 from paper_trading import reflection, evolution
+from paper_trading.guards import book_key as _book_key
 
 
 def _now_iso():
@@ -150,6 +151,7 @@ def _close(pos, exit_price, exit_reason):
 
     storage.close_paper_position(
         pos["id"], exit_price, now_ms, pnl, pnl_pct, exit_reason, lifecycle, refl, now,
+        book_key=_book_key(pos),
     )
 
     closed_pos = {**pos, "exit_price": exit_price, "exit_time": now_ms, "pnl": pnl,

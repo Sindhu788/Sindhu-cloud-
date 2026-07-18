@@ -152,6 +152,8 @@ def build_strategy_config(ai_strategy, name, raw_text):
         risk_reward=ai_strategy.get("risk_reward"),
         session_filter=list(ai_strategy.get("session_filter") or []),
         trend_filter=ai_strategy.get("trend_filter"),
+        day_filter=list(ai_strategy.get("day_filter") or []),
+        breakeven_at_rr=ai_strategy.get("breakeven_at_rr"),
     )
     sync_concepts_used(config)
     _repair_structural_stop(config)

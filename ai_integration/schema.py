@@ -30,8 +30,17 @@ KNOWN_INDICATORS = [
     "order_block", "breaker_block", "liquidity_sweep",
     "pdh", "pdl", "pdh_sweep", "pdl_sweep",
     "candle_break",
+    # Volume-based
+    "poc", "value_area", "lvn", "hvn", "aggression",
+    # Structure-based (beyond BOS/CHoCH/FVG/order_block/breaker_block above)
+    "mitigation_block", "imbalance", "equal_highs_lows", "swing_high", "swing_low",
+    # Session-based (beyond the session_filter session names below)
+    "session_high_low", "session_open",
+    # Price-action
+    "engulfing", "pin_bar", "inside_bar",
 ]
 KNOWN_SESSIONS = ["asian", "london", "ny"]
+KNOWN_DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 KNOWN_CONDITION_TYPES = ["indicator_compare", "price_compare", "concept", "session", "trend", "raw"]
 KNOWN_TIMEFRAME_ROLES = ["bias", "trend", "analysis", "entry", "confirmation"]
 KNOWN_SLTP_TYPES = ["fixed_pct", "atr_multiple", "structure", "rr", "level", "unknown"]
@@ -142,7 +151,34 @@ def build_structured_extraction_prompt(source_hint=None, content_type=None):
         "  * a stop/target described only in words (\"SL below the recent "
         "swing low\", \"TP at the opposite extreme\") -> a stop_loss/"
         "take_profit TYPE (\"structure\"/\"level\"/\"rr\"), NOT an entry or "
-        "exit condition, and NOT raw\n\n"
+        "exit condition, and NOT raw\n"
+        "  * \"Volume Profile\", \"Point of Control\", \"POC\" -> concept "
+        "\"poc\"; \"Value Area\", \"VAH\"/\"VAL\" -> concept \"value_area\"; "
+        "\"Low Volume Node\"/\"LVN\" -> \"lvn\"; \"High Volume Node\"/\"HVN\" "
+        "-> \"hvn\"\n"
+        "  * a strong/aggressive candle with a volume spike, described as "
+        "\"aggressive buying/selling\", \"institutional aggression\", or "
+        "\"high-conviction move\" -> concept \"aggression\" (with direction)\n"
+        "  * \"Mitigation Block\" -> \"mitigation_block\"; a single candle "
+        "described as an \"inefficiency\" or \"imbalance\" WITHOUT the "
+        "3-candle-gap framing of an FVG -> \"imbalance\"; \"Equal Highs\"/"
+        "\"Equal Lows\"/\"EQH\"/\"EQL\" -> \"equal_highs_lows\"; an explicit "
+        "\"swing high\"/\"swing low\" EVENT (not the support/resistance zone "
+        "itself) -> \"swing_high\"/\"swing_low\"\n"
+        "  * \"session high/low\", \"Asian/London/NY high or low\" (the "
+        "developing session's own extreme, not yesterday's PDH/PDL) -> "
+        "concept \"session_high_low\"; \"session open\", \"London open\", "
+        "\"NY open price\" -> concept \"session_open\"\n"
+        "  * a day-of-week rule (\"only trade Mondays\", \"avoid Fridays\") -> "
+        "populate the top-level \"day_filter\" list (lowercase day names), "
+        "NOT a condition\n"
+        "  * \"engulfing candle\" -> \"engulfing\"; \"pin bar\", \"rejection "
+        "candle\", \"hammer\", \"shooting star\" -> \"pin_bar\"; \"inside "
+        "bar\" -> \"inside_bar\"\n"
+        "  * \"move stop to breakeven\", \"stop to entry once in profit\" -> "
+        "populate the top-level \"breakeven_at_rr\" number (how many "
+        "multiples of the original risk must be reached first), NOT a "
+        "condition\n\n"
         "HOW entry_conditions IS EXECUTED (get this wrong and the strategy "
         "is silently meaningless): every condition in entry_conditions is "
         "AND-ed together on the SAME bar, and the trade direction is taken "
@@ -236,7 +272,9 @@ def build_structured_extraction_prompt(source_hint=None, content_type=None):
         '    "risk_pct": 1.0,\n'
         '    "risk_reward": 2.0,\n'
         '    "session_filter": [],\n'
-        '    "trend_filter": null\n'
+        '    "trend_filter": null,\n'
+        '    "day_filter": [],\n'
+        '    "breakeven_at_rr": null\n'
         "  },\n"
         '  "lessons": [{"title": "", "category": "", "description": "", "tags": [], "rule_type": "block_if_true", "direction": null, "condition": null}],\n'
         '  "dictionary_terms": [{"term": "", "definition": "", "category": "structure|indicator|session|trend|risk|psychology|pattern", "aliases": [], "examples": [], "related_concepts": [], "usage": ""}],\n'
@@ -433,6 +471,13 @@ def _clean_strategy(entry):
     if trend_filter not in ("up", "down", None):
         trend_filter = None
 
+    try:
+        breakeven_at_rr = float(entry["breakeven_at_rr"]) if entry.get("breakeven_at_rr") is not None else None
+        if breakeven_at_rr is not None and breakeven_at_rr <= 0:
+            breakeven_at_rr = None
+    except (TypeError, ValueError):
+        breakeven_at_rr = None
+
     return {
         "name": str(entry.get("name") or "").strip(),
         "timeframes": timeframes,
@@ -447,6 +492,8 @@ def _clean_strategy(entry):
         "risk_reward": risk_reward,
         "session_filter": [s for s in _clean_str_list(entry.get("session_filter")) if s in KNOWN_SESSIONS],
         "trend_filter": trend_filter,
+        "day_filter": [d for d in _clean_str_list(entry.get("day_filter")) if d in KNOWN_DAYS],
+        "breakeven_at_rr": breakeven_at_rr,
     }
 
 

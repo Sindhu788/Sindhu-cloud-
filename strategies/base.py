@@ -36,3 +36,13 @@ class Strategy:
         Return a Signal, or None to do nothing this bar.
         """
         raise NotImplementedError
+
+    def manage_position(self, df, i, position):
+        """Called once per bar, only while a position is open, right
+        before the engine checks it for a stop-loss/take-profit hit --
+        lets a strategy modify `position` in place (e.g. move stop_loss to
+        breakeven once a trigger is reached) without changing on_bar's own
+        entry/exit contract. Default: does nothing, so every existing
+        Strategy subclass (and every existing backtest result) is
+        completely unaffected unless it overrides this."""
+        return None

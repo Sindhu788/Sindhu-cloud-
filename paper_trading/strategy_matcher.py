@@ -10,27 +10,29 @@ StrategyConfig (timeframes/indicators) -- no need to duplicate them.
 from backtest_engine import strategy_library as lib
 
 
-def relevant_strategies(symbol, market_state, only_strategy_id=None):
+def relevant_strategies(symbol, market_state):
     """Every saved strategy whose Paper Trading metadata says it's enabled
     and (if restricted) supports this coin and this market state. No
     restriction on either field means "supports everything" -- the bot
     auto-detects relevance from these declared fields, it doesn't guess.
 
-    only_strategy_id: used by the automation pipeline's auto Paper Trading
-    handoff (Part 2.4) to scope the whole engine to just the one strategy
-    it just backtested/optimized, instead of every strategy in the library
-    -- same enabled/coin/market-type gating still applies, just skips
-    iterating the rest of the library."""
+    Multiple strategies can be enabled and trading simultaneously -- each
+    gets its own independent book (balance/positions/guards, see
+    paper_trading.guards.book_key), so there is no "only run this one"
+    scoping here; the automation pipeline's Paper Trading handoff enables a
+    strategy's config instead of narrowing this function."""
     from data_engine import storage
 
     configs = storage.list_paper_strategy_configs()
     matches = []
-    metas = [m for m in lib.list_all() if m["id"] == only_strategy_id] if only_strategy_id else lib.list_all()
-    for meta in metas:
+    for meta in lib.list_all():
         strategy_id = meta["id"]
-        cfg_meta = configs.get(strategy_id, {"enabled": True, "priority": 5,
+        # Opt-in: a strategy with no config row has never been deliberately
+        # activated -- see storage.get_paper_strategy_config()'s matching
+        # default, which this mirrors.
+        cfg_meta = configs.get(strategy_id, {"enabled": False, "priority": 5,
                                               "supported_coins": [], "supported_market_types": []})
-        if not cfg_meta.get("enabled", True):
+        if not cfg_meta.get("enabled", False):
             continue
         supported_coins = cfg_meta.get("supported_coins") or []
         if supported_coins and symbol not in supported_coins:

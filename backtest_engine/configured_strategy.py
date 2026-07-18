@@ -72,10 +72,38 @@ class ConfiguredStrategy(Strategy):
             if "fvg" in used and self.config.stop_loss.type == "structure":
                 (entry_df["fvg_bull_low"], entry_df["fvg_bull_high"],
                  entry_df["fvg_bear_low"], entry_df["fvg_bear_high"]) = concepts.fvg_zone(entry_df)
+            if {"poc", "value_area"} & used:
+                entry_df["poc"], entry_df["vah"], entry_df["val"] = concepts.volume_profile_previous_day(entry_df)
+            if {"lvn", "hvn"} & used:
+                entry_df["in_lvn"], entry_df["in_hvn"] = concepts.volume_nodes_previous_day(entry_df)
+            if "aggression" in used:
+                entry_df["bull_aggression"], entry_df["bear_aggression"] = concepts.aggression(entry_df)
+            if "mitigation_block" in used:
+                mbl, mbh, mrbl, mrbh = concepts.mitigation_blocks(entry_df)
+                entry_df["bull_mitigation_low"], entry_df["bull_mitigation_high"] = mbl, mbh
+                entry_df["bear_mitigation_low"], entry_df["bear_mitigation_high"] = mrbl, mrbh
+            if "imbalance" in used:
+                entry_df["bull_imbalance"], entry_df["bear_imbalance"] = concepts.imbalance(entry_df)
+            if "equal_highs_lows" in used:
+                entry_df["bull_equal_lows"], entry_df["bear_equal_highs"] = concepts.equal_highs_lows(entry_df)
+            if {"swing_high", "swing_low"} & used:
+                entry_df["swing_high_event"], entry_df["swing_low_event"] = concepts.swing_points(entry_df)
+            if "session_high_low" in used:
+                entry_df["session_high"], entry_df["session_low"] = concepts.session_high_low(entry_df)
+            if "session_open" in used:
+                entry_df["session_open"] = concepts.session_open_price(entry_df)
+            if "engulfing" in used:
+                entry_df["bull_engulfing"], entry_df["bear_engulfing"] = concepts.engulfing_candle(entry_df)
+            if "pin_bar" in used:
+                entry_df["bull_pin_bar"], entry_df["bear_pin_bar"] = concepts.pin_bar(entry_df)
+            if "inside_bar" in used:
+                entry_df["inside_bar"] = concepts.inside_bar(entry_df)
             if self.config.session_filter:
                 entry_df["session"] = concepts.session_column(entry_df)
             if self.config.trend_filter:
                 entry_df["trend_dir"] = concepts.trend_filter(entry_df)
+            if self.config.day_filter:
+                entry_df["day_of_week"] = concepts.day_of_week_column(entry_df)
             if self.config.stop_loss.type == "atr_multiple" or self.config.take_profit.type == "atr_multiple":
                 if "atr_14" not in entry_df.columns:
                     entry_df["atr_14"] = concepts.atr(entry_df, 14)
@@ -141,6 +169,28 @@ class ConfiguredStrategy(Strategy):
                 return Signal(action="exit", reason=self._describe(cfg.exit_conditions))
             return None
 
+    def manage_position(self, df, i, position):
+        """Break-even stop-move: if configured (breakeven_at_rr), moves
+        position["stop_loss"] to entry_price once unrealized profit
+        reaches that many multiples of the ORIGINAL risk. Tracks the
+        original stop separately (position["_original_stop"]) the first
+        time this runs for a position, since stop_loss itself gets
+        overwritten once moved -- otherwise a second call would compute
+        risk against the already-moved (zero-distance) stop and never
+        trigger correctly again."""
+        trigger_rr = self.config.breakeven_at_rr
+        if trigger_rr is None:
+            return
+        if "_original_stop" not in position:
+            position["_original_stop"] = position["stop_loss"]
+        price = self._array(df, "close")[i]
+        direction = "bullish" if position["side"] == "long" else "bearish"
+        new_stop = concepts.breakeven_stop(
+            position["entry_price"], position["_original_stop"], price, direction, trigger_rr,
+        )
+        if new_stop is not None:
+            position["stop_loss"] = new_stop
+
     # -------------------------------------------------- helpers
     def _infer_direction(self):
         for c in self.config.entry_conditions:
@@ -199,6 +249,11 @@ class ConfiguredStrategy(Strategy):
                 "fvg": ("entry_bull_fvg", "entry_bear_fvg"),
                 "liquidity_sweep": ("entry_bull_liquidity_sweep", "entry_bear_liquidity_sweep"),
                 "candle_break": ("entry_bull_candle_break", "entry_bear_candle_break"),
+                "aggression": ("entry_bull_aggression", "entry_bear_aggression"),
+                "imbalance": ("entry_bull_imbalance", "entry_bear_imbalance"),
+                "equal_highs_lows": ("entry_bull_equal_lows", "entry_bear_equal_highs"),
+                "engulfing": ("entry_bull_engulfing", "entry_bear_engulfing"),
+                "pin_bar": ("entry_bull_pin_bar", "entry_bear_pin_bar"),
             }
             if cond.name in event_colmap:
                 bull_col, bear_col = event_colmap[cond.name]
@@ -225,6 +280,44 @@ class ConfiguredStrategy(Strategy):
                 return _within("entry_volume_spike")
             if cond.name in ("pdh", "pdl"):
                 return self._get(df, i, f"entry_{cond.name}") is not None
+            if cond.name == "mitigation_block":
+                return self._get(df, i, "entry_bull_mitigation_low") is not None or self._get(df, i, "entry_bear_mitigation_low") is not None
+            if cond.name == "poc":
+                price = self._get(df, i, "close")
+                poc = self._get(df, i, "entry_poc")
+                return price is not None and poc is not None and abs(price - poc) / price < 0.005
+            if cond.name == "value_area":
+                price = self._get(df, i, "close")
+                vah = self._get(df, i, "entry_vah")
+                val = self._get(df, i, "entry_val")
+                return price is not None and vah is not None and val is not None and val <= price <= vah
+            if cond.name == "lvn":
+                return bool(self._get(df, i, "entry_in_lvn"))
+            if cond.name == "hvn":
+                return bool(self._get(df, i, "entry_in_hvn"))
+            if cond.name == "swing_high":
+                return _within("entry_swing_high_event")
+            if cond.name == "swing_low":
+                return _within("entry_swing_low_event")
+            if cond.name == "session_high_low":
+                price = self._get(df, i, "close")
+                session_high = self._get(df, i, "entry_session_high")
+                session_low = self._get(df, i, "entry_session_low")
+                if price is None:
+                    return False
+                near_high = session_high is not None and abs(price - session_high) / price < 0.005
+                near_low = session_low is not None and abs(price - session_low) / price < 0.005
+                if cond.direction == "bullish":
+                    return near_low
+                if cond.direction == "bearish":
+                    return near_high
+                return near_high or near_low
+            if cond.name == "session_open":
+                price = self._get(df, i, "close")
+                session_open = self._get(df, i, "entry_session_open")
+                return price is not None and session_open is not None and abs(price - session_open) / price < 0.005
+            if cond.name == "inside_bar":
+                return bool(self._get(df, i, "entry_inside_bar"))
             return False
 
         if cond.type == "indicator_compare":

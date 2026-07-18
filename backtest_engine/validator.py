@@ -11,6 +11,14 @@ _KNOWN_INDICATORS = {
     "order_block", "breaker_block", "liquidity_sweep",
     "pdh", "pdl", "pdh_sweep", "pdl_sweep",
     "candle_break",
+    # Volume-based
+    "poc", "value_area", "lvn", "hvn", "aggression",
+    # Structure-based
+    "mitigation_block", "imbalance", "equal_highs_lows", "swing_high", "swing_low",
+    # Session-based
+    "session_high_low", "session_open",
+    # Price-action
+    "engulfing", "pin_bar", "inside_bar",
 }
 
 _KNOWN_CONDITION_TYPES = {"indicator_compare", "price_compare", "concept", "session", "trend"}
@@ -37,6 +45,21 @@ _CONCEPT_REQUIRES_ANY_OF = {
     "pdh_sweep": {"pdh_sweep", "pdl_sweep"},
     "pdl_sweep": {"pdh_sweep", "pdl_sweep"},
     "candle_break": {"candle_break"},
+    "poc": {"poc", "value_area"},
+    "value_area": {"poc", "value_area"},
+    "lvn": {"lvn"},
+    "hvn": {"hvn"},
+    "aggression": {"aggression"},
+    "mitigation_block": {"mitigation_block"},
+    "imbalance": {"imbalance"},
+    "equal_highs_lows": {"equal_highs_lows"},
+    "swing_high": {"swing_high", "swing_low"},
+    "swing_low": {"swing_high", "swing_low"},
+    "session_high_low": {"session_high_low"},
+    "session_open": {"session_open"},
+    "engulfing": {"engulfing"},
+    "pin_bar": {"pin_bar"},
+    "inside_bar": {"inside_bar"},
 }
 
 # A "structure" stop-loss reads the zone columns ConfiguredStrategy.

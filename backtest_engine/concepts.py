@@ -100,6 +100,43 @@ def session_column(df):
     return pd.Series(np.select(conditions, choices, default="off_hours"), index=df.index)
 
 
+def _session_group_id(df):
+    """Monotonic id incrementing at every session boundary (asian->london,
+    london->ny, ny->off_hours, off_hours->next day's asian, ...) -- session
+    windows are contiguous in time with no overlap, so "the label changed
+    from the previous bar" always lands exactly on a real boundary,
+    including the day rollover."""
+    session = session_column(df)
+    return (session != session.shift(1)).cumsum()
+
+
+def session_high_low(df):
+    """Running high/low of the CURRENT (still-forming) session, reset at
+    each session boundary -- causal: an expanding window that only
+    reflects bars within this session up to and including the one being
+    read, never a peek at where the session eventually finishes."""
+    group_id = _session_group_id(df)
+    running_high = df.groupby(group_id)["high"].cummax()
+    running_low = df.groupby(group_id)["low"].cummin()
+    return running_high, running_low
+
+
+def session_open_price(df):
+    """Opening price of the CURRENT session, held constant for every bar of
+    that session (the session's first bar's own open, forward-filled) --
+    causal, since every bar already knows its own open the instant it
+    forms, and a session's first bar's value never changes afterward."""
+    group_id = _session_group_id(df)
+    return df.groupby(group_id)["open"].transform("first")
+
+
+def day_of_week_column(df):
+    """Day name per bar ('monday'..'sunday'), lowercase -- same role as
+    session_column() but for calendar weekday instead of session-of-day,
+    for a day-of-week entry filter."""
+    return pd.Series(df.index.day_name().str.lower().values, index=df.index)
+
+
 # ------------------------------------------------------------ structure (ICT/SMC)
 
 def swing_points(df, lookback=2):
@@ -283,6 +320,145 @@ def true_within_lookback(bool_series, i, window):
     return bool(bool_series.iloc[start:i + 1].any())
 
 
+def volume_profile_previous_day(df, bins=24, value_area_pct=0.70):
+    """Volume-at-price profile for each COMPLETE UTC day, made available to
+    every bar of the FOLLOWING day only (same causal anchoring as
+    previous_day_high_low -- yesterday's full session is closed by midnight
+    UTC, so today's profile levels never reflect a bar not yet known when
+    read).
+
+    For each day, bins that day's volume into `bins` equal-width price
+    buckets spanning the day's low-high range, then finds:
+      - poc: the bucket midpoint with the single highest volume.
+      - vah/val: expanding outward from the POC bucket into whichever
+        neighbor has more volume, one bucket at a time, until >=
+        value_area_pct of the day's total volume is enclosed (the standard
+        Value Area construction) -- vah/val are that enclosed range's
+        top/bottom edges.
+
+    Returns (poc, vah, val) as three per-bar Series aligned to df.index."""
+    day_key = pd.Series(df.index.date, index=df.index)
+    days = sorted(day_key.unique())
+    poc_by_day, vah_by_day, val_by_day = {}, {}, {}
+
+    for day in days:
+        day_mask = (day_key.values == day)
+        day_df = df.loc[day_mask]
+        lo, hi = day_df["low"].min(), day_df["high"].max()
+        vol_sum = day_df["volume"].sum()
+        if hi <= lo or vol_sum <= 0:
+            continue
+        edges = np.linspace(lo, hi, bins + 1)
+        bucket_idx = np.clip(np.digitize(day_df["close"].values, edges) - 1, 0, bins - 1)
+        bucket_volume = np.zeros(bins)
+        np.add.at(bucket_volume, bucket_idx, day_df["volume"].values)
+        centers = (edges[:-1] + edges[1:]) / 2
+
+        poc_i = int(np.argmax(bucket_volume))
+        poc_by_day[day] = centers[poc_i]
+
+        total = bucket_volume.sum()
+        target = total * value_area_pct
+        lo_i = hi_i = poc_i
+        enclosed = bucket_volume[poc_i]
+        while enclosed < target and (lo_i > 0 or hi_i < bins - 1):
+            next_lo = bucket_volume[lo_i - 1] if lo_i > 0 else -1.0
+            next_hi = bucket_volume[hi_i + 1] if hi_i < bins - 1 else -1.0
+            if next_hi >= next_lo:
+                hi_i += 1
+                enclosed += bucket_volume[hi_i]
+            else:
+                lo_i -= 1
+                enclosed += bucket_volume[lo_i]
+        vah_by_day[day] = edges[hi_i + 1]
+        val_by_day[day] = edges[lo_i]
+
+    poc_series = pd.Series(poc_by_day).sort_index()
+    vah_series = pd.Series(vah_by_day).sort_index()
+    val_series = pd.Series(val_by_day).sort_index()
+
+    poc = day_key.map(poc_series.shift(1))
+    vah = day_key.map(vah_series.shift(1))
+    val = day_key.map(val_series.shift(1))
+    return poc, vah, val
+
+
+def volume_nodes_previous_day(df, bins=24, low_node_frac=0.25, high_node_frac=1.5):
+    """Low/High Volume Nodes from the PREVIOUS complete day's volume
+    profile (same causal previous-day anchoring as
+    volume_profile_previous_day): a bucket is a Low Volume Node if its
+    volume is below low_node_frac x that day's average bucket volume (a
+    thin, low-participation price band price tends to move through
+    quickly), a High Volume Node if above high_node_frac x average (a
+    thick, high-participation band that tends to act like support/
+    resistance). Returns (in_lvn, in_hvn): True when the CURRENT bar's
+    close falls inside one of yesterday's LVN/HVN price bands."""
+    day_key = pd.Series(df.index.date, index=df.index)
+    days = sorted(day_key.unique())
+    lvn_ranges_by_day, hvn_ranges_by_day = {}, {}
+
+    for day in days:
+        day_mask = (day_key.values == day)
+        day_df = df.loc[day_mask]
+        lo, hi = day_df["low"].min(), day_df["high"].max()
+        vol_sum = day_df["volume"].sum()
+        if hi <= lo or vol_sum <= 0:
+            continue
+        edges = np.linspace(lo, hi, bins + 1)
+        bucket_idx = np.clip(np.digitize(day_df["close"].values, edges) - 1, 0, bins - 1)
+        bucket_volume = np.zeros(bins)
+        np.add.at(bucket_volume, bucket_idx, day_df["volume"].values)
+        avg = bucket_volume.mean()
+        if avg <= 0:
+            continue
+        lvn_idx = np.where(bucket_volume < low_node_frac * avg)[0]
+        hvn_idx = np.where(bucket_volume > high_node_frac * avg)[0]
+        lvn_ranges_by_day[day] = [(edges[i], edges[i + 1]) for i in lvn_idx]
+        hvn_ranges_by_day[day] = [(edges[i], edges[i + 1]) for i in hvn_idx]
+
+    in_lvn = pd.Series(False, index=df.index)
+    in_hvn = pd.Series(False, index=df.index)
+    close = df["close"]
+    for idx in range(1, len(days)):
+        day, prev_day = days[idx], days[idx - 1]
+        day_mask = (day_key.values == day)
+        day_close = close.loc[day_mask]
+
+        lvn_ranges = lvn_ranges_by_day.get(prev_day, [])
+        if lvn_ranges:
+            hit = np.zeros(len(day_close), dtype=bool)
+            for lo_edge, hi_edge in lvn_ranges:
+                hit |= ((day_close >= lo_edge) & (day_close < hi_edge)).values
+            in_lvn.loc[day_mask] = hit
+
+        hvn_ranges = hvn_ranges_by_day.get(prev_day, [])
+        if hvn_ranges:
+            hit = np.zeros(len(day_close), dtype=bool)
+            for lo_edge, hi_edge in hvn_ranges:
+                hit |= ((day_close >= lo_edge) & (day_close < hi_edge)).values
+            in_hvn.loc[day_mask] = hit
+
+    return in_lvn, in_hvn
+
+
+def aggression(df, volume_period=20, volume_multiplier=1.5, body_ratio=0.6):
+    """Directional volume/candle "aggression": a strong-bodied candle (body
+    >= body_ratio of the full high-low range) coinciding with a volume
+    spike (volume > its rolling average x volume_multiplier) -- one-sided,
+    high-conviction participation, which a bare volume spike (volume_filter())
+    can't distinguish from an indecisive, small-bodied spike bar."""
+    rng = (df["high"] - df["low"]).replace(0, np.nan)
+    body = (df["close"] - df["open"]).abs()
+    body_frac = (body / rng).fillna(0.0)
+    strong_body = body_frac >= body_ratio
+    vol_spike = volume_filter(df, volume_period, volume_multiplier)
+    bullish = df["close"] > df["open"]
+    bearish = df["close"] < df["open"]
+    bull_aggression = (strong_body & vol_spike & bullish).fillna(False)
+    bear_aggression = (strong_body & vol_spike & bearish).fillna(False)
+    return bull_aggression, bear_aggression
+
+
 def breaker_blocks(df, lookback=2):
     """An order block that price later closes through (invalidating it)
     flips polarity into a breaker block. Returns the currently active
@@ -301,3 +477,157 @@ def breaker_blocks(df, lookback=2):
     bull_low = bear_ob_low.where(bull_breaker_trigger).ffill()
     bull_high = bear_ob_high.where(bull_breaker_trigger).ffill()
     return bull_low, bull_high, bear_low, bear_high
+
+
+def mitigation_blocks(df, lookback=2):
+    """Like order_blocks(), but the zone is the origin candle's BODY (open
+    to close) rather than its full wick range -- the standard distinction:
+    an Order Block is measured wick-to-wick, a Mitigation Block by just the
+    body, marking a shallower zone price is expected to react at when
+    "mitigating" prior imbalance. Same BOS trigger as order_blocks(), just
+    a different zone measurement -- so trading it (rather than the wick
+    version) means entering closer to the impulsive move, at a tighter
+    (and more selective) price."""
+    bullish_bos, bearish_bos = break_of_structure(df, lookback)
+    bearish_candle = df["close"] < df["open"]
+    bullish_candle = df["close"] > df["open"]
+    body_low = pd.concat([df["open"], df["close"]], axis=1).min(axis=1)
+    body_high = pd.concat([df["open"], df["close"]], axis=1).max(axis=1)
+
+    last_bearish_body_low = body_low.where(bearish_candle).ffill()
+    last_bearish_body_high = body_high.where(bearish_candle).ffill()
+    last_bullish_body_low = body_low.where(bullish_candle).ffill()
+    last_bullish_body_high = body_high.where(bullish_candle).ffill()
+
+    bull_low = last_bearish_body_low.where(bullish_bos).ffill()
+    bull_high = last_bearish_body_high.where(bullish_bos).ffill()
+    bear_low = last_bullish_body_low.where(bearish_bos).ffill()
+    bear_high = last_bullish_body_high.where(bearish_bos).ffill()
+    return bull_low, bull_high, bear_low, bear_high
+
+
+def imbalance(df, lookback=20, ratio=2.0):
+    """Single-candle imbalance/inefficiency: one bar's body is unusually
+    large (>= ratio x the rolling average body size over the last
+    `lookback` bars) -- price was delivered so aggressively in one
+    direction that the move is considered "inefficient" and often expected
+    to be partially retraced. Deliberately distinct from fair_value_gap()
+    (a 3-candle STRUCTURAL gap between non-adjacent wicks): this is a
+    single-candle body-size outlier, a different and complementary
+    definition also commonly called "imbalance" in real strategy text."""
+    body = (df["close"] - df["open"]).abs()
+    avg_body = body.rolling(lookback).mean()
+    large_body = (body >= ratio * avg_body).fillna(False)
+    bullish = df["close"] > df["open"]
+    bearish = df["close"] < df["open"]
+    bull_imbalance = (large_body & bullish).fillna(False)
+    bear_imbalance = (large_body & bearish).fillna(False)
+    return bull_imbalance, bear_imbalance
+
+
+def equal_highs_lows(df, lookback=2, tolerance=0.001):
+    """Equal Highs / Equal Lows: two confirmed swing highs (or lows) within
+    `tolerance` (fraction of price) of each other -- a classic
+    resting-liquidity pool (stops clustered just above equal highs / just
+    below equal lows). bull_equal_lows marks the bar where a new swing low
+    confirms "equal" to the prior swing low (support-side liquidity, often
+    swept before a bullish move); bear_equal_highs mirrors on the
+    resistance side."""
+    swing_high, swing_low = swing_points(df, lookback)
+    high_level = df["high"].where(swing_high)
+    low_level = df["low"].where(swing_low)
+    prev_high_level = high_level.ffill().shift(1)
+    prev_low_level = low_level.ffill().shift(1)
+
+    bear_equal_highs = (
+        swing_high & prev_high_level.notna()
+        & ((df["high"] - prev_high_level).abs() / prev_high_level <= tolerance)
+    ).fillna(False)
+    bull_equal_lows = (
+        swing_low & prev_low_level.notna()
+        & ((df["low"] - prev_low_level).abs() / prev_low_level <= tolerance)
+    ).fillna(False)
+    return bull_equal_lows, bear_equal_highs
+
+
+# ------------------------------------------------------------ price action
+
+def engulfing_candle(df):
+    """Bullish engulfing: a bearish candle immediately followed by a
+    bullish candle whose body fully contains the previous candle's body.
+    Bearish engulfing mirrors it."""
+    prev_open, prev_close = df["open"].shift(1), df["close"].shift(1)
+    prev_bearish = prev_close < prev_open
+    prev_bullish = prev_close > prev_open
+    cur_bullish = df["close"] > df["open"]
+    cur_bearish = df["close"] < df["open"]
+
+    bull_engulf = (
+        prev_bearish & cur_bullish & (df["open"] <= prev_close) & (df["close"] >= prev_open)
+    ).fillna(False)
+    bear_engulf = (
+        prev_bullish & cur_bearish & (df["open"] >= prev_close) & (df["close"] <= prev_open)
+    ).fillna(False)
+    return bull_engulf, bear_engulf
+
+
+def pin_bar(df, wick_ratio=2.0, body_ratio=0.3):
+    """Pin bar / rejection candle: a small body (<= body_ratio of the bar's
+    full range) with one wick at least wick_ratio x the body length and
+    longer than the opposite wick -- a bullish pin (long lower wick)
+    signals rejection of lower prices; a bearish pin (long upper wick) the
+    mirror. Requires an actual non-zero body so a pure doji (body == 0)
+    can't trivially qualify just from having any wick asymmetry."""
+    body = (df["close"] - df["open"]).abs()
+    rng = (df["high"] - df["low"]).replace(0, np.nan)
+    upper_wick = df["high"] - df[["open", "close"]].max(axis=1)
+    lower_wick = df[["open", "close"]].min(axis=1) - df["low"]
+    small_body = ((body / rng) <= body_ratio).fillna(False)
+    has_body = body > 0
+
+    bull_pin = (
+        small_body & has_body & (lower_wick >= wick_ratio * body) & (lower_wick > upper_wick)
+    ).fillna(False)
+    bear_pin = (
+        small_body & has_body & (upper_wick >= wick_ratio * body) & (upper_wick > lower_wick)
+    ).fillna(False)
+    return bull_pin, bear_pin
+
+
+def inside_bar(df):
+    """Inside bar: current candle's full range contained within the
+    previous candle's range -- a consolidation/indecision bar, often used
+    as a breakout setup (trade the break of its high/low, or of the
+    "mother candle" that contains it). Not inherently directional -- a
+    single boolean, unlike the bull/bear pairs above."""
+    prev_high, prev_low = df["high"].shift(1), df["low"].shift(1)
+    return ((df["high"] <= prev_high) & (df["low"] >= prev_low)).fillna(False)
+
+
+# ------------------------------------------------------------ exit primitives
+
+def breakeven_stop(entry_price, original_stop, current_price, direction, trigger_rr):
+    """Reusable exit primitive: once unrealized profit reaches
+    trigger_rr x the ORIGINAL risk (entry_price to original_stop
+    distance), the stop should move to breakeven (entry_price) -- never
+    moves the stop further away, and never moves it before the trigger is
+    actually reached. Returns the new stop-loss price, or None if the
+    trigger hasn't been reached yet (the caller should leave the existing
+    stop untouched).
+
+    Pure and deliberately stateless -- the caller (ConfiguredStrategy.
+    manage_position, called once per bar from the engine's position loop)
+    decides WHEN to call this and whether to apply the result, so this
+    function itself stays trivially testable in isolation."""
+    if original_stop is None or trigger_rr is None or trigger_rr <= 0:
+        return None
+    risk = abs(entry_price - original_stop)
+    if risk <= 0:
+        return None
+    if direction == "bullish":
+        unrealized = current_price - entry_price
+    else:
+        unrealized = entry_price - current_price
+    if unrealized >= trigger_rr * risk:
+        return entry_price
+    return None

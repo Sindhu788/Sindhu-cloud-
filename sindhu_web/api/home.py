@@ -19,6 +19,7 @@ NAV_ICONS = {
     "reflection": "mirror", "evolution": "dna", "reports": "chart", "news": "news",
     "telegram": "send", "settings": "gear", "knowledge_compiler": "compiler",
     "ai_center": "ai_center", "backtest_history": "history", "ceo": "ceo",
+    "pipeline_history": "history",
 }
 NAV_PAGES = [
     {"id": "ceo", "label": "SINDHU CEO", "enabled": True, "icon": NAV_ICONS["ceo"]},
@@ -31,6 +32,7 @@ NAV_PAGES = [
     {"id": "ai_center", "label": "AI Center", "enabled": True, "icon": NAV_ICONS["ai_center"]},
     {"id": "backtesting", "label": "Backtesting", "enabled": True, "icon": NAV_ICONS["backtesting"]},
     {"id": "backtest_history", "label": "Backtest History", "enabled": True, "icon": NAV_ICONS["backtest_history"]},
+    {"id": "pipeline_history", "label": "Pipeline History", "enabled": True, "icon": NAV_ICONS["pipeline_history"]},
     {"id": "paper_trading", "label": "Paper Trading", "enabled": True, "icon": NAV_ICONS["paper_trading"]},
     {"id": "reflection", "label": "Reflection", "enabled": False, "icon": NAV_ICONS["reflection"]},
     {"id": "evolution", "label": "Evolution", "enabled": False, "icon": NAV_ICONS["evolution"]},
@@ -107,24 +109,29 @@ def get_home():
 
 def _account_snapshot():
     """Balance/PnL/Win Rate/Total Trades for the Home page's Overview
-    cards. Prefers the live Paper Trading account (real, running balance
-    from data_engine's own trade ledger) once it has any trade history;
+    cards -- combined across every strategy's independent Paper Trading
+    book (each strategy starts from the same configured initial_balance
+    and accrues its own realized pnl; see paper_trading.guards.book_key).
+    Prefers the live Paper Trading account once it has any trade history;
     falls back to the most recent completed Backtest so the cards aren't
     empty before Paper Trading has run its first trade.
 
-    Reads storage.get_paper_account_summary() (an O(1) running total kept in
+    Reads storage.list_paper_account_states() (O(1) running totals kept in
     sync by close_paper_position()) instead of materializing every closed
     position via list_closed_paper_positions(limit=100000) just to count
     wins/trades -- this endpoint is polled by every page's topbar, so it
     needs to stay cheap as paper trade history grows."""
-    summary = storage.get_paper_account_summary()
-    closed_count = summary["closed_count"]
+    states = storage.list_paper_account_states()
+    closed_count = sum(s["closed_count"] for s in states)
     if closed_count:
         settings = paper_config.load()
         initial_balance = settings.get("initial_balance", 10000.0)
-        balance = initial_balance + summary["realized_pnl_total"]
-        win_rate = summary["win_count"] / closed_count * 100
-        profit_pct = (balance - initial_balance) / initial_balance * 100
+        total_pnl = sum(s["realized_pnl_total"] for s in states)
+        win_count = sum(s["win_count"] for s in states)
+        combined_initial = initial_balance * len(states)
+        balance = combined_initial + total_pnl
+        win_rate = win_count / closed_count * 100
+        profit_pct = (balance - combined_initial) / combined_initial * 100 if combined_initial else 0.0
         return {
             "strategy": "Paper Trading (live account)", "final_balance": round(balance, 2),
             "profit_pct": round(profit_pct, 2), "win_rate": round(win_rate, 2),

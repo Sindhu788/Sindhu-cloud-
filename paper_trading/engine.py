@@ -50,24 +50,25 @@ class PaperTradingEngine:
         self._last_summary = {"shortlisted": [], "opened": 0, "closed": 0, "rejected": 0}
         self._tick_count = 0
         self._started_at = None
-        self._only_strategy_id = None
 
     # ------------------------------------------------------------ control
     def is_running(self):
         return self._running
 
-    def start(self, log=None, on_event=None, only_strategy_id=None):
-        """only_strategy_id: scopes every tick to just this one strategy
-        (see paper_trading.strategy_matcher.relevant_strategies) instead of
-        the whole library -- used by the automation pipeline's auto Paper
-        Trading handoff (Part 2.4) so the just-optimized strategy trades
-        alone rather than competing with everything else already saved."""
+    def start(self, log=None, on_event=None):
+        """Every strategy enabled in paper_strategy_config (default enabled
+        when a strategy has no config row yet) competes every tick --
+        multiple strategies each run their own independent book
+        simultaneously (see paper_trading.guards.book_key and
+        risk_manager/guards' per-book scoping), so starting the engine
+        once is enough for however many strategies are active; the
+        automation pipeline's Paper Trading handoff just enables a new
+        strategy's config rather than restarting the engine scoped to it."""
         with self._lock:
             if self._running:
                 return False
             self._log = log or default_log
             self._on_event = on_event
-            self._only_strategy_id = only_strategy_id
             self._stop_flag.clear()
             self._running = True
             self._started_at = _now_iso()
@@ -83,8 +84,26 @@ class PaperTradingEngine:
         return True
 
     def status(self):
+        """Overall (all books combined) plus a per-strategy breakdown --
+        the combined balance is the sum of every book's own independent
+        balance (each strategy starts from the same initial_balance and
+        accrues its own realized pnl), never one shared/averaged number."""
         settings = pt_config.load()
         open_positions = storage.get_open_paper_positions()
+        initial_balance = settings.get("initial_balance", 10000.0)
+        states = storage.list_paper_account_states()
+        per_strategy = []
+        for s in states:
+            book = s["strategy_id"]
+            per_strategy.append({
+                "strategy_id": None if book == "__lessons__" else book,
+                "balance": round(initial_balance + s["realized_pnl_total"], 2),
+                "realized_pnl_total": round(s["realized_pnl_total"], 2),
+                "closed_count": s["closed_count"],
+                "win_count": s["win_count"],
+                "open_trades": len(storage.get_open_paper_position_symbols(book)),
+            })
+        combined_balance = initial_balance * len(states) + sum(s["realized_pnl_total"] for s in states)
         return {
             "running": self._running,
             "dry_run": settings.get("dry_run", True),
@@ -93,9 +112,9 @@ class PaperTradingEngine:
             "tick_count": self._tick_count,
             "open_trades": len(open_positions),
             "queue": len(self._last_summary.get("shortlisted", [])),
-            "balance": round(risk_manager.account_balance(settings.get("initial_balance", 10000.0)), 2),
+            "balance": round(combined_balance, 2),
             "last_summary": self._last_summary,
-            "only_strategy_id": self._only_strategy_id,
+            "per_strategy": per_strategy,
         }
 
     def run_single_tick_now(self):
@@ -116,7 +135,6 @@ class PaperTradingEngine:
             interval = pt_config.load().get("tick_interval_seconds", 60)
             self._stop_flag.wait(interval)
         self._running = False
-        self._only_strategy_id = None
         self._log("[paper-trading] engine stopped")
         self._emit({"type": "engine_stopped"})
 
@@ -162,8 +180,6 @@ class PaperTradingEngine:
             events = self._event_tracker.check(snapshot)
             if not events:
                 continue
-            if not self._guards.reserve(exchange, symbol):
-                continue
 
             try:
                 o, r = self._process_coin(exchange, symbol, snapshot, settings)
@@ -205,7 +221,7 @@ class PaperTradingEngine:
 
     def _process_coin(self, exchange, symbol, snapshot, settings):
         market_type = snapshot["market_state"]
-        strategies = strategy_matcher.relevant_strategies(symbol, market_type, only_strategy_id=self._only_strategy_id)
+        strategies = strategy_matcher.relevant_strategies(symbol, market_type)
         lessons = lesson_matcher.relevant_lessons(market_type, settings.get("lesson_default_timeframe", "1h"))
 
         candidates = signal_generator.generate_candidates(exchange, symbol, strategies, lessons, settings)
@@ -230,41 +246,65 @@ class PaperTradingEngine:
         if not approved:
             return 0, rejected
 
-        pick = guards.rank_candidates(approved, settings.get("priority_rule", "confidence"))
+        # Group by book (strategy_id, or the shared "__lessons__" book for
+        # lesson-only candidates) and process each group independently --
+        # this is what lets two different strategies BOTH open a position
+        # on the same coin in the same tick, even in opposite directions,
+        # instead of one silently winning a single engine-wide priority
+        # contest. Within one group (the same strategy, or several lessons
+        # firing together), Signal Priority still picks one winner, same as
+        # before -- a strategy never fights against itself.
+        groups = {}
+        for c in approved:
+            groups.setdefault(guards.book_key(c), []).append(c)
 
-        if guards.position_locked(exchange, symbol, "long" if pick["direction"] == "bullish" else "short"):
+        opened = 0
+        for book, group in groups.items():
+            pick = guards.rank_candidates(group, settings.get("priority_rule", "confidence"))
+            o, r = self._open_if_allowed(book, exchange, symbol, pick, snapshot, settings)
+            opened += o
+            rejected += r
+
+        return opened, rejected
+
+    def _open_if_allowed(self, book, exchange, symbol, pick, snapshot, settings):
+        if not self._guards.reserve(book, exchange, symbol):
+            return 0, 0
+
+        side = "long" if pick["direction"] == "bullish" else "short"
+
+        if guards.position_locked(book, exchange, symbol, side):
             self._log_decision(exchange, symbol, pick, "rejected", "position lock: identical position already open", snapshot)
-            return 0, rejected + 1
+            return 0, 1
 
         cooldown_min = settings.get("cooldown_minutes", 15)
-        side = "long" if pick["direction"] == "bullish" else "short"
-        if guards.cooldown_active(exchange, symbol, side, cooldown_min):
+        if guards.cooldown_active(book, exchange, symbol, side, cooldown_min):
             self._log_decision(exchange, symbol, pick, "rejected", f"cooldown active ({cooldown_min}min)", snapshot)
-            return 0, rejected + 1
+            return 0, 1
 
-        action, info = guards.resolve_opposite_signal(exchange, symbol, side, settings.get("opposite_signal_policy", "block"))
+        action, info = guards.resolve_opposite_signal(book, exchange, symbol, side, settings.get("opposite_signal_policy", "block"))
         if action == "block":
             self._log_decision(exchange, symbol, pick, "rejected", info, snapshot)
-            return 0, rejected + 1
+            return 0, 1
         if action == "close_and_reverse":
             position_manager.force_close(info, snapshot["price"], reason="reversed")
 
-        risk_ok, risk_reason, size, risk_amount = risk_manager.evaluate(pick, settings)
+        risk_ok, risk_reason, size, risk_amount = risk_manager.evaluate(book, symbol, pick, settings)
         if not risk_ok:
             self._log_decision(exchange, symbol, pick, "rejected", risk_reason, snapshot)
-            return 0, rejected + 1
+            return 0, 1
 
         if settings.get("dry_run", True):
             self._log_decision(exchange, symbol, pick, "dry_run",
                                 "dry run -- would have opened this trade", snapshot)
-            return 0, rejected
+            return 0, 0
 
         pos = position_manager.open_position(exchange, symbol, pick, size, risk_amount, pick["confidence"], snapshot)
         self._log_decision(exchange, symbol, pick, "opened", "trade opened", snapshot, position_id=pos["id"])
         self._log(f"[paper-trading] OPENED {symbol} {pos['direction']} @ {pos['entry_price']:.6f} "
                   f"(strategy={pick.get('strategy_name') or pick.get('lesson_title')})")
         self._emit({"type": "position_opened", "position": pos})
-        return 1, rejected
+        return 1, 0
 
     def _log_decision(self, exchange, symbol, candidate, decision, reason, snapshot, position_id=None):
         storage.log_paper_decision({

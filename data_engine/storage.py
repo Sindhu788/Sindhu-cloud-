@@ -1,6 +1,7 @@
 import json
 import sqlite3
 import os
+import statistics
 from contextlib import contextmanager
 
 from data_engine.paths import DB_PATH, DATABASE_DIR, ensure_folders
@@ -198,11 +199,18 @@ CREATE TABLE IF NOT EXISTS paper_positions (
 CREATE INDEX IF NOT EXISTS idx_paper_positions_status_closed
     ON paper_positions(status, closed_at);
 
+-- One row per strategy (or the synthetic "__lessons__" key for trades not
+-- tied to any specific strategy) -- each strategy trades its own
+-- independent book (balance, PnL, open-position cap) once multiple
+-- strategies can run in Paper Trading simultaneously; see
+-- _migrate_paper_account_state_per_strategy() for the one-time conversion
+-- from the old single-row-shared-by-everyone schema.
 CREATE TABLE IF NOT EXISTS paper_account_state (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
+    strategy_id TEXT PRIMARY KEY,
     realized_pnl_total REAL NOT NULL DEFAULT 0.0,
     closed_count INTEGER NOT NULL DEFAULT 0,
-    win_count INTEGER NOT NULL DEFAULT 0
+    win_count INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS paper_decision_log (
@@ -524,32 +532,45 @@ def _migrate_lesson_stats_summary_backfill(conn):
     )
 
 
-def _migrate_paper_account_state_backfill(conn):
-    """One-time seed of paper_account_state (realized_pnl_total, closed_count,
-    win_count) from whatever closed positions already exist, for anyone
-    upgrading from before this running total existed. Mirrors
-    _migrate_lesson_stats_summary_backfill: only runs the one-time aggregation
-    when the state row doesn't exist yet; every close_paper_position() call
-    afterward keeps it in sync incrementally instead of
-    risk_manager.account_balance() and the Home page's account snapshot each
-    re-scanning every closed position on every call (that scan is what made
-    both get slower as paper trade history grew)."""
+def _migrate_paper_account_state_per_strategy(conn):
+    """paper_account_state used to be a single hardcoded row (id=1) shared by
+    every strategy -- wrong now that multiple strategies can each run their
+    own independent Paper Trading book (their own balance/PnL/open-position
+    cap) at the same time. Converts it to one row per book (strategy_id, or
+    the synthetic "__lessons__" key for trades not tied to any specific
+    strategy -- see paper_trading.guards.book_key()), recomputed directly
+    from paper_positions (the source of truth) rather than trying to split
+    the old blended total, since before this change every closed trade fed
+    the same shared row regardless of which strategy closed it. Detects the
+    old schema via its distinctive "id" column (the new one has no such
+    column) so this only ever runs once per database."""
     existing = {r[0] for r in
                 conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
-    if "paper_account_state" not in existing or "paper_positions" not in existing:
+    if "paper_account_state" not in existing:
         return
-    already_seeded = conn.execute("SELECT COUNT(*) FROM paper_account_state").fetchone()[0]
-    if already_seeded:
-        return
-    total, closed_count, win_count = conn.execute(
-        """SELECT COALESCE(SUM(pnl), 0.0), COUNT(*),
-                  SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END)
-           FROM paper_positions WHERE status='closed' AND pnl IS NOT NULL"""
-    ).fetchone()
+    columns = {r[1] for r in conn.execute("PRAGMA table_info(paper_account_state)").fetchall()}
+    if "strategy_id" in columns:
+        return  # already the new per-book schema
+    conn.execute("ALTER TABLE paper_account_state RENAME TO paper_account_state_old_global")
     conn.execute(
-        "INSERT INTO paper_account_state (id, realized_pnl_total, closed_count, win_count) VALUES (1, ?, ?, ?)",
-        (total, closed_count, win_count or 0),
+        """CREATE TABLE paper_account_state (
+               strategy_id TEXT PRIMARY KEY,
+               realized_pnl_total REAL NOT NULL DEFAULT 0.0,
+               closed_count INTEGER NOT NULL DEFAULT 0,
+               win_count INTEGER NOT NULL DEFAULT 0,
+               updated_at TEXT
+           )"""
     )
+    if "paper_positions" in existing:
+        conn.execute(
+            """INSERT INTO paper_account_state (strategy_id, realized_pnl_total, closed_count, win_count, updated_at)
+               SELECT COALESCE(strategy_id, '__lessons__'), COALESCE(SUM(pnl), 0.0), COUNT(*),
+                      SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END), MAX(closed_at)
+               FROM paper_positions
+               WHERE status='closed' AND pnl IS NOT NULL
+               GROUP BY COALESCE(strategy_id, '__lessons__')"""
+        )
+    conn.execute("DROP TABLE paper_account_state_old_global")
 
 
 def _migrate_ai_dictionary_v6_columns(conn):
@@ -737,7 +758,7 @@ def init_db():
         _migrate_ai_import_cache_v8_columns(conn)
         _migrate_backtest_batch_columns(conn)
         _migrate_lesson_stats_summary_backfill(conn)
-        _migrate_paper_account_state_backfill(conn)
+        _migrate_paper_account_state_per_strategy(conn)
 
 
 def save_symbols(exchange, symbols, now_iso):
@@ -1075,6 +1096,35 @@ def list_running_pipeline_jobs():
             "SELECT job_id, strategy_id, strategy_name, symbols_json, status, stage, checkpoint_json, error, created_at, updated_at "
             "FROM pipeline_jobs WHERE status = 'running'"
         ).fetchall()
+    return [
+        {
+            "job_id": r[0], "strategy_id": r[1], "strategy_name": r[2],
+            "symbols": json.loads(r[3]) if r[3] else None,
+            "status": r[4], "stage": r[5],
+            "checkpoint": json.loads(r[6]) if r[6] else {},
+            "error": r[7], "created_at": r[8], "updated_at": r[9],
+        }
+        for r in rows
+    ]
+
+
+def list_pipeline_jobs(limit=200, status=None):
+    """Every automation pipeline run ever started, permanently listed
+    (unlike list_running_pipeline_jobs, which only ever returns the
+    currently-interrupted ones checked at startup) -- newest first. This is
+    the backing data for the Automation Pipeline History page: the same
+    pipeline_jobs rows already written by trigger_pipeline_for_strategy()/
+    run_pipeline()'s checkpointing, not a separate tracking system."""
+    query = ("SELECT job_id, strategy_id, strategy_name, symbols_json, status, stage, "
+             "checkpoint_json, error, created_at, updated_at FROM pipeline_jobs")
+    params = []
+    if status:
+        query += " WHERE status = ?"
+        params.append(status)
+    query += " ORDER BY created_at DESC LIMIT ?"
+    params.append(limit)
+    with get_conn() as conn:
+        rows = conn.execute(query, params).fetchall()
     return [
         {
             "job_id": r[0], "strategy_id": r[1], "strategy_name": r[2],
@@ -1480,6 +1530,16 @@ def _row_to_paper_position(row):
     d["tags"] = json.loads(d.pop("tags_json")) if d.get("tags_json") else []
     d["lifecycle"] = json.loads(d.pop("lifecycle_json")) if d.get("lifecycle_json") else {}
     d["reflection"] = json.loads(d.pop("reflection_json")) if d.get("reflection_json") else None
+    # Derived, not stored separately -- is_win/rr (the R-multiple actually
+    # achieved: realized pnl divided by the amount originally risked) are
+    # always recomputable from pnl/risk_amount, so keeping them out of the
+    # schema avoids a second source of truth that could drift.
+    if d["status"] == "closed" and d.get("pnl") is not None:
+        d["is_win"] = d["pnl"] > 0
+        d["rr"] = (d["pnl"] / d["risk_amount"]) if d.get("risk_amount") else None
+    else:
+        d["is_win"] = None
+        d["rr"] = None
     return d
 
 
@@ -1504,8 +1564,16 @@ def open_paper_position(pos):
         )
 
 
+def _account_state_key(book_key):
+    """paper_positions.strategy_id is NULL for trades not tied to any
+    specific strategy (lesson-only signals) -- paper_account_state has no
+    NULL primary key, so those share the synthetic "__lessons__" row
+    instead. See paper_trading.guards.book_key()."""
+    return book_key or "__lessons__"
+
+
 def close_paper_position(position_id, exit_price, exit_time, pnl, pnl_pct, exit_reason,
-                          lifecycle, reflection, closed_at):
+                          lifecycle, reflection, closed_at, book_key=None):
     with get_conn() as conn:
         conn.execute(
             """UPDATE paper_positions SET
@@ -1517,40 +1585,55 @@ def close_paper_position(position_id, exit_price, exit_time, pnl, pnl_pct, exit_
         )
         if pnl is not None:
             conn.execute(
-                """INSERT INTO paper_account_state (id, realized_pnl_total, closed_count, win_count)
-                   VALUES (1, ?, 1, ?)
-                   ON CONFLICT(id) DO UPDATE SET
+                """INSERT INTO paper_account_state (strategy_id, realized_pnl_total, closed_count, win_count, updated_at)
+                   VALUES (?, ?, 1, ?, ?)
+                   ON CONFLICT(strategy_id) DO UPDATE SET
                      realized_pnl_total = realized_pnl_total + excluded.realized_pnl_total,
                      closed_count = closed_count + 1,
-                     win_count = win_count + excluded.win_count""",
-                (pnl, 1 if pnl > 0 else 0),
+                     win_count = win_count + excluded.win_count,
+                     updated_at = excluded.updated_at""",
+                (_account_state_key(book_key), pnl, 1 if pnl > 0 else 0, closed_at),
             )
 
 
-def get_paper_realized_pnl_total():
-    """O(1) running total kept in sync by close_paper_position() -- see
-    _migrate_paper_account_state_backfill() for why this replaced a live
+def get_paper_realized_pnl_total(book_key):
+    """O(1) running total for one book (a strategy_id, or "__lessons__"),
+    kept in sync by close_paper_position() -- see
+    _migrate_paper_account_state_per_strategy() for why this replaced a live
     SUM() scan over every closed position on every call."""
     with get_conn() as conn:
-        row = conn.execute("SELECT realized_pnl_total FROM paper_account_state WHERE id=1").fetchone()
+        row = conn.execute(
+            "SELECT realized_pnl_total FROM paper_account_state WHERE strategy_id=?",
+            (_account_state_key(book_key),),
+        ).fetchone()
     return row[0] if row else 0.0
 
 
-def get_paper_account_summary():
-    """{realized_pnl_total, closed_count, win_count}, O(1) via the running
-    total kept in sync by close_paper_position() -- used by the Home page's
-    account snapshot instead of materializing every closed position (with
-    its JSON columns) just to compute a win rate and a trade count."""
+def get_paper_account_summary(book_key):
+    """{realized_pnl_total, closed_count, win_count} for one book, O(1) via
+    the running total kept in sync by close_paper_position()."""
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT realized_pnl_total, closed_count, win_count FROM paper_account_state WHERE id=1"
+            "SELECT realized_pnl_total, closed_count, win_count FROM paper_account_state WHERE strategy_id=?",
+            (_account_state_key(book_key),),
         ).fetchone()
     if not row:
         return {"realized_pnl_total": 0.0, "closed_count": 0, "win_count": 0}
     return {"realized_pnl_total": row[0], "closed_count": row[1], "win_count": row[2]}
 
 
-def get_open_paper_positions(exchange=None, symbol=None, direction=None):
+def list_paper_account_states():
+    """Every book's running total -- used for the Home page's combined
+    snapshot and the Paper Trading analytics dashboard's per-strategy view."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT strategy_id, realized_pnl_total, closed_count, win_count, updated_at FROM paper_account_state"
+        ).fetchall()
+    cols = ["strategy_id", "realized_pnl_total", "closed_count", "win_count", "updated_at"]
+    return [dict(zip(cols, r)) for r in rows]
+
+
+def get_open_paper_positions(exchange=None, symbol=None, direction=None, strategy_id=None):
     query = f"SELECT {','.join(_PAPER_POSITION_COLUMNS)} FROM paper_positions WHERE status='open'"
     params = []
     if exchange:
@@ -1562,9 +1645,30 @@ def get_open_paper_positions(exchange=None, symbol=None, direction=None):
     if direction:
         query += " AND direction = ?"
         params.append(direction)
+    if strategy_id is not None:
+        if strategy_id == "__lessons__":
+            query += " AND strategy_id IS NULL"
+        else:
+            query += " AND strategy_id = ?"
+            params.append(strategy_id)
     with get_conn() as conn:
         rows = conn.execute(query, params).fetchall()
     return [_row_to_paper_position(r) for r in rows]
+
+
+def get_open_paper_position_symbols(strategy_id):
+    """Distinct coins this one book currently has an open position on --
+    used for the per-strategy "max coins actively traded" cap."""
+    query = "SELECT DISTINCT symbol FROM paper_positions WHERE status='open'"
+    params = []
+    if strategy_id == "__lessons__":
+        query += " AND strategy_id IS NULL"
+    else:
+        query += " AND strategy_id = ?"
+        params.append(strategy_id)
+    with get_conn() as conn:
+        rows = conn.execute(query, params).fetchall()
+    return {r[0] for r in rows}
 
 
 def get_paper_position(position_id):
@@ -1575,27 +1679,168 @@ def get_paper_position(position_id):
     return _row_to_paper_position(row) if row else None
 
 
-def list_closed_paper_positions(limit=100):
+def list_closed_paper_positions(limit=100, strategy_id=None, since_iso=None):
+    query = f"SELECT {','.join(_PAPER_POSITION_COLUMNS)} FROM paper_positions WHERE status='closed'"
+    params = []
+    if strategy_id is not None:
+        if strategy_id == "__lessons__":
+            query += " AND strategy_id IS NULL"
+        else:
+            query += " AND strategy_id = ?"
+            params.append(strategy_id)
+    if since_iso:
+        query += " AND closed_at >= ?"
+        params.append(since_iso)
+    query += " ORDER BY closed_at DESC LIMIT ?"
+    params.append(limit)
     with get_conn() as conn:
-        rows = conn.execute(
-            f"SELECT {','.join(_PAPER_POSITION_COLUMNS)} FROM paper_positions "
-            "WHERE status='closed' ORDER BY closed_at DESC LIMIT ?", (limit,),
-        ).fetchall()
+        rows = conn.execute(query, params).fetchall()
     return [_row_to_paper_position(r) for r in rows]
 
 
-def last_closed_paper_position(exchange, symbol, direction=None):
-    """Most recently closed position for this coin -- used for Cooldown."""
+def last_closed_paper_position(exchange, symbol, direction=None, strategy_id=None):
+    """Most recently closed position for this coin (scoped to one book) --
+    used for Cooldown, so one strategy's cooldown never blocks another
+    strategy's independent trade on the same coin."""
     query = ("SELECT " + ",".join(_PAPER_POSITION_COLUMNS) + " FROM paper_positions "
              "WHERE status='closed' AND exchange=? AND symbol=?")
     params = [exchange, symbol]
     if direction:
         query += " AND direction=?"
         params.append(direction)
+    if strategy_id is not None:
+        if strategy_id == "__lessons__":
+            query += " AND strategy_id IS NULL"
+        else:
+            query += " AND strategy_id = ?"
+            params.append(strategy_id)
     query += " ORDER BY closed_at DESC LIMIT 1"
     with get_conn() as conn:
         row = conn.execute(query, params).fetchone()
     return _row_to_paper_position(row) if row else None
+
+
+def get_paper_period_summary(since_iso=None, until_iso=None):
+    """Aggregate stats over CLOSED trades only in [since_iso, until_iso) --
+    both bounds optional (None on both = All-Time). Open positions never
+    factor in here (see get_open_paper_positions for that separate count),
+    so this number always reflects only completed outcomes.
+
+    "avg_rr" is the MEDIAN R-multiple achieved (realized pnl divided by the
+    amount originally risked) -- a plain mean was tried first and rejected:
+    a handful of trades with a razor-thin planned risk (a stop just pennies
+    from entry) produce R-multiples in the hundreds, which drag a simple
+    average to a number no longer representative of a typical trade (in
+    real data: mean ~9.9 vs median ~1.9 over the same 624 trades). The mean
+    is still returned separately as avg_rr_mean for anyone who wants it."""
+    query = ("SELECT COUNT(*), COALESCE(SUM(pnl),0), SUM(CASE WHEN pnl>0 THEN 1 ELSE 0 END), "
+             "COUNT(DISTINCT strategy_id) FROM paper_positions WHERE status='closed' AND pnl IS NOT NULL")
+    params = []
+    if since_iso:
+        query += " AND closed_at >= ?"
+        params.append(since_iso)
+    if until_iso:
+        query += " AND closed_at < ?"
+        params.append(until_iso)
+    rr_query = "SELECT pnl, risk_amount FROM paper_positions WHERE status='closed' AND pnl IS NOT NULL AND risk_amount > 0"
+    rr_params = []
+    if since_iso:
+        rr_query += " AND closed_at >= ?"
+        rr_params.append(since_iso)
+    if until_iso:
+        rr_query += " AND closed_at < ?"
+        rr_params.append(until_iso)
+    with get_conn() as conn:
+        row = conn.execute(query, params).fetchone()
+        rr_rows = conn.execute(rr_query, rr_params).fetchall()
+    total, pnl, wins, strategies = row
+    total = total or 0
+    rr_values = [p / r for p, r in rr_rows]
+    avg_rr_median = round(statistics.median(rr_values), 3) if rr_values else None
+    avg_rr_mean = round(statistics.mean(rr_values), 3) if rr_values else None
+    return {
+        "closed_trades": total,
+        "total_pnl": pnl or 0.0,
+        "win_count": wins or 0,
+        "win_rate": round(wins / total * 100, 2) if total else 0.0,
+        "active_strategies": strategies or 0,
+        "avg_rr": avg_rr_median,
+        "avg_rr_mean": avg_rr_mean,
+    }
+
+
+def list_paper_coin_stats(since_iso=None, until_iso=None):
+    """Every coin that has ever closed a trade, ranked by total pnl --
+    best-performing coin is the first entry, worst is the last, independent
+    of which strategy traded it."""
+    query = ("SELECT symbol, COUNT(*), COALESCE(SUM(pnl),0), SUM(CASE WHEN pnl>0 THEN 1 ELSE 0 END) "
+             "FROM paper_positions WHERE status='closed' AND pnl IS NOT NULL")
+    params = []
+    if since_iso:
+        query += " AND closed_at >= ?"
+        params.append(since_iso)
+    if until_iso:
+        query += " AND closed_at < ?"
+        params.append(until_iso)
+    query += " GROUP BY symbol ORDER BY SUM(pnl) DESC"
+    with get_conn() as conn:
+        rows = conn.execute(query, params).fetchall()
+    return [
+        {"symbol": r[0], "closed_trades": r[1], "total_pnl": r[2],
+         "win_rate": round(r[3] / r[1] * 100, 2) if r[1] else 0.0}
+        for r in rows
+    ]
+
+
+def list_paper_strategy_stats(since_iso=None, until_iso=None):
+    """Every strategy that has ever closed a trade (a permanent record --
+    a strategy later disabled or deleted from the library still keeps its
+    history here), ranked by total pnl. "trading_since" is the earliest
+    position (open or closed) ever recorded for that strategy, computed
+    across all history regardless of since_iso/until_iso so it always
+    answers "since when has this strategy been running" rather than
+    "since when in this period.\""""
+    query = ("SELECT strategy_id, MAX(strategy_name), COUNT(*), COALESCE(SUM(pnl),0), "
+             "SUM(CASE WHEN pnl>0 THEN 1 ELSE 0 END) FROM paper_positions "
+             "WHERE status='closed' AND pnl IS NOT NULL AND strategy_id IS NOT NULL")
+    params = []
+    if since_iso:
+        query += " AND closed_at >= ?"
+        params.append(since_iso)
+    if until_iso:
+        query += " AND closed_at < ?"
+        params.append(until_iso)
+    query += " GROUP BY strategy_id"
+    with get_conn() as conn:
+        rows = conn.execute(query, params).fetchall()
+        since_rows = conn.execute(
+            "SELECT strategy_id, MIN(created_at) FROM paper_positions "
+            "WHERE strategy_id IS NOT NULL GROUP BY strategy_id"
+        ).fetchall()
+    since_map = dict(since_rows)
+    result = [
+        {
+            "strategy_id": sid, "strategy_name": name, "closed_trades": count,
+            "total_pnl": pnl, "win_count": wins,
+            "win_rate": round(wins / count * 100, 2) if count else 0.0,
+            "trading_since": since_map.get(sid),
+        }
+        for sid, name, count, pnl, wins in rows
+    ]
+    result.sort(key=lambda r: r["total_pnl"], reverse=True)
+    return result
+
+
+def list_paper_strategy_trading_since():
+    """{strategy_id: earliest created_at} across ALL positions (open or
+    closed) -- used to show "trading since" for a strategy that has open
+    positions but hasn't closed any trade yet."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT strategy_id, MIN(created_at) FROM paper_positions "
+            "WHERE strategy_id IS NOT NULL GROUP BY strategy_id"
+        ).fetchall()
+    return dict(rows)
 
 
 def log_paper_decision(entry):
@@ -1726,7 +1971,14 @@ def get_paper_strategy_config(strategy_id):
             "FROM paper_strategy_config WHERE strategy_id=?", (strategy_id,),
         ).fetchone()
     if not row:
-        return {"strategy_id": strategy_id, "enabled": True, "priority": 5,
+        # Opt-in, not opt-out: a strategy with no Paper Trading config yet
+        # has never been deliberately activated (e.g. via the automation
+        # pipeline's handoff, which explicitly enables it), so it must not
+        # silently start trading just by existing in the library -- this
+        # matters much more now that multiple strategies can run at once
+        # (previously the pipeline's only_strategy_id scoping masked this
+        # default, since exactly one strategy was ever active regardless).
+        return {"strategy_id": strategy_id, "enabled": False, "priority": 5,
                 "supported_coins": [], "supported_market_types": []}
     return {
         "strategy_id": row[0], "enabled": bool(row[1]), "priority": row[2],

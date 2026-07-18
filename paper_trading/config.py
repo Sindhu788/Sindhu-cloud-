@@ -11,6 +11,9 @@ _DEFAULTS = {
     "dry_run": True,
     "initial_balance": 10000.0,
     "risk_pct_default": 1.0,
+    # Per STRATEGY, not a total shared across every strategy running --
+    # each strategy independently caps out at this many distinct coins with
+    # an open position at once (see paper_trading.risk_manager.evaluate).
     "max_open_trades": 5,
     "cooldown_minutes": 15,
     "priority_rule": "confidence",     # confidence | win_rate | profit | manual

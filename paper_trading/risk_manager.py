@@ -8,27 +8,35 @@ from backtest_engine.engine import _position_size
 from data_engine import storage
 
 
-def account_balance(initial_balance):
-    """initial_balance + every closed paper trade's realized pnl, read from
-    the O(1) running total in paper_account_state (kept in sync by
+def account_balance(book_key, initial_balance):
+    """initial_balance + this book's realized pnl, read from the O(1)
+    running total in paper_account_state (kept in sync by
     storage.close_paper_position()) instead of scanning every closed
-    position on every call -- this is called on every /api/paper-trading/status
+    position on every call. Every strategy (book_key) gets its own
+    independent balance, all starting from the same configured
+    initial_balance -- this is called on every /api/paper-trading/status
     poll and every trade-sizing decision, so it needs to stay cheap as trade
     history grows."""
-    return initial_balance + storage.get_paper_realized_pnl_total()
+    return initial_balance + storage.get_paper_realized_pnl_total(book_key)
 
 
-def evaluate(candidate, settings):
-    """Returns (approved: bool, reason: str|None, size: float|None, risk_amount: float|None)."""
-    open_positions = storage.get_open_paper_positions()
-    max_open = settings.get("max_open_trades", 5)
-    if len(open_positions) >= max_open:
-        return False, f"max open trades reached ({max_open})", None, None
+def evaluate(book_key, symbol, candidate, settings):
+    """Returns (approved: bool, reason: str|None, size: float|None, risk_amount: float|None).
+
+    The open-position cap is per book (per strategy, or the shared
+    "__lessons__" book), not shared across strategies -- each strategy is
+    independently limited to max_open_trades DISTINCT coins actively
+    traded at once, so one strategy filling its coin quota never blocks
+    another strategy from opening its own positions."""
+    open_symbols = storage.get_open_paper_position_symbols(book_key)
+    max_coins = settings.get("max_open_trades", 5)
+    if symbol not in open_symbols and len(open_symbols) >= max_coins:
+        return False, f"max coins for this strategy reached ({max_coins})", None, None
 
     if candidate["stop_loss"] is None:
         return False, "no stop-loss could be computed -- risk cannot be sized", None, None
 
-    balance = account_balance(settings.get("initial_balance", 10000.0))
+    balance = account_balance(book_key, settings.get("initial_balance", 10000.0))
     if balance <= 0:
         return False, "account balance depleted", None, None
 

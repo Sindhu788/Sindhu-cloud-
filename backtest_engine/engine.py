@@ -126,6 +126,13 @@ def run_backtest(df, strategy, settings, control=None, on_trade=None, knowledge_
         signal = strategy.on_bar(df, i, position)
 
         if position is not None:
+            # Optional per-bar position management (e.g. move stop_loss to
+            # breakeven) -- runs before the forced-exit check so a
+            # just-moved stop is checked against THIS bar's high/low like
+            # any other stop, exactly as it would in real trading. The base
+            # Strategy.manage_position() is a no-op, so this has zero
+            # effect on any strategy that doesn't override it.
+            strategy.manage_position(df, i, position)
             exit_price, exit_reason = _check_forced_exit(position, high, low)
             if exit_price is None and signal is not None and signal.action == "exit":
                 exit_price, exit_reason = price, (signal.reason or "signal")

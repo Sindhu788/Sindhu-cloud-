@@ -68,6 +68,8 @@ class StrategyConfig:
 
     session_filter: list = field(default_factory=list)        # ["london", "ny"]
     trend_filter: Optional[str] = None                          # "up" / "down" / None
+    day_filter: list = field(default_factory=list)             # ["monday", "friday"]
+    breakeven_at_rr: Optional[float] = None                      # move stop to entry once unrealized profit reaches this many R
 
     tags: list = field(default_factory=list)
     favourite: bool = False

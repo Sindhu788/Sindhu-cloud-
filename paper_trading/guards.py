@@ -10,22 +10,38 @@ from datetime import datetime, timedelta, timezone
 from data_engine import storage
 
 
-def position_locked(exchange, symbol, direction):
-    """If BTC Long is already open, never open another identical BTC Long.
-    Unlocks automatically the moment that position closes, because this
-    reads live from paper_positions rather than tracking a separate flag."""
-    return len(storage.get_open_paper_positions(exchange, symbol, direction)) > 0
+def book_key(candidate):
+    """Every strategy trades its own independent book (its own balance, PnL,
+    open-position cap, guards) -- a candidate with no strategy_id (a
+    lesson-only signal) shares one common synthetic "__lessons__" book
+    instead, since lessons were never given individual per-lesson books."""
+    return candidate.get("strategy_id") or "__lessons__"
 
 
-def opposite_open_position(exchange, symbol, direction):
+def position_locked(book_key, exchange, symbol, direction):
+    """If this strategy's BTC Long is already open, never open another
+    identical BTC Long for the SAME strategy. Scoped per book so a
+    different strategy's identical-looking position never blocks this
+    one -- each strategy's positions are independent. Unlocks
+    automatically the moment that position closes, because this reads
+    live from paper_positions rather than tracking a separate flag."""
+    return len(storage.get_open_paper_positions(exchange, symbol, direction, strategy_id=book_key)) > 0
+
+
+def opposite_open_position(book_key, exchange, symbol, direction):
     opposite = "bearish" if direction == "bullish" else "bullish"
-    positions = storage.get_open_paper_positions(exchange, symbol, opposite)
+    positions = storage.get_open_paper_positions(exchange, symbol, opposite, strategy_id=book_key)
     return positions[0] if positions else None
 
 
-def resolve_opposite_signal(exchange, symbol, direction, policy):
-    """Returns ("proceed", None) | ("block", reason) | ("close_and_reverse", position_id)."""
-    opposite = opposite_open_position(exchange, symbol, direction)
+def resolve_opposite_signal(book_key, exchange, symbol, direction, policy):
+    """Returns ("proceed", None) | ("block", reason) | ("close_and_reverse", position_id).
+
+    Scoped to one book: two DIFFERENT strategies producing opposite signals
+    on the same coin are always independent positions and never reach this
+    check against each other (each only ever sees its own open positions) --
+    this policy only governs a single strategy reversing against itself."""
+    opposite = opposite_open_position(book_key, exchange, symbol, direction)
     if not opposite:
         return "proceed", None
     if policy == "allow":
@@ -35,10 +51,10 @@ def resolve_opposite_signal(exchange, symbol, direction, policy):
     return "block", f"opposite {opposite['direction']} position already open (policy=block)"
 
 
-def cooldown_active(exchange, symbol, direction, cooldown_minutes):
+def cooldown_active(book_key, exchange, symbol, direction, cooldown_minutes):
     if cooldown_minutes <= 0:
         return False
-    last = storage.last_closed_paper_position(exchange, symbol, direction)
+    last = storage.last_closed_paper_position(exchange, symbol, direction, strategy_id=book_key)
     if not last or not last.get("closed_at"):
         return False
     try:
@@ -69,12 +85,15 @@ class GuardState:
         self._reserved = set()
         self._decision_cache = {}
 
-    def reserve(self, exchange, symbol):
+    def reserve(self, book_key, exchange, symbol):
         """Trade Reservation: claims a coin for the rest of this tick's
-        decision so two strategies/lessons can't both open a position on
-        it in the same pass. Released at the end of the tick regardless
-        of outcome."""
-        key = (exchange, symbol)
+        decision, scoped per book -- guards against this SAME strategy's
+        book being processed twice for one coin in one tick pass. Does NOT
+        block a different strategy's independent candidate for the same
+        coin (each book gets its own reservation), since two different
+        strategies must be free to both trade the same coin at once.
+        Released at the end of the tick regardless of outcome."""
+        key = (book_key, exchange, symbol)
         if key in self._reserved:
             return False
         self._reserved.add(key)

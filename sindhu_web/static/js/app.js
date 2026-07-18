@@ -494,6 +494,7 @@
     knowledge: renderKnowledge, strategies: renderStrategies,
     paper_trading: renderPaperTrading, knowledge_compiler: renderKnowledgeCompiler,
     ai_center: renderAiCenter, backtest_history: renderBacktestHistory,
+    pipeline_history: renderPipelineHistory,
     ceo: renderCEO,
   };
   let refreshTimer = null;
@@ -687,6 +688,110 @@
     return `<div class="card"><div class="label">${label}</div><div class="value" id="${id}">${value}</div></div>`;
   }
 
+  // ---- Paper Trading analytics: one shared renderer for the Paper Trading
+  // page and the SINDHU CEO Paper Trading card's expanded view (CEO-parity
+  // rule), both backed by the same /api/paper-trading/analytics endpoint so
+  // neither can show a number the other disagrees with.
+  const PERIOD_TABS = [
+    ["today", "Today"], ["yesterday", "Yesterday"], ["week", "This Week"],
+    ["month", "This Month"], ["all", "All-Time"],
+  ];
+
+  function pnlSpan(pnl) {
+    const v = Number(pnl || 0);
+    return `<span class="${v >= 0 ? "pill-up" : "pill-down"}">${v >= 0 ? "+" : ""}$${v.toFixed(2)}</span>`;
+  }
+
+  function paperPeriodTabsHtml(idPrefix, activePeriod) {
+    return `<div class="period-tabs">${PERIOD_TABS.map(([id, label]) => `
+      <button class="period-tab ${id === activePeriod ? "active" : ""}" data-period-tab="${idPrefix}" data-period="${id}">${label}</button>
+    `).join("")}</div>`;
+  }
+
+  function paperAnalyticsSectionHtml(d) {
+    const s = d.summary;
+    const isAll = d.period === "all";
+    return `
+      <div class="grid">
+        ${card("Closed Trades", fmtNum(s.closed_trades))}
+        ${card("Active Strategies", fmtNum(s.active_strategies))}
+        ${cardClass("Total PnL", `${s.total_pnl >= 0 ? "+" : ""}$${s.total_pnl.toFixed(2)}`, s.total_pnl > 0 ? "positive" : s.total_pnl < 0 ? "negative" : "")}
+        ${card("Win Rate", `${s.win_rate.toFixed(1)}%`)}
+        ${card("Avg Risk:Reward", s.avg_rr != null ? `${s.avg_rr.toFixed(2)}R` : "-")}
+        ${card("Open Positions (separate, all-time)", fmtNum(d.open_positions_count))}
+      </div>
+
+      <div class="two-col">
+        <div class="card">
+          <div class="label">Best-Performing Coin</div>
+          ${d.best_coin
+            ? `<div class="value positive">${esc(d.best_coin.symbol)}</div>
+               <div class="muted" style="font-size:12px;">${fmtNum(d.best_coin.closed_trades)} trades, ${d.best_coin.win_rate.toFixed(1)}% win rate, ${pnlSpan(d.best_coin.total_pnl)}</div>`
+            : `<div class="muted">No closed trades yet.</div>`}
+        </div>
+        <div class="card">
+          <div class="label">Worst-Performing Coin</div>
+          ${d.worst_coin
+            ? `<div class="value negative">${esc(d.worst_coin.symbol)}</div>
+               <div class="muted" style="font-size:12px;">${fmtNum(d.worst_coin.closed_trades)} trades, ${d.worst_coin.win_rate.toFixed(1)}% win rate, ${pnlSpan(d.worst_coin.total_pnl)}</div>`
+            : `<div class="muted">No closed trades yet.</div>`}
+        </div>
+      </div>
+
+      <div class="section-title">Per-Strategy Breakdown${isAll ? " -- Permanent Record" : ""}</div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Strategy</th><th>Closed Trades</th><th>Win Rate</th><th>PnL</th><th>Open Positions</th>${isAll ? "<th>Trading Since</th>" : ""}</tr></thead>
+        <tbody>${d.per_strategy.map(p => `
+          <tr>
+            <td>${esc(p.strategy_name || p.strategy_id)}</td>
+            <td>${fmtNum(p.closed_trades)}</td>
+            <td>${p.win_rate.toFixed(1)}%</td>
+            <td>${pnlSpan(p.total_pnl)}</td>
+            <td>${fmtNum(p.open_positions)}</td>
+            ${isAll ? `<td>${esc((p.trading_since || "-").slice(0, 10))}</td>` : ""}
+          </tr>`).join("") || `<tr><td colspan="${isAll ? 6 : 5}">No strategies active in this period.</td></tr>`}</tbody>
+      </table></div>
+
+      <div class="section-title">Strategy Comparison</div>
+      ${paperStrategyComparisonHtml(d.per_strategy)}
+
+      <div class="section-title">Per-Coin Breakdown${isAll ? " (All-Time)" : ""}</div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Coin</th><th>Closed Trades</th><th>Win Rate</th><th>PnL</th></tr></thead>
+        <tbody>${d.per_coin.map(c => `
+          <tr><td>${esc(c.symbol)}</td><td>${fmtNum(c.closed_trades)}</td><td>${c.win_rate.toFixed(1)}%</td><td>${pnlSpan(c.total_pnl)}</td></tr>
+        `).join("") || '<tr><td colspan="4">No closed trades yet.</td></tr>'}</tbody>
+      </table></div>
+    `;
+  }
+
+  function paperStrategyComparisonHtml(list) {
+    if (!list.length) return `<div class="muted">No strategies to compare yet.</div>`;
+    const maxAbsPnl = Math.max(1, ...list.map(p => Math.abs(p.total_pnl)));
+    return `<div class="table-wrap"><table>
+      <thead><tr><th>Strategy</th><th>Trades</th><th>Win Rate</th><th>PnL</th><th style="min-width:140px;"></th></tr></thead>
+      <tbody>${list.map(p => `
+        <tr>
+          <td>${esc(p.strategy_name || p.strategy_id)}</td>
+          <td>${fmtNum(p.closed_trades)}</td>
+          <td>${p.win_rate.toFixed(1)}%</td>
+          <td>${pnlSpan(p.total_pnl)}</td>
+          <td><div class="progress-bar"><div class="progress-bar-fill" style="width:${Math.abs(p.total_pnl) / maxAbsPnl * 100}%;background:${p.total_pnl >= 0 ? "var(--green)" : "var(--red)"};"></div></div></td>
+        </tr>`).join("")}</tbody>
+    </table></div>`;
+  }
+
+  async function loadPaperAnalytics(boxId, idPrefix, period) {
+    const box = document.getElementById(boxId);
+    if (!box) return;
+    box.innerHTML = `<p class="muted">Loading...</p>`;
+    const data = await apiGet(`/api/paper-trading/analytics?period=${period}`);
+    box.innerHTML = paperPeriodTabsHtml(idPrefix, period) + paperAnalyticsSectionHtml(data);
+    box.querySelectorAll(`[data-period-tab="${idPrefix}"]`).forEach(btn => {
+      btn.onclick = () => loadPaperAnalytics(boxId, idPrefix, btn.dataset.period);
+    });
+  }
+
   // Shared sparkline renderer used by both the Backtesting page's live
   // equity chart and the Reports page's equity/drawdown charts -- returns
   // just the inner <line>/<polygon>/<polyline> markup so callers can drop
@@ -758,6 +863,94 @@
       container.innerHTML = comparisonBoxHtml(data);
     } catch (e) {
       container.innerHTML = `<div class="card muted">Could not load comparison: ${esc(e.message)}</div>`;
+    }
+  }
+
+  // ------------------------------------------------------------ shared Automation Pipeline run journey
+  // One shared renderer for the Automation Pipeline History page and the
+  // SINDHU CEO Pipeline History card (CEO-parity rule) -- both backed by
+  // GET /api/automation/pipeline-history[/:job_id], which reads directly
+  // from the same pipeline_jobs table used by crash-recovery resume, not a
+  // separate tracking system.
+  function pipelineStatusBadge(run) {
+    const map = { completed: "pill-completed", failed: "pill-error", stopped: "pill-muted", running: "pill-running" };
+    const cls = map[run.status] || "pill-neutral";
+    const label = run.status === "running" ? `Running -- ${run.stage}`
+      : run.status === "failed" ? `Failed at ${run.stage}`
+      : run.status === "stopped" ? `Stopped at ${run.stage}`
+      : run.status === "completed" ? "Completed" : run.status;
+    return `<span class="pill ${cls}">${esc(label)}</span>`;
+  }
+
+  function pipelineJourneyHtml(job) {
+    const cp = job.checkpoint || {};
+    const stages = [];
+
+    stages.push({
+      name: "1. Import / Strategy",
+      body: `<div>Strategy: <b>${esc(job.strategy_name || job.strategy_id)}</b></div>
+             <div class="muted" style="font-size:12px;">${job.symbols ? fmtNum(job.symbols.length) + " coin(s)" : "full coin universe"} -- started ${esc((job.created_at || "").slice(0, 19))}</div>`,
+    });
+
+    if (cp.original_summary) {
+      const s = cp.original_summary;
+      stages.push({
+        name: "2. Backtest",
+        body: `<div>${fmtNum(s.total_trades)} trades, ${s.win_rate}% win rate, total PnL ${s.total_pnl}</div>
+               ${cp.original_batch_id ? `<button class="btn-ghost pipeline-view-batch" data-batch="${esc(cp.original_batch_id)}">View full backtest in Backtest History</button>` : ""}`,
+      });
+    } else {
+      stages.push({ name: "2. Backtest", body: `<div class="muted">Not reached yet.</div>` });
+    }
+
+    if (cp.optimizer_done) {
+      const os = cp.optimized_summary;
+      stages.push({
+        name: "3. Optimizer",
+        body: `<div>${fmtNum(Array.isArray(cp.tried) ? cp.tried.length : (cp.tried || 0))} combination(s) tried${cp.best_desc ? ` -- best found: ${esc(cp.best_desc)}` : ""}</div>
+               ${os ? `<div>Full re-test of the best candidate: ${fmtNum(os.total_trades)} trades, ${os.win_rate}% win rate, total PnL ${os.total_pnl}</div>` : ""}
+               ${cp.winner ? `<div>Winner: <b class="${cp.winner === "optimized" ? "positive" : ""}">${cp.winner === "optimized" ? "Optimized" : "Original"}</b></div>` : ""}
+               <div id="pipelineCompareBox-${esc(job.job_id)}" style="margin-top:8px;"></div>`,
+      });
+    } else {
+      stages.push({ name: "3. Optimizer", body: `<div class="muted">Not reached yet.</div>` });
+    }
+
+    stages.push({
+      name: "4. Paper Trading Handoff",
+      body: cp.paper_trading_attempted
+        ? `<div>Handoff attempted -- see the Paper Trading page for '${esc(job.strategy_name || job.strategy_id)}''s current live status (multiple strategies can run there simultaneously).</div>`
+        : `<div class="muted">Not reached yet.</div>`,
+    });
+
+    if (job.error) {
+      stages.push({ name: "Error", body: `<div class="negative">${esc(job.error)}</div>` });
+    }
+
+    return stages.map(s => `<div class="card" style="margin-bottom:8px;"><div style="font-weight:700;margin-bottom:4px;">${esc(s.name)}</div>${s.body}</div>`).join("");
+  }
+
+  async function loadPipelineRunDetail(container, jobId) {
+    if (!container) return;
+    container.innerHTML = `<p class="muted">Loading...</p>`;
+    try {
+      const job = await apiGet(`/api/automation/pipeline-history/${jobId}`);
+      container.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <div style="font-weight:700;font-size:15px;">${esc(job.strategy_name || job.strategy_id)}</div>
+          ${pipelineStatusBadge(job)}
+        </div>
+        ${pipelineJourneyHtml(job)}`;
+      const cp = job.checkpoint || {};
+      if (cp.optimizer_done && cp.original_batch_id) {
+        const box = document.getElementById(`pipelineCompareBox-${job.job_id}`);
+        loadComparisonBox(box, cp.original_batch_id).catch(console.error);
+      }
+      container.querySelectorAll(".pipeline-view-batch").forEach(btn => {
+        btn.onclick = () => { pendingHistoryBatchId = btn.dataset.batch; location.hash = "#backtest_history"; };
+      });
+    } catch (e) {
+      container.innerHTML = `<div class="card muted">Could not load run detail: ${esc(e.message)}</div>`;
     }
   }
 
@@ -1734,12 +1927,76 @@
     });
   }
 
+  // ------------------------------------------------------------ AUTOMATION PIPELINE HISTORY
+  async function renderPipelineHistory() {
+    const myToken = activeRouteToken;
+
+    async function renderList() {
+      document.getElementById("pphTableBody").innerHTML = '<tr><td colspan="5">Loading...</td></tr>';
+      let runs;
+      try {
+        ({ runs } = await apiGet("/api/automation/pipeline-history"));
+      } catch (e) {
+        if (isStaleRoute(myToken)) return;
+        document.getElementById("pphTableBody").innerHTML =
+          `<tr><td colspan="5">Couldn't load pipeline history: ${esc(e.message)}. ` +
+          `<button class="btn-ghost" id="pphRetryBtn">Retry</button></td></tr>`;
+        document.getElementById("pphRetryBtn").onclick = () => renderList().catch(console.error);
+        return;
+      }
+      if (isStaleRoute(myToken)) return;
+      document.getElementById("pphTableBody").innerHTML = runs.map(r => `
+        <tr>
+          <td>${esc((r.created_at || "").slice(0, 19))}</td>
+          <td>${esc(r.strategy_name || r.strategy_id)}</td>
+          <td>${pipelineStatusBadge(r)}</td>
+          <td>${r.symbols ? fmtNum(r.symbols.length) : "all"}</td>
+          <td><button class="btn-ghost pph-view" data-id="${esc(r.job_id)}">View</button></td>
+        </tr>`).join("") || '<tr><td colspan="5">No automation pipeline runs yet -- trigger one from the Strategies page.</td></tr>';
+
+      document.querySelectorAll(".pph-view").forEach(btn => {
+        btn.onclick = () => openRunDetail(btn.dataset.id);
+      });
+    }
+
+    function openRunDetail(jobId) {
+      document.getElementById("pphDetail").style.display = "block";
+      document.getElementById("pphDetail").scrollIntoView({ behavior: "smooth", block: "start" });
+      loadPipelineRunDetail(document.getElementById("pphDetailBox"), jobId);
+    }
+
+    content.innerHTML = `
+      <div class="section-title">Automation Pipeline History</div>
+      <p class="muted">Every automation run (import -&gt; backtest -&gt; optimizer -&gt; paper trading), permanently -- the same data tracked for crash-recovery resume, not a separate log.</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Started</th><th>Strategy</th><th>Status</th><th>Coins</th><th></th></tr></thead>
+        <tbody id="pphTableBody"><tr><td colspan="5">Loading...</td></tr></tbody>
+      </table></div>
+      <div id="pphDetail" style="display:none;margin-top:16px;">
+        <div class="section-title">Run Detail</div>
+        <div id="pphDetailBox"></div>
+      </div>`;
+
+    await renderList();
+
+    // A run reaching a terminal state (or progressing a stage) should
+    // appear here without a manual refresh.
+    onLive((msg) => {
+      if (msg.channel === "job" && (msg.kind === "pipeline")) {
+        renderList().catch(console.error);
+      }
+      if (msg.channel === "automation_pipeline") {
+        renderList().catch(console.error);
+      }
+    });
+  }
+
   // ------------------------------------------------------------ PAPER TRADING
   async function renderPaperTrading() {
     const myToken = activeRouteToken;
     const render = async () => {
       const [status, positionsRes, tradesRes, decisionsRes, stratPerfRes, lessonPerfRes,
-             settings, strategiesRes, lessonsRes] = await Promise.all([
+             settings, strategiesRes, lessonsRes, allTimeAnalytics] = await Promise.all([
         apiGet("/api/paper-trading/status"),
         apiGet("/api/paper-trading/positions"),
         apiGet("/api/paper-trading/trades?limit=50"),
@@ -1749,13 +2006,16 @@
         apiGet("/api/paper-trading/settings"),
         apiGet("/api/backtesting/strategies").catch(() => ({ strategies: [] })),
         apiGet("/api/knowledge/lessons?status=active").catch(() => ({ lessons: [] })),
+        apiGet("/api/paper-trading/analytics?period=all"),
       ]);
       if (isStaleRoute(myToken)) return;
 
+      // Overview cards use the real all-time totals (allTimeAnalytics), not
+      // just the 50 most-recently-fetched trades -- with 700+ trades in a
+      // real account, deriving "Closed Trades"/"Win Rate"/"Realized PnL"
+      // from a capped list silently undercounted all three.
       const trades = tradesRes.trades || [];
-      const wins = trades.filter(t => (t.pnl || 0) > 0).length;
-      const winRate = trades.length ? (wins / trades.length * 100) : 0;
-      const totalPnl = trades.reduce((sum, t) => sum + (t.pnl || 0), 0);
+      const allTimeSummary = allTimeAnalytics.summary;
 
       const today = new Date().toISOString().slice(0, 10);
       const todaysTrades = trades.filter(t => (t.closed_at || "").slice(0, 10) === today);
@@ -1770,13 +2030,17 @@
         <div class="grid">
           ${cardClass("Engine Status", status.running ? "<span class=\"pill pill-completed\">Running</span>" : "<span class=\"pill pill-muted\">Stopped</span>", "")}
           ${cardClass("Mode", status.dry_run ? "<span class=\"pill pill-pending\">Dry Run</span>" : "<span class=\"pill pill-bullish\">Live Paper Trading</span>", "")}
-          ${card("Balance", `$${Number(status.balance).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}`)}
-          ${card("Open Trades", fmtNum(status.open_trades))}
-          ${card("Closed Trades", fmtNum(trades.length))}
-          ${card("Win Rate", `${winRate.toFixed(1)}%`)}
-          ${cardClass("Realized PnL", `${totalPnl >= 0 ? "+" : ""}$${totalPnl.toFixed(2)}`, totalPnl > 0 ? "positive" : totalPnl < 0 ? "negative" : "")}
+          ${card("Combined Balance", `$${Number(status.balance).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}`)}
+          ${card("Open Positions", fmtNum(status.open_trades))}
+          ${card("Closed Trades (All-Time)", fmtNum(allTimeSummary.closed_trades))}
+          ${card("Win Rate (All-Time)", `${allTimeSummary.win_rate.toFixed(1)}%`)}
+          ${cardClass("Realized PnL (All-Time)", `${allTimeSummary.total_pnl >= 0 ? "+" : ""}$${allTimeSummary.total_pnl.toFixed(2)}`, allTimeSummary.total_pnl > 0 ? "positive" : allTimeSummary.total_pnl < 0 ? "negative" : "")}
           ${card("Queue (shortlisted coins)", fmtNum(status.queue))}
         </div>
+        <div class="muted" style="font-size:12px;">Each strategy runs its own independent book -- balance/PnL/open positions are never merged between strategies. See the breakdown below.</div>
+
+        <div class="section-title">Analytics</div>
+        <div id="ptAnalyticsBox"></div>
 
         <div class="section-title">Daily Goal (${goalPct}%)</div>
         <div class="card">
@@ -1843,11 +2107,12 @@
             </tr>`).join("") || '<tr><td colspan="10">No open positions.</td></tr>'}</tbody>
         </table></div>
 
-        <div class="section-title">Closed Trades</div>
+        <div class="section-title">Closed Trades (most recent 30 of ${allTimeSummary.closed_trades})</div>
         <div class="table-wrap"><table>
-          <thead><tr><th>Coin</th><th>Direction</th><th>Entry</th><th>Exit</th><th>PnL</th><th>PnL%</th><th>Exit Reason</th><th>Tags</th><th></th></tr></thead>
+          <thead><tr><th>Strategy</th><th>Coin</th><th>Direction</th><th>Entry</th><th>Exit</th><th>PnL</th><th>PnL%</th><th>Exit Reason</th><th>Tags</th><th></th></tr></thead>
           <tbody>${trades.slice(0, 30).map((t, idx) => `
             <tr>
+              <td>${esc(t.strategy_name || "(lesson-only)")}</td>
               <td>${esc(t.symbol)}</td>
               <td><span class="pill ${t.direction === "long" ? "pill-bullish" : "pill-bearish"}">${esc(t.direction)}</span></td>
               <td>${t.entry_price}</td>
@@ -1857,7 +2122,7 @@
               <td>${esc(t.exit_reason || "-")}</td>
               <td>${(t.tags||[]).join(", ") || "-"}</td>
               <td><button class="btn-ghost pt-view-trade" data-idx="${idx}">Replay</button></td>
-            </tr>`).join("") || '<tr><td colspan="9">No closed trades yet.</td></tr>'}</tbody>
+            </tr>`).join("") || '<tr><td colspan="10">No closed trades yet.</td></tr>'}</tbody>
         </table></div>
         <div id="ptTradeDetail" class="card" style="display:none;white-space:pre-wrap;font-family:Consolas,monospace;font-size:12px;"></div>
 
@@ -1897,6 +2162,8 @@
           </div>
         </div>
       `;
+
+      loadPaperAnalytics("ptAnalyticsBox", "pt", "today");
 
       document.getElementById("ptStart").onclick = async () => {
         await apiPost("/api/paper-trading/start");
@@ -2933,12 +3200,13 @@
   // in-place command center), not a reimplementation of any backend logic.
   const CEO_MODULES = [
     "home", "market", "data", "strategies", "knowledge", "knowledge_compiler",
-    "ai_center", "backtesting", "backtest_history", "paper_trading", "reports", "settings",
+    "ai_center", "backtesting", "backtest_history", "pipeline_history", "paper_trading", "reports", "settings",
   ];
   const CEO_LABELS = {
     home: "Dashboard", market: "Market", data: "Data", strategies: "Strategies",
     knowledge: "Knowledge", knowledge_compiler: "Knowledge Compiler", ai_center: "AI Center",
     backtesting: "Backtesting", backtest_history: "Backtest History",
+    pipeline_history: "Pipeline History",
     paper_trading: "Paper Trading", reports: "Reports", settings: "Settings",
   };
 
@@ -2954,7 +3222,8 @@
 
     async function fetchAll() {
       const [home, market, data, strategies, knowledgeReport, lessons, kcDocs, aiDash,
-             history, paperStatus, paperPositions, bestWorst, settings, jobsRes] = await Promise.all([
+             history, paperStatus, paperPositions, paperAnalytics, bestWorst, settings, jobsRes,
+             pipelineHistoryRes] = await Promise.all([
         apiGet("/api/home").catch(() => null),
         apiGet("/api/market").catch(() => ({ coins: [], exchange: "-" })),
         apiGet("/api/data").catch(() => ({ coins: [], total_coins: 0, missing_data: [] })),
@@ -2966,15 +3235,18 @@
         apiGet("/api/backtest-history?limit=20").catch(() => ({ batches: [] })),
         apiGet("/api/paper-trading/status").catch(() => ({ running: false })),
         apiGet("/api/paper-trading/positions").catch(() => ({ positions: [] })),
+        apiGet("/api/paper-trading/analytics?period=all").catch(() => null),
         apiGet("/api/reports/best-worst/strategies").catch(() => ({ ranking: [] })),
         apiGet("/api/settings").catch(() => ({})),
         apiGet("/api/jobs").catch(() => ({ jobs: [] })),
+        apiGet("/api/automation/pipeline-history?limit=20").catch(() => ({ runs: [] })),
       ]);
       return {
         home, market, data, strategies: strategies.strategies || [],
         knowledgeReport, lessons: lessons.lessons || [], kcDocs: kcDocs.documents || [],
         aiDash, history: history.batches || [], paperStatus, paperPositions: paperPositions.positions || [],
-        bestWorst, settings, jobs: jobsRes.jobs || [],
+        paperAnalytics, bestWorst, settings, jobs: jobsRes.jobs || [],
+        pipelineRuns: pipelineHistoryRes.runs || [],
       };
     }
 
@@ -3045,13 +3317,23 @@
             text: `${d.history.length} completed batch(es)${best ? ` -- best: ${esc(best.strategy)} (${best.avg_profit_pct}%)` : ""}`,
           };
         }
+        case "pipeline_history": {
+          const runs = d.pipelineRuns;
+          const running = runs.find(r => r.status === "running");
+          return {
+            level: running ? "active" : "idle",
+            text: running
+              ? `Running: ${esc(running.strategy_name)} (${esc(running.stage)})`
+              : `${runs.length} run(s) recorded${runs.length ? ` -- most recent: ${esc(runs[0].strategy_name)} (${esc(runs[0].status)})` : ""}`,
+          };
+        }
         case "paper_trading": {
           const s = d.paperStatus;
-          const pnl = s.balance != null && d.settings ? null : null;
+          const a = d.paperAnalytics && d.paperAnalytics.summary;
           return {
             level: s.running ? "active" : "idle",
             text: s.running
-              ? `Balance $${Number(s.balance).toFixed(2)}, ${s.open_trades} open trade(s)`
+              ? `Balance $${Number(s.balance).toFixed(2)}, ${s.open_trades} open, ${a ? `${a.active_strategies} strategies, ${a.win_rate.toFixed(1)}% win rate all-time` : ""}`
               : "Engine stopped",
           };
         }
@@ -3167,6 +3449,7 @@
         if (id === "knowledge_compiler") return await expandKnowledgeCompiler();
         if (id === "ai_center") return await expandAiCenter();
         if (id === "backtesting" || id === "backtest_history") return await expandBacktesting(id);
+        if (id === "pipeline_history") return await expandPipelineHistory();
         if (id === "paper_trading") return await expandPaperTrading();
         if (id === "reports") return await expandReports();
         if (id === "settings") return await expandSettings();
@@ -3579,7 +3862,10 @@
           <tbody>${d.paperPositions.map(p => `
             <tr><td>${esc(p.symbol)}</td><td><span class="pill ${p.direction === 'long' ? 'pill-bullish' : 'pill-bearish'}">${esc(p.direction)}</span></td>
             <td>${p.entry_price}</td><td>${p.size.toFixed(4)}</td><td>${esc(p.strategy_name || "-")}</td></tr>`).join("") || '<tr><td colspan="5">No open positions.</td></tr>'}</tbody>
-        </table></div>`);
+        </table></div>
+
+        <div class="section-title">Analytics</div>
+        <div id="ceoPtAnalyticsBox"></div>`);
       document.getElementById("ceoPtStart").onclick = async () => {
         try { await apiPost("/api/paper-trading/start"); expandPaperTrading(); }
         catch (e) { document.getElementById("ceoPtStatus").textContent = `Failed: ${e.message}`; }
@@ -3588,6 +3874,33 @@
         try { await apiPost("/api/paper-trading/stop"); expandPaperTrading(); }
         catch (e) { document.getElementById("ceoPtStatus").textContent = `Failed: ${e.message}`; }
       };
+      // Same shared endpoint + renderer as the standalone Paper Trading
+      // page (see loadPaperAnalytics/paperAnalyticsSectionHtml) -- per the
+      // standing CEO-parity rule, so this view can never disagree with it.
+      loadPaperAnalytics("ceoPtAnalyticsBox", "ceoPt", "today");
+    }
+
+    // ---- Automation Pipeline History
+    async function expandPipelineHistory() {
+      const d = await fetchAll();
+      if (isStaleRoute(myToken)) return;
+      const list = d.pipelineRuns;
+      expandedShell("Pipeline History", `
+        <p class="muted">Every automation run, permanently -- same pipeline_jobs data used for crash-recovery resume.</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Started</th><th>Strategy</th><th>Status</th><th></th></tr></thead>
+          <tbody>${list.map(r => `
+            <tr>
+              <td>${esc((r.created_at || "").slice(0, 19))}</td>
+              <td>${esc(r.strategy_name || r.strategy_id)}</td>
+              <td>${pipelineStatusBadge(r)}</td>
+              <td><button class="btn-ghost ceo-pph-view" data-id="${esc(r.job_id)}">View</button></td>
+            </tr>`).join("") || '<tr><td colspan="4">No automation pipeline runs yet.</td></tr>'}</tbody>
+        </table></div>
+        <div id="ceoPphDetail"></div>`);
+      document.querySelectorAll(".ceo-pph-view").forEach(btn => {
+        btn.onclick = () => loadPipelineRunDetail(document.getElementById("ceoPphDetail"), btn.dataset.id);
+      });
     }
 
     // ---- Reports

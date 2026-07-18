@@ -470,31 +470,38 @@ def run_pipeline(job_id, strategy_id, control=None, symbols=None, resume=None):
             return _stopped("comparing")
 
         # ---------------------------------------------------------- Stage 4/4: paper trading handoff
-        # Idempotent (pt_engine.start() itself checks/stops any existing
-        # run first), so this always just runs -- there's nothing unsafe
-        # about attempting it again if the previous attempt was interrupted
-        # or its outcome is unknown.
+        # Idempotent and additive: multiple strategies can run in Paper
+        # Trading at the same time, each with its own independent book, so
+        # handing off a new strategy never stops or restarts whatever is
+        # already running for other strategies -- it only makes sure THIS
+        # strategy's config is enabled and that the engine is alive at all.
         _stage("starting_paper_trading", winner=winner, stage_label="Starting Paper Trading with the winning version")
         _say(f"Step 4 of 4 -- Starting Paper Trading: handing the {winner.upper()} version of '{cfg.name}' "
-             f"to Paper Trading so SINDHU can start trading it live (simulated) automatically.")
+             f"to Paper Trading so SINDHU can start trading it live (simulated) automatically, "
+             f"alongside any other strategies already running.")
 
         from paper_trading.engine import engine as pt_engine
         from sindhu_web.api.paper_trading import _log_and_broadcast, _on_engine_event
 
-        if pt_engine.is_running():
-            _say("Paper Trading was already running with a different setup -- restarting it scoped to just this strategy.")
-            pt_engine.stop()
-            waited = 0.0
-            while pt_engine.is_running() and waited < 15.0:
-                time.sleep(0.5)
-                waited += 0.5
+        existing_cfg = storage.get_paper_strategy_config(strategy_id)
+        if not existing_cfg.get("enabled", True):
+            storage.save_paper_strategy_config(
+                strategy_id, True, existing_cfg.get("priority", 5),
+                existing_cfg.get("supported_coins", []), existing_cfg.get("supported_market_types", []),
+                _now_iso(),
+            )
 
-        started = pt_engine.start(log=_log_and_broadcast, on_event=_on_engine_event, only_strategy_id=strategy_id)
-        if started:
-            _say(f"Done -- Paper Trading is now running '{cfg.name}' live (simulated), and only this strategy.")
+        if pt_engine.is_running():
+            started = True
+            _say(f"Paper Trading is already running -- '{cfg.name}' has been enabled and will join in on the "
+                 f"next tick without disturbing any strategy already trading.")
         else:
-            _say("Could not start Paper Trading (it reported it was still busy shutting down) -- "
-                 "you can start it manually from the Paper Trading page.")
+            started = pt_engine.start(log=_log_and_broadcast, on_event=_on_engine_event)
+            if started:
+                _say(f"Done -- Paper Trading is now running, starting with '{cfg.name}'.")
+            else:
+                _say("Could not start Paper Trading (it reported it was still busy shutting down) -- "
+                     "you can start it manually from the Paper Trading page.")
 
         _stage("completed", winner=winner, paper_trading_started=started,
                stage_label="Done -- see the results in Backtest History")
