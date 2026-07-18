@@ -1,0 +1,17 @@
+{
+  "id": "9199819c08b0",
+  "name": "The Inversion Fair Value Gap (IFVG) Day Trading Strategy",
+  "tags": [
+    "fvg",
+    "liquidity_sweep",
+    "strategy",
+    "15m",
+    "1h",
+    "1m",
+    "5m"
+  ],
+  "favourite": false,
+  "created_at": "2026-07-18T03:51:29.574720+00:00",
+  "updated_at": "2026-07-18T04:11:38.305240+00:00",
+  "current_version": 2
+}

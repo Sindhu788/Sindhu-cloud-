@@ -21,10 +21,39 @@ from datetime import datetime, timezone
 from backtest_engine.strategy_config import Condition, SLTPSpec, StrategyConfig
 from knowledge_engine.lesson import Lesson
 
-from ai_integration.schema import KNOWN_INDICATORS, KNOWN_SESSIONS
+from ai_integration.schema import KNOWN_INDICATORS, KNOWN_SESSIONS, KNOWN_SLTP_TYPES
+# Single source of truth for "which concepts_used entry makes a given
+# concept condition computable" -- backtest_engine.validator uses this
+# exact table to DETECT the gap; importing it here (rather than keeping a
+# second copy) means the repair below can never quietly drift out of sync
+# with what the validator actually checks.
+from backtest_engine.validator import _CONCEPT_REQUIRES_ANY_OF, _STRUCTURE_SL_SOURCES
 
 _KNOWN_INDICATOR_SET = set(KNOWN_INDICATORS)
 _KNOWN_SESSION_SET = set(KNOWN_SESSIONS)
+
+# ConfiguredStrategy._compute_stop_loss() resolves a "structure" stop from
+# an order-block zone, then an FVG zone, then plain swing support/
+# resistance. If concepts_used names none of these, prepare_context()
+# computes no zone column at all and the stop can never be calculated.
+_STRUCTURAL_CONCEPTS = _STRUCTURE_SL_SOURCES
+# The guaranteed fallback pair that _compute_stop_loss() always ends on.
+_STRUCTURAL_FALLBACK = ("support", "resistance")
+_SLTP_TYPE_WORDS = {t.lower() for t in KNOWN_SLTP_TYPES}
+
+
+def _is_degenerate_raw(cond):
+    """True for a raw condition carrying no actual rule -- empty text, or
+    text that is merely a stop-loss/take-profit TYPE name. Models
+    occasionally echo the SL/TP type into exit_conditions (e.g. an exit
+    condition whose entire text is "structure"), which is not a market
+    event to exit on; it just re-states a field that already exists. Left
+    in place it registers as an unclear exit rule and sends an otherwise
+    complete strategy to clarification for nothing."""
+    if cond is None or cond.type != "raw":
+        return False
+    text = (cond.text or "").strip().lower()
+    return not text or text in _SLTP_TYPE_WORDS
 
 
 def _now_iso():
@@ -101,15 +130,22 @@ def build_strategy_config(ai_strategy, name, raw_text):
     schema.parse_structured_response() (never None -- caller checks that
     first). Returns a real StrategyConfig, directly machine-readable by the
     backtest engine -- no text re-parsing anywhere in this path."""
+    def _conditions(key):
+        built = [c for c in (build_condition(c) for c in ai_strategy.get(key) or []) if c]
+        # Strip rules that carry no information (see _is_degenerate_raw) --
+        # keeping them only produces a spurious "unclear rule" that sends an
+        # otherwise-complete strategy to clarification.
+        return [c for c in built if not _is_degenerate_raw(c)]
+
     config = StrategyConfig(
         name=ai_strategy.get("name") or name or "Unnamed Strategy",
         raw_text=raw_text,
         timeframes=dict(ai_strategy.get("timeframes") or {}),
         indicators=list(ai_strategy.get("indicators") or []),
         concepts_used=list(ai_strategy.get("concepts_used") or []),
-        entry_conditions=[c for c in (build_condition(c) for c in ai_strategy.get("entry_conditions") or []) if c],
-        exit_conditions=[c for c in (build_condition(c) for c in ai_strategy.get("exit_conditions") or []) if c],
-        confirmation_conditions=[c for c in (build_condition(c) for c in ai_strategy.get("confirmation_conditions") or []) if c],
+        entry_conditions=_conditions("entry_conditions"),
+        exit_conditions=_conditions("exit_conditions"),
+        confirmation_conditions=_conditions("confirmation_conditions"),
         stop_loss=build_stop_loss_take_profit(ai_strategy.get("stop_loss") or {}),
         take_profit=build_stop_loss_take_profit(ai_strategy.get("take_profit") or {}),
         risk_pct=ai_strategy.get("risk_pct"),
@@ -117,7 +153,74 @@ def build_strategy_config(ai_strategy, name, raw_text):
         session_filter=list(ai_strategy.get("session_filter") or []),
         trend_filter=ai_strategy.get("trend_filter"),
     )
+    sync_concepts_used(config)
+    _repair_structural_stop(config)
     return config
+
+
+def sync_concepts_used(config):
+    """General, permanent repair for the most common false "Needs
+    Clarification" verdict: a condition (entry/exit/confirmation) correctly
+    references a supported concept (candle_break, bos, choch, fvg, pdh,
+    pdl, support, resistance, liquidity_sweep, order_block, breaker_block,
+    volume, pdh_sweep, pdl_sweep), but concepts_used was never updated to
+    match. concepts_used is what actually tells ConfiguredStrategy.
+    prepare_context() which columns to compute -- a concept named only
+    inside a condition, and nowhere in concepts_used, can never evaluate
+    true, so the AI's own (already-correct) interpretation silently never
+    fires. validator._CONCEPT_REQUIRES_ANY_OF is exactly the gate table
+    prepare_context() implements, so this repair registers concepts_used
+    entries whenever a condition's gate isn't already satisfied.
+
+    This is pure bookkeeping: it registers the SAME concept the condition
+    already names (never a different one, never invents a rule), so it
+    cannot change what the strategy means -- it only lets the engine
+    compute what was already asked for. A concept name that isn't in
+    _CONCEPT_REQUIRES_ANY_OF at all (an indicator name, or genuinely
+    unsupported vocabulary) is left completely untouched; validate()'s
+    "Invalid indicator/concept" check is what correctly flags that as a
+    real, different problem that still needs clarification.
+
+    Called automatically for every AI-assisted import (from
+    build_strategy_config above), and also safe to re-run against any
+    already-saved StrategyConfig as a one-time backfill -- it's a pure
+    no-op once concepts_used already satisfies every condition. Mutates
+    config.concepts_used in place; returns True if anything changed."""
+    concepts_used_set = set(config.concepts_used)
+    changed = False
+    for bucket_name in ("entry_conditions", "exit_conditions", "confirmation_conditions"):
+        for cond in getattr(config, bucket_name):
+            if cond.type != "concept" or cond.name not in _CONCEPT_REQUIRES_ANY_OF:
+                continue
+            required_any = _CONCEPT_REQUIRES_ANY_OF[cond.name]
+            if required_any & concepts_used_set:
+                continue
+            concepts_used_set.add(cond.name)
+            changed = True
+    if changed:
+        config.concepts_used = sorted(concepts_used_set)
+    return changed
+
+
+def _repair_structural_stop(config):
+    """A "structure" stop/target is only computable if some structural zone
+    is actually built for the frame. The AI can name the stop TYPE correctly
+    while forgetting to list the concept the zone comes from, which leaves a
+    strategy that validates as "structure" but can never place a protected
+    trade. Rather than send an otherwise-complete strategy to clarification
+    over a bookkeeping omission, add the swing support/resistance pair --
+    which is exactly the fallback _compute_stop_loss() already resolves to
+    when no order-block or FVG zone is present, so this makes the config
+    match the behaviour it was already going to get. Mutates in place; a
+    strategy that already names a structural concept is left untouched."""
+    uses_structure = config.stop_loss.type == "structure" or config.take_profit.type == "structure"
+    if not uses_structure:
+        return
+    if _STRUCTURAL_CONCEPTS & set(config.concepts_used):
+        return
+    for concept in _STRUCTURAL_FALLBACK:
+        if concept not in config.concepts_used:
+            config.concepts_used.append(concept)
 
 
 def build_lesson(ai_lesson):

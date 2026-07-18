@@ -71,6 +71,15 @@ def _warm_caches():
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     storage.init_db()
+    # Automation Pipeline crash recovery: job_manager's in-memory Job
+    # registry is always empty right after a restart, so this is the one
+    # place that can tell whether a pipeline was still running when the
+    # server last stopped (power loss, crash, forceful kill) and either
+    # resume it from its last durable checkpoint or mark it failed. Quick
+    # (a few DB reads plus starting background threads for anything found),
+    # so it runs inline rather than in its own thread like _warm_caches.
+    from automation_pipeline.pipeline import resume_pipeline_jobs_on_startup
+    resume_pipeline_jobs_on_startup()
     backup.start_auto_backup_thread()
     threading.Thread(target=_warm_caches, daemon=True).start()
     task = asyncio.create_task(_broadcast_loop())
@@ -150,11 +159,20 @@ def _dual_stack_socket(port):
     Explicitly clearing IPV6_V6ONLY (it defaults to 1 on Windows) makes one
     "::" socket accept IPv4 connections too, so both ::1 and 127.0.0.1
     connect instantly. Falls back to a normal IPv4 socket if the platform
-    refuses dual-stack, so this can never stop the server from starting."""
+    refuses dual-stack, so this can never stop the server from starting.
+
+    Deliberately NOT setting SO_REUSEADDR: on Windows that flag allows a
+    second process to silently bind the same port a first instance is
+    already listening on (no "address already in use" error), instead of
+    the two competing for real. Caught this in testing when a second
+    server accidentally started while the first was live -- both ran
+    resume_pipeline_jobs_on_startup() and both spawned a thread reprocessing
+    the same in-progress pipeline job concurrently. Without SO_REUSEADDR a
+    second launch fails fast with "Only one usage of each socket address is
+    normally permitted" instead of silently racing the first."""
     try:
         sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
         sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind(("::", port))
         sock.listen(2048)
         sock.set_inheritable(True)
@@ -162,7 +180,6 @@ def _dual_stack_socket(port):
     except OSError as exc:
         log(f"Dual-stack (IPv6+IPv4) bind failed ({exc!r}); falling back to IPv4-only.")
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind(("0.0.0.0", port))
         sock.listen(2048)
         sock.set_inheritable(True)

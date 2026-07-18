@@ -10,6 +10,7 @@ _KNOWN_INDICATORS = {
     "support", "resistance", "bos", "choch", "fvg",
     "order_block", "breaker_block", "liquidity_sweep",
     "pdh", "pdl", "pdh_sweep", "pdl_sweep",
+    "candle_break",
 }
 
 _KNOWN_CONDITION_TYPES = {"indicator_compare", "price_compare", "concept", "session", "trend"}
@@ -35,6 +36,7 @@ _CONCEPT_REQUIRES_ANY_OF = {
     "pdl": {"pdh", "pdl", "pdh_sweep", "pdl_sweep"},
     "pdh_sweep": {"pdh_sweep", "pdl_sweep"},
     "pdl_sweep": {"pdh_sweep", "pdl_sweep"},
+    "candle_break": {"candle_break"},
 }
 
 # A "structure" stop-loss reads the zone columns ConfiguredStrategy.
@@ -202,6 +204,29 @@ def validate(config):
                     f"concepts_used doesn't include any of {sorted(required_any)} -- its indicator "
                     f"is never computed, so this condition can never be true. "
                     f"Add one of {sorted(required_any)} to concepts_used."
+                )
+
+    # The same concept demanded in BOTH directions on the same bar (e.g.
+    # bullish candle_break AND bearish candle_break in entry_conditions) is
+    # never a real rule -- entry_conditions are AND-ed, so this reads as
+    # "the market must break up and down simultaneously". In practice it is
+    # either impossible (0 trades) or near-always-true (fires on almost
+    # every bar, no edge at all). It shows up when a document describing a
+    # long setup AND a mirror-image short setup gets flattened into one
+    # condition list; the two setups need to be separate strategies.
+    for bucket_name in ("entry_conditions", "confirmation_conditions"):
+        seen_directions = {}
+        for cond in getattr(config, bucket_name):
+            if cond.type != "concept" or cond.direction not in ("bullish", "bearish"):
+                continue
+            seen_directions.setdefault(cond.name, set()).add(cond.direction)
+        for concept_name, directions in seen_directions.items():
+            if len(directions) > 1:
+                errors.append(
+                    f"'{concept_name}' is required in BOTH bullish and bearish direction in "
+                    f"{bucket_name.replace('_', ' ')}, but these are AND-ed on the same bar -- the market "
+                    f"cannot do both at once. This usually means a long setup and a mirrored short setup "
+                    f"were merged; keep one direction per strategy."
                 )
 
     # Two numeric-threshold conditions on the SAME indicator+params can

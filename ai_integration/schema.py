@@ -29,6 +29,7 @@ KNOWN_INDICATORS = [
     "support", "resistance", "bos", "choch", "fvg",
     "order_block", "breaker_block", "liquidity_sweep",
     "pdh", "pdl", "pdh_sweep", "pdl_sweep",
+    "candle_break",
 ]
 KNOWN_SESSIONS = ["asian", "london", "ny"]
 KNOWN_CONDITION_TYPES = ["indicator_compare", "price_compare", "concept", "session", "trend", "raw"]
@@ -112,12 +113,82 @@ def build_structured_extraction_prompt(source_hint=None, content_type=None):
         f"- Timeframe roles: {', '.join(KNOWN_TIMEFRAME_ROLES)}\n"
         f"- Stop-loss/take-profit types: {', '.join(KNOWN_SLTP_TYPES)}\n"
         f"- Lesson categories: {categories_list}\n\n"
+        "BE DECISIVE. Ordinary trading language has ordinary meanings -- if a "
+        "phrase maps onto the vocabulary above with reasonable confidence, "
+        "COMMIT to that mapping and emit a real condition. Do NOT hedge, do "
+        "NOT emit type=\"raw\", and do NOT defer to the user just because the "
+        "wording isn't identical to the vocabulary term. A raw condition is "
+        "NOT a safe middle ground: the backtest engine cannot execute it at "
+        "all, so the strategy silently produces zero trades and the user has "
+        "to hand-fix it. An imperfect-but-executable mapping is strictly "
+        "better than raw. Reserve type=\"raw\" for content that genuinely has "
+        "NO equivalent in the vocabulary above (see the RAW test below).\n\n"
+        "Common phrasing you MUST map directly rather than flag as unclear:\n"
+        "  * \"previous day's high\", \"prior day high\", \"yesterday's high\", "
+        "\"PDH\" -> {\"type\": \"concept\", \"name\": \"pdh\"}; the low/PDL "
+        "equivalents -> {\"type\": \"concept\", \"name\": \"pdl\"}\n"
+        "  * \"green candle\", \"bullish candle\", \"up candle\" = a bullish "
+        "candle; \"red candle\", \"bearish candle\", \"down candle\" = a "
+        "bearish candle. When the rule is \"wait for a green/red candle, then "
+        "enter when its high/low is broken by a later candle\" (a trigger-"
+        "candle rule) -> {\"type\": \"concept\", \"name\": \"candle_break\", "
+        "\"direction\": \"bullish\"} for green/long, \"bearish\" for red/short. "
+        "Add \"candle_break\" to concepts_used.\n"
+        "  * \"broken\", \"breaks\", \"breaks above/below\", \"crosses\", "
+        "\"takes out\", \"sweeps through\" a named level -> commit to the "
+        "concept for that level (pdh/pdl/support/resistance) rather than raw\n"
+        "  * \"price moves above/below X\" where X is an indicator -> "
+        "{\"type\": \"price_compare\", \"indicator\": X, \"op\": \">\"|\"<\"}\n"
+        "  * a stop/target described only in words (\"SL below the recent "
+        "swing low\", \"TP at the opposite extreme\") -> a stop_loss/"
+        "take_profit TYPE (\"structure\"/\"level\"/\"rr\"), NOT an entry or "
+        "exit condition, and NOT raw\n\n"
+        "HOW entry_conditions IS EXECUTED (get this wrong and the strategy "
+        "is silently meaningless): every condition in entry_conditions is "
+        "AND-ed together on the SAME bar, and the trade direction is taken "
+        "from the conditions themselves. It is ONE directional setup, not a "
+        "menu of alternatives.\n"
+        "  * NEVER mix a bullish and a bearish version of the same concept "
+        "in entry_conditions (e.g. bullish candle_break AND bearish "
+        "candle_break). That is not \"long or short\" -- it demands both at "
+        "once, which is either impossible or trivially always-true, and "
+        "produces a strategy that is nonsense either way.\n"
+        "  * If the document describes BOTH a long setup and a mirror-image "
+        "short setup, extract ONLY the long setup into entry_conditions "
+        "(the short side is the same logic mirrored, and the engine cannot "
+        "hold two setups). Do not average them together or drop their "
+        "filters to make them fit.\n"
+        "  * Keep EVERY filter that gates the entry. If the rule is \"price "
+        "sweeps below PDL, THEN a green candle forms, THEN its high "
+        "breaks\", all of those belong in entry_conditions together (pdl + "
+        "candle_break) -- dropping the pdl filter turns a selective setup "
+        "into one that fires on almost every bar. A condition list that is "
+        "true on most bars means you dropped the filters.\n\n"
+        "TWO HARD CONSISTENCY RULES (violating either makes the strategy "
+        "unrunnable):\n"
+        "  1. exit_conditions is ONLY for rules that close a trade on a "
+        "market EVENT (e.g. an opposite BOS). A stop-loss or take-profit "
+        "belongs in the stop_loss/take_profit fields and NOWHERE else -- "
+        "never also add it to exit_conditions, and never emit an "
+        "exit_condition whose text is just a type name like \"structure\" "
+        "or \"rr\". If the document's only exits are the SL and TP, then "
+        "exit_conditions MUST be [].\n"
+        "  2. stop_loss/take_profit type \"structure\" means \"anchored to a "
+        "structural zone\", so concepts_used MUST also contain the concept "
+        "that zone comes from (support, resistance, fvg, order_block, "
+        "breaker_block, or liquidity_sweep). If the stop is really anchored "
+        "to the previous day's level, use type \"level\" with \"level\": "
+        "\"pdh\"|\"pdl\" instead. If it is a fixed distance, use "
+        "\"fixed_pct\"/\"atr_multiple\" with a value.\n\n"
+        "THE RAW TEST -- only use type=\"raw\" if BOTH are true: (1) the rule "
+        "names a specific indicator, pattern, or mechanism with no equivalent "
+        "in the vocabulary above (e.g. a proprietary indicator, a trendline "
+        "drawing rule, a chart pattern like head-and-shoulders), AND (2) no "
+        "reasonable trader reading it would agree on which vocabulary term it "
+        "means. If a competent trader would confidently say \"that's just X\", "
+        "then it IS X -- emit X.\n\n"
         "COMPLETE every rule you can confidently infer from context even if "
-        "the source never states it explicitly. type=\"raw\" is a LAST "
-        "RESORT ONLY, for content that genuinely has no equivalent in the "
-        "vocabulary above -- always prefer committing to a real condition "
-        "over raw, even an imperfect one, since a raw condition can never be "
-        "executed by the backtest engine at all. Concrete mappings you "
+        "the source never states it explicitly. Other concrete mappings you "
         "should apply directly:\n"
         "  * 'buy/enter from demand', 'demand zone', 'demand area' -> "
         "{\"type\": \"concept\", \"name\": \"support\", \"direction\": \"bullish\"}\n"
@@ -145,7 +216,13 @@ def build_structured_extraction_prompt(source_hint=None, content_type=None):
         "Respond with ONLY a single JSON object (no markdown fences, no "
         "commentary before or after) with exactly these keys:\n"
         "{\n"
-        '  "confidence": 0-100 (your overall confidence that the strategy/lessons below are complete and correct),\n'
+        '  "confidence": 0-100 -- how confident you are that the extracted rules are COMPLETE and CORRECT,\n'
+        '      i.e. that running them would reproduce what the author actually described. Judge the SUBSTANCE,\n'
+        '      not the wording: confidently mapping familiar phrasing ("previous day high" -> pdh) should NOT\n'
+        '      lower this. Score BELOW 60 only when something material is genuinely unresolved -- a rule you\n'
+        '      had to leave raw, a self-contradictory instruction, or a missing piece that changes what the\n'
+        '      strategy does. Below 60 sends this to the user for manual clarification, so do not go there for\n'
+        '      wording you understood.\n'
         '  "strategy": null OR {\n'
         '    "name": "",\n'
         '    "timeframes": {"entry": "1h"},\n'
@@ -164,6 +241,12 @@ def build_structured_extraction_prompt(source_hint=None, content_type=None):
         '  "lessons": [{"title": "", "category": "", "description": "", "tags": [], "rule_type": "block_if_true", "direction": null, "condition": null}],\n'
         '  "dictionary_terms": [{"term": "", "definition": "", "category": "structure|indicator|session|trend|risk|psychology|pattern", "aliases": [], "examples": [], "related_concepts": [], "usage": ""}],\n'
         '  "inferred_fields": [{"field": "", "confidence": 0.0, "reason": "", "evidence": ""}],\n'
+        '      -- REQUIRED: add one entry here for EVERY phrase you mapped onto a vocabulary term whose wording\n'
+        '         differed from the term itself, so the user can audit your reading without re-reading the source.\n'
+        '         Put the original phrase in "evidence" and the mapping in "reason",\n'
+        '         e.g. {"field": "entry_conditions[0]", "confidence": 0.95,\n'
+        '               "reason": "mapped to concept pdl (previous day low)",\n'
+        '               "evidence": "Price must cross below the Previous Day\'s Low"}.\n'
         '  "missing_rules": [""],\n'
         '  "psychology_notes": [""]\n'
         "}\n\n"

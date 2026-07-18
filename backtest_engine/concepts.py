@@ -199,6 +199,33 @@ def liquidity_sweep(df, lookback=2):
     return bullish_sweep, bearish_sweep
 
 
+def candle_break(df):
+    """"Trigger candle" pattern: a bullish (green) candle forms, then a
+    LATER candle trades above that candle's high -> bullish break; a
+    bearish (red) candle forms, then a later candle trades below its low ->
+    bearish break.
+
+    Added because this is extremely common phrasing in real strategy
+    documents ("wait for a green candle, enter when its high is broken")
+    but had no executable equivalent, so AI extraction was forced to emit
+    type="raw" for it -- an unexecutable condition that silently produces
+    zero trades. Mapping it onto the existing `trend` condition instead
+    would have been wrong: trend_filter() is an EMA-slope reading, not
+    candle colour, so "red candle" and "bearish trend" are different facts.
+
+    Causal by construction: the reference high/low is shifted one bar
+    before comparison, so a candle can never trigger a break of itself and
+    nothing reads a value that wasn't already closed."""
+    bullish = df["close"] > df["open"]
+    bearish = df["close"] < df["open"]
+    # Most recent bullish/bearish candle's extreme, as known BEFORE this bar.
+    last_bull_high = df["high"].where(bullish).ffill().shift(1)
+    last_bear_low = df["low"].where(bearish).ffill().shift(1)
+    bull_break = (df["high"] > last_bull_high).fillna(False)
+    bear_break = (df["low"] < last_bear_low).fillna(False)
+    return bull_break, bear_break
+
+
 def previous_day_high_low(df):
     """Previous UTC day's high/low, available for every bar of the CURRENT
     day -- yesterday is fully closed by midnight UTC, so this is causal:

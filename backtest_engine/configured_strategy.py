@@ -61,6 +61,8 @@ class ConfiguredStrategy(Strategy):
                 entry_df["support"], entry_df["resistance"] = concepts.support_resistance(entry_df)
             if "liquidity_sweep" in used:
                 entry_df["bull_liquidity_sweep"], entry_df["bear_liquidity_sweep"] = concepts.liquidity_sweep(entry_df)
+            if "candle_break" in used:
+                entry_df["bull_candle_break"], entry_df["bear_candle_break"] = concepts.candle_break(entry_df)
             if "volume" in used and "volume_spike" not in entry_df.columns:
                 entry_df["volume_spike"] = concepts.volume_filter(entry_df)
             if {"pdh", "pdl", "pdh_sweep", "pdl_sweep"} & used:
@@ -196,6 +198,7 @@ class ConfiguredStrategy(Strategy):
                 "choch": ("entry_bull_choch", "entry_bear_choch"),
                 "fvg": ("entry_bull_fvg", "entry_bear_fvg"),
                 "liquidity_sweep": ("entry_bull_liquidity_sweep", "entry_bear_liquidity_sweep"),
+                "candle_break": ("entry_bull_candle_break", "entry_bear_candle_break"),
             }
             if cond.name in event_colmap:
                 bull_col, bear_col = event_colmap[cond.name]

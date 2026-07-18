@@ -361,6 +361,28 @@ CREATE TABLE IF NOT EXISTS strategy_optimizations (
     candidates_tried_json TEXT,
     created_at TEXT NOT NULL
 );
+
+-- Durable checkpoint for the Automation Pipeline (import -> backtest ->
+-- optimize -> compare -> paper trading). job_manager's own Job objects are
+-- in-memory only and vanish on restart -- this row is what lets the server
+-- tell, after an abrupt restart, whether a pipeline was still running when
+-- it went down, and if so, resume it from the last safely-completed stage
+-- instead of leaving it stuck "running" forever or silently forgetting it.
+-- status='running' rows found at startup are exactly the ones that were
+-- interrupted (a clean finish always sets status to completed/stopped/failed
+-- before the row is left alone).
+CREATE TABLE IF NOT EXISTS pipeline_jobs (
+    job_id TEXT PRIMARY KEY,
+    strategy_id TEXT NOT NULL,
+    strategy_name TEXT,
+    symbols_json TEXT,
+    status TEXT NOT NULL,
+    stage TEXT,
+    checkpoint_json TEXT,
+    error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 """
 
 _COMPILED_DOCUMENT_V6_COLUMNS = {
@@ -979,6 +1001,88 @@ def list_optimizations(limit=200):
          "params_changed": json.loads(r[5]) if r[5] else [],
          "candidates_tried": json.loads(r[6]) if r[6] else [],
          "created_at": r[7]}
+        for r in rows
+    ]
+
+
+def create_pipeline_job(job_id, strategy_id, strategy_name, symbols, now_iso):
+    """First row for a new Automation Pipeline run -- status='running' from
+    the moment it's created. If the server dies before this row is even
+    written, there's nothing to resume (equivalent to the trigger never
+    having happened), which is the correct, safe outcome."""
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO pipeline_jobs
+               (job_id, strategy_id, strategy_name, symbols_json, status, stage, checkpoint_json, error, created_at, updated_at)
+               VALUES (?, ?, ?, ?, 'running', 'sanity_check', '{}', NULL, ?, ?)""",
+            (job_id, strategy_id, strategy_name, json.dumps(symbols) if symbols else None, now_iso, now_iso),
+        )
+
+
+def update_pipeline_job(job_id, now_iso, stage=None, checkpoint=None, status=None, error=None):
+    """Updates whichever fields are given; None means "leave unchanged".
+    `checkpoint`, when given, REPLACES the stored checkpoint_json wholesale
+    (the caller in automation_pipeline/pipeline.py keeps the full checkpoint
+    dict in memory and always passes the complete, current version -- so
+    there's never a partial-merge to get wrong here). `now_iso` is required,
+    same convention as every other storage write in this module."""
+    fields, values = ["updated_at = ?"], [now_iso]
+    if stage is not None:
+        fields.append("stage = ?")
+        values.append(stage)
+    if checkpoint is not None:
+        fields.append("checkpoint_json = ?")
+        values.append(json.dumps(checkpoint))
+    if status is not None:
+        fields.append("status = ?")
+        values.append(status)
+    if error is not None:
+        fields.append("error = ?")
+        values.append(error)
+    values.append(job_id)
+    with get_conn() as conn:
+        conn.execute(f"UPDATE pipeline_jobs SET {', '.join(fields)} WHERE job_id = ?", values)
+
+
+def get_pipeline_job(job_id):
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT job_id, strategy_id, strategy_name, symbols_json, status, stage, checkpoint_json, error, created_at, updated_at "
+            "FROM pipeline_jobs WHERE job_id = ?",
+            (job_id,),
+        ).fetchone()
+    if not row:
+        return None
+    return {
+        "job_id": row[0], "strategy_id": row[1], "strategy_name": row[2],
+        "symbols": json.loads(row[3]) if row[3] else None,
+        "status": row[4], "stage": row[5],
+        "checkpoint": json.loads(row[6]) if row[6] else {},
+        "error": row[7], "created_at": row[8], "updated_at": row[9],
+    }
+
+
+def list_running_pipeline_jobs():
+    """Every pipeline_jobs row still marked 'running' -- checked once at
+    server startup. A row can only be in this state if the server stopped
+    (crash, power loss, or a forceful kill) before the pipeline reached one
+    of its own terminal states (completed/stopped/failed), since every
+    normal exit path -- success, a user Stop, or a caught error -- updates
+    status before returning. This is exactly the resume/fail decision
+    point."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT job_id, strategy_id, strategy_name, symbols_json, status, stage, checkpoint_json, error, created_at, updated_at "
+            "FROM pipeline_jobs WHERE status = 'running'"
+        ).fetchall()
+    return [
+        {
+            "job_id": r[0], "strategy_id": r[1], "strategy_name": r[2],
+            "symbols": json.loads(r[3]) if r[3] else None,
+            "status": r[4], "stage": r[5],
+            "checkpoint": json.loads(r[6]) if r[6] else {},
+            "error": r[7], "created_at": r[8], "updated_at": r[9],
+        }
         for r in rows
     ]
 

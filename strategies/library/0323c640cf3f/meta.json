@@ -1,0 +1,38 @@
+{
+  "id": "0323c640cf3f",
+  "name": "The Daily Liquidity Scalping Strategy",
+  "tags": [
+    "support",
+    "resistance",
+    "liquidity_sweep",
+    "strategy",
+    "1d",
+    "1m"
+  ],
+  "favourite": false,
+  "created_at": "2026-07-17T22:50:12.254480+00:00",
+  "updated_at": "2026-07-17T22:50:12.254480+00:00",
+  "current_version": 1,
+  "clarification": {
+    "notes": [
+      "Unclear entry rule, needs clarification: \"Price must move above the previous day's High\"",
+      "Unclear entry rule, needs clarification: \"Wait for a Red candle to form\"",
+      "Unclear entry rule, needs clarification: \"Enter the short trade only when the low of that red candle is broken\"",
+      "Unclear entry rule, needs clarification: \"Price must move below the previous day's Low\"",
+      "Unclear entry rule, needs clarification: \"Wait for a Green candle to form\"",
+      "Unclear entry rule, needs clarification: \"Enter the long trade when the high of that green candle is broken\"",
+      "Unclear exit rule, needs clarification: \"Stop Loss (SL) Placement: For Short, place the SL above the high of the entry-trigger candle\"",
+      "Unclear exit rule, needs clarification: \"Stop Loss (SL) Placement: For Long, place the SL below the low of the entry-trigger candle\""
+    ],
+    "hidden_rules": [
+      {
+        "field": "take_profit_level",
+        "confidence": 0.8,
+        "reason": "The strategy mentions exiting the majority of the position at the nearest Swing High or Swing Low.",
+        "evidence": "First Target (TP1): The nearest Swing High (for longs) or Swing Low (for shorts) where the market previously reversed."
+      }
+    ],
+    "confidence_pct": 95.0,
+    "updated_at": "2026-07-17T22:50:12.216262+00:00"
+  }
+}
