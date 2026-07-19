@@ -1,0 +1,79 @@
+{
+  "name": "Liquidity Sweeps",
+  "raw_text": "Strategy Name: Liquidity Sweeps\n\nTimeframes:\n- Higher Timeframes (4H and 1H): used to identify significant highs/lows (liquidity levels)\n- Entry Timeframe (1-minute): used to confirm reversal via Break of Structure\n\nLong Entry Rules:\n1. Identify a significant low on the 1H or 4H chart (a swing low)\n2. Price must push below this low (sweep the liquidity)\n3. On the 1-minute chart, a Break of Structure (bullish) must be confirmed after the sweep\n4. Enter long once the bullish BOS is confirmed\n\nShort Entry Rules:\n1. Identify a significant high on the 1H or 4H chart (a swing high)\n2. Price must push above this high (sweep the liquidity)\n3. On the 1-minute chart, a Break of Structure (bearish) must be confirmed after the sweep\n4. Enter short once the bearish BOS is confirmed\n\nStop Loss:\n- For shorts: above the high of the sweep\n- For longs: below the low of the sweep\n\nTake Profit:\n- Opposing \"draw on liquidity\": for longs, target the previous 1H/4H high; for shorts, target the previous 1H/4H low\n\nSession Filter:\n- Primary focus: New York market open (9:30 AM Eastern Time)\n- Also monitor pre-market/London session sweeps to establish bias for the NY session\n\nRisk Management:\n- Not explicitly specified; use standard position sizing per trade",
+  "timeframes": {
+    "entry": "1m",
+    "bias": "4h",
+    "trend": "1h",
+    "analysis": "4h"
+  },
+  "indicators": [],
+  "concepts_used": [
+    "swing_low",
+    "swing_high",
+    "bos",
+    "liquidity_sweep"
+  ],
+  "entry_conditions": [
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "swing_low",
+      "direction": "bullish",
+      "text": null,
+      "role": null,
+      "lookback_bars": null
+    },
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "liquidity_sweep",
+      "direction": "bullish",
+      "text": null,
+      "role": null,
+      "lookback_bars": null
+    },
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "bos",
+      "direction": "bullish",
+      "text": null,
+      "role": null,
+      "lookback_bars": null
+    }
+  ],
+  "exit_conditions": [],
+  "confirmation_conditions": [],
+  "stop_loss": {
+    "type": "structure",
+    "value": null,
+    "level": null
+  },
+  "take_profit": {
+    "type": "structure",
+    "value": null,
+    "level": null
+  },
+  "risk_pct": 1.0,
+  "risk_reward": 2.0,
+  "session_filter": [
+    "ny"
+  ],
+  "trend_filter": null,
+  "day_filter": [],
+  "breakeven_at_rr": null,
+  "tags": [],
+  "favourite": false,
+  "missing": [],
+  "warnings": []
+}

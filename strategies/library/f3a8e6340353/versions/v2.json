@@ -1,0 +1,103 @@
+{
+  "name": "Five A+ iFVG Setups",
+  "raw_text": "Strategy Name: Five A+ iFVG Setups\n\nTimeframes:\n- Higher Timeframe (HTF): 1H, 15m, 5m, or 3m \u2014 used to identify the HTF Fair Value Gap\n- Entry Timeframe: 1-minute \u2014 used for liquidity sweep and candle-close confirmation\n\nLong Entry Rules:\n1. Price must be delivering from a Higher Timeframe Fair Value Gap to the left (HTF only \u2014 same-timeframe gaps do not count)\n2. Price must be in Discount (below the 50% level of the current trading range)\n3. Price must sweep a specific low or pool of stacked lows into the HTF Fair Value Gap\n4. A single, standalone Fair Value Gap must form during the move (combined/clustered gaps are not valid \u2014 only singular FVGs)\n5. Entry triggers on candle close above the Fair Value Gap (transforming it into an Inverse Fair Value Gap)\n\nShort Entry Rules:\n1. Price must be delivering from a Higher Timeframe Fair Value Gap to the left (HTF only)\n2. Price must be in Premium (above the 50% level of the range)\n3. Price must sweep a high into the HTF Fair Value Gap\n4. A single, standalone Fair Value Gap must form during the move\n5. Entry triggers on candle close below the Fair Value Gap\n\nConfirmation:\n- A physical candle close through the gap is required; a wick alone does not count as valid entry\n\nStop Loss:\n- Candle close back below the iFVG (for longs) or above the iFVG (for shorts)\n\nTake Profit:\n- Fixed 2:1 Risk-Reward ratio (2R)\n\nPartial Exit:\n- Scale out 50% of the position at 1R\n- Move remaining position to break-even once 1R is hit\n\nRisk Management:\n- Not explicitly specified; use standard position sizing per trade\n\nSessions/Time Filters:\n- None specified",
+  "timeframes": {
+    "entry": "1m",
+    "bias": "1h",
+    "trend": "15m",
+    "analysis": "5m"
+  },
+  "indicators": [],
+  "concepts_used": [
+    "bos",
+    "candle_break",
+    "fvg",
+    "ifvg",
+    "liquidity_sweep"
+  ],
+  "entry_conditions": [
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "fvg",
+      "direction": "bullish",
+      "text": null,
+      "role": null,
+      "lookback_bars": null
+    },
+    {
+      "type": "price_compare",
+      "indicator": "vwap",
+      "params": {},
+      "op": "<",
+      "value": 0.5,
+      "name": null,
+      "direction": null,
+      "text": null,
+      "role": null,
+      "lookback_bars": null
+    },
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "liquidity_sweep",
+      "direction": "bullish",
+      "text": null,
+      "role": null,
+      "lookback_bars": null
+    },
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "candle_break",
+      "direction": "bullish",
+      "text": null,
+      "role": null,
+      "lookback_bars": null
+    }
+  ],
+  "exit_conditions": [],
+  "confirmation_conditions": [
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "bos",
+      "direction": "bullish",
+      "text": null,
+      "role": null,
+      "lookback_bars": null
+    }
+  ],
+  "stop_loss": {
+    "type": "structure",
+    "value": null,
+    "level": null
+  },
+  "take_profit": {
+    "type": "rr",
+    "value": 2.0,
+    "level": null
+  },
+  "risk_pct": 1.0,
+  "risk_reward": 2.0,
+  "session_filter": [],
+  "trend_filter": null,
+  "day_filter": [],
+  "breakeven_at_rr": 1.0,
+  "tags": [],
+  "favourite": false,
+  "missing": [],
+  "warnings": []
+}

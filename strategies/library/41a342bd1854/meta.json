@@ -1,0 +1,19 @@
+{
+  "id": "41a342bd1854",
+  "name": "PDH-PDL Signal Candle Strategy",
+  "tags": [
+    "candle_break",
+    "pdh",
+    "pdl",
+    "swing_high",
+    "swing_low",
+    "support",
+    "resistance",
+    "strategy",
+    "1m"
+  ],
+  "favourite": false,
+  "created_at": "2026-07-19T19:12:14.061457+00:00",
+  "updated_at": "2026-07-19T20:40:20.761307+00:00",
+  "current_version": 3
+}
