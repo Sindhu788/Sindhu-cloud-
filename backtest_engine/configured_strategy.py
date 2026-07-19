@@ -39,6 +39,14 @@ class ConfiguredStrategy(Strategy):
                 df[f"rsi_{period}"] = concepts.rsi(df["close"], period)
             elif name == "atr" and f"atr_{period}" not in df.columns:
                 df[f"atr_{period}"] = concepts.atr(df, period)
+            elif name == "vwap" and "vwap" not in df.columns:
+                # Was declared usable (validator._KNOWN_INDICATORS, the AI
+                # schema) and concepts.vwap_daily() already existed, but was
+                # never actually wired in here -- any "price vs vwap"
+                # condition silently evaluated False forever. Same period-less
+                # shape as the other indicators; _indicator_column() already
+                # falls back to a bare "{role}_vwap" column name for it.
+                df["vwap"] = concepts.vwap_daily(df)
 
         entry_df = ctx.frames.get("entry")
         if entry_df is not None and not entry_df.empty:
@@ -69,7 +77,7 @@ class ConfiguredStrategy(Strategy):
                 entry_df["pdh"], entry_df["pdl"] = concepts.previous_day_high_low(entry_df)
             if {"pdh_sweep", "pdl_sweep"} & used:
                 entry_df["pdl_sweep"], entry_df["pdh_sweep"] = concepts.pdh_pdl_sweep(entry_df)
-            if "fvg" in used and self.config.stop_loss.type == "structure":
+            if "fvg" in used and (self.config.stop_loss.type == "structure" or self.config.take_profit.type == "structure"):
                 (entry_df["fvg_bull_low"], entry_df["fvg_bull_high"],
                  entry_df["fvg_bear_low"], entry_df["fvg_bear_high"]) = concepts.fvg_zone(entry_df)
             if {"poc", "value_area"} & used:
@@ -279,7 +287,26 @@ class ConfiguredStrategy(Strategy):
             if cond.name == "volume":
                 return _within("entry_volume_spike")
             if cond.name in ("pdh", "pdl"):
-                return self._get(df, i, f"entry_{cond.name}") is not None
+                # A bare "pdh"/"pdl" reference means the strategy is gating
+                # on the actual price-vs-level relationship ("price above
+                # PDH" / "price below PDL") -- exactly like every other
+                # level-type concept in this function (support, resistance,
+                # poc, value_area, session_high_low) does a real comparison
+                # rather than a bare existence check. Before this fix it only
+                # checked whether the level was DEFINED, which is true for
+                # essentially the entire trading day, every day -- making the
+                # condition a permanent no-op that silently dropped the
+                # strategy's actual filter (confirmed: PDH-PDL Signal Candle
+                # Strategy's "price must trade above PDH" rule never
+                # constrained anything, inflating its trade count into the
+                # tens of thousands). "sweep of pdh/pdl" is a separate,
+                # already-correct event concept (pdh_sweep/pdl_sweep, above)
+                # and is unaffected by this branch.
+                price = self._get(df, i, "close")
+                level = self._get(df, i, f"entry_{cond.name}")
+                if price is None or level is None:
+                    return False
+                return price > level if cond.name == "pdh" else price < level
             if cond.name == "mitigation_block":
                 return self._get(df, i, "entry_bull_mitigation_low") is not None or self._get(df, i, "entry_bear_mitigation_low") is not None
             if cond.name == "poc":
@@ -403,6 +430,37 @@ class ConfiguredStrategy(Strategy):
             return price + spec.value * atr_val if direction == "bullish" else price - spec.value * atr_val
         if spec.type == "level" and spec.level:
             return self._get(df, i, f"entry_{spec.level}")
+        if spec.type == "structure":
+            # "structure" was a documented, validator/AI-advertised SL-TP
+            # type (StrategyConfig/SLTPSpec's own docstring: "below/above
+            # last swing, order block, or FVG") but this branch never
+            # existed -- every strategy saved with take_profit.type ==
+            # "structure" got NO take-profit at all, silently, forever.
+            # Confirmed directly against real trade data: 183/183 trades in
+            # a real "Liquidity Sweeps" batch had take_profit == NULL in the
+            # database; with no take-profit and no exit_conditions, every
+            # trade could only end in a stop-loss (a loss by construction)
+            # or ride to the forced end-of-data close -- explaining
+            # nearly-0% win rates on every strategy that used this SL/TP
+            # type (also found on "5-minute crypto scalping strategy" and
+            # "PDH-PDL Signal Candle Strategy").
+            #
+            # Target is the OPPOSING structural zone -- the "draw on
+            # liquidity" on the other side of the trade -- using the same
+            # candidate priority as the stop-loss structure branch (order
+            # block, then FVG, then plain support/resistance) but the zone
+            # on the favorable side of price instead of the protective one.
+            if direction == "bullish":
+                for col in ("entry_bear_ob_high", "entry_fvg_bear_high", "entry_resistance"):
+                    zone = self._get(df, i, col)
+                    if zone is not None and zone > price:
+                        return zone
+            else:
+                for col in ("entry_bull_ob_low", "entry_fvg_bull_low", "entry_support"):
+                    zone = self._get(df, i, col)
+                    if zone is not None and zone < price:
+                        return zone
+            return None
         return None
 
     def _describe(self, conditions):

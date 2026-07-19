@@ -28,6 +28,10 @@ from ai_integration.schema import KNOWN_INDICATORS, KNOWN_SESSIONS, KNOWN_SLTP_T
 # second copy) means the repair below can never quietly drift out of sync
 # with what the validator actually checks.
 from backtest_engine.validator import _CONCEPT_REQUIRES_ANY_OF, _STRUCTURE_SL_SOURCES
+# Same backfill the deterministic parser always runs on itself
+# (strategy_parser.parse_strategy_text -> _ensure_indicators_for_conditions)
+# -- reused here rather than reimplemented so the two pipelines can't drift.
+from backtest_engine.strategy_parser import _ensure_indicators_for_conditions
 
 _KNOWN_INDICATOR_SET = set(KNOWN_INDICATORS)
 _KNOWN_SESSION_SET = set(KNOWN_SESSIONS)
@@ -157,6 +161,16 @@ def build_strategy_config(ai_strategy, name, raw_text):
     )
     sync_concepts_used(config)
     _repair_structural_stop(config)
+    # The AI can emit a price_compare/indicator_compare condition (e.g.
+    # "price < vwap") without also declaring a matching entries in
+    # `indicators` -- config.indicators is what actually tells
+    # ConfiguredStrategy.prepare_context() which column to compute, so an
+    # undeclared indicator means the condition silently evaluates False
+    # forever (found live: "Five A+ iFVG Setups" had a `vwap` price_compare
+    # condition with `indicators: []`). The deterministic text parser
+    # already self-heals this via the same helper; the AI-native path had no
+    # equivalent safety net until now.
+    _ensure_indicators_for_conditions(config)
     return config
 
 
