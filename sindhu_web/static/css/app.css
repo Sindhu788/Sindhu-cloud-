@@ -422,7 +422,13 @@ textarea { font-family: Consolas, monospace; min-height: 160px; }
 }
 .logs-body div { margin-bottom: 4px; }
 
-/* ---- responsive breakpoints ---- */
+/* ---- responsive breakpoints ----
+   Mobile is a real layout, not a shrunk desktop: drawer sidebar, tables
+   reflowed into stacked cards (via td[data-label], stamped generically by
+   app.js from each table's own thead), 44px touch targets, >=13px text,
+   and a fixed bottom tab bar for the most-used pages. Desktop (>=769px)
+   rules are untouched -- everything below only ADDS behavior inside
+   max-width queries. */
 @media (max-width: 900px) {
   .two-col { grid-template-columns: 1fr; }
   .logs-panel { width: 100%; }
@@ -439,10 +445,11 @@ textarea { font-family: Consolas, monospace; min-height: 160px; }
   .sidebar {
     grid-area: unset;
     position: fixed;
-    top: 60px; left: -240px; bottom: 0;
-    width: 240px;
+    top: 60px; left: -280px; bottom: 0;
+    width: 272px;
     transition: left .2s ease;
     z-index: 60;
+    box-shadow: var(--shadow-md);
   }
   .sidebar.open { left: 0; }
   .rail-collapsed .nav-list li a .nav-label { display: inline; }
@@ -453,21 +460,145 @@ textarea { font-family: Consolas, monospace; min-height: 160px; }
     background: rgba(0,0,0,.4);
     z-index: 55;
   }
-  .content { padding: 14px; }
-  table { font-size: 12px; }
+  .content {
+    padding: 14px;
+    /* clear the fixed bottom nav (56px) + iOS home-indicator inset */
+    padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+  }
   .clock, #versionPill { display: none; }
+
+  /* -- touch targets: every interactive control >= 44px tall -- */
+  .icon-btn { width: 44px; height: 44px; }
+  .icon-btn svg { width: 20px; height: 20px; }
+  .topbar { gap: 6px; padding: 0 10px; }
+  .nav-list li a { min-height: 44px; padding: 11px 12px; font-size: 14px; margin-bottom: 4px; }
+  .nav-list li a svg { width: 20px; height: 20px; }
+  .dropdown-item { padding: 12px; min-height: 44px; font-size: 13.5px; }
+  .btn { min-height: 44px; padding: 11px 18px; font-size: 14px; }
+  .btn-ghost { min-height: 44px; padding: 10px 14px; font-size: 13px; }
+  .btn-row { gap: 10px; }
+  .period-tab { min-height: 44px; padding: 10px 16px; font-size: 13px; }
+  .period-tabs { gap: 8px; }
+  /* 16px stops iOS Safari's auto-zoom-on-focus; still comfortable to read */
+  textarea, input, select { font-size: 16px; padding: 11px 12px; min-height: 44px; }
+  input[type="checkbox"] { min-height: 20px; width: 20px; height: 20px; }
+
+  /* -- typography floor: nothing below 13px body text -- */
+  .content { font-size: 14px; }
+  .muted { font-size: 13px; }
+  .search-result-item { padding: 11px 10px; }
+
+  /* -- stat/metric card grids: 2-up instead of one squeezed column, so
+        panels like Backtesting's live-run stats read as a compact strip
+        stacked under the main content (two-col already stacks at 900px) -- */
+  .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .card { padding: 13px; }
+  .card .value { font-size: 20px; }
+  .card .label { font-size: 11px; }
+
+  .ceo-grid { grid-template-columns: 1fr; }
+  .ceo-task-row .progress-bar { width: 80px; }
+
+  /* -- tables become stacked cards: no horizontal scrolling to read a row.
+        thead is hidden; each td shows its column name via data-label
+        (stamped automatically by app.js for every table, current and
+        future). A lone td in a multi-column table (colspan empty-state
+        message) gets no label and renders as plain full-width text. -- */
+  .table-wrap { overflow-x: visible; }
+  .content table,
+  .content table tbody,
+  .content table tr,
+  .content table td { display: block; width: 100%; }
+  .content table thead { display: none; }
+  .content table {
+    background: none;
+    border: none;
+    border-radius: 0;
+    font-size: 13px;
+  }
+  .content table tbody tr {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 4px 14px;
+    margin-bottom: 10px;
+    box-shadow: var(--shadow-sm);
+  }
+  .content table tbody tr:hover { background: var(--bg-card); }
+  .content table td {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    white-space: normal;
+    word-break: break-word;
+    text-align: right;
+    font-size: 13px;
+    min-height: 24px;
+  }
+  .content table td:last-child { border-bottom: none; }
+  .content table td::before {
+    content: attr(data-label);
+    color: var(--text-faint);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    text-align: left;
+    flex: none;
+    max-width: 45%;
+  }
+  /* unlabeled cells (action-button columns, colspan messages) — no ghost
+     label space, content flows naturally */
+  .content table td:not([data-label]) { justify-content: flex-start; text-align: left; }
+  .content table td:not([data-label])::before { content: none; }
+  /* progress bars inside card-mode cells need room to breathe */
+  .content table td .progress-bar { flex: 1 1 auto; min-width: 80px; }
 }
 
 @media (min-width: 769px) {
   .nav-toggle { display: none; }
+  .bottom-nav { display: none; }
 }
 
 @media (max-width: 480px) {
   .brand-text { font-size: 14px; }
-  .card .value { font-size: 18px; }
-  .btn-ghost { padding: 5px 8px; font-size: 12px; }
   #healthPill { display: none; }
 }
+
+/* ---- bottom tab bar (mobile only; hidden >=769px above) ---- */
+.bottom-nav {
+  display: none;
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  background: var(--bg-elevated);
+  border-top: 1px solid var(--border);
+  z-index: 45;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+@media (max-width: 768px) {
+  .bottom-nav { display: flex; }
+}
+.bottom-nav a {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-height: 56px;
+  padding: 6px 2px;
+  color: var(--text-dim);
+  text-decoration: none;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .01em;
+  -webkit-tap-highlight-color: transparent;
+}
+.bottom-nav a svg { width: 21px; height: 21px; }
+.bottom-nav a.active { color: var(--accent); }
 
 /* App-wide toast/banner notifications (e.g. backtest completion) -- fixed
    above everything so they're visible regardless of which page is open. */

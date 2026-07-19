@@ -20,7 +20,7 @@ from sindhu_web.api import (
     knowledge, network as network_api, activity as activity_api, search as search_api,
     system as system_api, paper_trading as paper_trading_api, knowledge_compiler as knowledge_compiler_api,
     ai_integration as ai_integration_api, automation_pipeline as automation_pipeline_api,
-    clarification as clarification_api,
+    clarification as clarification_api, evolution as evolution_api, sindhu_strategy as sindhu_strategy_api,
 )
 
 _STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -80,6 +80,19 @@ async def _lifespan(app: FastAPI):
     # so it runs inline rather than in its own thread like _warm_caches.
     from automation_pipeline.pipeline import resume_pipeline_jobs_on_startup
     resume_pipeline_jobs_on_startup()
+    # Phase 7A: Evolution Engine crash recovery -- same "resume only if it
+    # was already running" contract as the automation pipeline above; the
+    # CEO must still explicitly Start it the first time (see /api/evolution/
+    # start), this only prevents a running engine from silently staying
+    # stopped after a server restart.
+    from evolution_engine.engine import resume_evolution_jobs_on_startup
+    resume_evolution_jobs_on_startup()
+    # Phase 7A: SINDHU Strategy Generator's daily cycle is meant to run on
+    # its own every day (unlike Evolution Engine, nobody has to toggle it) --
+    # this thread just checks hourly and is a safe no-op once today's 11
+    # candidates already exist.
+    from sindhu_strategy.generator import start_daily_scheduler_thread
+    start_daily_scheduler_thread()
     backup.start_auto_backup_thread()
     threading.Thread(target=_warm_caches, daemon=True).start()
     task = asyncio.create_task(_broadcast_loop())
@@ -110,7 +123,8 @@ def create_app():
                    reports.router, settings_api.router, backup.router, jobs.router, ws.router,
                    knowledge.router, network_api.router, activity_api.router, search_api.router,
                    system_api.router, paper_trading_api.router, knowledge_compiler_api.router,
-                   ai_integration_api.router, automation_pipeline_api.router, clarification_api.router):
+                   ai_integration_api.router, automation_pipeline_api.router, clarification_api.router,
+                   evolution_api.router, sindhu_strategy_api.router):
         app.include_router(router)
 
     @app.get("/api/token")

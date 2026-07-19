@@ -395,8 +395,11 @@ E:\sindhu\
 ├── knowledge_compiler/          # Deterministic document compiler
 ├── ai_integration/               # AI Knowledge Learning Engine
 ├── paper_trading/                # 24/7 simulation engine
+├── automation_pipeline/          # Auto backtest -> optimize -> compare -> paper trading handoff
+├── evolution_engine/              # Phase 7A Part A -- Evolution Core Engine (BOT strategy/lesson generations, Governor, Champion Engine; zero AI)
+├── sindhu_strategy/                # Phase 7A Part B -- SINDHU Strategy Generator (11 daily candidates, 1 AI + 10 deterministic)
 ├── strategies/
-│   └── library/                 # Saved strategies (JSON files, per-ID folders)
+│   └── library/                 # Saved strategies (JSON files, per-ID folders) -- USER-owned only; BOT-owned strategies live in SQLite (bot_strategies table), never here
 ├── sindhu_web/                   # Web server + frontend
 │   ├── api/                      # REST API routers
 │   ├── jobs/
@@ -419,8 +422,7 @@ E:\sindhu\
 
 Code mein disabled nav items aur `PROJECT_PLAN.md`/`PROGRESS.md` ke "What's NOT Built" section se confirmed:
 
-- **Reflection** — standalone dashboard page (abhi Paper Trading ke andar internal hai)
-- **Evolution** — standalone dashboard page (abhi Paper Trading ke andar internal hai)
+- **Reflection** — standalone dashboard page (abhi Paper Trading ke andar internal hai; Evolution ab standalone hai, Phase 7A mein bana)
 - **News Monitoring** — bilkul nahi bana (nav mein disabled entry hai)
 - **Telegram Alerts** — bilkul nahi bana (nav mein disabled entry hai)
 - **Live/Real Trading Execution** — Paper Trading simulation-only hai, real order execution nahi

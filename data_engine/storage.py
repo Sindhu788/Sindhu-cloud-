@@ -391,6 +391,90 @@ CREATE TABLE IF NOT EXISTS pipeline_jobs (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+
+-- Phase 7A: Evolution Core Engine + SINDHU Strategy Generator. Every table
+-- below is BOT-owned storage, physically separate from strategy_library's
+-- user-owned folder storage and the user-authored `lessons` table -- this
+-- is what makes the A.9 hard safety constraint ("Evolution may NEVER modify
+-- user-imported strategies or user-written lessons") a structural guarantee
+-- rather than a behavioral promise: there is no code path from
+-- evolution_engine/sindhu_strategy into strategy_library's CRUD or the
+-- lessons table at all, so it is not merely avoided, it is unreachable.
+CREATE TABLE IF NOT EXISTS bot_strategies (
+    id TEXT PRIMARY KEY,                   -- e.g. "BOT_S101_G3"
+    base_id TEXT NOT NULL,                 -- e.g. "BOT_S101", shared by every generation in this lineage
+    generation INTEGER NOT NULL DEFAULT 1,
+    parent_id TEXT,                        -- previous generation's id, NULL for generation 1
+    name TEXT NOT NULL,
+    config_json TEXT NOT NULL,             -- StrategyConfig.to_dict()
+    dna_json TEXT,                         -- DNA block tags this strategy is built from (evolution_engine/dna.py)
+    origin TEXT NOT NULL,                  -- "evolution_mutation" | "sindhu_ai" | "sindhu_deterministic"
+    made_with_ai INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'active', -- "active" | "archived" -- rows are never deleted, only archived
+    evolution_score REAL,
+    score_breakdown_json TEXT,
+    backtest_summary_json TEXT,
+    mutation_reason TEXT,                  -- traceable: the exact comparison/stat that produced this generation
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS bot_lessons (
+    id TEXT PRIMARY KEY,                   -- e.g. "BOT_L004_G2"
+    base_id TEXT NOT NULL,
+    generation INTEGER NOT NULL DEFAULT 1,
+    parent_id TEXT,
+    title TEXT NOT NULL,
+    category TEXT,
+    description TEXT,
+    derived_from_json TEXT NOT NULL,       -- exact source stats: {strategy_id, coin, session, metric, value, sample_size, ...}
+    conditions_json TEXT,
+    status TEXT NOT NULL DEFAULT 'active', -- rows are never deleted, only archived
+    confidence REAL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS evolution_jobs (
+    job_id TEXT PRIMARY KEY,
+    status TEXT NOT NULL,
+    stage TEXT,
+    checkpoint_json TEXT,
+    error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS champion_records (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    category TEXT NOT NULL,   -- strategy | lesson | coin | session | timeframe | market_condition | generation
+    value TEXT NOT NULL,      -- winning id/name
+    score REAL,
+    details_json TEXT,
+    computed_at TEXT NOT NULL
+);
+
+-- Append-only: recomputing champions inserts a new row per category rather
+-- than overwriting, so history is never lost -- "current" champion is just
+-- the most recent row for that category (see get_current_champion below).
+CREATE TABLE IF NOT EXISTS knowledge_versions (
+    version INTEGER PRIMARY KEY AUTOINCREMENT,
+    reason TEXT NOT NULL,
+    snapshot_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+-- Append-only ledger, one row per calendar date. Hard architectural limiter
+-- for B.2 ("exactly 1 AI call per daily generation cycle"): reserving the
+-- AI slot is a single guarded UPDATE (ai_calls_used=0 -> 1) that can only
+-- ever succeed once per date, the same way ai_import_cache prevents a
+-- repeat AI call for an already-seen document elsewhere in this system.
+CREATE TABLE IF NOT EXISTS daily_generation_log (
+    date TEXT PRIMARY KEY,   -- "YYYY-MM-DD"
+    ai_calls_used INTEGER NOT NULL DEFAULT 0,
+    candidates_generated INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL
+);
 """
 
 _COMPILED_DOCUMENT_V6_COLUMNS = {
@@ -2455,3 +2539,371 @@ def list_knowledge_relationships(from_id=None, to_id=None):
         {"id": r[0], "from_type": r[1], "from_id": r[2], "to_type": r[3], "to_id": r[4], "relation": r[5], "created_at": r[6]}
         for r in rows
     ]
+
+
+# ==================================================================
+# Phase 7A -- Evolution Core Engine + SINDHU Strategy Generator
+# BOT-owned storage only: see the _SCHEMA comment above bot_strategies
+# for why this is a physically separate set of tables from
+# strategy_library's user-owned files and the user-authored `lessons` table.
+# ==================================================================
+
+_BOT_STRATEGY_COLUMNS = [
+    "id", "base_id", "generation", "parent_id", "name", "config_json", "dna_json",
+    "origin", "made_with_ai", "status", "evolution_score", "score_breakdown_json",
+    "backtest_summary_json", "mutation_reason", "created_at", "updated_at",
+]
+
+
+def _row_to_bot_strategy(row):
+    d = dict(zip(_BOT_STRATEGY_COLUMNS, row))
+    d["made_with_ai"] = bool(d["made_with_ai"])
+    d["config"] = json.loads(d.pop("config_json"))
+    d["dna"] = json.loads(d.pop("dna_json")) if d.get("dna_json") else []
+    d["score_breakdown"] = json.loads(d.pop("score_breakdown_json")) if d.get("score_breakdown_json") else None
+    d["backtest_summary"] = json.loads(d.pop("backtest_summary_json")) if d.get("backtest_summary_json") else None
+    return d
+
+
+def create_bot_strategy(id, base_id, generation, parent_id, name, config_dict, dna_tags,
+                         origin, made_with_ai, mutation_reason, now_iso):
+    """A brand-new BOT strategy row -- either generation 1 of a new lineage
+    (parent_id=None) or a new generation of an existing one. Never updates
+    or replaces an existing row; every call is a fresh INSERT, which is what
+    makes "every generation is stored permanently" (A.4) true by
+    construction rather than by discipline."""
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO bot_strategies
+               (id, base_id, generation, parent_id, name, config_json, dna_json, origin,
+                made_with_ai, status, evolution_score, score_breakdown_json,
+                backtest_summary_json, mutation_reason, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NULL, NULL, NULL, ?, ?, ?)""",
+            (id, base_id, generation, parent_id, name, json.dumps(config_dict), json.dumps(dna_tags or []),
+             origin, 1 if made_with_ai else 0, mutation_reason, now_iso, now_iso),
+        )
+
+
+def update_bot_strategy_result(id, evolution_score=None, score_breakdown=None, backtest_summary=None, now_iso=None):
+    fields, values = ["updated_at = ?"], [now_iso]
+    if evolution_score is not None:
+        fields.append("evolution_score = ?")
+        values.append(evolution_score)
+    if score_breakdown is not None:
+        fields.append("score_breakdown_json = ?")
+        values.append(json.dumps(score_breakdown))
+    if backtest_summary is not None:
+        fields.append("backtest_summary_json = ?")
+        values.append(json.dumps(backtest_summary))
+    values.append(id)
+    with get_conn() as conn:
+        conn.execute(f"UPDATE bot_strategies SET {', '.join(fields)} WHERE id = ?", values)
+
+
+def archive_bot_strategy(id, now_iso):
+    """Archival is a status flip, never a DELETE -- see A.9/A.4: no
+    generation or lineage may ever be destroyed."""
+    with get_conn() as conn:
+        conn.execute("UPDATE bot_strategies SET status='archived', updated_at=? WHERE id=?", (now_iso, id))
+
+
+def get_bot_strategy(id):
+    with get_conn() as conn:
+        row = conn.execute(
+            f"SELECT {','.join(_BOT_STRATEGY_COLUMNS)} FROM bot_strategies WHERE id=?", (id,)
+        ).fetchone()
+    return _row_to_bot_strategy(row) if row else None
+
+
+def list_bot_strategies(base_id=None, origin=None, status=None, limit=500):
+    query = f"SELECT {','.join(_BOT_STRATEGY_COLUMNS)} FROM bot_strategies"
+    clauses, params = [], []
+    if base_id:
+        clauses.append("base_id = ?")
+        params.append(base_id)
+    if origin:
+        clauses.append("origin = ?")
+        params.append(origin)
+    if status:
+        clauses.append("status = ?")
+        params.append(status)
+    if clauses:
+        query += " WHERE " + " AND ".join(clauses)
+    query += " ORDER BY created_at DESC LIMIT ?"
+    params.append(limit)
+    with get_conn() as conn:
+        rows = conn.execute(query, params).fetchall()
+    return [_row_to_bot_strategy(r) for r in rows]
+
+
+def latest_generation_for_base(base_id):
+    """The newest generation of one BOT strategy lineage -- what the mutator
+    branches its next generation from. None if base_id has no rows yet."""
+    with get_conn() as conn:
+        row = conn.execute(
+            f"SELECT {','.join(_BOT_STRATEGY_COLUMNS)} FROM bot_strategies "
+            "WHERE base_id=? ORDER BY generation DESC LIMIT 1",
+            (base_id,),
+        ).fetchone()
+    return _row_to_bot_strategy(row) if row else None
+
+
+def list_bot_strategy_base_ids():
+    with get_conn() as conn:
+        rows = conn.execute("SELECT DISTINCT base_id FROM bot_strategies").fetchall()
+    return [r[0] for r in rows]
+
+
+_BOT_LESSON_COLUMNS = [
+    "id", "base_id", "generation", "parent_id", "title", "category", "description",
+    "derived_from_json", "conditions_json", "status", "confidence", "created_at", "updated_at",
+]
+
+
+def _row_to_bot_lesson(row):
+    d = dict(zip(_BOT_LESSON_COLUMNS, row))
+    d["derived_from"] = json.loads(d.pop("derived_from_json")) if d.get("derived_from_json") else {}
+    d["conditions"] = json.loads(d.pop("conditions_json")) if d.get("conditions_json") else []
+    return d
+
+
+def create_bot_lesson(id, base_id, generation, parent_id, title, category, description,
+                       derived_from, conditions, confidence, now_iso):
+    """Same permanence guarantee as create_bot_strategy -- always a fresh
+    INSERT, never an UPDATE, so every lesson generation (A.5) survives."""
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO bot_lessons
+               (id, base_id, generation, parent_id, title, category, description,
+                derived_from_json, conditions_json, status, confidence, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)""",
+            (id, base_id, generation, parent_id, title, category, description,
+             json.dumps(derived_from), json.dumps(conditions or []), confidence, now_iso, now_iso),
+        )
+
+
+def get_bot_lesson(id):
+    with get_conn() as conn:
+        row = conn.execute(
+            f"SELECT {','.join(_BOT_LESSON_COLUMNS)} FROM bot_lessons WHERE id=?", (id,)
+        ).fetchone()
+    return _row_to_bot_lesson(row) if row else None
+
+
+def list_bot_lessons(base_id=None, status=None, limit=500):
+    query = f"SELECT {','.join(_BOT_LESSON_COLUMNS)} FROM bot_lessons"
+    clauses, params = [], []
+    if base_id:
+        clauses.append("base_id = ?")
+        params.append(base_id)
+    if status:
+        clauses.append("status = ?")
+        params.append(status)
+    if clauses:
+        query += " WHERE " + " AND ".join(clauses)
+    query += " ORDER BY created_at DESC LIMIT ?"
+    params.append(limit)
+    with get_conn() as conn:
+        rows = conn.execute(query, params).fetchall()
+    return [_row_to_bot_lesson(r) for r in rows]
+
+
+def latest_generation_for_lesson_base(base_id):
+    with get_conn() as conn:
+        row = conn.execute(
+            f"SELECT {','.join(_BOT_LESSON_COLUMNS)} FROM bot_lessons "
+            "WHERE base_id=? ORDER BY generation DESC LIMIT 1",
+            (base_id,),
+        ).fetchone()
+    return _row_to_bot_lesson(row) if row else None
+
+
+def list_bot_lesson_base_ids():
+    with get_conn() as conn:
+        rows = conn.execute("SELECT DISTINCT base_id FROM bot_lessons").fetchall()
+    return [r[0] for r in rows]
+
+
+# ---- evolution_jobs: identical checkpoint/resume shape to pipeline_jobs ----
+
+def create_evolution_job(job_id, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO evolution_jobs (job_id, status, stage, checkpoint_json, error, created_at, updated_at)
+               VALUES (?, 'running', 'starting', '{}', NULL, ?, ?)""",
+            (job_id, now_iso, now_iso),
+        )
+
+
+def update_evolution_job(job_id, now_iso, stage=None, checkpoint=None, status=None, error=None):
+    fields, values = ["updated_at = ?"], [now_iso]
+    if stage is not None:
+        fields.append("stage = ?")
+        values.append(stage)
+    if checkpoint is not None:
+        fields.append("checkpoint_json = ?")
+        values.append(json.dumps(checkpoint))
+    if status is not None:
+        fields.append("status = ?")
+        values.append(status)
+    if error is not None:
+        fields.append("error = ?")
+        values.append(error)
+    values.append(job_id)
+    with get_conn() as conn:
+        conn.execute(f"UPDATE evolution_jobs SET {', '.join(fields)} WHERE job_id = ?", values)
+
+
+def get_evolution_job(job_id):
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT job_id, status, stage, checkpoint_json, error, created_at, updated_at "
+            "FROM evolution_jobs WHERE job_id = ?",
+            (job_id,),
+        ).fetchone()
+    if not row:
+        return None
+    return {
+        "job_id": row[0], "status": row[1], "stage": row[2],
+        "checkpoint": json.loads(row[3]) if row[3] else {},
+        "error": row[4], "created_at": row[5], "updated_at": row[6],
+    }
+
+
+def list_running_evolution_jobs():
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT job_id, status, stage, checkpoint_json, error, created_at, updated_at "
+            "FROM evolution_jobs WHERE status = 'running'"
+        ).fetchall()
+    return [
+        {"job_id": r[0], "status": r[1], "stage": r[2], "checkpoint": json.loads(r[3]) if r[3] else {},
+         "error": r[4], "created_at": r[5], "updated_at": r[6]}
+        for r in rows
+    ]
+
+
+def list_evolution_jobs(limit=200):
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT job_id, status, stage, checkpoint_json, error, created_at, updated_at "
+            "FROM evolution_jobs ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    return [
+        {"job_id": r[0], "status": r[1], "stage": r[2], "checkpoint": json.loads(r[3]) if r[3] else {},
+         "error": r[4], "created_at": r[5], "updated_at": r[6]}
+        for r in rows
+    ]
+
+
+# ---- champion_records: append-only, "current" = most recent per category ----
+
+def save_champion(category, value, score, details, now_iso):
+    """Always an INSERT, never an UPDATE -- champion history for a category
+    is the full list of rows ever written for it; "current" is just the
+    newest one (get_current_champion below). Nothing is ever overwritten or
+    deleted, satisfying A.9's "delete... knowledge of any version" ban."""
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO champion_records (category, value, score, details_json, computed_at) VALUES (?, ?, ?, ?, ?)",
+            (category, value, score, json.dumps(details or {}), now_iso),
+        )
+
+
+def get_current_champion(category):
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT category, value, score, details_json, computed_at FROM champion_records "
+            "WHERE category=? ORDER BY computed_at DESC, id DESC LIMIT 1",
+            (category,),
+        ).fetchone()
+    if not row:
+        return None
+    return {"category": row[0], "value": row[1], "score": row[2],
+            "details": json.loads(row[3]) if row[3] else {}, "computed_at": row[4]}
+
+
+def list_current_champions():
+    """One row per category -- the most recent champion computed so far in
+    each. Backs the Champion Engine summary (A.7)."""
+    with get_conn() as conn:
+        rows = conn.execute("SELECT DISTINCT category FROM champion_records").fetchall()
+    return [get_current_champion(r[0]) for r in rows]
+
+
+# ---- knowledge_versions: append-only, never deleted (A.10) ----
+
+def create_knowledge_version(reason, snapshot, now_iso):
+    with get_conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO knowledge_versions (reason, snapshot_json, created_at) VALUES (?, ?, ?)",
+            (reason, json.dumps(snapshot), now_iso),
+        )
+        return cur.lastrowid
+
+
+def get_latest_knowledge_version():
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT version, reason, snapshot_json, created_at FROM knowledge_versions ORDER BY version DESC LIMIT 1"
+        ).fetchone()
+    if not row:
+        return None
+    return {"version": row[0], "reason": row[1], "snapshot": json.loads(row[2]), "created_at": row[3]}
+
+
+def list_knowledge_versions(limit=50):
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT version, reason, snapshot_json, created_at FROM knowledge_versions ORDER BY version DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    return [{"version": r[0], "reason": r[1], "snapshot": json.loads(r[2]), "created_at": r[3]} for r in rows]
+
+
+# ---- daily_generation_log: the hard 1-AI-call-per-day limiter (B.2) ----
+
+def get_daily_generation(date):
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT date, ai_calls_used, candidates_generated, updated_at FROM daily_generation_log WHERE date=?",
+            (date,),
+        ).fetchone()
+    if not row:
+        return {"date": date, "ai_calls_used": 0, "candidates_generated": 0, "updated_at": None}
+    return {"date": row[0], "ai_calls_used": row[1], "candidates_generated": row[2], "updated_at": row[3]}
+
+
+def _ensure_daily_generation_row(conn, date, now_iso):
+    conn.execute(
+        "INSERT OR IGNORE INTO daily_generation_log (date, ai_calls_used, candidates_generated, updated_at) "
+        "VALUES (?, 0, 0, ?)",
+        (date, now_iso),
+    )
+
+
+def try_reserve_ai_generation_call(date, now_iso):
+    """The hard architectural guarantee behind B.2: this UPDATE can only
+    ever flip ai_calls_used from 0 to 1 once per date (the WHERE clause
+    makes a second attempt on the same date a no-op), so it is structurally
+    impossible -- not just policy -- for more than one AI-assisted candidate
+    to be produced per day, mirroring how ai_import_cache prevents a repeat
+    AI call for a document already seen. Returns True iff THIS call won the
+    reservation."""
+    with get_conn() as conn:
+        _ensure_daily_generation_row(conn, date, now_iso)
+        cur = conn.execute(
+            "UPDATE daily_generation_log SET ai_calls_used = 1, updated_at = ? WHERE date = ? AND ai_calls_used = 0",
+            (now_iso, date),
+        )
+        return cur.rowcount == 1
+
+
+def increment_daily_candidates_generated(date, now_iso, by=1):
+    with get_conn() as conn:
+        _ensure_daily_generation_row(conn, date, now_iso)
+        conn.execute(
+            "UPDATE daily_generation_log SET candidates_generated = candidates_generated + ?, updated_at = ? WHERE date = ?",
+            (by, now_iso, date),
+        )

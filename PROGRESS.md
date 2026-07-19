@@ -1,6 +1,6 @@
 # SINDHU — Project Progress
 
-Last updated: 2026-07-11 (v8 — Final Architecture Upgrade: confidence gate, pre-AI dedup cache, Debug Mode)
+Last updated: 2026-07-19 (Mobile-responsive dashboard: drawer nav, table→card reflow, 44px touch targets, bottom tab bar)
 
 This file tracks what's been built, what's verified working, and what's next — kept up to date after every phase so any session (or any developer) can pick up context immediately.
 
@@ -24,6 +24,10 @@ This file tracks what's been built, what's verified working, and what's next —
 | - | AI Knowledge Learning Engine (v6 — deep understanding, hidden rule detection, YouTube import) | ✅ Complete |
 | - | AI Knowledge Learning Engine (v7 — AI-Native Structured Extraction, no old parser when AI succeeds) | ✅ Complete |
 | - | v8 — Final Architecture Upgrade (confidence gate, pre-AI dedup cache, Debug Mode diagnostics) | ✅ Complete |
+| - | Concept library expansion (15 new deterministic concepts: volume profile, mitigation block, session/price-action, breakeven exit) | ✅ Complete |
+| - | Multi-strategy Paper Trading, Analytics Dashboard, Automation Pipeline History, SINDHU CEO control room | ✅ Complete |
+| 7A | Evolution Core Engine (self-generated lessons, generations, Evolution Score, Champion Engine, Governor) + SINDHU Strategy Generator (11 daily candidates, 1 AI + 10 deterministic) | ✅ Complete |
+| - | Genuinely mobile-responsive dashboard (drawer sidebar, tables→stacked cards, 44px touch targets, ≥13px text, bottom tab bar) — frontend-only, desktop unchanged | ✅ Complete |
 | 8 | Not started — awaiting CEO direction | ⏳ Pending |
 
 Both apps are live and runnable right now:
@@ -353,11 +357,33 @@ The CEO's "FINAL ARCHITECTURE UPGRADE" directive required a full completion audi
 
 ---
 
+## Phase 7A — Evolution Core Engine + SINDHU Strategy Generator ✅
+
+Two new systems, built as two new top-level packages (`evolution_engine/`, `sindhu_strategy/`) with their own physically-separate SQLite tables (`bot_strategies`, `bot_lessons`, `evolution_jobs`, `champion_records`, `knowledge_versions`, `daily_generation_log`) — never touching `strategy_library`'s user-owned files or the user-authored `lessons` table, so "Evolution may never modify user-imported strategies/lessons" is structural (no code path exists), not a promise. Verified empirically: hashed every one of the 12 saved user strategies and all 34 user lessons before and after a real Evolution Engine tick that mutated 5 real BOT lineages — zero bytes changed.
+
+**Part A — Evolution Core Engine** (`evolution_engine/`): pure deterministic logic, zero AI, zero ML (grep-verified: no `ai_integration` import anywhere in the package).
+- `dna.py` — decomposes any StrategyConfig into DNA block tags (Trend/Momentum/Liquidity/Volume/Breakout/Session/Risk) from its real indicators/concepts/filters.
+- `lesson_generator.py` (A.1) — wired into `paper_trading/position_manager.py`'s `_close()`, right after `evolution.record_outcome()`. Every closed position triggers an aggregation over that strategy's own trade history (win rate/RR by coin, session, and market regime); a lesson is only created when a bucket has ≥10 trades and a real statistical gap vs. the overall average — every lesson's `derived_from` field records the exact bucket stats and contributing trade IDs. Verified with 30 real trades (14/15 wins on BTCUSDT, 2/15 on ETHUSDT): produced 4 correctly-worded, fully traceable lessons.
+- `scoring.py` (A.6) — the Evolution Score formula: 11 weighted components (win rate, profit factor, net profit, avg RR, drawdown, trade count/sample confidence, stability, consistency, session/coin/market-condition performance), weights fixed and documented in the module docstring, plus `time_decay_weights()` for A.8's "recent trades count more, nothing is deleted."
+- `generation_manager.py` (A.4/A.5) — the only place `BOT_S101` → `BOT_S101_G2` lineages get created; every generation is a fresh INSERT, never an UPDATE or DELETE.
+- `governor.py` (A.3) — concrete limits (5 experiments/run, 25 generations/strategy lineage, a 20-item priority queue, 75%/85% CPU/RAM ceilings via `psutil`). Load-tested for real: saturated all 8 CPU cores to 100% with genuine multiprocess workers, confirmed `resource_ok()` flips to `False` under real load and back to `True` once it clears.
+- `mutator.py` (A.2) — Analyze/Compare/Rank/Archive/Research over BOT strategies only; `mutate_strategy()` nudges risk_pct/risk_reward/breakeven_at_rr based on whichever Evolution Score component scored weakest, plus current market regime; `research_dna_correlations()` finds which DNA combos historically score best (feeds Part B).
+- `market_regime.py` (A.8) — regime detection (trending_up/trending_down/ranging/volatile) from real OHLCV/ATR, independent of `paper_trading.market_state` to avoid a package cycle (both agree on the same 4 labels).
+- `champion.py` (A.7) — recomputes Champion Strategy/Lesson/Coin/Session/Timeframe/Market Condition/Generation; append-only (`champion_records`), so "current" is just the most recent row per category and history is never lost.
+- `engine.py` (A.12) — the background loop: a daemon thread (same shape as `paper_trading.engine`), checkpointed via `evolution_jobs` (same shape as `pipeline_jobs`), resumed on server restart only if it was already running (`resume_evolution_jobs_on_startup()`, wired into `sindhu_web/server.py`'s lifespan). Manually started/stopped by the CEO via the dashboard.
+
+**Part B — SINDHU Strategy Generator** (`sindhu_strategy/`): exactly 11 new strategy candidates/day, hard-capped by `daily_generation_log` (a guarded `UPDATE ... WHERE ai_calls_used=0` makes a second AI call per day structurally impossible, mirroring the existing `ai_import_cache` pattern) — 1 AI-assisted, 10 pure deterministic recombination of DNA blocks driven by real correlations across BOT and user strategy performance. Every candidate is saved permanently and routed through the exact same `validator.validate()` → `runner.run_mtf_batch()` → `reports.generate_report()` pipeline user strategies use (`lifecycle.py`), then scored with the same Evolution Score formula. A background scheduler thread (`generator.start_daily_scheduler_thread()`, auto-started from the server lifespan) checks hourly and runs the cycle once a day on its own — no CEO toggle needed, unlike the Evolution Engine.
+
+Verified with a real, unprompted run (the scheduler fired automatically at server startup, on the real production database): exactly 11 candidates created, exactly 1 labeled "Made with AI" (a real Groq-generated strategy, "BreakerSweep"/"VwapBreakout" across two separate real runs, both validator-clean with zero errors), 10 labeled "Made without AI"; a second invocation the same day created zero additional candidates (idempotent, per the daily cap). `ai_usage_log` confirmed exactly one new row per day under the distinct endpoint `/ai/sindhu-strategy-generation`.
+
+**Frontend**: two new pages — Evolution Dashboard (`#evolution`, engine status, Governor CPU/RAM/queue/experiment stats, Champion table, BOT strategy/lesson lists, DNA correlation research) and SINDHU Strategy (`#sindhu_strategy`, today's 11/11 + AI-used counter, filterable candidate list) — both enabled in `NAV_PAGES`, both registered in SINDHU CEO's card grid with full expand/control per the standing CEO-parity rule (Start/Stop/Run Tick Now and Generate Now buttons call the exact same REST endpoints the dedicated pages use). Verified live in a running browser session against the real database.
+
+---
+
 ## What's NOT Built (explicitly excluded so far)
 
 Per each phase's own "Do NOT build" list:
 - Reflection as a standalone page/workflow (exists internally within Paper Trading per-trade, not yet its own dashboard section)
-- Evolution as a standalone page/workflow (same — internal to Paper Trading so far)
 - News monitoring
 - Telegram alerts
 - Any Machine Learning / AI-based decision making
@@ -369,9 +395,9 @@ These are all future phases, each waiting for an explicit CEO go-ahead.
 
 ## Next Steps
 
-Nothing is scheduled — **waiting for CEO (you) to say what Phase 8 is.** Likely candidates:
+Phase 7A is complete and **waiting for CEO approval before any further phase.** Likely candidates for what comes next:
 
-- **Reflection / Evolution as standalone pages** — surface what Paper Trading already computes internally into their own dashboard sections
+- **Reflection as a standalone page** — the one remaining internal-only Paper Trading concept, following the exact pattern Phase 7A just used for Evolution
 - **Live Trading** — real order execution, gated behind everything Paper Trading already validates
 - **News monitoring** / **Telegram alerts**
 - **Cloud Deployment**

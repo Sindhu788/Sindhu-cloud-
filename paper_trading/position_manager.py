@@ -12,6 +12,11 @@ from backtest_engine.engine import _apply_slippage
 from data_engine import storage
 from paper_trading import reflection, evolution
 from paper_trading.guards import book_key as _book_key
+# Evolution Core Engine (Phase 7A, A.1): turns this closed trade's outcome,
+# combined with this strategy's own trade history, into a traceable BOT
+# lesson when a pattern is statistically meaningful. evolution_engine has no
+# dependency back on paper_trading, so this import can never form a cycle.
+from evolution_engine import lesson_generator
 
 
 def _now_iso():
@@ -158,4 +163,7 @@ def _close(pos, exit_price, exit_reason):
                   "pnl_pct": pnl_pct, "exit_reason": exit_reason, "reflection": refl}
     evolution.record_outcome(closed_pos, pnl, pnl_pct)
     lifecycle["evolution"] = _now_iso()
+    generated_lessons = lesson_generator.analyze_and_generate_lessons(closed_pos, now)
+    if generated_lessons:
+        lifecycle["bot_lessons_generated"] = generated_lessons
     return closed_pos

@@ -19,7 +19,7 @@ NAV_ICONS = {
     "reflection": "mirror", "evolution": "dna", "reports": "chart", "news": "news",
     "telegram": "send", "settings": "gear", "knowledge_compiler": "compiler",
     "ai_center": "ai_center", "backtest_history": "history", "ceo": "ceo",
-    "pipeline_history": "history",
+    "pipeline_history": "history", "sindhu_strategy": "spark",
 }
 NAV_PAGES = [
     {"id": "ceo", "label": "SINDHU CEO", "enabled": True, "icon": NAV_ICONS["ceo"]},
@@ -35,7 +35,8 @@ NAV_PAGES = [
     {"id": "pipeline_history", "label": "Pipeline History", "enabled": True, "icon": NAV_ICONS["pipeline_history"]},
     {"id": "paper_trading", "label": "Paper Trading", "enabled": True, "icon": NAV_ICONS["paper_trading"]},
     {"id": "reflection", "label": "Reflection", "enabled": False, "icon": NAV_ICONS["reflection"]},
-    {"id": "evolution", "label": "Evolution", "enabled": False, "icon": NAV_ICONS["evolution"]},
+    {"id": "evolution", "label": "Evolution", "enabled": True, "icon": NAV_ICONS["evolution"]},
+    {"id": "sindhu_strategy", "label": "SINDHU Strategy", "enabled": True, "icon": NAV_ICONS["sindhu_strategy"]},
     {"id": "reports", "label": "Reports", "enabled": True, "icon": NAV_ICONS["reports"]},
     {"id": "news", "label": "News", "enabled": False, "icon": NAV_ICONS["news"]},
     {"id": "telegram", "label": "Telegram", "enabled": False, "icon": NAV_ICONS["telegram"]},

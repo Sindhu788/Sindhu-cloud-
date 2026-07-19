@@ -468,6 +468,17 @@
     ai_center: '<rect x="5" y="7" width="14" height="12" rx="2"/><circle cx="9.5" cy="13" r="1.3"/><circle cx="14.5" cy="13" r="1.3"/><path d="M12 7V3"/><circle cx="12" cy="2.3" r="1"/><path d="M3 12h2M19 12h2"/>',
     history: '<path d="M3 12a9 9 0 109-9 9 9 0 00-6.4 2.6"/><path d="M3 3v6h6"/><path d="M12 7v5l4 2"/>',
     ceo: '<path d="M12 2l2.5 5 5.5.8-4 3.9.9 5.5-4.9-2.6L6.6 17.2l.9-5.5-4-3.9 5.5-.8z"/>',
+    spark: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4"/><path d="M12 8l1.8 2.2L16 12l-2.2 1.8L12 16l-1.8-2.2L8 12l2.2-1.8z"/>',
+  };
+
+  // Mobile bottom tab bar: the most-used pages, one tap away without the
+  // hamburger drawer. Rendered from the same /api/nav payload as the
+  // sidebar (single source of truth for what's enabled), just filtered to
+  // this fixed shortlist. Labels are shortened to fit a 5-tab bar.
+  const BOTTOM_NAV_IDS = ["home", "backtesting", "paper_trading", "strategies", "ceo"];
+  const BOTTOM_NAV_SHORT_LABELS = {
+    home: "Home", backtesting: "Backtest", paper_trading: "Paper",
+    strategies: "Strategies", ceo: "CEO",
   };
 
   async function renderNav() {
@@ -478,16 +489,61 @@
         <svg viewBox="0 0 24 24">${NAV_ICONS[p.icon] || NAV_ICONS.dashboard}</svg>
         <span class="nav-label">${esc(p.label)}</span>
       </a></li>`).join("");
+
+    const bottom = document.getElementById("bottomNav");
+    if (bottom) {
+      const byId = Object.fromEntries(pages.map(p => [p.id, p]));
+      bottom.innerHTML = BOTTOM_NAV_IDS.filter(id => byId[id]).map(id => `
+        <a href="#${id}" data-id="${id}" title="${esc(byId[id].label)}">
+          <svg viewBox="0 0 24 24">${NAV_ICONS[byId[id].icon] || NAV_ICONS.dashboard}</svg>
+          <span>${esc(BOTTOM_NAV_SHORT_LABELS[id] || byId[id].label)}</span>
+        </a>`).join("");
+    }
   }
 
   function setActiveNav(id) {
-    document.querySelectorAll("#navList a").forEach(a => {
+    document.querySelectorAll("#navList a, #bottomNav a").forEach(a => {
       a.classList.toggle("active", a.dataset.id === id);
     });
   }
 
   // ------------------------------------------------------------ router
   const content = document.getElementById("content");
+
+  // Mobile table->card support: below 768px, CSS renders every table row as
+  // a stacked card and shows each cell's column name via td[data-label]
+  // (see app.css). Rather than hand-editing all 50+ table render sites,
+  // this stamps data-label onto every td generically from its own table's
+  // thead -- and a MutationObserver re-stamps whenever any page (or a live
+  // tbody refresh) injects new rows, so current AND future tables get card
+  // mode for free. Attribute writes don't trigger childList mutations, so
+  // this can't loop. Desktop ignores data-label entirely.
+  function stampTableLabels() {
+    content.querySelectorAll("table").forEach(table => {
+      const ths = table.querySelectorAll("thead th");
+      if (!ths.length) return;
+      const labels = [...ths].map(th => th.textContent.trim());
+      table.querySelectorAll(":scope > tbody > tr").forEach(tr => {
+        const tds = tr.children;
+        // A lone td in a multi-column table is a colspan empty-state
+        // message ("No trades yet") -- leave it unlabeled so it renders
+        // as plain full-width text instead of "NAME: No trades yet".
+        if (tds.length === 1 && labels.length > 1) return;
+        for (let i = 0; i < tds.length && i < labels.length; i++) {
+          if (labels[i]) tds[i].setAttribute("data-label", labels[i]);
+        }
+      });
+    });
+  }
+  // Rooted on window ON PURPOSE: an observer created without any reachable
+  // reference is eligible for garbage collection (verified live -- an
+  // unreferenced observer here stamped fine right after load, then went
+  // dead minutes later once GC ran, silently leaving later re-renders
+  // unlabeled). window.* is always a GC root, so this can never be
+  // collected for the lifetime of the page.
+  window.__sindhuTableLabelObserver = new MutationObserver(debounce(stampTableLabels, 40));
+  window.__sindhuTableLabelObserver.observe(content, { childList: true, subtree: true });
+
   const PAGES = {
     home: renderHome, market: renderMarket, data: renderData,
     backtesting: renderBacktesting, reports: renderReports, settings: renderSettings,
@@ -495,6 +551,7 @@
     paper_trading: renderPaperTrading, knowledge_compiler: renderKnowledgeCompiler,
     ai_center: renderAiCenter, backtest_history: renderBacktestHistory,
     pipeline_history: renderPipelineHistory,
+    evolution: renderEvolution, sindhu_strategy: renderSindhuStrategy,
     ceo: renderCEO,
   };
   let refreshTimer = null;
@@ -524,6 +581,11 @@
     } catch (e) {
       content.innerHTML = `<div class="card"><b>Failed to load page</b><br>${esc(e.message)}</div>`;
     }
+    // Deterministic stamp right after every page render, in addition to the
+    // MutationObserver (which covers later in-place tbody refreshes) -- so
+    // even if the observer somehow misses a beat, a freshly-routed page is
+    // always labeled.
+    stampTableLabels();
   }
   window.addEventListener("hashchange", route);
 
@@ -1991,6 +2053,193 @@
     });
   }
 
+  // ------------------------------------------------------------ EVOLUTION (Phase 7A, Part A)
+  async function renderEvolution() {
+    const myToken = activeRouteToken;
+
+    async function render() {
+      const [status, championsRes, strategiesRes, lessonsRes, versionsRes, correlationsRes] = await Promise.all([
+        apiGet("/api/evolution/status"),
+        apiGet("/api/evolution/champions"),
+        apiGet("/api/evolution/strategies"),
+        apiGet("/api/evolution/lessons"),
+        apiGet("/api/evolution/knowledge-versions?limit=1"),
+        apiGet("/api/evolution/research/dna-correlations?min_sample=1"),
+      ]);
+      if (isStaleRoute(myToken)) return;
+
+      const gov = status.governor;
+      const champions = championsRes.champions || [];
+      const strategies = strategiesRes.strategies || [];
+      const lessons = lessonsRes.lessons || [];
+      const latestVersion = (versionsRes.versions || [])[0];
+      const correlations = correlationsRes.correlations || [];
+
+      const championRow = (label, cat) => {
+        const c = champions.find(x => x.category === cat);
+        return `<tr><td>${label}</td><td>${c ? esc(String(c.value)) : "-"}</td><td>${c ? Number(c.score).toFixed(2) : "-"}</td></tr>`;
+      };
+
+      content.innerHTML = `
+        <div class="section-title">Evolution Engine</div>
+        <p class="muted">Continuously Analyzes, Compares, Mutates, Ranks, and Archives BOT-owned strategies and lessons -- pure deterministic logic, zero AI, never touches user-imported strategies or user-written lessons.</p>
+        <div class="grid">
+          ${cardClass("Status", status.running ? "<span class=\"pill pill-completed\">Running</span>" : "<span class=\"pill pill-muted\">Stopped</span>", "")}
+          ${card("CPU", `${gov.cpu_percent.toFixed(1)}% <span class="muted">/ ${gov.cpu_limit_percent}% limit</span>`)}
+          ${card("RAM", `${gov.ram_percent.toFixed(1)}% <span class="muted">/ ${gov.ram_limit_percent}% limit</span>`)}
+          ${card("Research Queue", `${fmtNum(gov.queue_size)} <span class="muted">/ ${gov.max_queue_size} max</span>`)}
+          ${card("Experiments This Run", `${fmtNum(gov.experiments_this_run)} <span class="muted">/ ${gov.max_experiments_per_run} max</span>`)}
+          ${card("Max Generations / Strategy", fmtNum(gov.max_generations_per_strategy))}
+          ${card("Knowledge Version", latestVersion ? `V${latestVersion.version}` : "-")}
+          ${card("BOT Strategies (active)", fmtNum(strategies.length))}
+        </div>
+
+        <div class="section-title">Control Center</div>
+        <div class="btn-row">
+          <button class="btn" id="evoStart" ${status.running ? "disabled" : ""}>Start Engine</button>
+          <button class="btn-ghost" id="evoStop" ${status.running ? "" : "disabled"}>Stop Engine</button>
+          <button class="btn-ghost" id="evoRunTick">Run One Tick Now</button>
+          <span id="evoStatusMsg" class="muted"></span>
+        </div>
+
+        <div class="section-title">Champion Engine</div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Category</th><th>Champion</th><th>Score</th></tr></thead>
+          <tbody>
+            ${championRow("Strategy", "strategy")}
+            ${championRow("Lesson", "lesson")}
+            ${championRow("Coin", "coin")}
+            ${championRow("Session", "session")}
+            ${championRow("Timeframe", "timeframe")}
+            ${championRow("Market Condition", "market_condition")}
+            ${championRow("Generation", "generation")}
+          </tbody>
+        </table></div>
+
+        <div class="section-title">BOT Strategies (${strategies.length})</div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>ID</th><th>Generation</th><th>Origin</th><th>Evolution Score</th><th>Created</th></tr></thead>
+          <tbody>
+            ${strategies.slice(0, 100).map(s => `
+              <tr>
+                <td>${esc(s.name)} <span class="muted">(${esc(s.id)})</span></td>
+                <td>Gen ${s.generation}</td>
+                <td><span class="pill ${s.made_with_ai ? "pill-bullish" : "pill-muted"}">${s.origin}</span></td>
+                <td>${s.evolution_score != null ? Number(s.evolution_score).toFixed(2) : "not backtested"}</td>
+                <td>${esc((s.created_at || "").slice(0, 19))}</td>
+              </tr>`).join("") || '<tr><td colspan="5">No BOT strategies yet -- the Evolution Engine mutates existing lineages, and SINDHU Strategy creates new ones.</td></tr>'}
+          </tbody>
+        </table></div>
+
+        <div class="section-title">Self-Generated Lessons (${lessons.length})</div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>ID</th><th>Title</th><th>Confidence</th></tr></thead>
+          <tbody>
+            ${lessons.slice(0, 50).map(l => `
+              <tr><td>${esc(l.id)}</td><td>${esc(l.title)}</td><td>${l.confidence != null ? Number(l.confidence).toFixed(0) + "%" : "-"}</td></tr>
+            `).join("") || '<tr><td colspan="3">No self-generated lessons yet -- these appear automatically as paper-trading positions close.</td></tr>'}
+          </tbody>
+        </table></div>
+
+        <div class="section-title">Research: DNA Correlations</div>
+        <p class="muted">Which combinations of DNA blocks (Trend/Momentum/Liquidity/Volume/Breakout/Session/Risk) have historically scored best -- feeds the SINDHU Strategy Generator's deterministic candidates.</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>DNA Combo</th><th>Avg Score</th><th>Sample Size</th></tr></thead>
+          <tbody>
+            ${correlations.slice(0, 20).map(c => `
+              <tr><td>${esc(c.dna_combo.join(" + "))}</td><td>${c.avg_score}</td><td>${c.sample_size}</td></tr>
+            `).join("") || '<tr><td colspan="3">No scored BOT strategies yet.</td></tr>'}
+          </tbody>
+        </table></div>`;
+
+      document.getElementById("evoStart").onclick = async () => {
+        document.getElementById("evoStatusMsg").textContent = "Starting...";
+        try { await apiPost("/api/evolution/start"); await render(); }
+        catch (e) { document.getElementById("evoStatusMsg").textContent = `Failed: ${e.message}`; }
+      };
+      document.getElementById("evoStop").onclick = async () => {
+        document.getElementById("evoStatusMsg").textContent = "Stopping...";
+        try { await apiPost("/api/evolution/stop"); await render(); }
+        catch (e) { document.getElementById("evoStatusMsg").textContent = `Failed: ${e.message}`; }
+      };
+      document.getElementById("evoRunTick").onclick = async () => {
+        document.getElementById("evoStatusMsg").textContent = "Running one tick...";
+        try { await apiPost("/api/evolution/run-tick"); document.getElementById("evoStatusMsg").textContent = "Done."; await render(); }
+        catch (e) { document.getElementById("evoStatusMsg").textContent = `Failed: ${e.message}`; }
+      };
+    }
+
+    await render();
+  }
+
+  // ------------------------------------------------------------ SINDHU STRATEGY (Phase 7A, Part B)
+  async function renderSindhuStrategy() {
+    const myToken = activeRouteToken;
+    let filter = "all"; // all | ai | non_ai
+
+    async function render() {
+      const [dailyLog, candidatesRes] = await Promise.all([
+        apiGet("/api/sindhu-strategy/daily-log"),
+        apiGet("/api/sindhu-strategy/candidates"),
+      ]);
+      if (isStaleRoute(myToken)) return;
+
+      let candidates = candidatesRes.candidates || [];
+      if (filter === "ai") candidates = candidates.filter(c => c.made_with_ai);
+      if (filter === "non_ai") candidates = candidates.filter(c => !c.made_with_ai);
+      candidates = candidates.slice().sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
+
+      content.innerHTML = `
+        <div class="section-title">SINDHU Strategy</div>
+        <p class="muted">Generates entirely new BOT strategy candidates from scratch every day -- exactly 11, of which exactly 1 uses a single AI call and 10 are pure deterministic recombination of DNA blocks. Every candidate is saved permanently and labeled, whether AI-made or not.</p>
+        <div class="grid">
+          ${card("Today's Date", esc(dailyLog.date))}
+          ${card("Candidates Generated Today", `${fmtNum(dailyLog.candidates_generated)} <span class="muted">/ 11</span>`)}
+          ${cardClass("AI Call Used Today", dailyLog.ai_calls_used ? "<span class=\"pill pill-bullish\">Yes (1/1)</span>" : "<span class=\"pill pill-muted\">Not yet (0/1)</span>", "")}
+          ${card("Total Candidates (all-time)", fmtNum((candidatesRes.candidates || []).length))}
+        </div>
+
+        <div class="section-title">Control Center</div>
+        <div class="btn-row">
+          <button class="btn" id="sstratGenerate">Generate Today's Candidates Now</button>
+          <span id="sstratStatusMsg" class="muted"></span>
+        </div>
+
+        <div class="section-title">Candidates</div>
+        <div class="btn-row">
+          <button class="btn-ghost ${filter === "all" ? "active" : ""}" id="sstratFilterAll">All</button>
+          <button class="btn-ghost ${filter === "ai" ? "active" : ""}" id="sstratFilterAi">Made with AI</button>
+          <button class="btn-ghost ${filter === "non_ai" ? "active" : ""}" id="sstratFilterNonAi">Made without AI</button>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Name</th><th>Label</th><th>Evolution Score</th><th>Created</th></tr></thead>
+          <tbody>
+            ${candidates.slice(0, 200).map(c => `
+              <tr>
+                <td>${esc(c.name)} <span class="muted">(${esc(c.id)})</span></td>
+                <td><span class="pill ${c.made_with_ai ? "pill-bullish" : "pill-muted"}">${c.made_with_ai ? "Made with AI" : "Made without AI"}</span></td>
+                <td>${c.evolution_score != null ? Number(c.evolution_score).toFixed(2) : "not backtested yet"}</td>
+                <td>${esc((c.created_at || "").slice(0, 19))}</td>
+              </tr>`).join("") || '<tr><td colspan="4">No candidates generated yet -- click "Generate Today\'s Candidates Now", or wait for the daily scheduler.</td></tr>'}
+          </tbody>
+        </table></div>`;
+
+      document.getElementById("sstratGenerate").onclick = async () => {
+        document.getElementById("sstratStatusMsg").textContent = "Generating...";
+        try {
+          const res = await apiPost("/api/sindhu-strategy/generate", {}, 180000);
+          document.getElementById("sstratStatusMsg").textContent = `Created ${res.count} candidate(s).`;
+          await render();
+        } catch (e) { document.getElementById("sstratStatusMsg").textContent = `Failed: ${e.message}`; }
+      };
+      document.getElementById("sstratFilterAll").onclick = () => { filter = "all"; render(); };
+      document.getElementById("sstratFilterAi").onclick = () => { filter = "ai"; render(); };
+      document.getElementById("sstratFilterNonAi").onclick = () => { filter = "non_ai"; render(); };
+    }
+
+    await render();
+  }
+
   // ------------------------------------------------------------ PAPER TRADING
   async function renderPaperTrading() {
     const myToken = activeRouteToken;
@@ -3200,14 +3449,16 @@
   // in-place command center), not a reimplementation of any backend logic.
   const CEO_MODULES = [
     "home", "market", "data", "strategies", "knowledge", "knowledge_compiler",
-    "ai_center", "backtesting", "backtest_history", "pipeline_history", "paper_trading", "reports", "settings",
+    "ai_center", "backtesting", "backtest_history", "pipeline_history", "paper_trading",
+    "evolution", "sindhu_strategy", "reports", "settings",
   ];
   const CEO_LABELS = {
     home: "Dashboard", market: "Market", data: "Data", strategies: "Strategies",
     knowledge: "Knowledge", knowledge_compiler: "Knowledge Compiler", ai_center: "AI Center",
     backtesting: "Backtesting", backtest_history: "Backtest History",
     pipeline_history: "Pipeline History",
-    paper_trading: "Paper Trading", reports: "Reports", settings: "Settings",
+    paper_trading: "Paper Trading", evolution: "Evolution", sindhu_strategy: "SINDHU Strategy",
+    reports: "Reports", settings: "Settings",
   };
 
   function statusDot(level) {
@@ -3223,7 +3474,8 @@
     async function fetchAll() {
       const [home, market, data, strategies, knowledgeReport, lessons, kcDocs, aiDash,
              history, paperStatus, paperPositions, paperAnalytics, bestWorst, settings, jobsRes,
-             pipelineHistoryRes] = await Promise.all([
+             pipelineHistoryRes, evolutionStatus, evolutionChampions, evolutionStrategies,
+             sindhuDailyLog, sindhuCandidates] = await Promise.all([
         apiGet("/api/home").catch(() => null),
         apiGet("/api/market").catch(() => ({ coins: [], exchange: "-" })),
         apiGet("/api/data").catch(() => ({ coins: [], total_coins: 0, missing_data: [] })),
@@ -3240,6 +3492,11 @@
         apiGet("/api/settings").catch(() => ({})),
         apiGet("/api/jobs").catch(() => ({ jobs: [] })),
         apiGet("/api/automation/pipeline-history?limit=20").catch(() => ({ runs: [] })),
+        apiGet("/api/evolution/status").catch(() => ({ running: false, governor: {} })),
+        apiGet("/api/evolution/champions").catch(() => ({ champions: [] })),
+        apiGet("/api/evolution/strategies").catch(() => ({ strategies: [] })),
+        apiGet("/api/sindhu-strategy/daily-log").catch(() => ({ candidates_generated: 0, ai_calls_used: 0 })),
+        apiGet("/api/sindhu-strategy/candidates").catch(() => ({ candidates: [] })),
       ]);
       return {
         home, market, data, strategies: strategies.strategies || [],
@@ -3247,6 +3504,9 @@
         aiDash, history: history.batches || [], paperStatus, paperPositions: paperPositions.positions || [],
         paperAnalytics, bestWorst, settings, jobs: jobsRes.jobs || [],
         pipelineRuns: pipelineHistoryRes.runs || [],
+        evolutionStatus, evolutionChampions: evolutionChampions.champions || [],
+        evolutionStrategies: evolutionStrategies.strategies || [],
+        sindhuDailyLog, sindhuCandidates: sindhuCandidates.candidates || [],
       };
     }
 
@@ -3335,6 +3595,23 @@
             text: s.running
               ? `Balance $${Number(s.balance).toFixed(2)}, ${s.open_trades} open, ${a ? `${a.active_strategies} strategies, ${a.win_rate.toFixed(1)}% win rate all-time` : ""}`
               : "Engine stopped",
+          };
+        }
+        case "evolution": {
+          const running = d.evolutionStatus.running;
+          const champ = d.evolutionChampions.find(c => c.category === "strategy");
+          return {
+            level: running ? "active" : "idle",
+            text: running
+              ? `Running -- ${d.evolutionStrategies.length} BOT strategies${champ ? `, champion: ${esc(String(champ.value))}` : ""}`
+              : `Stopped -- ${d.evolutionStrategies.length} BOT strategies tracked`,
+          };
+        }
+        case "sindhu_strategy": {
+          const log = d.sindhuDailyLog;
+          return {
+            level: log.candidates_generated >= 11 ? "idle" : "attention",
+            text: `${log.candidates_generated || 0}/11 candidates today (AI used: ${log.ai_calls_used ? "yes" : "no"}) -- ${d.sindhuCandidates.length} total ever`,
           };
         }
         case "reports":
@@ -3451,6 +3728,8 @@
         if (id === "backtesting" || id === "backtest_history") return await expandBacktesting(id);
         if (id === "pipeline_history") return await expandPipelineHistory();
         if (id === "paper_trading") return await expandPaperTrading();
+        if (id === "evolution") return await expandEvolution();
+        if (id === "sindhu_strategy") return await expandSindhuStrategy();
         if (id === "reports") return await expandReports();
         if (id === "settings") return await expandSettings();
       } catch (e) {
@@ -3878,6 +4157,90 @@
       // page (see loadPaperAnalytics/paperAnalyticsSectionHtml) -- per the
       // standing CEO-parity rule, so this view can never disagree with it.
       loadPaperAnalytics("ceoPtAnalyticsBox", "ceoPt", "today");
+    }
+
+    // ---- Evolution Engine (same /api/evolution/* endpoints as the
+    // standalone Evolution page, per the standing CEO-parity rule)
+    async function expandEvolution() {
+      const d = await fetchAll();
+      if (isStaleRoute(myToken)) return;
+      const s = d.evolutionStatus;
+      const gov = s.governor || {};
+      const champions = d.evolutionChampions;
+      const championRow = (label, cat) => {
+        const c = champions.find(x => x.category === cat);
+        return `<tr><td>${label}</td><td>${c ? esc(String(c.value)) : "-"}</td><td>${c ? Number(c.score).toFixed(2) : "-"}</td></tr>`;
+      };
+      expandedShell("Evolution Engine", `
+        <div class="grid">
+          ${cardClass("Status", s.running ? "<span class=\"pill pill-completed\">Running</span>" : "<span class=\"pill pill-muted\">Stopped</span>", "")}
+          ${card("CPU / RAM", `${(gov.cpu_percent ?? 0).toFixed ? gov.cpu_percent.toFixed(1) : gov.cpu_percent}% / ${(gov.ram_percent ?? 0).toFixed ? gov.ram_percent.toFixed(1) : gov.ram_percent}%`)}
+          ${card("BOT Strategies", fmtNum(d.evolutionStrategies.length))}
+        </div>
+        <div class="btn-row">
+          <button class="btn" id="ceoEvoStart" ${s.running ? "disabled" : ""}>Start Engine</button>
+          <button class="btn-ghost" id="ceoEvoStop" ${s.running ? "" : "disabled"}>Stop Engine</button>
+          <button class="btn-ghost" id="ceoEvoRunTick">Run One Tick Now</button>
+          <span id="ceoEvoStatus" class="muted"></span>
+        </div>
+        <div class="section-title">Champion Engine</div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Category</th><th>Champion</th><th>Score</th></tr></thead>
+          <tbody>
+            ${championRow("Strategy", "strategy")}${championRow("Lesson", "lesson")}${championRow("Coin", "coin")}
+            ${championRow("Session", "session")}${championRow("Timeframe", "timeframe")}${championRow("Market Condition", "market_condition")}
+          </tbody>
+        </table></div>
+        <p class="muted">Full generation history, self-generated lessons, and DNA correlations are on the dedicated Evolution page.</p>`);
+      document.getElementById("ceoEvoStart").onclick = async () => {
+        try { await apiPost("/api/evolution/start"); expandEvolution(); }
+        catch (e) { document.getElementById("ceoEvoStatus").textContent = `Failed: ${e.message}`; }
+      };
+      document.getElementById("ceoEvoStop").onclick = async () => {
+        try { await apiPost("/api/evolution/stop"); expandEvolution(); }
+        catch (e) { document.getElementById("ceoEvoStatus").textContent = `Failed: ${e.message}`; }
+      };
+      document.getElementById("ceoEvoRunTick").onclick = async () => {
+        document.getElementById("ceoEvoStatus").textContent = "Running one tick...";
+        try { await apiPost("/api/evolution/run-tick"); expandEvolution(); }
+        catch (e) { document.getElementById("ceoEvoStatus").textContent = `Failed: ${e.message}`; }
+      };
+    }
+
+    // ---- SINDHU Strategy Generator (same /api/sindhu-strategy/* endpoints
+    // as the standalone page, per the standing CEO-parity rule)
+    async function expandSindhuStrategy() {
+      const d = await fetchAll();
+      if (isStaleRoute(myToken)) return;
+      const log = d.sindhuDailyLog;
+      const candidates = d.sindhuCandidates.slice().sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
+      expandedShell("SINDHU Strategy", `
+        <div class="grid">
+          ${card("Candidates Today", `${fmtNum(log.candidates_generated)} / 11`)}
+          ${cardClass("AI Call Used Today", log.ai_calls_used ? "<span class=\"pill pill-bullish\">Yes (1/1)</span>" : "<span class=\"pill pill-muted\">Not yet (0/1)</span>", "")}
+          ${card("Total Candidates", fmtNum(d.sindhuCandidates.length))}
+        </div>
+        <div class="btn-row">
+          <button class="btn" id="ceoSstratGenerate">Generate Today's Candidates Now</button>
+          <span id="ceoSstratStatus" class="muted"></span>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Name</th><th>Label</th><th>Evolution Score</th></tr></thead>
+          <tbody>${candidates.slice(0, 20).map(c => `
+            <tr>
+              <td>${esc(c.name)}</td>
+              <td><span class="pill ${c.made_with_ai ? "pill-bullish" : "pill-muted"}">${c.made_with_ai ? "Made with AI" : "Made without AI"}</span></td>
+              <td>${c.evolution_score != null ? Number(c.evolution_score).toFixed(2) : "not backtested yet"}</td>
+            </tr>`).join("") || '<tr><td colspan="3">No candidates yet.</td></tr>'}</tbody>
+        </table></div>`);
+      document.getElementById("ceoSstratGenerate").onclick = async () => {
+        document.getElementById("ceoSstratStatus").textContent = "Generating...";
+        try {
+          const res = await apiPost("/api/sindhu-strategy/generate", {}, 180000);
+          document.getElementById("ceoSstratStatus").textContent = `Created ${res.count} candidate(s).`;
+          expandSindhuStrategy();
+        } catch (e) { document.getElementById("ceoSstratStatus").textContent = `Failed: ${e.message}`; }
+      };
     }
 
     // ---- Automation Pipeline History
