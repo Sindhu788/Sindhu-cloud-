@@ -14,6 +14,7 @@ already verified, rather than inventing a third pattern:
     resume_pipeline_jobs_on_startup() already is.
 """
 
+import random
 import threading
 import time
 from datetime import datetime, timezone
@@ -23,6 +24,16 @@ from evolution_engine.governor import Governor
 from evolution_engine import mutator, champion
 
 DEFAULT_TICK_INTERVAL_SECONDS = 300  # one evolution tick every 5 minutes
+# +/-15% jitter on every wait between ticks, so a fixed 300s period never
+# stays permanently aligned with Paper Trading's own tick interval (also a
+# fixed period, configured separately in paper_trading/config.py) or the
+# SINDHU Strategy scheduler's hourly check -- two independently-fixed
+# periods that happen to start at the same moment stay aligned forever
+# without jitter, repeatedly colliding on the same DB-write window every
+# time they coincide. This alone doesn't fix write contention (the _DB_LOCK
+# in data_engine.storage.get_conn() does that), it just reduces how often
+# collisions are even attempted.
+TICK_JITTER_FRACTION = 0.15
 
 
 def _now_iso():
@@ -75,14 +86,23 @@ class EvolutionEngine:
         if self.job_id:
             storage.update_evolution_job(self.job_id, _now_iso(), status="stopped", stage="stopped")
 
-    def _checkpoint(self, stage, **updates):
+    def _checkpoint(self, stage, clear_error=False, **updates):
         """Same accumulate-then-write-the-whole-dict pattern as
         automation_pipeline.pipeline's checkpoint closure: merge into the
         in-memory dict, then persist the complete, current version -- never
         a partial merge at the storage layer, so a crash right after this
-        call always leaves a self-consistent row."""
+        call always leaves a self-consistent row. clear_error=True (passed
+        by the final "completed" checkpoint) blanks out a previous tick's
+        error message -- without this, one transient failure's message
+        (e.g. a "database is locked" collision, now far rarer after the
+        _DB_LOCK fix in storage.get_conn() but never impossible to hit
+        zero times) stayed displayed on the dashboard forever, even hours
+        after ticks resumed succeeding normally."""
         self._checkpoint_data.update(updates)
-        storage.update_evolution_job(self.job_id, _now_iso(), stage=stage, checkpoint=dict(self._checkpoint_data))
+        storage.update_evolution_job(
+            self.job_id, _now_iso(), stage=stage, checkpoint=dict(self._checkpoint_data),
+            error="" if clear_error else None,
+        )
 
     def _loop(self):
         self._log("[evolution-engine] started")
@@ -92,7 +112,12 @@ class EvolutionEngine:
             except Exception as e:
                 self._log(f"[evolution-engine] tick error: {e!r}")
                 storage.update_evolution_job(self.job_id, _now_iso(), error=repr(e))
-            self._stop_flag.wait(self.tick_interval_seconds)
+            # Jittered wait (see TICK_JITTER_FRACTION) so this loop's period
+            # doesn't stay permanently lock-stepped with another background
+            # system's own fixed interval.
+            jitter = self.tick_interval_seconds * TICK_JITTER_FRACTION
+            wait_seconds = self.tick_interval_seconds + random.uniform(-jitter, jitter)
+            self._stop_flag.wait(wait_seconds)
         with self._lock:
             self._running = False
 
@@ -111,11 +136,33 @@ class EvolutionEngine:
         after a crash simply means "run the next fresh tick" rather than
         replaying partial in-tick progress -- the checkpoint's job is to
         make what stage it died in observable, not to skip already-done
-        work within a tick."""
+        work within a tick.
+
+        Resources are checked FIRST, before any DB work at all -- not just
+        inside the mutation loop below. Diagnosed live: a heavily-loaded
+        box (real cpu_percent measured at 100.0) still paid for the
+        analyzing/archiving/ranking DB reads and writes every 5 minutes
+        even though the mutation loop itself correctly refused to do
+        anything, because resource_ok() was only ever consulted from
+        inside that loop. A fully loaded system now skips the entire tick."""
         self._checkpoint_data = {}
         self.governor.reset_run_budget()
+
+        if not self.governor.resource_ok():
+            gov_stats = self.governor.stats()
+            self._log(f"[evolution-engine] CPU/RAM over limit "
+                      f"(cpu={gov_stats['cpu_percent']}%, ram={gov_stats['ram_percent']}%) -- skipping this tick entirely")
+            self._checkpoint("skipped_over_resource_limit", clear_error=True)
+            return
+
         self._checkpoint("analyzing")
 
+        # Cleared before re-deriving the candidate list fresh: a tick that
+        # errors out partway through the mutation loop below otherwise
+        # leaves stale, already-considered items sitting in the queue
+        # forever (see governor.clear_queue()'s docstring for the exact
+        # 16-hour-stuck-at-max symptom this caused).
+        self.governor.clear_queue()
         for base_id in storage.list_bot_strategy_base_ids():
             latest = storage.latest_generation_for_base(base_id)
             score = latest["evolution_score"] if latest and latest.get("evolution_score") is not None else 50.0
@@ -150,7 +197,7 @@ class EvolutionEngine:
             "archived_this_tick": archived,
         }
         storage.create_knowledge_version("evolution tick", snapshot, _now_iso())
-        self._checkpoint("completed", last_tick_at=_now_iso())
+        self._checkpoint("completed", last_tick_at=_now_iso(), clear_error=True)
 
     def status(self):
         job = storage.get_evolution_job(self.job_id) if self.job_id else None

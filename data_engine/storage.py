@@ -730,10 +730,40 @@ def _migrate_trade_history_columns(conn):
             conn.execute(f"ALTER TABLE backtest_trades ADD COLUMN {col} {col_type}")
 
 
+# NOTE on a fix that was tried and reverted: an earlier version of this
+# function wrapped every connection (reads AND writes) in one process-wide
+# threading.Lock, on the theory that serializing all access would prevent
+# background threads (Paper Trading, Evolution, SINDHU Strategy, the
+# automation pipeline) from colliding on SQLite's single-writer rule. That
+# made things WORSE, not better: WAL mode already lets any number of
+# readers run fully concurrently with each other and with the one writer
+# -- there was never a reason to serialize reads -- and forcing everything
+# through one lock meant a single thread's own sequential read loop (e.g.
+# /api/market's per-coin candle reads for 50 coins, or an Evolution tick's
+# per-lineage reads) held the lock for its ENTIRE loop, so every other
+# thread's simple queries queued up behind the whole thing. Diagnosed live:
+# with the blanket lock in place, /api/market's normal ~57s cold-cache
+# warmup (documented below, and already known/expected before this fix)
+# started blocking /api/home and other unrelated endpoints for that same
+# duration, which they never did before. Reverted.
+#
+# The real, narrower problem this timeout addresses is writer-vs-writer
+# collisions specifically (SQLite's one actual serialization point): if
+# two background threads happen to write at the exact same instant, the
+# loser waits up to this many seconds for the busy handler before either
+# succeeding or raising "database is locked". Lowered from the original 30s
+# to 10s -- long enough for another thread's brief write transaction to
+# finish, short enough that a genuine collision fails fast instead of
+# stalling a request for half a minute. The actual fix for the Evolution
+# Engine hangs that motivated this was in evolution_engine/engine.py and
+# governor.py: check real CPU/RAM before a tick does ANY work (not only
+# inside its mutation loop), and never let a partially-drained queue stay
+# stuck -- see EvolutionEngine._tick()'s early resource check and
+# Governor.clear_queue().
 @contextmanager
 def get_conn():
     ensure_folders()
-    conn = sqlite3.connect(DB_PATH, timeout=30)
+    conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.execute("PRAGMA journal_mode=WAL;")
     try:
         yield conn

@@ -9,7 +9,7 @@ from data_engine import storage
 from data_engine.logging_setup import log as file_log
 from paper_trading import config as pt_config
 from paper_trading.engine import engine
-from sindhu_web import broadcast, sync
+from sindhu_web import broadcast, cache, sync
 
 router = APIRouter()
 
@@ -164,13 +164,7 @@ def _period_bounds(period):
     return None, None  # "all"
 
 
-@router.get("/api/paper-trading/analytics")
-def get_analytics(period: str = "all"):
-    """The single data source behind both the Paper Trading page's
-    analytics dashboard and the SINDHU CEO Paper Trading card's expanded
-    view (CEO-parity rule) -- closed trades only count once actually
-    closed; open positions are always reported as a separate count, never
-    folded into closed_trades."""
+def _compute_analytics(period):
     since_iso, until_iso = _period_bounds(period)
     summary = storage.get_paper_period_summary(since_iso, until_iso)
     coin_stats = storage.list_paper_coin_stats(since_iso, until_iso)
@@ -217,3 +211,24 @@ def get_analytics(period: str = "all"):
         "per_coin": coin_stats,
         "per_strategy": strategy_stats,
     }
+
+
+@router.get("/api/paper-trading/analytics")
+def get_analytics(period: str = "all"):
+    """The single data source behind both the Paper Trading page's
+    analytics dashboard and the SINDHU CEO Paper Trading card's expanded
+    view (CEO-parity rule) -- closed trades only count once actually
+    closed; open positions are always reported as a separate count, never
+    folded into closed_trades.
+
+    Cached for a short 10s TTL (same stale-while-revalidate pattern as
+    /api/home) -- this endpoint runs 6+ separate aggregation queries plus a
+    strategy_library disk read with no caching at all, and is polled by
+    both the Paper Trading page's own auto-refresh AND the SINDHU CEO
+    card whenever it's open, from however many browser tabs/devices are
+    connected on the LAN at once. Under concurrent access those requests
+    now queue behind data_engine.storage's process-wide write-serialization
+    lock (see storage.get_conn()) one full aggregation pass at a time;
+    caching means most polls hit the 10s-old value instead of triggering
+    (and queuing behind) a fresh pass every single time."""
+    return cache.cached(f"paper_analytics_{period}", 10, lambda: _compute_analytics(period))

@@ -15,11 +15,23 @@ import time
 import psutil
 
 # ---- concrete limits (A.3: "enforce concrete limits, not just theoretical ones") ----
+# CPU/RAM limits were originally sized as if Evolution were the only
+# background consumer on the box. With Paper Trading (per active strategy),
+# the SINDHU Strategy daily scheduler, and the automation pipeline all now
+# also running continuously, 75%/85% left no headroom for the OTHER
+# systems' own usage plus the dashboard's own request-serving threads --
+# diagnosed live: real cpu_percent read 100.0 while only Evolution was
+# doing background work, well past the old 75% ceiling, yet resource_ok()
+# was only ever consulted from inside the mutation loop (see engine.py's
+# _tick(), fixed alongside this), so checkpoint writes and the Champion
+# Engine's own DB reads/writes still ran every tick regardless. Tightened
+# here to leave real combined headroom across ALL background systems, not
+# just Evolution's own share.
 MAX_EXPERIMENTS_PER_RUN = 5      # how many mutation/backtest experiments one engine tick may launch
 MAX_GENERATIONS_PER_STRATEGY = 25  # generation_manager.create_next_strategy_generation stops here
 MAX_QUEUE_SIZE = 20              # research/experiment queue never grows past this many pending items
-CPU_LIMIT_PERCENT = 75.0         # refuse new work above this instantaneous CPU load
-RAM_LIMIT_PERCENT = 85.0         # refuse new work above this RAM usage
+CPU_LIMIT_PERCENT = 60.0         # refuse new work above this instantaneous CPU load (was 75.0)
+RAM_LIMIT_PERCENT = 80.0         # refuse new work above this RAM usage (was 85.0)
 BACKOFF_SECONDS = 5.0            # how long to wait before re-checking resources when over limit
 
 
@@ -122,6 +134,19 @@ class Governor:
     def queue_size(self):
         with self._lock:
             return len(self._queue)
+
+    def clear_queue(self):
+        """Drops every pending item. Each Evolution Engine tick re-derives
+        the full candidate list fresh from storage (see engine.py's
+        _tick()), so leftover items from a tick that errored out partway
+        through are stale by the next tick -- without this, a tick that
+        fails after dequeuing N items (but before finishing) leaves the
+        queue permanently short by N forever, since the next tick's blind
+        re-enqueue-everything only tops it back up to whatever headroom is
+        left, never truly resetting it. Diagnosed live: queue_size sat at
+        its max (20/20) for 16+ hours straight because of exactly this."""
+        with self._lock:
+            self._queue.clear()
 
     # ---- reporting (backs the Evolution Dashboard) ----
     def stats(self):
