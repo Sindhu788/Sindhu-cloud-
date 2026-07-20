@@ -4371,11 +4371,26 @@
     autoRefresh(() => { if (expandedId === null) return scheduleRefresh(showGrid) || Promise.resolve(); return Promise.resolve(); }, 15);
   }
 
+  // Fire-and-forget diagnostics beacon: reports what viewport/UA a REAL
+  // browser (mobile or otherwise) actually has, once per page load, so a
+  // "mobile layout isn't showing on my phone"-style report can be checked
+  // against the real device's own numbers in sindhu.log instead of only a
+  // simulated viewport -- never awaited, never allowed to affect load.
+  function reportClientDiagnostics() {
+    try {
+      apiPost("/api/system/client-diagnostics", {
+        innerWidth: window.innerWidth, innerHeight: window.innerHeight,
+        devicePixelRatio: window.devicePixelRatio, userAgent: navigator.userAgent,
+      }).catch(() => {});
+    } catch (e) { /* never let a diagnostics beacon break page load */ }
+  }
+
   // ------------------------------------------------------------ init
   (async function init() {
     await ensureToken();
     await renderNav();
     connectWs();
+    reportClientDiagnostics();
     route();
   })();
 })();
