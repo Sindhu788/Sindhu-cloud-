@@ -51,61 +51,7 @@ class ConfiguredStrategy(Strategy):
         entry_df = ctx.frames.get("entry")
         if entry_df is not None and not entry_df.empty:
             used = set(self.config.concepts_used)
-            if "bos" in used or "choch" in used:
-                entry_df["bull_bos"], entry_df["bear_bos"] = concepts.break_of_structure(entry_df)
-            if "choch" in used:
-                entry_df["bull_choch"], entry_df["bear_choch"] = concepts.change_of_character(entry_df)
-            if "fvg" in used:
-                entry_df["bull_fvg"], entry_df["bear_fvg"] = concepts.fair_value_gap(entry_df)
-            if "order_block" in used or "breaker_block" in used:
-                bl, bh, brl, brh = concepts.order_blocks(entry_df)
-                entry_df["bull_ob_low"], entry_df["bull_ob_high"] = bl, bh
-                entry_df["bear_ob_low"], entry_df["bear_ob_high"] = brl, brh
-            if "breaker_block" in used:
-                bbl, bbh, brbl, brbh = concepts.breaker_blocks(entry_df)
-                entry_df["bull_breaker_low"], entry_df["bull_breaker_high"] = bbl, bbh
-                entry_df["bear_breaker_low"], entry_df["bear_breaker_high"] = brbl, brbh
-            if "support" in used or "resistance" in used or "liquidity_sweep" in used:
-                entry_df["support"], entry_df["resistance"] = concepts.support_resistance(entry_df)
-            if "liquidity_sweep" in used:
-                entry_df["bull_liquidity_sweep"], entry_df["bear_liquidity_sweep"] = concepts.liquidity_sweep(entry_df)
-            if "candle_break" in used:
-                entry_df["bull_candle_break"], entry_df["bear_candle_break"] = concepts.candle_break(entry_df)
-            if "volume" in used and "volume_spike" not in entry_df.columns:
-                entry_df["volume_spike"] = concepts.volume_filter(entry_df)
-            if {"pdh", "pdl", "pdh_sweep", "pdl_sweep"} & used:
-                entry_df["pdh"], entry_df["pdl"] = concepts.previous_day_high_low(entry_df)
-            if {"pdh_sweep", "pdl_sweep"} & used:
-                entry_df["pdl_sweep"], entry_df["pdh_sweep"] = concepts.pdh_pdl_sweep(entry_df)
-            if "fvg" in used and (self.config.stop_loss.type == "structure" or self.config.take_profit.type == "structure"):
-                (entry_df["fvg_bull_low"], entry_df["fvg_bull_high"],
-                 entry_df["fvg_bear_low"], entry_df["fvg_bear_high"]) = concepts.fvg_zone(entry_df)
-            if {"poc", "value_area"} & used:
-                entry_df["poc"], entry_df["vah"], entry_df["val"] = concepts.volume_profile_previous_day(entry_df)
-            if {"lvn", "hvn"} & used:
-                entry_df["in_lvn"], entry_df["in_hvn"] = concepts.volume_nodes_previous_day(entry_df)
-            if "aggression" in used:
-                entry_df["bull_aggression"], entry_df["bear_aggression"] = concepts.aggression(entry_df)
-            if "mitigation_block" in used:
-                mbl, mbh, mrbl, mrbh = concepts.mitigation_blocks(entry_df)
-                entry_df["bull_mitigation_low"], entry_df["bull_mitigation_high"] = mbl, mbh
-                entry_df["bear_mitigation_low"], entry_df["bear_mitigation_high"] = mrbl, mrbh
-            if "imbalance" in used:
-                entry_df["bull_imbalance"], entry_df["bear_imbalance"] = concepts.imbalance(entry_df)
-            if "equal_highs_lows" in used:
-                entry_df["bull_equal_lows"], entry_df["bear_equal_highs"] = concepts.equal_highs_lows(entry_df)
-            if {"swing_high", "swing_low"} & used:
-                entry_df["swing_high_event"], entry_df["swing_low_event"] = concepts.swing_points(entry_df)
-            if "session_high_low" in used:
-                entry_df["session_high"], entry_df["session_low"] = concepts.session_high_low(entry_df)
-            if "session_open" in used:
-                entry_df["session_open"] = concepts.session_open_price(entry_df)
-            if "engulfing" in used:
-                entry_df["bull_engulfing"], entry_df["bear_engulfing"] = concepts.engulfing_candle(entry_df)
-            if "pin_bar" in used:
-                entry_df["bull_pin_bar"], entry_df["bear_pin_bar"] = concepts.pin_bar(entry_df)
-            if "inside_bar" in used:
-                entry_df["inside_bar"] = concepts.inside_bar(entry_df)
+            self._compute_concept_columns(entry_df, used)
             if self.config.session_filter:
                 entry_df["session"] = concepts.session_column(entry_df)
             if self.config.trend_filter:
@@ -116,7 +62,104 @@ class ConfiguredStrategy(Strategy):
                 if "atr_14" not in entry_df.columns:
                     entry_df["atr_14"] = concepts.atr(entry_df, 14)
 
+            # Bug fix: every structural/event concept (BOS, CHoCH, FVG, order
+            # block, liquidity sweep, swing points, ...) used to be computed
+            # ONLY on the entry (typically 1-minute) frame, no matter which
+            # role a strategy actually declared for it -- Condition.role
+            # exists in the schema but was dead code end-to-end. A strategy
+            # explicitly describing "a significant swing low on the 1H or 4H
+            # chart" (e.g. "Liquidity Sweeps") silently got noisy 1-minute
+            # micro-pivots instead, which is a big part of why its trade
+            # count and win rate were both so bad -- confirmed via a real
+            # audit re-run (see PROGRESS.md). Any OTHER role a condition
+            # explicitly names now gets the SAME concept columns computed on
+            # ITS OWN native-resolution frame (not upsampled/downsampled
+            # entry data), exactly like indicators already do above --
+            # ctx.build() below already knows how to causally align a
+            # non-entry role's columns onto the entry index (shift +
+            # backward-asof), so nothing else needs to change for this to
+            # flow through correctly. A condition with role=None (every
+            # strategy saved before this fix, and any strategy that simply
+            # doesn't specify one) is completely unaffected -- it still only
+            # ever reads the entry_ prefixed columns above.
+            for role in self._condition_roles():
+                if role in (None, "entry"):
+                    continue
+                role_df = ctx.frames.get(role)
+                if role_df is None or role_df.empty:
+                    continue
+                self._compute_concept_columns(role_df, used)
+
         return ctx.build()
+
+    def _condition_roles(self):
+        roles = set()
+        for bucket in (self.config.entry_conditions, self.config.exit_conditions, self.config.confirmation_conditions):
+            for cond in bucket:
+                if cond.type == "concept" and cond.role:
+                    roles.add(cond.role)
+        return roles
+
+    @staticmethod
+    def _compute_concept_columns(df, used):
+        """Computes every concept-derived column `used` calls for, directly
+        on `df` -- shared by the entry timeframe (always) and any other role
+        a condition explicitly references (see prepare_context)."""
+        if "bos" in used or "choch" in used:
+            df["bull_bos"], df["bear_bos"] = concepts.break_of_structure(df)
+        if "choch" in used:
+            df["bull_choch"], df["bear_choch"] = concepts.change_of_character(df)
+        if "fvg" in used:
+            df["bull_fvg"], df["bear_fvg"] = concepts.fair_value_gap(df)
+        if "order_block" in used or "breaker_block" in used:
+            bl, bh, brl, brh = concepts.order_blocks(df)
+            df["bull_ob_low"], df["bull_ob_high"] = bl, bh
+            df["bear_ob_low"], df["bear_ob_high"] = brl, brh
+        if "breaker_block" in used:
+            bbl, bbh, brbl, brbh = concepts.breaker_blocks(df)
+            df["bull_breaker_low"], df["bull_breaker_high"] = bbl, bbh
+            df["bear_breaker_low"], df["bear_breaker_high"] = brbl, brbh
+        if "support" in used or "resistance" in used or "liquidity_sweep" in used:
+            df["support"], df["resistance"] = concepts.support_resistance(df)
+        if "liquidity_sweep" in used:
+            df["bull_liquidity_sweep"], df["bear_liquidity_sweep"] = concepts.liquidity_sweep(df)
+        if "candle_break" in used:
+            df["bull_candle_break"], df["bear_candle_break"] = concepts.candle_break(df)
+        if "volume" in used and "volume_spike" not in df.columns:
+            df["volume_spike"] = concepts.volume_filter(df)
+        if {"pdh", "pdl", "pdh_sweep", "pdl_sweep"} & used:
+            df["pdh"], df["pdl"] = concepts.previous_day_high_low(df)
+        if {"pdh_sweep", "pdl_sweep"} & used:
+            df["pdl_sweep"], df["pdh_sweep"] = concepts.pdh_pdl_sweep(df)
+        if "fvg" in used:
+            (df["fvg_bull_low"], df["fvg_bull_high"],
+             df["fvg_bear_low"], df["fvg_bear_high"]) = concepts.fvg_zone(df)
+        if {"poc", "value_area"} & used:
+            df["poc"], df["vah"], df["val"] = concepts.volume_profile_previous_day(df)
+        if {"lvn", "hvn"} & used:
+            df["in_lvn"], df["in_hvn"] = concepts.volume_nodes_previous_day(df)
+        if "aggression" in used:
+            df["bull_aggression"], df["bear_aggression"] = concepts.aggression(df)
+        if "mitigation_block" in used:
+            mbl, mbh, mrbl, mrbh = concepts.mitigation_blocks(df)
+            df["bull_mitigation_low"], df["bull_mitigation_high"] = mbl, mbh
+            df["bear_mitigation_low"], df["bear_mitigation_high"] = mrbl, mrbh
+        if "imbalance" in used:
+            df["bull_imbalance"], df["bear_imbalance"] = concepts.imbalance(df)
+        if "equal_highs_lows" in used:
+            df["bull_equal_lows"], df["bear_equal_highs"] = concepts.equal_highs_lows(df)
+        if {"swing_high", "swing_low"} & used:
+            df["swing_high_event"], df["swing_low_event"] = concepts.swing_points(df)
+        if "session_high_low" in used:
+            df["session_high"], df["session_low"] = concepts.session_high_low(df)
+        if "session_open" in used:
+            df["session_open"] = concepts.session_open_price(df)
+        if "engulfing" in used:
+            df["bull_engulfing"], df["bear_engulfing"] = concepts.engulfing_candle(df)
+        if "pin_bar" in used:
+            df["bull_pin_bar"], df["bear_pin_bar"] = concepts.pin_bar(df)
+        if "inside_bar" in used:
+            df["inside_bar"] = concepts.inside_bar(df)
 
     # -------------------------------------------------- Strategy interface
     def prepare(self, df):
@@ -240,6 +283,15 @@ class ConfiguredStrategy(Strategy):
             # the original behavior) via the parser. Only ever looks
             # backward from bar i, so zero look-ahead is unchanged.
             window = cond.lookback_bars if cond.lookback_bars is not None else 10
+            # Bug fix: was hardcoded to "entry_" regardless of cond.role, so
+            # a condition explicitly tagged for a higher-timeframe role (see
+            # prepare_context/_compute_concept_columns) still silently read
+            # the entry-timeframe column. role=None (every strategy saved
+            # before this fix) still resolves to "entry", unchanged.
+            role = cond.role or "entry"
+
+            def _rcol(name):
+                return f"{role}_{name}"
 
             def _within(col):
                 # Same math as concepts.true_within_lookback(), just against
@@ -252,16 +304,16 @@ class ConfiguredStrategy(Strategy):
                 return bool(arr[start:i + 1].any())
 
             event_colmap = {
-                "bos": ("entry_bull_bos", "entry_bear_bos"),
-                "choch": ("entry_bull_choch", "entry_bear_choch"),
-                "fvg": ("entry_bull_fvg", "entry_bear_fvg"),
-                "liquidity_sweep": ("entry_bull_liquidity_sweep", "entry_bear_liquidity_sweep"),
-                "candle_break": ("entry_bull_candle_break", "entry_bear_candle_break"),
-                "aggression": ("entry_bull_aggression", "entry_bear_aggression"),
-                "imbalance": ("entry_bull_imbalance", "entry_bear_imbalance"),
-                "equal_highs_lows": ("entry_bull_equal_lows", "entry_bear_equal_highs"),
-                "engulfing": ("entry_bull_engulfing", "entry_bear_engulfing"),
-                "pin_bar": ("entry_bull_pin_bar", "entry_bear_pin_bar"),
+                "bos": (_rcol("bull_bos"), _rcol("bear_bos")),
+                "choch": (_rcol("bull_choch"), _rcol("bear_choch")),
+                "fvg": (_rcol("bull_fvg"), _rcol("bear_fvg")),
+                "liquidity_sweep": (_rcol("bull_liquidity_sweep"), _rcol("bear_liquidity_sweep")),
+                "candle_break": (_rcol("bull_candle_break"), _rcol("bear_candle_break")),
+                "aggression": (_rcol("bull_aggression"), _rcol("bear_aggression")),
+                "imbalance": (_rcol("bull_imbalance"), _rcol("bear_imbalance")),
+                "equal_highs_lows": (_rcol("bull_equal_lows"), _rcol("bear_equal_highs")),
+                "engulfing": (_rcol("bull_engulfing"), _rcol("bear_engulfing")),
+                "pin_bar": (_rcol("bull_pin_bar"), _rcol("bear_pin_bar")),
             }
             if cond.name in event_colmap:
                 bull_col, bear_col = event_colmap[cond.name]
@@ -271,21 +323,21 @@ class ConfiguredStrategy(Strategy):
                     return _within(bull_col)
                 return _within(bull_col) or _within(bear_col)
             if cond.name in ("pdh_sweep", "pdl_sweep"):
-                return _within(f"entry_{cond.name}")
+                return _within(_rcol(cond.name))
             if cond.name == "order_block":
-                return self._get(df, i, "entry_bull_ob_low") is not None or self._get(df, i, "entry_bear_ob_low") is not None
+                return self._get(df, i, _rcol("bull_ob_low")) is not None or self._get(df, i, _rcol("bear_ob_low")) is not None
             if cond.name == "breaker_block":
-                return self._get(df, i, "entry_bull_breaker_low") is not None or self._get(df, i, "entry_bear_breaker_low") is not None
+                return self._get(df, i, _rcol("bull_breaker_low")) is not None or self._get(df, i, _rcol("bear_breaker_low")) is not None
             if cond.name == "support":
                 price = self._get(df, i, "close")
-                support = self._get(df, i, "entry_support")
+                support = self._get(df, i, _rcol("support"))
                 return price is not None and support is not None and abs(price - support) / price < 0.005
             if cond.name == "resistance":
                 price = self._get(df, i, "close")
-                resistance = self._get(df, i, "entry_resistance")
+                resistance = self._get(df, i, _rcol("resistance"))
                 return price is not None and resistance is not None and abs(price - resistance) / price < 0.005
             if cond.name == "volume":
-                return _within("entry_volume_spike")
+                return _within(_rcol("volume_spike"))
             if cond.name in ("pdh", "pdl"):
                 # A bare "pdh"/"pdl" reference means the strategy is gating
                 # on the actual price-vs-level relationship ("price above
@@ -303,33 +355,33 @@ class ConfiguredStrategy(Strategy):
                 # already-correct event concept (pdh_sweep/pdl_sweep, above)
                 # and is unaffected by this branch.
                 price = self._get(df, i, "close")
-                level = self._get(df, i, f"entry_{cond.name}")
+                level = self._get(df, i, _rcol(cond.name))
                 if price is None or level is None:
                     return False
                 return price > level if cond.name == "pdh" else price < level
             if cond.name == "mitigation_block":
-                return self._get(df, i, "entry_bull_mitigation_low") is not None or self._get(df, i, "entry_bear_mitigation_low") is not None
+                return self._get(df, i, _rcol("bull_mitigation_low")) is not None or self._get(df, i, _rcol("bear_mitigation_low")) is not None
             if cond.name == "poc":
                 price = self._get(df, i, "close")
-                poc = self._get(df, i, "entry_poc")
+                poc = self._get(df, i, _rcol("poc"))
                 return price is not None and poc is not None and abs(price - poc) / price < 0.005
             if cond.name == "value_area":
                 price = self._get(df, i, "close")
-                vah = self._get(df, i, "entry_vah")
-                val = self._get(df, i, "entry_val")
+                vah = self._get(df, i, _rcol("vah"))
+                val = self._get(df, i, _rcol("val"))
                 return price is not None and vah is not None and val is not None and val <= price <= vah
             if cond.name == "lvn":
-                return bool(self._get(df, i, "entry_in_lvn"))
+                return bool(self._get(df, i, _rcol("in_lvn")))
             if cond.name == "hvn":
-                return bool(self._get(df, i, "entry_in_hvn"))
+                return bool(self._get(df, i, _rcol("in_hvn")))
             if cond.name == "swing_high":
-                return _within("entry_swing_high_event")
+                return _within(_rcol("swing_high_event"))
             if cond.name == "swing_low":
-                return _within("entry_swing_low_event")
+                return _within(_rcol("swing_low_event"))
             if cond.name == "session_high_low":
                 price = self._get(df, i, "close")
-                session_high = self._get(df, i, "entry_session_high")
-                session_low = self._get(df, i, "entry_session_low")
+                session_high = self._get(df, i, _rcol("session_high"))
+                session_low = self._get(df, i, _rcol("session_low"))
                 if price is None:
                     return False
                 near_high = session_high is not None and abs(price - session_high) / price < 0.005
@@ -341,10 +393,10 @@ class ConfiguredStrategy(Strategy):
                 return near_high or near_low
             if cond.name == "session_open":
                 price = self._get(df, i, "close")
-                session_open = self._get(df, i, "entry_session_open")
+                session_open = self._get(df, i, _rcol("session_open"))
                 return price is not None and session_open is not None and abs(price - session_open) / price < 0.005
             if cond.name == "inside_bar":
-                return bool(self._get(df, i, "entry_inside_bar"))
+                return bool(self._get(df, i, _rcol("inside_bar")))
             return False
 
         if cond.type == "indicator_compare":

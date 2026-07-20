@@ -45,7 +45,7 @@ KNOWN_CONDITION_TYPES = ["indicator_compare", "price_compare", "concept", "sessi
 KNOWN_TIMEFRAME_ROLES = ["bias", "trend", "analysis", "entry", "confirmation"]
 KNOWN_SLTP_TYPES = ["fixed_pct", "atr_multiple", "structure", "rr", "level", "unknown"]
 
-_CONDITION_SCHEMA_NOTE = """Each condition object: {"type": one of indicator_compare|price_compare|concept|session|trend|raw, "indicator": indicator name (only for indicator_compare/price_compare), "params": {"period": N} if applicable else {}, "op": ">" or "<" only, "value": number (for indicator_compare), "name": concept/session name (for concept/session types), "direction": "bullish"|"bearish"|null (for concept/trend types), "text": the original phrase (required when type="raw" -- use raw ONLY when you cannot express the rule with the vocabulary below), "role": null (leave null), "lookback_bars": null (leave null)."""
+_CONDITION_SCHEMA_NOTE = """Each condition object: {"type": one of indicator_compare|price_compare|concept|session|trend|raw, "indicator": indicator name (only for indicator_compare/price_compare), "params": {"period": N} if applicable else {}, "op": ">" or "<" only, "value": number (for indicator_compare), "name": concept/session name (for concept/session types), "direction": "bullish"|"bearish"|null (for concept/trend types), "text": the original phrase (required when type="raw" -- use raw ONLY when you cannot express the rule with the vocabulary below), "role": for a "concept" condition ONLY, the timeframe role (one of the declared Timeframe roles below, e.g. "bias"/"trend"/"analysis") that THIS SPECIFIC structural concept is actually read from -- set it whenever the text names a timeframe for it (e.g. "a swing low on the 1H or 4H chart" -> role of whichever declared role is 1h or 4h; "higher timeframe order block" -> role="bias" if that's your bias timeframe); leave null when the text doesn't say (this defaults to the entry timeframe, which is correct for most entry/confirmation-timeframe concepts like a 1-minute candle_break trigger) -- never leave every concept condition on the entry timeframe just because that's simpler than reading which chart the text actually says it's on, "lookback_bars": null (leave null)."""
 
 
 def build_structured_extraction_prompt(source_hint=None, content_type=None):
@@ -405,6 +405,18 @@ def _clean_condition(entry):
     direction = entry.get("direction")
     if direction not in ("bullish", "bearish", None):
         direction = None
+    # Only meaningful for type="concept" (see _CONDITION_SCHEMA_NOTE) and
+    # only trusted when it's one of the strategy's own declared timeframe
+    # roles -- was previously hardcoded to None unconditionally here, which
+    # silently discarded the AI's own timeframe understanding even when it
+    # correctly said "this swing low is on the 4H chart", forcing every
+    # structural concept onto the entry timeframe regardless of what the
+    # source document actually described.
+    role = str(entry.get("role")).strip().lower() if entry.get("role") else None
+    if role not in KNOWN_TIMEFRAME_ROLES:
+        role = None
+    if cond_type != "concept":
+        role = None
     return {
         "type": cond_type,
         "indicator": (str(entry.get("indicator")).strip().lower() if entry.get("indicator") else None),
@@ -414,7 +426,7 @@ def _clean_condition(entry):
         "name": (str(entry.get("name")).strip().lower() if entry.get("name") else None),
         "direction": direction,
         "text": (str(entry.get("text")).strip() if entry.get("text") else None),
-        "role": None,
+        "role": role,
         "lookback_bars": lookback,
     }
 

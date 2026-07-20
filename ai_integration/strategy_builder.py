@@ -97,7 +97,10 @@ def build_condition(cond_dict):
         name = cond_dict.get("name")
         if not name or name not in _KNOWN_INDICATOR_SET:
             return Condition(type="raw", text=_describe_raw(cond_dict))
-        return Condition(type="concept", name=name, direction=cond_dict.get("direction"), lookback_bars=cond_dict.get("lookback_bars"))
+        return Condition(
+            type="concept", name=name, direction=cond_dict.get("direction"),
+            lookback_bars=cond_dict.get("lookback_bars"), role=cond_dict.get("role"),
+        )
 
     if cond_type == "session":
         name = cond_dict.get("name")

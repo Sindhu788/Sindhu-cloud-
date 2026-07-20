@@ -170,6 +170,41 @@ def _detect_role(line_lower):
     return None
 
 
+_HTF_HINT_WORDS = ["higher timeframe", "htf"]
+
+
+def _detect_condition_role(line_lower, timeframes):
+    """Best-effort inline timeframe hint for a RULE line (e.g. "a
+    significant low on the 1H or 4H chart" inside an Entry Rules line) --
+    distinct from _detect_role(), which only recognizes a role LABEL
+    ("Bias:", "Trend:") on its own line. Concept conditions were previously
+    always evaluated on the entry timeframe no matter what the strategy
+    text actually said (confirmed: "Liquidity Sweeps" describes swing
+    highs/lows "on the 1H or 4H chart" but the engine only ever computed
+    them on the 1-minute entry frame) -- this lets a rule line that
+    unambiguously names one of the strategy's OWN already-declared
+    non-entry timeframes tag its resulting Condition(s) with that role, so
+    ConfiguredStrategy computes the concept on the real higher-timeframe
+    data instead. `timeframes` is StrategyConfig.timeframes
+    ({role: tf_string}); returns None (falls back to the entry-timeframe
+    default, i.e. today's behavior) whenever nothing on the line
+    unambiguously names an already-declared role -- never a guess."""
+    if not timeframes:
+        return None
+    for number, unit in _TIMEFRAME_RE.findall(line_lower):
+        tf = _normalize_timeframe(number, unit)
+        if not tf:
+            continue
+        for role, role_tf in timeframes.items():
+            if role != "entry" and role_tf == tf:
+                return role
+    if any(w in line_lower for w in _HTF_HINT_WORDS):
+        for role in ("bias", "trend", "analysis"):
+            if role in timeframes:
+                return role
+    return None
+
+
 def _detect_section_header(line_lower):
     for section, keywords in _SECTION_KEYWORDS.items():
         for kw in keywords:
@@ -186,9 +221,16 @@ def _detect_direction(text_lower):
     return None
 
 
-def _parse_conditions_from_line(line):
+def _parse_conditions_from_line(line, timeframes=None):
     """Split a rule line into atomic Condition objects. Anything that
-    doesn't match a known pattern is kept verbatim as type="raw"."""
+    doesn't match a known pattern is kept verbatim as type="raw".
+
+    `timeframes` (StrategyConfig.timeframes, optional) lets a concept
+    condition inherit an inline higher-timeframe hint from the line itself
+    (see _detect_condition_role) -- defaults to None so parse_conditions()
+    below (used by the Knowledge Engine for lessons, which have no declared
+    multi-timeframe roles) is completely unaffected."""
+    line_role = _detect_condition_role(line.lower(), timeframes)
     segments = re.split(r"\band\b|\baur\b|\+|,", line, flags=re.IGNORECASE)
     conditions = []
 
@@ -235,6 +277,7 @@ def _parse_conditions_from_line(line):
                     lookback_bars = _detect_lookback(seg_lower)
                     conditions.append(Condition(
                         type="concept", name=concept, direction=direction, lookback_bars=lookback_bars,
+                        role=line_role,
                     ))
                     matched = True
                     break
@@ -315,7 +358,7 @@ def parse_strategy_text(text, name="Unnamed Strategy"):
             after_colon = line.split(":", 1)
             remainder = after_colon[1].strip() if len(after_colon) > 1 else ""
             if remainder:
-                getattr(config, section).extend(_parse_conditions_from_line(remainder))
+                getattr(config, section).extend(_parse_conditions_from_line(remainder, config.timeframes))
             continue
 
         if role:
@@ -378,9 +421,9 @@ def parse_strategy_text(text, name="Unnamed Strategy"):
             continue
 
         if current_section:
-            getattr(config, current_section).extend(_parse_conditions_from_line(line))
+            getattr(config, current_section).extend(_parse_conditions_from_line(line, config.timeframes))
         elif any(any(kw in line_lower for kw in kws) for kws in _CONCEPT_KEYWORDS.values()):
-            config.entry_conditions.extend(_parse_conditions_from_line(line))
+            config.entry_conditions.extend(_parse_conditions_from_line(line, config.timeframes))
 
     if config.take_profit.type == "unknown" and config.risk_reward is not None:
         config.take_profit = SLTPSpec(type="rr", value=config.risk_reward)
