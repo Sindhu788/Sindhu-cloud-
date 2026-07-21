@@ -249,15 +249,30 @@ class ConfiguredStrategy(Strategy):
                 return c.direction
         return "bullish"
 
-    def _indicator_column(self, indicator_name, params):
+    def _indicator_column(self, indicator_name, params, cond_role=None):
         period = params.get("period")
-        role = "entry"
         resolved_period = period
-        for ind in self.config.indicators:
-            if ind["name"] == indicator_name and (period is None or ind["params"].get("period") == period):
-                role = ind.get("role") or "entry"
-                resolved_period = ind["params"].get("period", period)
-                break
+        role = None
+        if cond_role:
+            # The condition itself says which timeframe it means -- this is
+            # authoritative and disambiguates a strategy that declares the
+            # SAME indicator name on more than one role (e.g. an sma on
+            # both "trend" and "analysis"), which the name+period lookup
+            # below can't reliably do: two same-named indicators with no
+            # period specified on the condition would otherwise just match
+            # whichever happens to be first in config.indicators.
+            for ind in self.config.indicators:
+                if ind["name"] == indicator_name and (ind.get("role") or "entry") == cond_role:
+                    resolved_period = ind["params"].get("period", period)
+                    break
+            role = cond_role
+        if role is None:
+            role = "entry"
+            for ind in self.config.indicators:
+                if ind["name"] == indicator_name and (period is None or ind["params"].get("period") == period):
+                    role = ind.get("role") or "entry"
+                    resolved_period = ind["params"].get("period", period)
+                    break
         resolved_period = resolved_period or _DEFAULT_PERIOD.get(indicator_name, 14)
         if indicator_name in ("ema", "sma", "rsi", "atr"):
             return f"{role}_{indicator_name}_{resolved_period}"
@@ -400,9 +415,20 @@ class ConfiguredStrategy(Strategy):
             return False
 
         if cond.type == "indicator_compare":
-            col = self._indicator_column(cond.indicator, cond.params)
+            col = self._indicator_column(cond.indicator, cond.params, cond.role)
             val = self._get(df, i, col)
-            if val is None:
+            # cond.value is required for this type (it's what val gets
+            # compared against) -- a condition can reach here with it
+            # missing/None if something upstream saved one without it
+            # (found live: the AI-native builder let an indicator-vs-
+            # indicator comparison, e.g. "ema20 > ema50", through with no
+            # value since that comparison genuinely isn't representable by
+            # this type, instead of demoting it to type="raw" like every
+            # other unrepresentable rule). Building the ops dict below
+            # evaluates every comparison eagerly regardless of cond.op, so
+            # `val < None` would raise TypeError even though "<" was never
+            # the requested operator -- guard before that, not after.
+            if val is None or cond.value is None:
                 return False
             ops = {"<": val < cond.value, ">": val > cond.value,
                    "<=": val <= cond.value, ">=": val >= cond.value}
@@ -410,7 +436,7 @@ class ConfiguredStrategy(Strategy):
 
         if cond.type == "price_compare":
             price = self._get(df, i, "close")
-            ind_val = self._get(df, i, self._indicator_column(cond.indicator, cond.params))
+            ind_val = self._get(df, i, self._indicator_column(cond.indicator, cond.params, cond.role))
             if price is None or ind_val is None:
                 return False
             return price > ind_val if cond.op == ">" else price < ind_val

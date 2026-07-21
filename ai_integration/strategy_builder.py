@@ -31,7 +31,13 @@ from backtest_engine.validator import _CONCEPT_REQUIRES_ANY_OF, _STRUCTURE_SL_SO
 # Same backfill the deterministic parser always runs on itself
 # (strategy_parser.parse_strategy_text -> _ensure_indicators_for_conditions)
 # -- reused here rather than reimplemented so the two pipelines can't drift.
-from backtest_engine.strategy_parser import _ensure_indicators_for_conditions
+# repair_condition_roles() is the same idea for Condition.role: the AI is
+# asked to self-report which timeframe a concept condition belongs to
+# (schema.py's _CONDITION_SCHEMA_NOTE), but doesn't reliably follow that
+# instruction in practice -- this deterministically re-derives it from the
+# document's own raw_text afterward, regardless of what the AI did or
+# didn't say.
+from backtest_engine.strategy_parser import _ensure_indicators_for_conditions, repair_condition_roles
 
 _KNOWN_INDICATOR_SET = set(KNOWN_INDICATORS)
 _KNOWN_SESSION_SET = set(KNOWN_SESSIONS)
@@ -85,7 +91,17 @@ def build_condition(cond_dict):
 
     if cond_type in ("indicator_compare", "price_compare"):
         indicator = cond_dict.get("indicator")
-        if not indicator or indicator not in _KNOWN_INDICATOR_SET or cond_dict.get("op") not in (">", "<"):
+        # indicator_compare compares the indicator to a fixed NUMBER
+        # (cond.value) -- there's no way to express "ema20 > ema50"
+        # (indicator vs. indicator) with this type, but the AI sometimes
+        # tries anyway, submitting one with no value. That used to reach
+        # the engine as a real, "executable" Condition that crashed at
+        # eval time (TypeError comparing a float to None); now it's
+        # demoted to raw here, same as any other rule this vocabulary
+        # can't represent -- price_compare doesn't use cond.value at all
+        # (it compares price to the indicator directly) so it's unaffected.
+        missing_value = cond_type == "indicator_compare" and cond_dict.get("value") is None
+        if not indicator or indicator not in _KNOWN_INDICATOR_SET or cond_dict.get("op") not in (">", "<") or missing_value:
             return Condition(type="raw", text=_describe_raw(cond_dict))
         return Condition(
             type=cond_type, indicator=indicator, params=cond_dict.get("params") or {},
@@ -174,6 +190,7 @@ def build_strategy_config(ai_strategy, name, raw_text):
     # already self-heals this via the same helper; the AI-native path had no
     # equivalent safety net until now.
     _ensure_indicators_for_conditions(config)
+    repair_condition_roles(config)
     return config
 
 

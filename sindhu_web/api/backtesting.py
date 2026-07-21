@@ -98,6 +98,25 @@ def _strategy_last_batch_result(strategy_name, recent_batches):
     return None
 
 
+def _condition_roles_summary(cfg):
+    """[{bucket, type, name, direction, role}] for every concept condition
+    -- lets the Strategies page show which declared timeframe (bias/trend/
+    analysis/entry) each condition actually reads from, instead of that
+    being invisible plumbing. role is always a real value here (never
+    null) -- unset means the entry-timeframe default, shown explicitly so
+    the CEO isn't left guessing whether it was never checked or is
+    deliberately on entry."""
+    out = []
+    for bucket in ("entry_conditions", "exit_conditions", "confirmation_conditions"):
+        for cond in getattr(cfg, bucket, []):
+            if cond.type == "concept":
+                out.append({
+                    "bucket": bucket, "name": cond.name, "direction": cond.direction,
+                    "role": cond.role or "entry",
+                })
+    return out
+
+
 @router.get("/api/backtesting/strategies")
 def list_strategies(q: str = ""):
     strategies = lib.search(q)
@@ -108,8 +127,10 @@ def list_strategies(q: str = ""):
             meta["concepts_used"] = cfg.concepts_used
             meta["timeframes"] = cfg.timeframes
             meta["status"] = "READY_FOR_BACKTEST" if not validate(cfg) else "NEEDS_CLARIFICATION"
+            meta["condition_roles"] = _condition_roles_summary(cfg)
         except Exception:
             meta["concepts_used"], meta["timeframes"], meta["status"] = [], {}, "NEEDS_CLARIFICATION"
+            meta["condition_roles"] = []
         meta["last_batch_result"] = _strategy_last_batch_result(meta["name"], recent_batches)
     return {"strategies": strategies}
 

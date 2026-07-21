@@ -1122,6 +1122,20 @@
     return `${fmtNum(r.total_trades)} trades, ${r.win_rate}% win, <span class="${pnlCls}">${r.avg_profit_pct}%</span>`;
   }
 
+  // Basic visibility for which declared timeframe (bias/trend/analysis/
+  // entry) each concept condition actually reads from -- without this the
+  // "Timeframes" column looks like every declared role is in play, when in
+  // practice a condition with no role set only ever reads the entry
+  // timeframe. "entry" is shown plainly (not flagged) since it's the
+  // correct value for a genuinely entry-scoped concept (e.g. a 1-minute
+  // candle_break trigger), not just an unset default.
+  function conditionRolesCell(roles) {
+    if (!roles || !roles.length) return `<span class="muted">-</span>`;
+    return roles.map(r =>
+      `<span class="pill pill-muted" title="${esc(r.bucket)}">${esc(r.name)}${r.direction ? " (" + esc(r.direction) + ")" : ""} -> ${esc(r.role)}</span>`
+    ).join(" ");
+  }
+
   async function renderStrategies() {
     const myToken = activeRouteToken;
     const render = async () => {
@@ -1135,6 +1149,7 @@
           <td>${esc(s.name)}</td>
           <td>${(s.concepts_used || []).join(", ") || "-"}</td>
           <td>${Object.entries(s.timeframes || {}).map(([role, tf]) => `${role}:${tf}`).join(", ") || "-"}</td>
+          <td>${conditionRolesCell(s.condition_roles)}</td>
           <td>${strategyStatusPill(s.status)}</td>
           <td>${lastBacktestCell(s.last_batch_result)}</td>
           <td>V${s.current_version || 1} <button class="btn-ghost strat-versions" data-id="${s.id}" data-name="${esc(s.name)}">History</button></td>
@@ -1154,8 +1169,8 @@
           <button class="btn" id="btnNewStrategy">New Strategy</button>
         </div>
         <div class="table-wrap"><table>
-          <thead><tr><th></th><th>Name</th><th>Concepts</th><th>Timeframes</th><th>Status</th><th>Last Backtest</th><th>Version</th><th></th></tr></thead>
-          <tbody>${rows || '<tr><td colspan="8">No saved strategies yet -- create one on the Backtesting page.</td></tr>'}</tbody>
+          <thead><tr><th></th><th>Name</th><th>Concepts</th><th>Timeframes</th><th>Condition Roles</th><th>Status</th><th>Last Backtest</th><th>Version</th><th></th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="9">No saved strategies yet -- create one on the Backtesting page.</td></tr>'}</tbody>
         </table></div>
         <div id="versionHistoryBox" style="display:none;">
           <div class="section-title" id="versionHistoryTitle">Version History</div>
@@ -1514,14 +1529,45 @@
       }
     }, 800);
 
+    // Basic visibility + correction for Condition.role (which declared
+    // timeframe -- bias/trend/analysis/entry -- a concept condition
+    // actually reads from). "entry" is a real, valid, explicit choice
+    // here (e.g. a 1-minute candle_break trigger genuinely belongs on the
+    // entry timeframe), not just "unset" -- selecting it writes role back
+    // to null, which is exactly equivalent everywhere it's read.
+    const _ROLE_OPTIONS = ["entry", "bias", "trend", "analysis", "confirmation"];
+    function _conditionRoleRow(bucket, idx, cond) {
+      if (cond.type !== "concept") return "";
+      const currentRole = cond.role || "entry";
+      const opts = _ROLE_OPTIONS.map(r => `<option value="${r}"${r === currentRole ? " selected" : ""}>${r}</option>`).join("");
+      return `<div class="cond-role-row" data-bucket="${bucket}" data-idx="${idx}" style="display:flex;align-items:center;gap:8px;margin:3px 0;">
+        <span style="min-width:180px;">${esc(bucket.replace("_conditions", ""))}: ${esc(cond.name)}${cond.direction ? " (" + esc(cond.direction) + ")" : ""}</span>
+        <select class="cond-role-select">${opts}</select>
+      </div>`;
+    }
+
     function renderConfigPreview(config, valid, errors) {
-      document.getElementById("previewBox").textContent =
-        `Timeframes: ${JSON.stringify(config.timeframes)}\n` +
-        `Entry conditions: ${config.entry_conditions.length}\n` +
-        `Exit conditions: ${config.exit_conditions.length}\n` +
-        `Stop Loss: ${config.stop_loss.type}\nTake Profit: ${config.take_profit.type}\n` +
-        `Risk%: ${config.risk_pct}  RR: ${config.risk_reward}\n\n` +
-        (valid ? "STATUS: VALID" : "STATUS: INVALID\n" + errors.map(e => " - " + e).join("\n"));
+      const conditionRowsHtml = ["entry_conditions", "exit_conditions", "confirmation_conditions"]
+        .map(bucket => (config[bucket] || []).map((c, i) => _conditionRoleRow(bucket, i, c)).join(""))
+        .join("");
+      document.getElementById("previewBox").innerHTML =
+        `Timeframes: ${esc(JSON.stringify(config.timeframes))}<br>` +
+        `Entry conditions: ${config.entry_conditions.length}<br>` +
+        `Exit conditions: ${config.exit_conditions.length}<br>` +
+        `Stop Loss: ${esc(config.stop_loss.type)}<br>Take Profit: ${esc(config.take_profit.type)}<br>` +
+        `Risk%: ${config.risk_pct}  RR: ${config.risk_reward}<br><br>` +
+        (valid ? "STATUS: VALID" : "STATUS: INVALID<br>" + errors.map(e => " - " + esc(e)).join("<br>")) +
+        (conditionRowsHtml
+          ? `<br><br><b>Condition timeframe roles</b> (which declared timeframe each concept actually reads from -- change if wrong):<br>${conditionRowsHtml}`
+          : "");
+      document.querySelectorAll(".cond-role-select").forEach(sel => {
+        sel.onchange = () => {
+          const row = sel.closest(".cond-role-row");
+          const bucket = row.dataset.bucket, idx = Number(row.dataset.idx);
+          currentConfig[bucket][idx].role = sel.value === "entry" ? null : sel.value;
+          doAutosaveStrategy();
+        };
+      });
       document.getElementById("btnRun").disabled = !valid;
     }
 

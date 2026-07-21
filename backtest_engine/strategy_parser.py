@@ -14,7 +14,13 @@ import re
 
 from backtest_engine.strategy_config import StrategyConfig, Condition, SLTPSpec
 
-_TIMEFRAME_RE = re.compile(r"\b(\d{1,3})\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days|w|week|weeks)\b", re.IGNORECASE)
+# [\s-]* (not just \s*) so common hyphenated phrasing ("1-minute",
+# "5-minute", "15-minute chart") matches too, not just "1m"/"1 minute" --
+# found via role-detection testing against real strategy text ("Entry
+# Timeframe (1-minute): used to confirm reversal via BOS" was silently not
+# matching at all, so a condition explicitly scoped to the entry timeframe
+# in its own source text couldn't be detected).
+_TIMEFRAME_RE = re.compile(r"\b(\d{1,3})[\s-]*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days|w|week|weeks)\b", re.IGNORECASE)
 
 _UNIT_TO_SUFFIX = {
     "m": "m", "min": "m", "mins": "m", "minute": "m", "minutes": "m",
@@ -61,6 +67,29 @@ _CONCEPT_KEYWORDS = {
     "macd": ["macd"],
     "atr": ["atr"],
     "volume": ["volume"],
+    # Engine-recognized concepts (backtest_engine.concepts / validator.
+    # _KNOWN_INDICATORS) that were previously only reachable via the
+    # AI-native path -- the plain-text parser had no keyword for them at
+    # all, so text describing them (e.g. "a significant swing low")
+    # silently fell through to an unexecutable type="raw" condition.
+    # Added so both the parser's own text scan AND
+    # repair_condition_roles() (which looks up this same table by
+    # concept name) can recognize them.
+    "candle_break": ["candle break", "trigger candle", "signal candle"],
+    "swing_high": ["swing high", "significant high"],
+    "swing_low": ["swing low", "significant low"],
+    "session_high_low": ["session high", "session low"],
+    "session_open": ["session open"],
+    "poc": ["point of control", "poc"],
+    "value_area": ["value area"],
+    "lvn": ["low volume node", "lvn"],
+    "hvn": ["high volume node", "hvn"],
+    "aggression": ["aggressive candle", "aggression"],
+    "mitigation_block": ["mitigation block", "mitigation"],
+    "equal_highs_lows": ["equal highs", "equal lows"],
+    "engulfing": ["engulfing"],
+    "pin_bar": ["pin bar"],
+    "inside_bar": ["inside bar"],
     "session_filter": ["session"],
     "trend_filter": ["trend filter", "with trend", "trend ke sath", "trend follow"],
 }
@@ -188,7 +217,12 @@ def _detect_condition_role(line_lower, timeframes):
     data instead. `timeframes` is StrategyConfig.timeframes
     ({role: tf_string}); returns None (falls back to the entry-timeframe
     default, i.e. today's behavior) whenever nothing on the line
-    unambiguously names an already-declared role -- never a guess."""
+    unambiguously names an already-declared role -- never a guess. Can
+    return "entry" too (e.g. a line that literally says "on the 1-minute
+    chart" when entry=1m) -- functionally identical to None everywhere
+    this is consumed (role or "entry" is the fallback throughout), but an
+    explicit "entry" is more informative than a blank role wherever it's
+    displayed (see the Strategies page's per-condition role tags)."""
     if not timeframes:
         return None
     for number, unit in _TIMEFRAME_RE.findall(line_lower):
@@ -196,7 +230,7 @@ def _detect_condition_role(line_lower, timeframes):
         if not tf:
             continue
         for role, role_tf in timeframes.items():
-            if role != "entry" and role_tf == tf:
+            if role_tf == tf:
                 return role
     if any(w in line_lower for w in _HTF_HINT_WORDS):
         for role in ("bias", "trend", "analysis"):
@@ -298,6 +332,59 @@ def parse_conditions(text):
     reused by the Knowledge Engine to turn a lesson's free-text description
     into structured Condition objects."""
     return _parse_conditions_from_line(text)
+
+
+def repair_condition_roles(config):
+    """Deterministic post-processing repair for Condition.role, usable on
+    ANY already-built StrategyConfig -- the AI-native import path (which
+    doesn't reliably self-report role despite being asked to), or a
+    one-time backfill pass over an already-saved strategy. Reuses the
+    exact same role-detection logic (_detect_condition_role /
+    _CONCEPT_KEYWORDS) the plain-text parser applies to itself while
+    parsing line-by-line, just replayed against the strategy's own stored
+    raw_text after the fact.
+
+    For each concept condition that doesn't already have a role, finds
+    the first raw_text line that mentions that concept (via the same
+    keyword table _parse_conditions_from_line uses to recognize it in the
+    first place) and runs the same inline-timeframe detection against
+    that line. Never invents a role and never overwrites one that's
+    already set -- only fills a gap, and only when the source text
+    unambiguously names one of the strategy's own already-declared
+    timeframes. A concept with no keyword table entry, or that never
+    appears in raw_text, or whose line doesn't name a timeframe, is left
+    exactly as it was (role stays None -- the entry-timeframe default,
+    identical to today's behavior).
+
+    Mutates `config` in place. Returns True if anything changed."""
+    if not config.raw_text or not config.timeframes:
+        return False
+    lines = [ln for ln in config.raw_text.splitlines() if ln.strip()]
+    changed = False
+    for bucket_name in ("entry_conditions", "exit_conditions", "confirmation_conditions"):
+        for cond in getattr(config, bucket_name):
+            if cond.type != "concept" or cond.role or not cond.name:
+                continue
+            keywords = _CONCEPT_KEYWORDS.get(cond.name)
+            if not keywords:
+                continue
+            for line in lines:
+                line_lower = line.lower()
+                if not any(kw in line_lower for kw in keywords):
+                    continue
+                # Keep scanning subsequent mentions of the same concept
+                # until one of them actually names a timeframe -- a
+                # document often mentions a concept generically first
+                # ("price sweeps the liquidity") and only states its
+                # timeframe in a later line ("on the 1-minute chart,
+                # BOS is confirmed after the sweep"); stopping at the
+                # first (timeframe-less) mention would miss it.
+                role = _detect_condition_role(line_lower, config.timeframes)
+                if role:
+                    cond.role = role
+                    changed = True
+                    break
+    return changed
 
 
 def parse_strategy_text(text, name="Unnamed Strategy"):
