@@ -21,7 +21,7 @@ _KNOWN_INDICATORS = {
     "engulfing", "pin_bar", "inside_bar",
 }
 
-_KNOWN_CONDITION_TYPES = {"indicator_compare", "price_compare", "concept", "session", "trend"}
+_KNOWN_CONDITION_TYPES = {"indicator_compare", "price_compare", "indicator_vs_indicator", "concept", "session", "trend"}
 
 # Mirrors the OR-gates in ConfiguredStrategy.prepare_context() (backtest_engine/
 # configured_strategy.py): each concept-type condition name only gets its
@@ -156,13 +156,20 @@ def validate(config):
             "Add the concept this strategy's stop is based on, or use a fixed % / ATR stop."
         )
 
-    if not config.entry_conditions:
+    # A strategy with separate Long/Short entry rule sets satisfies "has
+    # entry rules" via EITHER of those instead of entry_conditions -- see
+    # ConfiguredStrategy.on_bar(), which uses long/short_entry_conditions in
+    # place of entry_conditions whenever either is populated.
+    uses_long_short = bool(config.long_entry_conditions or config.short_entry_conditions)
+    if not config.entry_conditions and not uses_long_short:
         errors.append("Missing entry rules. No entry conditions were detected.")
     else:
-        unclear = [c for c in config.entry_conditions if c.is_unclear()]
-        if unclear:
-            for c in unclear:
-                errors.append(f'Unclear entry rule, needs clarification: "{c.text}"')
+        # A long-only or short-only strategy (only one of the two rule sets
+        # populated) is a legitimate, valid design -- not flagged here.
+        for bucket_name in ("entry_conditions", "long_entry_conditions", "short_entry_conditions"):
+            for c in getattr(config, bucket_name):
+                if c.is_unclear():
+                    errors.append(f'Unclear entry rule, needs clarification: "{c.text}"')
 
     if not config.exit_conditions and config.stop_loss.type == "unknown":
         errors.append("Missing exit rules. No exit conditions or stop-loss were detected.")
@@ -185,12 +192,19 @@ def validate(config):
     if config.risk_reward is not None and config.risk_reward <= 0:
         errors.append(f"Invalid risk:reward ratio: {config.risk_reward}. Must be greater than 0.")
 
-    for bucket_name in ("entry_conditions", "exit_conditions", "confirmation_conditions"):
+    for bucket_name in ("entry_conditions", "long_entry_conditions", "short_entry_conditions",
+                        "exit_conditions", "confirmation_conditions"):
         for cond in getattr(config, bucket_name):
             if cond.type not in _KNOWN_CONDITION_TYPES:
                 continue
             if cond.type == "indicator_compare" and cond.indicator not in _KNOWN_INDICATORS:
                 errors.append(f"Invalid indicator in {bucket_name.replace('_', ' ')}: {cond.indicator!r}")
+            if cond.type == "indicator_vs_indicator" and (
+                    cond.indicator not in _KNOWN_INDICATORS or cond.indicator2 not in _KNOWN_INDICATORS):
+                errors.append(
+                    f"Invalid indicator in {bucket_name.replace('_', ' ')}: "
+                    f"{cond.indicator!r} vs {cond.indicator2!r}"
+                )
             if cond.type == "concept" and cond.name not in _KNOWN_INDICATORS:
                 errors.append(f"Invalid indicator/concept in {bucket_name.replace('_', ' ')}: {cond.name!r}")
 
@@ -216,7 +230,8 @@ def validate(config):
     # check, via a different mechanism: the condition references a concept
     # that was never added to concepts_used.
     concepts_used_set = set(config.concepts_used)
-    for bucket_name in ("entry_conditions", "exit_conditions", "confirmation_conditions"):
+    for bucket_name in ("entry_conditions", "long_entry_conditions", "short_entry_conditions",
+                        "exit_conditions", "confirmation_conditions"):
         for cond in getattr(config, bucket_name):
             if cond.type != "concept" or cond.name not in _CONCEPT_REQUIRES_ANY_OF:
                 continue
@@ -237,7 +252,7 @@ def validate(config):
     # every bar, no edge at all). It shows up when a document describing a
     # long setup AND a mirror-image short setup gets flattened into one
     # condition list; the two setups need to be separate strategies.
-    for bucket_name in ("entry_conditions", "confirmation_conditions"):
+    for bucket_name in ("entry_conditions", "long_entry_conditions", "short_entry_conditions", "confirmation_conditions"):
         seen_directions = {}
         for cond in getattr(config, bucket_name):
             if cond.type != "concept" or cond.direction not in ("bullish", "bearish"):
@@ -260,14 +275,26 @@ def validate(config):
     # rsi(5) < 30 AND rsi(5) > 70 simultaneously, 0 of 107k+ bars). Checked
     # across entry_conditions + confirmation_conditions combined, since
     # ConfiguredStrategy.on_bar() ANDs both buckets together before ever
-    # producing a signal -- that's the real all-must-be-true gate.
+    # producing a signal -- that's the real all-must-be-true gate. A
+    # strategy using separate Long/Short rule sets has TWO independent
+    # gates instead (long+confirmation, short+confirmation) -- checked
+    # separately, since long_entry_conditions and short_entry_conditions
+    # are never ANDed together (that's the whole point of separating
+    # them), so merging them here would flag a false "impossible
+    # combination" for the completely normal case of a long rule wanting
+    # e.g. "ema > 50" and the mirrored short rule wanting "ema < 50".
     # exit_conditions is its own independent AND-gate (only evaluated once
     # a position is already open) so it's checked separately.
-    entry_gate = list(config.entry_conditions) + list(config.confirmation_conditions)
-    for label, bucket in (
-        ("entry conditions + confirmation conditions", entry_gate),
-        ("exit conditions", config.exit_conditions),
-    ):
+    gates = [("entry conditions + confirmation conditions",
+              list(config.entry_conditions) + list(config.confirmation_conditions))]
+    if config.long_entry_conditions:
+        gates.append(("long entry conditions + confirmation conditions",
+                       list(config.long_entry_conditions) + list(config.confirmation_conditions)))
+    if config.short_entry_conditions:
+        gates.append(("short entry conditions + confirmation conditions",
+                       list(config.short_entry_conditions) + list(config.confirmation_conditions)))
+    gates.append(("exit conditions", config.exit_conditions))
+    for label, bucket in gates:
         by_key = {}
         for cond in bucket:
             bound = _numeric_bound(cond)

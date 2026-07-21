@@ -38,6 +38,13 @@ _ROLE_KEYWORDS = {
 }
 
 _SECTION_KEYWORDS = {
+    # long_entry_conditions/short_entry_conditions MUST be checked before the
+    # generic entry_conditions below -- dict iteration order is insertion
+    # order and _detect_section_header() returns on the first match, so
+    # "Long Entry Rules:" (which also contains the substring "entry rule")
+    # would otherwise match the generic entry_conditions bucket first.
+    "long_entry_conditions": ["long entry rule", "long entry rules", "long entry:", "long entry condition", "long setup", "long rules", "long entry"],
+    "short_entry_conditions": ["short entry rule", "short entry rules", "short entry:", "short entry condition", "short setup", "short rules", "short entry"],
     "entry_conditions": ["entry rule", "entry rules", "entry:", "entry condition", "entry conditions", "buy rule", "entry setup"],
     "exit_conditions": ["exit rule", "exit rules", "exit:", "exit condition", "exit conditions", "sell rule"],
     "confirmation_conditions": ["confirmation rule", "confirmation:", "confirmation condition", "trigger:"],
@@ -123,6 +130,17 @@ _INDICATOR_COMPARE_RE = re.compile(
 )
 _PRICE_VS_INDICATOR_RE = re.compile(
     r"\b(close|price)\b.{0,15}?(above|below|upar|neeche|>|<)\s*(ema|sma|vwap|pdh|pdl)\D{0,3}(\d{1,4})?", re.IGNORECASE
+)
+# One indicator compared to ANOTHER indicator (MA cross/alignment), e.g.
+# "20-period EMA must be above the 50-period EMA" or "50 sma below 200 sma".
+# Distinct from _INDICATOR_COMPARE_RE (indicator vs. a fixed number) and
+# _PRICE_VS_INDICATOR_RE (price vs. an indicator) -- neither can represent
+# this, which is why it silently fell through to an unexecutable type="raw"
+# condition before this regex existed.
+_INDICATOR_VS_INDICATOR_RE = re.compile(
+    r"(\d{1,4})[\s-]*(?:period)?[\s-]*(ema|sma)\b.{0,25}?(above|below|greater than|less than|>|<)"
+    r".{0,25}?(\d{1,4})[\s-]*(?:period)?[\s-]*(ema|sma)\b",
+    re.IGNORECASE,
 )
 
 _RISK_RE = re.compile(r"\brisk\b\D{0,5}(\d+(?:\.\d+)?)\s*%?", re.IGNORECASE)
@@ -275,15 +293,29 @@ def _parse_conditions_from_line(line, timeframes=None):
         seg_lower = seg.lower()
         matched = False
 
-        m = _PRICE_VS_INDICATOR_RE.search(seg_lower)
+        m = _INDICATOR_VS_INDICATOR_RE.search(seg_lower)
         if m:
-            op_word = m.group(2)
-            op = ">" if op_word in ("above", "upar", ">") else "<"
-            params = {"period": int(m.group(4))} if m.group(4) else {}
+            op_word = m.group(3)
+            op = ">" if op_word in (">", "above", "greater than") else "<"
             conditions.append(Condition(
-                type="price_compare", op=op, indicator=m.group(3), params=params,
+                type="indicator_vs_indicator",
+                indicator=m.group(2), params={"period": int(m.group(1))},
+                op=op,
+                indicator2=m.group(5), params2={"period": int(m.group(4))},
+                role=line_role,
             ))
             matched = True
+
+        if not matched:
+            m = _PRICE_VS_INDICATOR_RE.search(seg_lower)
+            if m:
+                op_word = m.group(2)
+                op = ">" if op_word in ("above", "upar", ">") else "<"
+                params = {"period": int(m.group(4))} if m.group(4) else {}
+                conditions.append(Condition(
+                    type="price_compare", op=op, indicator=m.group(3), params=params,
+                ))
+                matched = True
 
         if not matched:
             m = _INDICATOR_COMPARE_RE.search(seg_lower)
@@ -361,11 +393,15 @@ def repair_condition_roles(config):
         return False
     lines = [ln for ln in config.raw_text.splitlines() if ln.strip()]
     changed = False
-    for bucket_name in ("entry_conditions", "exit_conditions", "confirmation_conditions"):
+    for bucket_name in ("entry_conditions", "long_entry_conditions", "short_entry_conditions",
+                        "exit_conditions", "confirmation_conditions"):
         for cond in getattr(config, bucket_name):
-            if cond.type != "concept" or cond.role or not cond.name:
+            if cond.type not in ("concept", "indicator_vs_indicator") or cond.role or not (cond.name or cond.indicator):
                 continue
-            keywords = _CONCEPT_KEYWORDS.get(cond.name)
+            # indicator_vs_indicator has no `name` (it compares indicator to
+            # indicator2, e.g. ema vs ema) -- look its keyword up by
+            # `indicator` instead, same table either way.
+            keywords = _CONCEPT_KEYWORDS.get(cond.name or cond.indicator)
             if not keywords:
                 continue
             for line in lines:
@@ -524,21 +560,39 @@ def _ensure_indicators_for_conditions(config):
     """An indicator only gets into config.indicators when it's mentioned
     with an explicit period (e.g. "EMA 50"). A condition like "RSI below
     40" references RSI without a period, so without this pass its column
-    would never get computed. Backfill a default-period entry for any
-    indicator a condition needs but that was never declared."""
-    existing_names = {ind["name"] for ind in config.indicators}
-    for bucket in ("entry_conditions", "exit_conditions", "confirmation_conditions"):
+    would never get computed. Backfill an entry for any indicator a
+    condition needs but that was never declared -- keyed by
+    (name, period, role) rather than just name, since indicator_vs_indicator
+    needs the SAME name registered at two different periods (e.g. a 20 EMA
+    and a 50 EMA) both present, not just whichever one was seen first."""
+    def _key(ind):
+        return (ind["name"], (ind.get("params") or {}).get("period"), ind.get("role"))
+
+    existing = {_key(ind) for ind in config.indicators}
+
+    def _ensure(name, params, role):
+        if not name:
+            return
+        key = (name, (params or {}).get("period"), role)
+        if key in existing:
+            return
+        config.indicators.append({"name": name, "params": dict(params or {}), "role": role})
+        existing.add(key)
+
+    for bucket in ("entry_conditions", "long_entry_conditions", "short_entry_conditions",
+                   "exit_conditions", "confirmation_conditions"):
         for cond in getattr(config, bucket):
             if cond.type in ("indicator_compare", "price_compare") and cond.indicator:
-                if cond.indicator not in existing_names:
-                    config.indicators.append({"name": cond.indicator, "params": {}, "role": None})
-                    existing_names.add(cond.indicator)
+                _ensure(cond.indicator, cond.params, None)
+            elif cond.type == "indicator_vs_indicator":
+                _ensure(cond.indicator, cond.params, cond.role)
+                _ensure(cond.indicator2, cond.params2, cond.role)
 
 
 def _fill_missing_and_warnings(config):
     if "entry" not in config.timeframes:
         config.missing.append("entry timeframe")
-    if not config.entry_conditions:
+    if not config.entry_conditions and not (config.long_entry_conditions or config.short_entry_conditions):
         config.missing.append("entry rules")
     if not config.exit_conditions and config.stop_loss.type == "unknown":
         config.missing.append("exit rules (no exit conditions or stop-loss detected)")
@@ -549,7 +603,8 @@ def _fill_missing_and_warnings(config):
     if config.risk_pct is None:
         config.missing.append("risk %")
 
-    for bucket_name in ("entry_conditions", "exit_conditions", "confirmation_conditions"):
+    for bucket_name in ("entry_conditions", "long_entry_conditions", "short_entry_conditions",
+                        "exit_conditions", "confirmation_conditions"):
         for cond in getattr(config, bucket_name):
             if cond.is_unclear():
                 config.warnings.append(f"Unclear {bucket_name.replace('_', ' ')}: \"{cond.text}\"")

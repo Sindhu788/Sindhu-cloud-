@@ -41,11 +41,11 @@ KNOWN_INDICATORS = [
 ]
 KNOWN_SESSIONS = ["asian", "london", "ny"]
 KNOWN_DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
-KNOWN_CONDITION_TYPES = ["indicator_compare", "price_compare", "concept", "session", "trend", "raw"]
+KNOWN_CONDITION_TYPES = ["indicator_compare", "price_compare", "indicator_vs_indicator", "concept", "session", "trend", "raw"]
 KNOWN_TIMEFRAME_ROLES = ["bias", "trend", "analysis", "entry", "confirmation"]
 KNOWN_SLTP_TYPES = ["fixed_pct", "atr_multiple", "structure", "rr", "level", "unknown"]
 
-_CONDITION_SCHEMA_NOTE = """Each condition object: {"type": one of indicator_compare|price_compare|concept|session|trend|raw, "indicator": indicator name (only for indicator_compare/price_compare), "params": {"period": N} if applicable else {}, "op": ">" or "<" only, "value": number (for indicator_compare), "name": concept/session name (for concept/session types), "direction": "bullish"|"bearish"|null (for concept/trend types), "text": the original phrase (required when type="raw" -- use raw ONLY when you cannot express the rule with the vocabulary below), "role": for a "concept" condition ONLY, the timeframe role (one of the declared Timeframe roles below, e.g. "bias"/"trend"/"analysis") that THIS SPECIFIC structural concept is actually read from -- set it whenever the text names a timeframe for it (e.g. "a swing low on the 1H or 4H chart" -> role of whichever declared role is 1h or 4h; "higher timeframe order block" -> role="bias" if that's your bias timeframe); leave null when the text doesn't say (this defaults to the entry timeframe, which is correct for most entry/confirmation-timeframe concepts like a 1-minute candle_break trigger) -- never leave every concept condition on the entry timeframe just because that's simpler than reading which chart the text actually says it's on, "lookback_bars": null (leave null)."""
+_CONDITION_SCHEMA_NOTE = """Each condition object: {"type": one of indicator_compare|price_compare|indicator_vs_indicator|concept|session|trend|raw, "indicator": indicator name (for indicator_compare/price_compare/indicator_vs_indicator -- for indicator_vs_indicator this is the FIRST indicator), "params": {"period": N} if applicable else {} (for indicator_vs_indicator, this is the first indicator's params), "op": ">" or "<" only, "value": number (REQUIRED for indicator_compare -- compares the indicator to this fixed number; leave null/omit for price_compare and indicator_vs_indicator, which never use it), "indicator2": ONLY for type="indicator_vs_indicator" -- the SECOND indicator's name, "params2": ONLY for type="indicator_vs_indicator" -- the second indicator's params (e.g. {"period": 50}), "name": concept/session name (for concept/session types), "direction": "bullish"|"bearish"|null (for concept/trend types), "text": the original phrase (required when type="raw" -- use raw ONLY when you cannot express the rule with the vocabulary below), "role": for "concept" AND "indicator_vs_indicator" conditions, the timeframe role (one of the declared Timeframe roles below, e.g. "bias"/"trend"/"analysis") that THIS SPECIFIC comparison is actually read from -- for indicator_vs_indicator BOTH indicators come from this SAME role (e.g. "Trend (1H): 20 EMA above 50 EMA" -> role="trend", both EMAs are the 1H versions); set it whenever the text names a timeframe for it (e.g. "a swing low on the 1H or 4H chart" -> role of whichever declared role is 1h or 4h); leave null when the text doesn't say (this defaults to the entry timeframe, which is correct for most entry/confirmation-timeframe rules like a 1-minute candle_break trigger) -- never leave every condition on the entry timeframe just because that's simpler than reading which chart the text actually says it's on, "lookback_bars": null (leave null)."""
 
 
 def build_structured_extraction_prompt(source_hint=None, content_type=None):
@@ -179,27 +179,54 @@ def build_structured_extraction_prompt(source_hint=None, content_type=None):
         "populate the top-level \"breakeven_at_rr\" number (how many "
         "multiples of the original risk must be reached first), NOT a "
         "condition\n\n"
-        "HOW entry_conditions IS EXECUTED (get this wrong and the strategy "
-        "is silently meaningless): every condition in entry_conditions is "
-        "AND-ed together on the SAME bar, and the trade direction is taken "
-        "from the conditions themselves. It is ONE directional setup, not a "
+        "HOW entry_conditions/long_entry_conditions/short_entry_conditions "
+        "ARE EXECUTED (get this wrong and the strategy is silently "
+        "meaningless): every condition within ONE of these lists is AND-ed "
+        "together on the SAME bar. entry_conditions is ONE directional "
+        "setup (direction is taken from the conditions themselves), not a "
         "menu of alternatives.\n"
-        "  * NEVER mix a bullish and a bearish version of the same concept "
-        "in entry_conditions (e.g. bullish candle_break AND bearish "
-        "candle_break). That is not \"long or short\" -- it demands both at "
-        "once, which is either impossible or trivially always-true, and "
-        "produces a strategy that is nonsense either way.\n"
+        "  * If the document describes ONLY ONE direction (a long-only or "
+        "short-only strategy), use entry_conditions exactly as before -- "
+        "leave long_entry_conditions/short_entry_conditions empty ([]).\n"
         "  * If the document describes BOTH a long setup and a mirror-image "
-        "short setup, extract ONLY the long setup into entry_conditions "
-        "(the short side is the same logic mirrored, and the engine cannot "
-        "hold two setups). Do not average them together or drop their "
-        "filters to make them fit.\n"
-        "  * Keep EVERY filter that gates the entry. If the rule is \"price "
-        "sweeps below PDL, THEN a green candle forms, THEN its high "
-        "breaks\", all of those belong in entry_conditions together (pdl + "
-        "candle_break) -- dropping the pdl filter turns a selective setup "
-        "into one that fires on almost every bar. A condition list that is "
-        "true on most bars means you dropped the filters.\n\n"
+        "short setup (the common case: \"Long Entry Rules\" / \"Short Entry "
+        "Rules\" sections, or \"Long (mirror of short)\"), put the long "
+        "rules in long_entry_conditions and the short rules in "
+        "short_entry_conditions -- these are TWO SEPARATE, independently "
+        "AND-ed rule sets, evaluated independently, NOT merged into one "
+        "list. Leave entry_conditions empty ([]) in this case. Do not "
+        "average the two setups together or drop either one's filters to "
+        "make them fit into a single list -- that used to be necessary and "
+        "isn't anymore.\n"
+        "  * NEVER mix a bullish and a bearish version of the same concept "
+        "within the SAME list (e.g. bullish candle_break AND bearish "
+        "candle_break both inside entry_conditions, or both inside "
+        "long_entry_conditions). That is not \"long or short\" -- it "
+        "demands both at once within one AND-gate, which is either "
+        "impossible or trivially always-true. The bearish version belongs "
+        "in short_entry_conditions instead, not alongside the bullish one.\n"
+        "  * Keep EVERY filter that gates the entry, in whichever list it "
+        "belongs to. If the rule is \"price sweeps below PDL, THEN a green "
+        "candle forms, THEN its high breaks\", all of those belong together "
+        "in the same list (pdl + candle_break) -- dropping the pdl filter "
+        "turns a selective setup into one that fires on almost every bar. A "
+        "condition list that is true on most bars means you dropped the "
+        "filters.\n\n"
+        "INDICATOR-VS-INDICATOR COMPARISONS (MA cross, MA alignment, EMA "
+        "vs EMA): indicator_compare only compares an indicator to a FIXED "
+        "NUMBER (e.g. \"RSI > 40\") and price_compare only compares price "
+        "to an indicator -- neither can express one indicator compared to "
+        "ANOTHER indicator. For that, use type=\"indicator_vs_indicator\": "
+        "\"20-period EMA above 50-period EMA\" -> {\"type\": "
+        "\"indicator_vs_indicator\", \"indicator\": \"ema\", \"params\": "
+        "{\"period\": 20}, \"op\": \">\", \"indicator2\": \"ema\", "
+        "\"params2\": {\"period\": 50}}. Also declare BOTH periods in the "
+        "top-level \"indicators\" list (two separate entries, same role, "
+        "different \"period\") so they actually get computed -- an "
+        "indicator_vs_indicator condition whose indicators aren't also "
+        "listed there will never produce a value. Do NOT emit this as "
+        "type=\"raw\" just because it's two indicators instead of one -- "
+        "this is exactly the vocabulary for it.\n\n"
         "TWO HARD CONSISTENCY RULES (violating either makes the strategy "
         "unrunnable):\n"
         "  1. exit_conditions is ONLY for rules that close a trade on a "
@@ -265,6 +292,8 @@ def build_structured_extraction_prompt(source_hint=None, content_type=None):
         '    "indicators": [{"name": "ema", "params": {"period": 50}, "role": "trend"}],\n'
         '    "concepts_used": ["bos"],\n'
         '    "entry_conditions": [<condition>],\n'
+        '    "long_entry_conditions": [<condition>],\n'
+        '    "short_entry_conditions": [<condition>],\n'
         '    "exit_conditions": [<condition>],\n'
         '    "confirmation_conditions": [<condition>],\n'
         '    "stop_loss": {"type": "structure", "value": null, "level": null},\n'
@@ -415,8 +444,9 @@ def _clean_condition(entry):
     role = str(entry.get("role")).strip().lower() if entry.get("role") else None
     if role not in KNOWN_TIMEFRAME_ROLES:
         role = None
-    if cond_type != "concept":
+    if cond_type not in ("concept", "indicator_vs_indicator"):
         role = None
+    params2 = entry.get("params2") if isinstance(entry.get("params2"), dict) else {}
     return {
         "type": cond_type,
         "indicator": (str(entry.get("indicator")).strip().lower() if entry.get("indicator") else None),
@@ -428,6 +458,8 @@ def _clean_condition(entry):
         "text": (str(entry.get("text")).strip() if entry.get("text") else None),
         "role": role,
         "lookback_bars": lookback,
+        "indicator2": (str(entry.get("indicator2")).strip().lower() if entry.get("indicator2") else None),
+        "params2": params2,
     }
 
 
@@ -496,6 +528,8 @@ def _clean_strategy(entry):
         "indicators": indicators,
         "concepts_used": _clean_str_list(entry.get("concepts_used")),
         "entry_conditions": _conditions("entry_conditions"),
+        "long_entry_conditions": _conditions("long_entry_conditions"),
+        "short_entry_conditions": _conditions("short_entry_conditions"),
         "exit_conditions": _conditions("exit_conditions"),
         "confirmation_conditions": _conditions("confirmation_conditions"),
         "stop_loss": _clean_sltp(entry.get("stop_loss")),

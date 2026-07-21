@@ -107,12 +107,20 @@ def _condition_roles_summary(cfg):
     the CEO isn't left guessing whether it was never checked or is
     deliberately on entry."""
     out = []
-    for bucket in ("entry_conditions", "exit_conditions", "confirmation_conditions"):
+    for bucket in ("entry_conditions", "long_entry_conditions", "short_entry_conditions",
+                   "exit_conditions", "confirmation_conditions"):
         for cond in getattr(cfg, bucket, []):
             if cond.type == "concept":
                 out.append({
                     "bucket": bucket, "name": cond.name, "direction": cond.direction,
                     "role": cond.role or "entry",
+                })
+            elif cond.type == "indicator_vs_indicator":
+                p1 = (cond.params or {}).get("period")
+                p2 = (cond.params2 or {}).get("period")
+                out.append({
+                    "bucket": bucket, "name": f"{cond.indicator}{p1 or ''} {cond.op} {cond.indicator2}{p2 or ''}",
+                    "direction": None, "role": cond.role or "entry",
                 })
     return out
 

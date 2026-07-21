@@ -142,6 +142,10 @@ def force_ready(config, clarification_notes, resolved_defaults):
     hiding it behind a confident-looking "Ready" label."""
     if config.entry_conditions and all(c.type == "raw" for c in config.entry_conditions):
         return config, NEEDS_CLARIFICATION, clarification_notes, resolved_defaults
+    if config.long_entry_conditions and all(c.type == "raw" for c in config.long_entry_conditions):
+        return config, NEEDS_CLARIFICATION, clarification_notes, resolved_defaults
+    if config.short_entry_conditions and all(c.type == "raw" for c in config.short_entry_conditions):
+        return config, NEEDS_CLARIFICATION, clarification_notes, resolved_defaults
     if config.stop_loss.type == "unknown":
         config.stop_loss = SLTPSpec(type="fixed_pct", value=DEFAULT_STOP_LOSS_PCT)
         resolved_defaults = resolved_defaults + [

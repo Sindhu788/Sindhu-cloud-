@@ -36,7 +36,8 @@ from sindhu_web import sync
 
 router = APIRouter()
 
-_BUCKETS = ("entry_conditions", "exit_conditions", "confirmation_conditions")
+_BUCKETS = ("entry_conditions", "long_entry_conditions", "short_entry_conditions",
+            "exit_conditions", "confirmation_conditions")
 
 _SUPPORTED_VOCAB_HINT = (
     "Supported condition types: indicator comparisons (RSI/EMA/SMA/MACD/ATR/volume vs. a "
@@ -61,6 +62,10 @@ def _describe_condition(cond):
         return f"{cond.indicator} {cond.op} {cond.value}"
     if cond.type == "price_compare":
         return f"price {cond.op} {cond.indicator}" + (f"({cond.params.get('period')})" if cond.params.get("period") else "")
+    if cond.type == "indicator_vs_indicator":
+        p1 = cond.params.get("period") if cond.params else None
+        p2 = cond.params2.get("period") if cond.params2 else None
+        return f"{cond.indicator}{f'({p1})' if p1 else ''} {cond.op} {cond.indicator2}{f'({p2})' if p2 else ''}"
     if cond.type == "concept":
         return f"{cond.name}" + (f" ({cond.direction})" if cond.direction else "")
     if cond.type == "session":

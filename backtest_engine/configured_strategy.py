@@ -194,9 +194,22 @@ class ConfiguredStrategy(Strategy):
         cfg = self.config
 
         if position is None:
-            if not cfg.entry_conditions:
-                return None
-            entry_ok = all(self._eval(c, df, i) for c in cfg.entry_conditions)
+            # Two mutually-exclusive rule sets (a strategy with separate
+            # "Long Entry Rules"/"Short Entry Rules" sections) take priority
+            # over the legacy single entry_conditions gate whenever either is
+            # populated. A strategy that only ever fills entry_conditions
+            # (every strategy saved before this feature existed) falls
+            # through to the unchanged legacy branch below.
+            if cfg.long_entry_conditions or cfg.short_entry_conditions:
+                direction, matched_conditions = self._eval_long_short(df, i)
+                entry_ok = direction is not None
+            else:
+                if not cfg.entry_conditions:
+                    return None
+                entry_ok = all(self._eval(c, df, i) for c in cfg.entry_conditions)
+                direction = self._infer_direction() if entry_ok else None
+                matched_conditions = cfg.entry_conditions
+
             if entry_ok and cfg.confirmation_conditions:
                 entry_ok = all(self._eval(c, df, i) for c in cfg.confirmation_conditions)
             if entry_ok and cfg.session_filter:
@@ -208,17 +221,32 @@ class ConfiguredStrategy(Strategy):
             if not entry_ok:
                 return None
 
-            direction = self._infer_direction()
             price = self._array(df, "close")[i]
             sl = self._compute_stop_loss(df, i, price, direction)
             tp = self._compute_take_profit(df, i, price, direction, sl)
             action = "buy" if direction == "bullish" else "sell"
-            return Signal(action=action, stop_loss=sl, take_profit=tp, reason=self._describe(cfg.entry_conditions))
+            return Signal(action=action, stop_loss=sl, take_profit=tp, reason=self._describe(matched_conditions))
 
         else:
             if cfg.exit_conditions and all(self._eval(c, df, i) for c in cfg.exit_conditions):
                 return Signal(action="exit", reason=self._describe(cfg.exit_conditions))
             return None
+
+    def _eval_long_short(self, df, i):
+        """Returns (direction, matched_conditions) for whichever rule set is
+        satisfied at this bar, or (None, None) if neither is -- or if BOTH
+        somehow are (a genuinely contradictory bar), which is treated as no
+        signal rather than an arbitrary guess about which side to take."""
+        cfg = self.config
+        long_ok = bool(cfg.long_entry_conditions) and all(self._eval(c, df, i) for c in cfg.long_entry_conditions)
+        short_ok = bool(cfg.short_entry_conditions) and all(self._eval(c, df, i) for c in cfg.short_entry_conditions)
+        if long_ok and short_ok:
+            return None, None
+        if long_ok:
+            return "bullish", cfg.long_entry_conditions
+        if short_ok:
+            return "bearish", cfg.short_entry_conditions
+        return None, None
 
     def manage_position(self, df, i, position):
         """Break-even stop-move: if configured (breakeven_at_rr), moves
@@ -262,7 +290,8 @@ class ConfiguredStrategy(Strategy):
             # period specified on the condition would otherwise just match
             # whichever happens to be first in config.indicators.
             for ind in self.config.indicators:
-                if ind["name"] == indicator_name and (ind.get("role") or "entry") == cond_role:
+                if (ind["name"] == indicator_name and (ind.get("role") or "entry") == cond_role
+                        and (period is None or ind["params"].get("period") == period)):
                     resolved_period = ind["params"].get("period", period)
                     break
             role = cond_role
@@ -441,6 +470,19 @@ class ConfiguredStrategy(Strategy):
                 return False
             return price > ind_val if cond.op == ">" else price < ind_val
 
+        if cond.type == "indicator_vs_indicator":
+            # Two indicators compared to EACH OTHER (e.g. "EMA20 above
+            # EMA50" -- MA alignment/cross), as opposed to indicator_compare
+            # (indicator vs. a fixed number) or price_compare (price vs. an
+            # indicator). Both sides read from the SAME role -- a strategy
+            # saying "Trend (1H): 20 EMA above 50 EMA" means both EMAs are
+            # the 1H versions of themselves, not one on 1H and one on entry.
+            val1 = self._get(df, i, self._indicator_column(cond.indicator, cond.params, cond.role))
+            val2 = self._get(df, i, self._indicator_column(cond.indicator2, cond.params2, cond.role))
+            if val1 is None or val2 is None:
+                return False
+            return val1 > val2 if cond.op == ">" else val1 < val2
+
         if cond.type == "session":
             return self._get(df, i, "entry_session") == cond.name
 
@@ -550,6 +592,10 @@ class ConfiguredStrategy(Strategy):
                 parts.append(f"{c.indicator} {c.op} {c.value}")
             elif c.type == "price_compare":
                 parts.append(f"price {c.op} {c.indicator}")
+            elif c.type == "indicator_vs_indicator":
+                p1 = c.params.get("period")
+                p2 = c.params2.get("period")
+                parts.append(f"{c.indicator}{p1 or ''} {c.op} {c.indicator2}{p2 or ''}")
             elif c.type == "session":
                 parts.append(f"session={c.name}")
             elif c.type == "trend":

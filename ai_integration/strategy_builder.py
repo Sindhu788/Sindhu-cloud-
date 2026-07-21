@@ -76,7 +76,10 @@ def _describe_raw(cond_dict):
     vocabulary doesn't match what the backtest engine can execute."""
     if cond_dict.get("text"):
         return cond_dict["text"]
-    parts = [str(v) for v in (cond_dict.get("indicator"), cond_dict.get("op"), cond_dict.get("value"), cond_dict.get("name"), cond_dict.get("direction")) if v is not None]
+    parts = [str(v) for v in (
+        cond_dict.get("indicator"), cond_dict.get("op"), cond_dict.get("value"),
+        cond_dict.get("indicator2"), cond_dict.get("name"), cond_dict.get("direction"),
+    ) if v is not None]
     return " ".join(parts) or "unrecognized condition"
 
 
@@ -107,6 +110,18 @@ def build_condition(cond_dict):
             type=cond_type, indicator=indicator, params=cond_dict.get("params") or {},
             op=cond_dict.get("op"), value=cond_dict.get("value"),
             lookback_bars=cond_dict.get("lookback_bars"),
+        )
+
+    if cond_type == "indicator_vs_indicator":
+        indicator = cond_dict.get("indicator")
+        indicator2 = cond_dict.get("indicator2")
+        if (not indicator or not indicator2 or indicator not in _KNOWN_INDICATOR_SET
+                or indicator2 not in _KNOWN_INDICATOR_SET or cond_dict.get("op") not in (">", "<")):
+            return Condition(type="raw", text=_describe_raw(cond_dict))
+        return Condition(
+            type="indicator_vs_indicator", indicator=indicator, params=cond_dict.get("params") or {},
+            op=cond_dict.get("op"), indicator2=indicator2, params2=cond_dict.get("params2") or {},
+            role=cond_dict.get("role"),
         )
 
     if cond_type == "concept":
@@ -167,6 +182,8 @@ def build_strategy_config(ai_strategy, name, raw_text):
         indicators=list(ai_strategy.get("indicators") or []),
         concepts_used=list(ai_strategy.get("concepts_used") or []),
         entry_conditions=_conditions("entry_conditions"),
+        long_entry_conditions=_conditions("long_entry_conditions"),
+        short_entry_conditions=_conditions("short_entry_conditions"),
         exit_conditions=_conditions("exit_conditions"),
         confirmation_conditions=_conditions("confirmation_conditions"),
         stop_loss=build_stop_loss_take_profit(ai_strategy.get("stop_loss") or {}),
@@ -224,7 +241,8 @@ def sync_concepts_used(config):
     config.concepts_used in place; returns True if anything changed."""
     concepts_used_set = set(config.concepts_used)
     changed = False
-    for bucket_name in ("entry_conditions", "exit_conditions", "confirmation_conditions"):
+    for bucket_name in ("entry_conditions", "long_entry_conditions", "short_entry_conditions",
+                        "exit_conditions", "confirmation_conditions"):
         for cond in getattr(config, bucket_name):
             if cond.type != "concept" or cond.name not in _CONCEPT_REQUIRES_ANY_OF:
                 continue

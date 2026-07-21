@@ -13,8 +13,10 @@ from knowledge_compiler import dictionary
 
 def _condition_key(cond):
     params_key = tuple(sorted(cond.params.items())) if cond.params else ()
+    params2_key = tuple(sorted(cond.params2.items())) if getattr(cond, "params2", None) else ()
     text_key = cond.text.strip().lower() if cond.type == "raw" and cond.text else None
-    return (cond.type, cond.indicator, params_key, cond.op, cond.value, cond.name, cond.direction, text_key)
+    return (cond.type, cond.indicator, params_key, cond.op, cond.value, cond.name, cond.direction,
+            text_key, getattr(cond, "indicator2", None), params2_key)
 
 
 def dedupe_conditions(conditions):
@@ -31,8 +33,10 @@ def dedupe_conditions(conditions):
 
 def dedupe_rules(config):
     """Mutates `config` in place, removing exact-duplicate conditions within
-    each bucket (entry/exit/confirmation). Returns it for chaining."""
+    each bucket (entry/long/short/exit/confirmation). Returns it for chaining."""
     config.entry_conditions = dedupe_conditions(config.entry_conditions)
+    config.long_entry_conditions = dedupe_conditions(config.long_entry_conditions)
+    config.short_entry_conditions = dedupe_conditions(config.short_entry_conditions)
     config.exit_conditions = dedupe_conditions(config.exit_conditions)
     config.confirmation_conditions = dedupe_conditions(config.confirmation_conditions)
     return config
@@ -54,7 +58,7 @@ def detect_conflicts(config):
     (e.g. "close above EMA50" and "close below EMA50" both required as entry
     conditions). Reports the conflict -- never auto-resolves it."""
     conflicts = []
-    for bucket_name in ("entry_conditions", "exit_conditions"):
+    for bucket_name in ("entry_conditions", "long_entry_conditions", "short_entry_conditions", "exit_conditions"):
         bucket = getattr(config, bucket_name)
 
         by_indicator_op = {}

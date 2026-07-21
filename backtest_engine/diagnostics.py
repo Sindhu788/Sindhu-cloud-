@@ -19,6 +19,8 @@ def _describe_condition(cond):
         return f"{cond.indicator} {cond.op} {cond.value}"
     if cond.type == "price_compare":
         return f"price {cond.op} {cond.indicator}"
+    if cond.type == "indicator_vs_indicator":
+        return f"{cond.indicator} {cond.op} {cond.indicator2}"
     if cond.type == "session":
         return f"session = {cond.name}"
     if cond.type == "trend":
@@ -43,7 +45,12 @@ def condition_hit_report(config, merged_df):
     ever runs as a diagnostic after the real backtest already completed
     (successfully, with 0 trades)."""
     n = len(merged_df)
-    conditions = list(config.entry_conditions) + list(config.confirmation_conditions)
+    # A Long/Short strategy has two independent gates instead of one shared
+    # entry_conditions -- report on whichever is populated (or both) rather
+    # than silently reporting nothing just because entry_conditions itself
+    # is empty by design in that mode.
+    entry_side = list(config.entry_conditions) or (list(config.long_entry_conditions) + list(config.short_entry_conditions))
+    conditions = entry_side + list(config.confirmation_conditions)
 
     if not conditions or n == 0:
         return {"total_bars": n, "per_condition": [], "all_together_bars": 0}

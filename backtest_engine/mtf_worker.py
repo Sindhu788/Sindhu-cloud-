@@ -129,7 +129,10 @@ def run_one_symbol(config_dict, exchange, symbol, settings, start_ms, end_ms, ba
 
         stage = "rules_loaded"
         entry_tf = config.timeframes.get("entry", "?")
-        if not config.entry_conditions:
+        # A strategy using separate Long/Short entry rule sets satisfies
+        # "has entry rules" via EITHER of those instead of entry_conditions
+        # -- same check as validator.py and ConfiguredStrategy.on_bar().
+        if not config.entry_conditions and not (config.long_entry_conditions or config.short_entry_conditions):
             return _failure(
                 stage, "run_one_symbol",
                 "The compiled strategy has no entry conditions to evaluate.",

@@ -9,12 +9,16 @@ from typing import Optional
 @dataclass
 class Condition:
     """One atomic testable condition. `type` selects which fields matter:
-    - "indicator_compare": indicator, params, op, value        (e.g. RSI < 30)
-    - "price_compare":     op, indicator, params                (e.g. close > EMA50)
-    - "concept":           name, direction (optional)            (e.g. bullish BOS)
-    - "session":           name                                  (e.g. london)
-    - "trend":             direction                             (e.g. up)
-    - "raw":               text                                  (unparsed -- needs clarification)
+    - "indicator_compare":     indicator, params, op, value        (e.g. RSI < 30)
+    - "price_compare":         op, indicator, params                (e.g. close > EMA50)
+    - "indicator_vs_indicator": indicator, params, op, indicator2, params2
+                                (e.g. EMA20 > EMA50 -- an indicator compared
+                                against ANOTHER indicator instead of a fixed
+                                number; both read from the same `role`)
+    - "concept":                name, direction (optional)          (e.g. bullish BOS)
+    - "session":                 name                                 (e.g. london)
+    - "trend":                   direction                             (e.g. up)
+    - "raw":                     text                                  (unparsed -- needs clarification)
     """
     type: str
     indicator: Optional[str] = None
@@ -31,6 +35,8 @@ class Condition:
     # requiring it on this exact bar. None = use the evaluator's default
     # (currently 10); 1 = strict same-bar (the original, pre-Phase-6
     # behavior). Ignored entirely for every other condition type.
+    indicator2: Optional[str] = None   # only for type="indicator_vs_indicator"
+    params2: dict = field(default_factory=dict)  # only for type="indicator_vs_indicator"
 
     def is_unclear(self):
         return self.type == "raw"
@@ -57,9 +63,17 @@ class StrategyConfig:
     indicators: list = field(default_factory=list)           # [{"name":"ema","params":{"period":50},"role":"trend"}]
     concepts_used: list = field(default_factory=list)         # ["bos", "fvg", ...]
 
-    entry_conditions: list = field(default_factory=list)      # list[Condition]
+    entry_conditions: list = field(default_factory=list)      # list[Condition] -- legacy single-direction entry gate
     exit_conditions: list = field(default_factory=list)
     confirmation_conditions: list = field(default_factory=list)
+    # Two mutually-exclusive rule sets for a strategy that describes separate
+    # Long and Short entry rules (each independently AND-ed, exactly like
+    # entry_conditions is today) instead of one shared gate. When either of
+    # these is non-empty, ConfiguredStrategy.on_bar() uses THEM instead of
+    # entry_conditions -- a strategy that only ever populates entry_conditions
+    # (every strategy saved before this feature) is completely unaffected.
+    long_entry_conditions: list = field(default_factory=list)   # list[Condition]
+    short_entry_conditions: list = field(default_factory=list)  # list[Condition]
 
     stop_loss: SLTPSpec = field(default_factory=SLTPSpec)
     take_profit: SLTPSpec = field(default_factory=SLTPSpec)
@@ -89,4 +103,6 @@ class StrategyConfig:
         d["entry_conditions"] = [Condition(**c) for c in d.get("entry_conditions", [])]
         d["exit_conditions"] = [Condition(**c) for c in d.get("exit_conditions", [])]
         d["confirmation_conditions"] = [Condition(**c) for c in d.get("confirmation_conditions", [])]
+        d["long_entry_conditions"] = [Condition(**c) for c in d.get("long_entry_conditions", [])]
+        d["short_entry_conditions"] = [Condition(**c) for c in d.get("short_entry_conditions", [])]
         return StrategyConfig(**d)
