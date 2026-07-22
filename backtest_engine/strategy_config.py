@@ -85,6 +85,38 @@ class StrategyConfig:
     day_filter: list = field(default_factory=list)             # ["monday", "friday"]
     breakeven_at_rr: Optional[float] = None                      # move stop to entry once unrealized profit reaches this many R
 
+    # -------------------------------------------- Trade Execution Engine
+    # How a signal actually becomes a filled position. "market" and
+    # "current_candle_close" are two names for the SAME fill (the close of
+    # the bar the signal fired on) -- a bar-based backtest with no
+    # intra-bar order book has no way to distinguish them, so both are
+    # accepted and documented as identical rather than one silently being
+    # ignored. Default "market" reproduces every strategy's behavior from
+    # before this field existed, byte-for-byte.
+    entry_type: str = "market"
+    # "limit"/"stop" trigger price = signal-bar close offset by this percent
+    # (limit: against the trade direction, i.e. a pullback; stop: with the
+    # trade direction, i.e. a breakout). None/0 means the trigger equals the
+    # signal price exactly -- mechanically valid (it still goes through the
+    # real pending-order fill check) but only meaningfully different from
+    # "market" once a real offset is set.
+    entry_price_offset_pct: Optional[float] = None
+    # {"trigger_rr": 1.0, "close_fraction": 0.5} -- close close_fraction of
+    # the position once unrealized profit reaches trigger_rr multiples of
+    # the original risk (same "R" as breakeven_at_rr), leaving the rest
+    # running under its own original stop/target. None = disabled.
+    partial_take_profit: Optional[dict] = None
+    # {"type": "pct"|"atr_multiple", "value": N} -- stop trails the best
+    # price seen since entry, only ever tightening, never loosening.
+    # "pct": trail N% behind the best price. "atr_multiple": trail N*ATR(14)
+    # behind it (falls back to not trailing on a bar with no ATR column
+    # computed, rather than guessing a value). None = disabled.
+    trailing_stop: Optional[dict] = None
+    # Force-close the position after this many bars have elapsed since
+    # entry, at that bar's close. None = disabled (position only ever
+    # closes via stop-loss/take-profit/exit signal/end-of-data, as before).
+    time_exit_bars: Optional[int] = None
+
     tags: list = field(default_factory=list)
     favourite: bool = False
 

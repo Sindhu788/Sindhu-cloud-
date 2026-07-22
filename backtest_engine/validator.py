@@ -23,6 +23,12 @@ _KNOWN_INDICATORS = {
 
 _KNOWN_CONDITION_TYPES = {"indicator_compare", "price_compare", "indicator_vs_indicator", "concept", "session", "trend"}
 
+_KNOWN_ENTRY_TYPES = {
+    "market", "current_candle_close", "limit", "stop",
+    "signal_candle_high", "signal_candle_low", "next_candle_open",
+}
+_TRAILING_STOP_TYPES = {"pct", "atr_multiple"}
+
 # Mirrors the OR-gates in ConfiguredStrategy.prepare_context() (backtest_engine/
 # configured_strategy.py): each concept-type condition name only gets its
 # underlying column(s) actually computed if concepts_used contains at least
@@ -191,6 +197,45 @@ def validate(config):
 
     if config.risk_reward is not None and config.risk_reward <= 0:
         errors.append(f"Invalid risk:reward ratio: {config.risk_reward}. Must be greater than 0.")
+
+    # -------------------------------------------- Trade Execution Engine
+    entry_type = (config.entry_type or "market").strip().lower()
+    if entry_type not in _KNOWN_ENTRY_TYPES:
+        errors.append(
+            f"Unknown entry_type '{config.entry_type}'. Must be one of: {', '.join(sorted(_KNOWN_ENTRY_TYPES))}."
+        )
+    if entry_type in ("limit", "stop") and config.entry_price_offset_pct is not None:
+        if config.entry_price_offset_pct < 0:
+            errors.append(
+                f"Invalid entry_price_offset_pct: {config.entry_price_offset_pct}. Must be >= 0 "
+                "(direction relative to price is implied by entry_type/side, not the sign)."
+            )
+
+    if config.partial_take_profit is not None:
+        ptp = config.partial_take_profit
+        trigger_rr = ptp.get("trigger_rr")
+        close_fraction = ptp.get("close_fraction")
+        if trigger_rr is None or trigger_rr <= 0:
+            errors.append("partial_take_profit.trigger_rr must be a positive number.")
+        if close_fraction is None or not (0 < close_fraction < 1):
+            errors.append("partial_take_profit.close_fraction must be between 0 and 1 (exclusive).")
+        if config.stop_loss.type == "unknown":
+            errors.append(
+                "partial_take_profit requires a real stop-loss (its trigger is measured in multiples "
+                "of the original risk) -- stop_loss is currently 'unknown'."
+            )
+
+    if config.trailing_stop is not None:
+        ts = config.trailing_stop
+        ts_type = ts.get("type")
+        ts_value = ts.get("value")
+        if ts_type not in _TRAILING_STOP_TYPES:
+            errors.append(f"trailing_stop.type must be one of {sorted(_TRAILING_STOP_TYPES)}, got {ts_type!r}.")
+        if ts_value is None or ts_value <= 0:
+            errors.append("trailing_stop.value must be a positive number.")
+
+    if config.time_exit_bars is not None and config.time_exit_bars <= 0:
+        errors.append(f"time_exit_bars must be a positive integer, got {config.time_exit_bars}.")
 
     for bucket_name in ("entry_conditions", "long_entry_conditions", "short_entry_conditions",
                         "exit_conditions", "confirmation_conditions"):

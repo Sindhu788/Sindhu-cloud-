@@ -27,8 +27,17 @@ def compute_metrics(trades, equity_curve, initial_balance):
 
     gross_profit = sum(t["pnl"] for t in wins)
     gross_loss = abs(sum(t["pnl"] for t in losses))
+    net_profit = gross_profit - gross_loss
     profit_factor = (gross_profit / gross_loss) if gross_loss else None
     risk_reward = (avg_win / abs(avg_loss)) if avg_loss else None
+    # Expectancy: average $ PnL per trade, win rate and avg win/loss already
+    # baked in ((win% * avg_win) - (loss% * |avg_loss|) is mathematically
+    # identical to net_profit / total_trades -- computed the direct way to
+    # avoid any rounding drift between the two).
+    expectancy = (net_profit / total_trades) if total_trades else 0.0
+    total_commission = sum(t.get("commission_cost") or 0.0 for t in trades)
+    total_slippage = sum(t.get("slippage_cost") or 0.0 for t in trades)
+    total_spread = sum(t.get("spread_cost") or 0.0 for t in trades)
 
     return {
         "total_trades": total_trades,
@@ -40,6 +49,13 @@ def compute_metrics(trades, equity_curve, initial_balance):
         "max_drawdown_pct": round(_max_drawdown_pct(equity_curve), 2),
         "avg_win": round(avg_win, 4),
         "avg_loss": round(avg_loss, 4),
+        "gross_profit": round(gross_profit, 4),
+        "gross_loss": round(gross_loss, 4),
+        "net_profit": round(net_profit, 4),
+        "expectancy": round(expectancy, 4),
         "profit_factor": round(profit_factor, 4) if profit_factor is not None else None,
         "risk_reward": round(risk_reward, 4) if risk_reward is not None else None,
+        "total_commission": round(total_commission, 4),
+        "total_slippage": round(total_slippage, 4),
+        "total_spread": round(total_spread, 4),
     }

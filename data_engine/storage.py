@@ -713,6 +713,16 @@ def _migrate_lesson_meta_columns(conn):
 _TRADE_HISTORY_NEW_COLUMNS = {
     "stop_loss": "REAL", "take_profit": "REAL",
     "risk_amount": "REAL", "reward_amount": "REAL", "entry_reason": "TEXT",
+    # Trade Execution Engine (Phase 1): which fill mechanism actually
+    # produced this trade, and the PnL Engine breakdown (gross PnL,
+    # commission, slippage each stored explicitly instead of only the
+    # already-netted `pnl`) so every trade is independently auditable
+    # without re-deriving costs. is_partial marks a partial-take-profit
+    # close -- the remainder of that same position continues as a
+    # SEPARATE trade row (same entry_time/entry_price, later exit), so
+    # summing pnl across a batch is still correct with no double-counting.
+    "entry_type": "TEXT", "gross_pnl": "REAL",
+    "commission_cost": "REAL", "slippage_cost": "REAL", "spread_cost": "REAL", "is_partial": "INTEGER",
 }
 
 
@@ -1281,8 +1291,9 @@ def save_trades(batch_id, symbol, timeframe, trades):
             """INSERT OR REPLACE INTO backtest_trades
                (batch_id, symbol, timeframe, trade_num, side, entry_time, entry_price,
                 exit_time, exit_price, size, pnl, pnl_pct, exit_reason,
-                stop_loss, take_profit, risk_amount, reward_amount, entry_reason)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                stop_loss, take_profit, risk_amount, reward_amount, entry_reason,
+                entry_type, gross_pnl, commission_cost, slippage_cost, spread_cost, is_partial)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             [
                 (
                     batch_id, symbol, timeframe, t["trade_num"], t["side"],
@@ -1290,6 +1301,8 @@ def save_trades(batch_id, symbol, timeframe, trades):
                     t["size"], t.get("pnl"), t.get("pnl_pct"), t.get("exit_reason"),
                     t.get("stop_loss"), t.get("take_profit"), t.get("risk_amount"),
                     t.get("reward_amount"), t.get("entry_reason"),
+                    t.get("entry_type"), t.get("gross_pnl"), t.get("commission_cost"),
+                    t.get("slippage_cost"), t.get("spread_cost"), 1 if t.get("is_partial") else 0,
                 )
                 for t in trades
             ],
@@ -1300,7 +1313,8 @@ def get_trades(batch_id, symbol=None, timeframe=None):
     query = (
         "SELECT batch_id, symbol, timeframe, trade_num, side, entry_time, entry_price, "
         "exit_time, exit_price, size, pnl, pnl_pct, exit_reason, "
-        "stop_loss, take_profit, risk_amount, reward_amount, entry_reason "
+        "stop_loss, take_profit, risk_amount, reward_amount, entry_reason, "
+        "entry_type, gross_pnl, commission_cost, slippage_cost, spread_cost, is_partial "
         "FROM backtest_trades WHERE batch_id = ?"
     )
     params = [batch_id]
@@ -1314,7 +1328,8 @@ def get_trades(batch_id, symbol=None, timeframe=None):
 
     cols = ["batch_id", "symbol", "timeframe", "trade_num", "side", "entry_time", "entry_price",
             "exit_time", "exit_price", "size", "pnl", "pnl_pct", "exit_reason",
-            "stop_loss", "take_profit", "risk_amount", "reward_amount", "entry_reason"]
+            "stop_loss", "take_profit", "risk_amount", "reward_amount", "entry_reason",
+            "entry_type", "gross_pnl", "commission_cost", "slippage_cost", "spread_cost", "is_partial"]
     with get_conn() as conn:
         rows = conn.execute(query, params).fetchall()
     return [dict(zip(cols, r)) for r in rows]
