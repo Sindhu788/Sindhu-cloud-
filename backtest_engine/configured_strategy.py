@@ -17,6 +17,15 @@ class ConfiguredStrategy(Strategy):
         self.config = config
         self.name = config.name
         self._arr_cache = {}
+        # Phase 2 (Strategy Verification Engine, BACKTESTING_MASTER_SPEC.md
+        # Requirement 13): an optional trace hook, off by default (a single
+        # `if self._trace:` check has no measurable cost on the hot path).
+        # backtest_engine.strategy_verifier sets this to a callback that
+        # records "this exact Condition object was evaluated, with this
+        # result" so a verification run can prove every rule in the saved
+        # JSON actually gets reached by the Rule Engine, instead of only
+        # trusting that it should.
+        self._trace = None
 
     # -------------------------------------------------- multi-timeframe prep
     def prepare_context(self, ctx):
@@ -206,12 +215,12 @@ class ConfiguredStrategy(Strategy):
             else:
                 if not cfg.entry_conditions:
                     return None
-                entry_ok = all(self._eval(c, df, i) for c in cfg.entry_conditions)
+                entry_ok = all(self._eval_traced(c, df, i) for c in cfg.entry_conditions)
                 direction = self._infer_direction() if entry_ok else None
                 matched_conditions = cfg.entry_conditions
 
             if entry_ok and cfg.confirmation_conditions:
-                entry_ok = all(self._eval(c, df, i) for c in cfg.confirmation_conditions)
+                entry_ok = all(self._eval_traced(c, df, i) for c in cfg.confirmation_conditions)
             if entry_ok and cfg.session_filter:
                 session_val = df["entry_session"].iloc[i] if "entry_session" in df.columns else None
                 entry_ok = session_val in cfg.session_filter
@@ -228,7 +237,7 @@ class ConfiguredStrategy(Strategy):
             return Signal(action=action, stop_loss=sl, take_profit=tp, reason=self._describe(matched_conditions))
 
         else:
-            if cfg.exit_conditions and all(self._eval(c, df, i) for c in cfg.exit_conditions):
+            if cfg.exit_conditions and all(self._eval_traced(c, df, i) for c in cfg.exit_conditions):
                 return Signal(action="exit", reason=self._describe(cfg.exit_conditions))
             return None
 
@@ -238,8 +247,8 @@ class ConfiguredStrategy(Strategy):
         somehow are (a genuinely contradictory bar), which is treated as no
         signal rather than an arbitrary guess about which side to take."""
         cfg = self.config
-        long_ok = bool(cfg.long_entry_conditions) and all(self._eval(c, df, i) for c in cfg.long_entry_conditions)
-        short_ok = bool(cfg.short_entry_conditions) and all(self._eval(c, df, i) for c in cfg.short_entry_conditions)
+        long_ok = bool(cfg.long_entry_conditions) and all(self._eval_traced(c, df, i) for c in cfg.long_entry_conditions)
+        short_ok = bool(cfg.short_entry_conditions) and all(self._eval_traced(c, df, i) for c in cfg.short_entry_conditions)
         if long_ok and short_ok:
             return None, None
         if long_ok:
@@ -313,6 +322,16 @@ class ConfiguredStrategy(Strategy):
             return None
         val = arr[i]
         return None if pd.isna(val) else val
+
+    def _eval_traced(self, cond, df, i):
+        """Same as _eval(), plus an optional trace callback (see __init__)
+        -- kept as a thin wrapper around the real evaluator rather than
+        instrumenting _eval() internally, so tracing can never change what
+        a condition evaluates to, only observe it."""
+        result = self._eval(cond, df, i)
+        if self._trace is not None:
+            self._trace(cond, result)
+        return result
 
     def _eval(self, cond, df, i):
         if cond.type == "raw":
