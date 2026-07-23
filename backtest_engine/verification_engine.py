@@ -79,4 +79,6 @@ def run_verification(config, merged_or_context, settings, symbol="?"):
         "debug_log": debug_log,
         "trade_count": len(trades),
         "final_balance": final_balance,
+        "trades": trades,
+        "equity_curve": equity_curve,
     }

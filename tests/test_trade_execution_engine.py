@@ -217,6 +217,51 @@ def test_pending_order_never_fills_on_its_own_signal_bar():
     assert trades[0]["entry_time"] > df.index[1].value // 1_000_000
 
 
+def test_wrong_side_take_profit_from_slippage_is_discarded_not_trusted():
+    """Final Audit regression test: a strategy hands the engine a
+    take_profit that's on the CORRECT side of the raw signal price, but
+    slippage alone pushes the real fill_price past it -- found live via
+    the Phase 2 Verification Engine (Liquidity Sweeps, PDH-PDL Signal
+    Candle Strategy both had real trades exactly like this). Must be
+    discarded (None), never kept and silently mislabeled."""
+    df = _make_df([
+        (100, 101, 99, 100),
+        (100, 105, 95, 100),   # signal fires: buy, tp=100.03 -- valid vs raw price 100,
+                                # but 1% slippage pushes the real fill to 101 > tp.
+        (100, 106, 99, 104),
+    ])
+    strat = _FixedSignalStrategy(fire_at_bar=1, action="buy", stop_loss=90.0, take_profit=100.03)
+    trades, equity, bal = run_backtest(df, strat, _settings(slippage_pct=1.0))
+    assert len(trades) == 1
+    assert trades[0]["entry_price"] == pytest.approx(101.0)  # 100 * 1.01
+    assert trades[0]["take_profit"] is None  # discarded, not silently wrong-side
+    assert trades[0]["stop_loss"] == pytest.approx(90.0)  # still valid, untouched
+
+
+def test_wrong_side_stop_loss_is_discarded_not_trusted():
+    """The guard in _open_position() is a GENERAL safety net, not specific
+    to slippage-caused invalidation -- entry-side slippage structurally
+    can only ever push a fill TOWARD the take_profit side and AWAY from
+    the stop_loss side (a "worse" fill is, by definition, less profitable,
+    i.e. closer to a smaller-profit take-profit level), so a wrong-side
+    stop_loss in practice comes from elsewhere (e.g. a stale/buggy
+    structural-zone computation, same bug class as the original eb1ca8f
+    fix). Constructed directly here to prove the guard catches it
+    regardless of WHY it's wrong, not just the one mechanism that happens
+    to be easy to reproduce with slippage."""
+    df = _make_df([
+        (100, 101, 99, 100),
+        (100, 101, 95, 100),   # signal fires: buy at ~100, but sl is ABOVE entry --
+                                # already wrong-side even before any slippage.
+        (100, 106, 94, 96),
+    ])
+    strat = _FixedSignalStrategy(fire_at_bar=1, action="buy", stop_loss=100.5, take_profit=110.0)
+    trades, equity, bal = run_backtest(df, strat, _settings())
+    assert len(trades) == 1
+    assert trades[0]["stop_loss"] is None  # discarded, not silently wrong-side
+    assert trades[0]["take_profit"] == pytest.approx(110.0)  # still valid, untouched
+
+
 # ------------------------------------------------------------ exit types
 
 def test_partial_take_profit_splits_size_without_double_counting():

@@ -23,6 +23,7 @@ propagating as a raw traceback."""
 
 import queue as _queue_mod
 import threading as _threading_mod
+import traceback as _traceback_mod
 
 # Per-process (each ProcessPoolExecutor worker imports this module fresh, so
 # these globals are naturally isolated per worker) local relay: _emit() below
@@ -69,10 +70,30 @@ def _emit(progress_queue, symbol, stage, **extra):
         pass
 
 
-def _failure(stage, function, reason, suggested_fix):
+def _failure(stage, function, reason, suggested_fix, exc=None):
+    """Final Audit (BACKTESTING_MASTER_SPEC.md DEBUG: "no silent failures --
+    every exception must show Function, File, Line, Reason, Stack Trace"):
+    `exc` is the actual caught exception when one exists (the catch-all at
+    the bottom of run_one_symbol), in which case file/line/stack_trace come
+    straight from its real traceback -- the true origin of the bug, not
+    wherever `_failure()` happened to be called from. For a deliberate,
+    expected-condition failure (no exception at all -- e.g. "no entry
+    timeframe was found"), file/line instead point at the `return
+    _failure(...)` call site itself via the current stack, and stack_trace
+    is left empty since there's no real exception to show."""
+    if exc is not None:
+        tb = exc.__traceback__
+        last = _traceback_mod.extract_tb(tb)[-1] if tb else None
+        file_, line_ = (last.filename, last.lineno) if last else (None, None)
+        stack_trace = "".join(_traceback_mod.format_exception(type(exc), exc, tb))
+    else:
+        caller = _traceback_mod.extract_stack()[-3]  # skip this frame + the return-statement frame
+        file_, line_ = caller.filename, caller.lineno
+        stack_trace = ""
     return {
         "status": "error",
         "stage": stage, "function": function, "reason": reason, "suggested_fix": suggested_fix,
+        "file": file_, "line": line_, "stack_trace": stack_trace,
         "error": f"[{stage}] {reason}",  # kept for any older caller that only reads "error"
         "trades": [], "metrics": None, "condition_report": None,
     }
@@ -181,4 +202,5 @@ def run_one_symbol(config_dict, exchange, symbol, settings, start_ms, end_ms, ba
             stage, "run_one_symbol",
             f"Unexpected error: {exc}",
             "Check the strategy configuration and the exchange/symbol/date range for this backtest.",
+            exc=exc,
         )

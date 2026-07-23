@@ -1,6 +1,7 @@
 import os
 import threading
 import time
+import traceback
 import uuid
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from concurrent.futures.process import BrokenProcessPool
@@ -183,12 +184,16 @@ def run_mtf_batch(config, exchange, symbols, settings, start_ms=None, end_ms=Non
             # -- this branch is the outer safety net for anything that
             # still slips through, e.g. a pool-level pickling failure).
             log(f"  {symbol}: [unknown stage] ERROR {error!r}")
+            tb = error.__traceback__
+            last = traceback.extract_tb(tb)[-1] if tb else None
             storage.save_result(
                 batch_id, symbol, entry_tf, "error",
                 {
                     "error": repr(error), "stage": "unknown", "function": "run_batch (pool boundary)",
                     "reason": repr(error),
                     "suggested_fix": "Check server logs for the full traceback; this failure happened outside the normal per-symbol error handling.",
+                    "file": last.filename if last else None, "line": last.lineno if last else None,
+                    "stack_trace": "".join(traceback.format_exception(type(error), error, tb)),
                 },
                 _now_iso(),
             )
@@ -204,6 +209,8 @@ def run_mtf_batch(config, exchange, symbols, settings, start_ms=None, end_ms=Non
                     "error": result.get("error"), "stage": stage,
                     "function": result.get("function", "run_one_symbol"),
                     "reason": reason, "suggested_fix": suggested_fix,
+                    "file": result.get("file"), "line": result.get("line"),
+                    "stack_trace": result.get("stack_trace", ""),
                 },
                 _now_iso(),
             )

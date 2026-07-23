@@ -322,8 +322,22 @@ def run_backtest(df, strategy, settings, control=None, on_trade=None, knowledge_
         original_size = position.get("_original_size") or size
         fraction = size / original_size if original_size else 1.0
 
-        slipped_price = _apply_slippage(fill_price_raw, position["side"], True, slippage_pct)
-        fill_price = _apply_spread(slipped_price, position["side"], True, spread_pct)
+        # Final Audit (Requirement 20): a take-profit hit is a resting LIMIT
+        # order -- by definition it fills AT that price or better, never
+        # worse, unlike a stop-loss (a stop-MARKET order, which really can
+        # slip on a gap). Applying the same adverse slippage/spread used for
+        # market exits here could push the realized fill back through
+        # entry_price on a tight target, producing exit_reason='take_profit'
+        # with a negative gross_pnl -- a real bug the Verification Engine
+        # (Requirement 13) caught live on PDH-PDL Signal Candle Strategy (79
+        # of 2852 trades). Filled at the exact level instead, same as a real
+        # limit order would be.
+        if exit_reason in ("take_profit", "partial_take_profit"):
+            slipped_price = fill_price_raw
+            fill_price = fill_price_raw
+        else:
+            slipped_price = _apply_slippage(fill_price_raw, position["side"], True, slippage_pct)
+            fill_price = _apply_spread(slipped_price, position["side"], True, spread_pct)
         if position["side"] == "long":
             gross_pnl = (fill_price - position["entry_price"]) * size
         else:
@@ -381,6 +395,32 @@ def run_backtest(df, strategy, settings, control=None, on_trade=None, knowledge_
         leverage/margin cap left nothing to buy)."""
         slipped = _apply_slippage(raw_price, side, False, slippage_pct)
         fill_price = _apply_spread(slipped, side, False, spread_pct)
+
+        # Final Audit (Requirement 20: correct SL/TP execution): stop_loss/
+        # take_profit were computed by the strategy against the raw SIGNAL
+        # price, before slippage/spread moved the fill. Normally that's a
+        # sub-cent difference and never matters -- but a structural zone
+        # (stop_loss.type/take_profit.type == "structure") can sit close
+        # enough to the signal price that slippage/spread alone pushes the
+        # REAL fill_price past it, landing it on the wrong side. Verified
+        # live via the Phase 2 Verification Engine against real strategies
+        # (Liquidity Sweeps, PDH-PDL Signal Candle Strategy): 7-30% of
+        # their trades had a "take_profit" on the wrong side of the actual
+        # entry, silently mislabeling real losses as wins. Re-validated
+        # here against the REAL fill_price (whatever computed it, not just
+        # "structure" specifically -- a general safety net) and discarded
+        # rather than trusted if wrong: a missing stop/target is honestly
+        # visible in the trade record, a wrong one silently corrupts every
+        # downstream number.
+        if stop_loss is not None:
+            wrong_side = (side == "long" and stop_loss >= fill_price) or (side == "short" and stop_loss <= fill_price)
+            if wrong_side:
+                stop_loss = None
+        if take_profit is not None:
+            wrong_side = (side == "long" and take_profit <= fill_price) or (side == "short" and take_profit >= fill_price)
+            if wrong_side:
+                take_profit = None
+
         size = _position_size(initial_balance, balance, fill_price, stop_loss, risk_pct, position_size_pct, leverage)
         if size <= 0:
             return None
