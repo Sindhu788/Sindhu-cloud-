@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from backtest_engine.configured_strategy import ConfiguredStrategy
 from backtest_engine.engine import run_backtest
 from backtest_engine import strategy_verifier, trade_validator
+from backtest_engine.strategy_safety_check import run_safety_check
 
 
 def _now():
@@ -28,10 +29,37 @@ def run_verification(config, merged_or_context, settings, symbol="?"):
     def _log(stage, **extra):
         debug_log.append({"stage": stage, "at": _now(), **extra})
 
+    _log("strategy_loaded", strategy_name=config.name, symbol=symbol)
+
+    # Automatic Strategy Safety Check: the same gate mtf_worker.run_one_symbol
+    # applies to every real batch backtest, applied here too so this path
+    # (scripts/run_verification.py, engine_health_report.py) can never run
+    # a backtest against a strategy that fails it either -- "no strategy
+    # should ever reach the backtest engine without passing through this
+    # check first" means EVERY entry point, not just the production one.
+    safety = run_safety_check(config)
+    if not safety["passed"]:
+        _log("safety_check_failed", reasons=safety["reasons"])
+        return {
+            "symbol": symbol,
+            "strategy_name": config.name,
+            "generated_at": _now(),
+            "overall_status": "FAIL",
+            "safety_check": safety,
+            "rule_coverage": [],
+            "rules_skipped": [],
+            "trade_validation": {"pass": False, "trade_count": 0, "issues_by_trade": {}, "duplicate_trades": []},
+            "debug_log": debug_log,
+            "trade_count": 0,
+            "final_balance": settings.get("initial_balance"),
+            "trades": [],
+            "equity_curve": [],
+        }
+    _log("safety_check_passed")
+
     strat = ConfiguredStrategy(config)
 
     total_rules = sum(len(getattr(config, b, []) or []) for b in strategy_verifier._BUCKETS)
-    _log("strategy_loaded", strategy_name=config.name, symbol=symbol)
     _log("rule_loaded", total_rules=total_rules)
 
     if hasattr(merged_or_context, "frames"):
@@ -73,6 +101,7 @@ def run_verification(config, merged_or_context, settings, symbol="?"):
         "strategy_name": config.name,
         "generated_at": _now(),
         "overall_status": "PASS" if overall_pass else "FAIL",
+        "safety_check": safety,
         "rule_coverage": coverage,
         "rules_skipped": skipped,
         "trade_validation": validation,

@@ -1,0 +1,128 @@
+{
+  "name": "EMA Trend-Pullback Strategy",
+  "raw_text": "EMA Trend-Pullback: 4H 50 EMA trend filter, 1H 20 EMA pullback entry, ATR stop, 1:2 RR target.",
+  "timeframes": {
+    "trend": "4h",
+    "entry": "1h"
+  },
+  "indicators": [
+    {
+      "name": "ema",
+      "params": {
+        "period": 50
+      },
+      "role": "trend"
+    },
+    {
+      "name": "ema",
+      "params": {
+        "period": 20
+      },
+      "role": "entry"
+    },
+    {
+      "name": "atr",
+      "params": {
+        "period": 14
+      },
+      "role": "entry"
+    }
+  ],
+  "concepts_used": [],
+  "entry_conditions": [],
+  "exit_conditions": [],
+  "confirmation_conditions": [],
+  "long_entry_conditions": [
+    {
+      "type": "price_compare",
+      "indicator": "ema",
+      "params": {
+        "period": 50
+      },
+      "op": ">",
+      "value": null,
+      "name": null,
+      "direction": "bullish",
+      "text": null,
+      "role": "trend",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {}
+    },
+    {
+      "type": "price_compare",
+      "indicator": "ema",
+      "params": {
+        "period": 20
+      },
+      "op": ">",
+      "value": null,
+      "name": null,
+      "direction": "bullish",
+      "text": null,
+      "role": "entry",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {}
+    }
+  ],
+  "short_entry_conditions": [
+    {
+      "type": "price_compare",
+      "indicator": "ema",
+      "params": {
+        "period": 50
+      },
+      "op": "<",
+      "value": null,
+      "name": null,
+      "direction": "bearish",
+      "text": null,
+      "role": "trend",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {}
+    },
+    {
+      "type": "price_compare",
+      "indicator": "ema",
+      "params": {
+        "period": 20
+      },
+      "op": "<",
+      "value": null,
+      "name": null,
+      "direction": "bearish",
+      "text": null,
+      "role": "entry",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {}
+    }
+  ],
+  "stop_loss": {
+    "type": "atr_multiple",
+    "value": 1.5,
+    "level": null
+  },
+  "take_profit": {
+    "type": "rr",
+    "value": 2.0,
+    "level": null
+  },
+  "risk_pct": 1.0,
+  "risk_reward": null,
+  "session_filter": [],
+  "trend_filter": null,
+  "day_filter": [],
+  "breakeven_at_rr": null,
+  "entry_type": "market",
+  "entry_price_offset_pct": null,
+  "partial_take_profit": null,
+  "trailing_stop": null,
+  "time_exit_bars": null,
+  "tags": [],
+  "favourite": false,
+  "missing": [],
+  "warnings": []
+}

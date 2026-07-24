@@ -9,6 +9,7 @@ from data_engine.control import DownloadControl
 from backtest_engine.strategy_parser import parse_strategy_text
 from backtest_engine.strategy_config import StrategyConfig
 from backtest_engine.validator import validate
+from backtest_engine.strategy_safety_check import run_safety_check
 from backtest_engine import strategy_library as lib
 from backtest_engine import runner
 from backtest_engine import sanity_check
@@ -134,10 +135,26 @@ def list_strategies(q: str = ""):
             cfg = lib.load(meta["id"])
             meta["concepts_used"] = cfg.concepts_used
             meta["timeframes"] = cfg.timeframes
-            meta["status"] = "READY_FOR_BACKTEST" if not validate(cfg) else "NEEDS_CLARIFICATION"
+            validator_errors = validate(cfg)
+            safety = run_safety_check(cfg)
+            # Automatic Strategy Safety Check (computed live, not from the
+            # cached meta.json value, so the list is never stale even for a
+            # strategy saved before this check existed and not yet
+            # backfilled): validator errors (missing/invalid fields) take
+            # priority since those block backtesting outright; a strategy
+            # that's structurally valid but fails the safety check is
+            # "Needs Review", not silently shown as ready.
+            if validator_errors:
+                meta["status"] = "NEEDS_CLARIFICATION"
+            elif not safety["passed"]:
+                meta["status"] = "NEEDS_REVIEW"
+            else:
+                meta["status"] = "READY_FOR_BACKTEST"
+            meta["safety_reasons"] = safety["reasons"]
             meta["condition_roles"] = _condition_roles_summary(cfg)
         except Exception:
             meta["concepts_used"], meta["timeframes"], meta["status"] = [], {}, "NEEDS_CLARIFICATION"
+            meta["safety_reasons"] = []
             meta["condition_roles"] = []
         meta["last_batch_result"] = _strategy_last_batch_result(meta["name"], recent_batches)
     return {"strategies": strategies}
@@ -159,7 +176,11 @@ def get_strategy(strategy_id: str):
     # Load without re-parsing raw_text (see frontend comment for why that's
     # unsafe for AI-imported strategies).
     errors = validate(cfg)
-    return {"config": cfg.to_dict(), "errors": errors, "valid": not errors}
+    safety = run_safety_check(cfg)
+    return {
+        "config": cfg.to_dict(), "errors": errors, "valid": not errors,
+        "safety_status": safety["status"], "safety_reasons": safety["reasons"],
+    }
 
 
 @router.delete("/api/backtesting/strategies/{strategy_id}")

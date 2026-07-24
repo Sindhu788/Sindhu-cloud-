@@ -24,5 +24,7 @@
     "hidden_rules": [],
     "confidence_pct": null,
     "updated_at": "2026-07-14T23:07:07.254065+00:00"
-  }
+  },
+  "safety_status": "ready",
+  "safety_reasons": []
 }

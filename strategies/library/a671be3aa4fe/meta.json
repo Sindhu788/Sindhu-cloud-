@@ -34,5 +34,7 @@
     ],
     "confidence_pct": 95.0,
     "updated_at": "2026-07-14T01:30:42.443275+00:00"
-  }
+  },
+  "safety_status": "ready",
+  "safety_reasons": []
 }

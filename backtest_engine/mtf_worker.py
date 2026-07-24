@@ -105,6 +105,7 @@ def run_one_symbol(config_dict, exchange, symbol, settings, start_ms, end_ms, ba
     from backtest_engine.mtf_context import MultiTimeframeContext
     from backtest_engine import engine, diagnostics
     from backtest_engine.metrics import compute_metrics
+    from backtest_engine.strategy_safety_check import run_safety_check
     from knowledge_engine.engine import KnowledgeEngine
 
     stage = "strategy_loaded"
@@ -115,6 +116,23 @@ def run_one_symbol(config_dict, exchange, symbol, settings, start_ms, end_ms, ba
 
         stage = "strategy_compiled"
         strategy = ConfiguredStrategy(config)
+        _emit(progress_queue, symbol, stage)
+
+        stage = "safety_check"
+        # Automatic Strategy Safety Check: a pure, static, data-free check
+        # -- run it before any candle data is ever loaded, so a strategy
+        # that fails is refused immediately rather than after an expensive
+        # download/resample/merge for nothing. The one choke point every
+        # real backtest (manual UI run, automation pipeline, optimizer's
+        # full-dataset validation of its winning candidate) funnels
+        # through via runner.run_mtf_batch -> run_one_symbol.
+        safety = run_safety_check(config)
+        if not safety["passed"]:
+            return _failure(
+                stage, "run_one_symbol",
+                "Strategy failed the automatic safety check: " + "; ".join(safety["reasons"]),
+                "Mark this strategy Needs Review and fix the flagged rule conflict(s) before backtesting.",
+            )
         _emit(progress_queue, symbol, stage)
 
         stage = "timeframes_detected"
@@ -159,6 +177,7 @@ def run_one_symbol(config_dict, exchange, symbol, settings, start_ms, end_ms, ba
                 "The compiled strategy has no entry conditions to evaluate.",
                 "Re-import the strategy so it includes at least one entry rule.",
             )
+        stage = "rules_loaded"
         # Every backtest automatically applies whatever active lessons exist
         # -- if there are none, this is a harmless no-op (engine.py only
         # checks when knowledge_engine.has_active_lessons() would matter,

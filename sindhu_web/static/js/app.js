@@ -1112,7 +1112,9 @@
   // ------------------------------------------------------------ STRATEGIES
   function strategyStatusPill(status) {
     const cls = status === "READY_FOR_BACKTEST" ? "pill-completed" : "pill-pending";
-    return `<span class="pill ${cls}">${esc(status === "READY_FOR_BACKTEST" ? "Ready" : "Needs Clarification")}</span>`;
+    const label = status === "READY_FOR_BACKTEST" ? "Ready"
+      : status === "NEEDS_REVIEW" ? "Needs Review" : "Needs Clarification";
+    return `<span class="pill ${cls}">${esc(label)}</span>`;
   }
 
   function lastBacktestCell(r) {

@@ -11,6 +11,7 @@ import uuid
 from datetime import datetime, timezone
 
 from backtest_engine.strategy_config import StrategyConfig
+from backtest_engine.strategy_safety_check import run_safety_check
 
 _LIBRARY_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "strategies", "library"
@@ -44,11 +45,19 @@ def _write_meta(strategy_id, meta):
 
 
 def create(config, tags=None):
-    """Saves a new strategy as version 1. Returns its library id."""
+    """Saves a new strategy as version 1. Returns its library id.
+
+    Automatic Strategy Safety Check: runs on every save (new strategy or
+    new version of an existing one) so a strategy's "ready"/"needs_review"
+    status is always current, without any caller having to remember to
+    call it separately -- covers every creation path (manual import, AI
+    import, pasted strategy, optimizer's winning candidate saved via
+    save_version) through this one choke point."""
     os.makedirs(_LIBRARY_DIR, exist_ok=True)
     strategy_id = uuid.uuid4().hex[:12]
     os.makedirs(_versions_dir(strategy_id), exist_ok=True)
 
+    safety = run_safety_check(config)
     now = _now_iso()
     meta = {
         "id": strategy_id,
@@ -58,6 +67,8 @@ def create(config, tags=None):
         "created_at": now,
         "updated_at": now,
         "current_version": 1,
+        "safety_status": safety["status"],
+        "safety_reasons": safety["reasons"],
     }
     _write_meta(strategy_id, meta)
     with open(os.path.join(_versions_dir(strategy_id), "v1.json"), "w", encoding="utf-8") as f:
@@ -72,11 +83,28 @@ def save_version(strategy_id, config):
     new_version = meta["current_version"] + 1
     with open(os.path.join(_versions_dir(strategy_id), f"v{new_version}.json"), "w", encoding="utf-8") as f:
         json.dump(config.to_dict(), f, indent=2)
+    safety = run_safety_check(config)
     meta["current_version"] = new_version
     meta["updated_at"] = _now_iso()
     meta["name"] = config.name
+    meta["safety_status"] = safety["status"]
+    meta["safety_reasons"] = safety["reasons"]
     _write_meta(strategy_id, meta)
     return new_version
+
+
+def recheck_safety(strategy_id):
+    """Re-runs the safety check against a strategy's CURRENT version and
+    updates meta.json in place, without creating a new version -- used by
+    the one-time backfill over strategies saved before this check existed.
+    Returns the safety result dict."""
+    meta = _read_meta(strategy_id)
+    config = load(strategy_id)
+    safety = run_safety_check(config)
+    meta["safety_status"] = safety["status"]
+    meta["safety_reasons"] = safety["reasons"]
+    _write_meta(strategy_id, meta)
+    return safety
 
 
 def load(strategy_id, version=None):

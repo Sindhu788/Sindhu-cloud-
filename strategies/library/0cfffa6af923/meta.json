@@ -1,0 +1,18 @@
+{
+  "id": "0cfffa6af923",
+  "name": "EMA Trend-Pullback Strategy",
+  "tags": [
+    "ema",
+    "trend",
+    "pullback",
+    "strategy",
+    "1h",
+    "4h"
+  ],
+  "favourite": false,
+  "created_at": "2026-07-24T01:14:57.349715+00:00",
+  "updated_at": "2026-07-24T01:14:57.349715+00:00",
+  "current_version": 1,
+  "safety_status": "ready",
+  "safety_reasons": []
+}
