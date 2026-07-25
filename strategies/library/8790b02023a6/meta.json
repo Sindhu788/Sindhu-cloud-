@@ -12,12 +12,8 @@
   ],
   "favourite": false,
   "created_at": "2026-07-15T01:57:01.535782+00:00",
-  "updated_at": "2026-07-15T01:57:01.535782+00:00",
-  "current_version": 1,
-  "safety_status": "needs_review",
-  "safety_reasons": [
-    "Exit condition #0 (concept:support (bullish)) is IDENTICAL to a condition already required in entry_conditions (concept:support (bullish)). That clause is guaranteed true the moment a position opens, so the exit gate can be satisfied again almost immediately -- the exact defect found in Liquidity Sweep & FVG Validation Strategy (93.9% of trades closed within 1 bar, account ground to zero by commission/slippage).",
-    "Exit condition #1 (concept:resistance (bearish)) is IDENTICAL to a condition already required in entry_conditions (concept:resistance (bearish)). That clause is guaranteed true the moment a position opens, so the exit gate can be satisfied again almost immediately -- the exact defect found in Liquidity Sweep & FVG Validation Strategy (93.9% of trades closed within 1 bar, account ground to zero by commission/slippage).",
-    "Every exit condition relies only on slow-moving price-level concepts (resistance, support), which typically stay true for many consecutive bars once satisfied. An exit gate built entirely from these gives a trade little to no realistic room to travel toward its stop-loss or take-profit before closing itself out."
-  ]
+  "updated_at": "2026-07-25T06:38:35.992151+00:00",
+  "current_version": 2,
+  "safety_status": "ready",
+  "safety_reasons": []
 }

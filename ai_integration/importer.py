@@ -23,6 +23,7 @@ from knowledge_compiler.compiler import compile_document, compile_from_ai_extrac
 
 from ai_integration import deep_understanding
 from ai_integration import dictionary_builder
+from ai_integration import self_correction
 from ai_integration import strategy_builder
 from ai_integration import youtube_import
 from ai_integration.quality_score import compute_knowledge_score
@@ -215,6 +216,25 @@ def import_document(raw_text, title=None, source_hint=None, use_ai=True, input_k
         strategy_builder.build_strategy_config(ai_result["strategy"], title, raw_text)
         if ai_result["strategy"] and content_type != "lesson" else None
     )
+
+    # Self-Correcting Import Pipeline. The AI has already been asked to
+    # self-verify inside the extraction call above (Level 1, preventive --
+    # see schema.py's SELF-VERIFICATION block), but prompt-following alone
+    # is not a guarantee, so every built strategy is independently
+    # re-checked here and repaired: deterministic structural fixes first
+    # (Level 1, zero AI calls), then at most ONE small targeted follow-up
+    # call scoped to whatever is left (Level 2), and only if BOTH fail is
+    # the user asked anything at all (Level 3, plain language). The user
+    # has no trading background and cannot resolve a rule conflict
+    # themselves, so "detected but not fixed" is never an acceptable
+    # outcome here.
+    correction = None
+    if strategy_config is not None:
+        correction = self_correction.self_correct(strategy_config, use_ai=use_ai)
+        if correction["level"] == 3 and correction["user_message"]:
+            ai_result = dict(ai_result)
+            ai_result["missing_rules"] = list(ai_result["missing_rules"]) + [correction["user_message"]]
+
     lesson_objects = [strategy_builder.build_lesson(l) for l in ai_result["lessons"]]
 
     # Self-Building Dictionary: the AI's own reported terms, plus the
@@ -257,5 +277,6 @@ def import_document(raw_text, title=None, source_hint=None, use_ai=True, input_k
         "new_dictionary_entries": new_dictionary_entries,
         "hidden_rules": doc.hidden_rules,
         "psychology_notes": doc.psychology_notes,
+        "self_correction": correction,
         "error": None,
     }

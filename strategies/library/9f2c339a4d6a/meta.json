@@ -12,13 +12,8 @@
   ],
   "favourite": false,
   "created_at": "2026-07-14T00:28:13.482139+00:00",
-  "updated_at": "2026-07-21T17:11:48.279551+00:00",
-  "current_version": 6,
-  "safety_status": "needs_review",
-  "safety_reasons": [
-    "Exit condition #0 (concept:pdh [role=analysis]) is IDENTICAL to a condition already required in entry_conditions (concept:pdh [role=analysis]). That clause is guaranteed true the moment a position opens, so the exit gate can be satisfied again almost immediately -- the exact defect found in Liquidity Sweep & FVG Validation Strategy (93.9% of trades closed within 1 bar, account ground to zero by commission/slippage).",
-    "Exit condition #1 (concept:pdl [role=analysis]) is IDENTICAL to a condition already required in entry_conditions (concept:pdl [role=analysis]). That clause is guaranteed true the moment a position opens, so the exit gate can be satisfied again almost immediately -- the exact defect found in Liquidity Sweep & FVG Validation Strategy (93.9% of trades closed within 1 bar, account ground to zero by commission/slippage).",
-    "Every exit condition relies only on slow-moving price-level concepts (pdh, pdl), which typically stay true for many consecutive bars once satisfied. An exit gate built entirely from these gives a trade little to no realistic room to travel toward its stop-loss or take-profit before closing itself out.",
-    "Impossible combination in entry_conditions + confirmation_conditions: a bare 'pdh' condition requires close > previous-day-high, and a bare 'pdl' condition requires close < previous-day-low, required together -- but previous-day-high is always >= previous-day-low (both come from the same day's real range), so these can never both be true on the same bar. This is the exact defect behind Daily High-Low Liquidity Strategy's permanent 0-trade result."
-  ]
+  "updated_at": "2026-07-25T06:38:36.368530+00:00",
+  "current_version": 7,
+  "safety_status": "ready",
+  "safety_reasons": []
 }

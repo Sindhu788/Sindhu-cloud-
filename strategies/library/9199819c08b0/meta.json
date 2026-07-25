@@ -12,10 +12,8 @@
   ],
   "favourite": false,
   "created_at": "2026-07-18T03:51:29.574720+00:00",
-  "updated_at": "2026-07-21T17:11:48.227972+00:00",
-  "current_version": 3,
-  "safety_status": "needs_review",
-  "safety_reasons": [
-    "Every exit condition relies only on slow-moving price-level concepts (resistance, support), which typically stay true for many consecutive bars once satisfied. An exit gate built entirely from these gives a trade little to no realistic room to travel toward its stop-loss or take-profit before closing itself out."
-  ]
+  "updated_at": "2026-07-25T06:38:36.166271+00:00",
+  "current_version": 4,
+  "safety_status": "ready",
+  "safety_reasons": []
 }

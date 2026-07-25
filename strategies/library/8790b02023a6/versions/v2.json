@@ -1,0 +1,138 @@
+{
+  "name": "Liquidity Sweep & FVG Validation Strategy",
+  "raw_text": "### **Liquidity Sweep Trading Strategy Analysis**\n\nThis analysis formalizes the trading strategy described in the provided transcript regarding Liquidity Sweeps and Smart Money Concepts (SMC).\n\n---\n\n### **1. Strategy Profile**\n\n| Feature | Details |\n| :--- | :--- |\n| **Strategy Name** | Liquidity Sweep & FVG Validation Strategy |\n| **Market** | Crypto (specifically mentioned), Forex, Stocks [1, 2] |\n| **Timeframe(s)** | Daily, 1-Hour, 15-Minute, 4-Hour [3, 4] |\n| **Indicators Used** | Horizontal Support & Resistance (S/R) Levels |\n| **Indicator Settings** | Not specified (S/R is drawn based on price action peaks/troughs) [3] |\n| **Market Conditions** | Works best at established Support or Resistance zones where liquidity (stop losses) has accumulated [5, 6] |\n\n---\n\n### **2. Trading Rules**\n\n#### **Entry Rules (Short)**\n1.  **Identify Resistance:** Locate a level where the price has touched and reversed at least twice [7].\n2.  **Wait for Sweep:** Price must move above the resistance level.\n3.  **Candle Completion:** Wait for the breakout candle to close. Do **not** enter while the candle is moving [7, 8].\n4.  **Confirm Fakeout (The \"Sweep\"):**\n    *   **Visual Filter:** The breakout candle should ideally be a \"Long Wick Candle,\" showing sellers pushing the price back down [8, 9].\n    *   **FVG Validation:** Check for a **Fair Value Gap (FVG)**. If there is **no gap** between the High of the candle before the breakout and the Low of the candle after the breakout, the breakout is likely a fakeout (sweep) [10, 11].\n5.  **Execution:** Enter short once the price closes back below the resistance level or the breakout candle's low is breached [11].\n\n#### **Entry Rules (Long)**\n1.  **Identify Support:** Locate a level where the price has touched and reversed multiple times [12].\n2.  **Wait for Sweep:** Price must move below the support level [12].\n3.  **Candle Completion:** Wait for the candle to close below the support [7].\n4.  **Confirm Fakeout:**\n    *   Look for long lower wicks or a lack of an FVG on the breakdown [9, 10].\n    *   If a large green candle immediately follows and the price moves back above support, it confirms liquidity was grabbed [13].\n5.  **Execution:** Enter long once the price closes back above the support level [13].\n\n#### **Exit & Risk Management**\n*   **Stop Loss (SL):** Place the SL above the high of the liquidity sweep candle (for shorts) or below the low of the sweep candle (for longs) [11].\n*   **Take Profit (TP):** Not specified in the video (implied to be the next S/R level or institutional profit-taking zone) [6, 12].\n*   **Risk-to-Reward (RR):** Not specified in the video.\n*   **Position Sizing:** Not specified in the video.\n*   **Risk Management Rules:** Not specified in the video.\n\n#### **Trade Filters & Confirmations**\n*   **Multi-Timeframe Confirmation:** Check the 15m, 1h, and 4h timeframes to see if the sweep is visible across multiple periods for higher probability [4].\n*   **Liquidation Heatmap:** Use an external tool (like a Liquidation Heatmap) to identify price zones with high concentrations of \"Yellow Bars,\" which indicate where the most stop losses are located [4, 14].\n*   **Invalid Setup Conditions:** If a breakout occurs with a **Large Green/Red Candle** AND leaves a clear **Fair Value Gap (FVG)**, it is considered a \"Liquidity Run\" (real breakout), and the sweep strategy is invalidated [8, 15].\n\n---\n\n### **3. Rule-Based Checklist for Automation**\n\n1.  [ ] **S/R Detection:** Has the price formed a local High/Low within the last $N$ periods?\n2.  [ ] **Breakout:** Has the current candle's High/Low exceeded the S/R level?\n3.  [ ] **Close:** Has the candle closed?\n4.  [ ] **FVG Check:**\n    *   Identify Candle 1 (pre-break), Candle 2 (breakout), Candle 3 (post-break).\n    *   Is `High(Candle 1) > Low(Candle 3)` (for shorts)? If YES, FVG = False (Valid for Sweep).\n5.  [ ] **Reversal:** Has the price closed back inside the S/R level?\n6.  [ ] **Execution:** Trigger trade if checklist 1-5 is complete.\n\n---\n\n### **4. Subjective vs. Objective Rules**\n\n| Subjective Rule | Suggested Objective Alternative |\n| :--- | :--- |\n| \"Strong Support/Resistance\" [12] | Define S/R as a \"Pivot High/Low\" where price hasn't touched the level for at least 20 bars. |\n| \"Long Wick Candle\" [9] | Wick must be at least 50% of the total candle length. |\n| \"Large Green Candle\" [8] | Candle body must be 2x the average of the last 10 candle bodies (ATR-based). |\n\n---\n\n### **5. Potential Weaknesses & Biases**\n\n*   **Discretionary S/R:** The strategy relies heavily on drawing S/R zones. Automated backtesting might fail if the S/R logic is too loose or too tight.\n*   **Lack of Exit Rules:** The video does not provide a specific Take Profit or Risk-to-Reward ratio, making it impossible to calculate a \"Profit Factor\" without assuming a standard 1:2 ratio.\n*   **Look-ahead Bias:** When identifying FVGs, the strategy requires waiting for \"the next candle\" to complete [15]. A backtester must ensure it does not \"peek\" at Candle 3 before Candle 2 has closed.\n*   **Repainting:** S/R levels can \"repaint\" if the software re-identifies a peak after the sweep has already occurred.\n\n---\n\n### **6. Backtesting Specification**\n\n#### **Required Data**\n*   **Format:** OHLCV (Open, High, Low, Close, Volume).\n*   **Resolution:** 1-Hour (Primary), 15-Minute (Entry).\n\n#### **Candle-by-Candle Logic (Short Example)**\n1.  **State 0:** Identify Resistance (R) = Max(High, 50 bars).\n2.  **State 1:** Candle $i$ High > R.\n3.  **State 2:** Candle $i$ Close < R.\n4.  **Filter:** If `High(i-1) < Low(i+1)`, cancel trade (FVG detected).\n5.  **Trigger:** Sell at Market on Open of Candle $i+2$.\n6.  **Stop Loss:** `High(i) + (0.1 * ATR)`.\n7.  **Exit:** Not specified (suggested: Next Support Level).\n\n#### **Evaluation Metrics**\n*   Win Rate\n*   Profit Factor\n*   Max Drawdown\n*   Sharpe Ratio\n*   Average Trade Duration (to see how long \"Institutional Sweeps\" take to play out)",
+  "timeframes": {
+    "entry": "15m",
+    "analysis": "1h",
+    "trend": "4h"
+  },
+  "indicators": [],
+  "concepts_used": [
+    "support",
+    "resistance",
+    "fvg"
+  ],
+  "entry_conditions": [],
+  "exit_conditions": [],
+  "confirmation_conditions": [
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "fvg",
+      "direction": null,
+      "text": null,
+      "role": null,
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {}
+    }
+  ],
+  "long_entry_conditions": [],
+  "short_entry_conditions": [],
+  "entry_rule_groups": [
+    {
+      "label": "Entry (long setup)",
+      "direction": "bullish",
+      "conditions": [
+        {
+          "type": "concept",
+          "indicator": null,
+          "params": {},
+          "op": null,
+          "value": null,
+          "name": "fvg",
+          "direction": null,
+          "text": null,
+          "role": null,
+          "lookback_bars": null,
+          "indicator2": null,
+          "params2": {}
+        },
+        {
+          "type": "concept",
+          "indicator": null,
+          "params": {},
+          "op": null,
+          "value": null,
+          "name": "support",
+          "direction": "bullish",
+          "text": null,
+          "role": null,
+          "lookback_bars": null,
+          "indicator2": null,
+          "params2": {}
+        }
+      ]
+    },
+    {
+      "label": "Entry (short setup)",
+      "direction": "bearish",
+      "conditions": [
+        {
+          "type": "concept",
+          "indicator": null,
+          "params": {},
+          "op": null,
+          "value": null,
+          "name": "fvg",
+          "direction": null,
+          "text": null,
+          "role": null,
+          "lookback_bars": null,
+          "indicator2": null,
+          "params2": {}
+        },
+        {
+          "type": "concept",
+          "indicator": null,
+          "params": {},
+          "op": null,
+          "value": null,
+          "name": "resistance",
+          "direction": "bearish",
+          "text": null,
+          "role": null,
+          "lookback_bars": null,
+          "indicator2": null,
+          "params2": {}
+        }
+      ]
+    }
+  ],
+  "stop_loss": {
+    "type": "structure",
+    "value": null,
+    "level": null
+  },
+  "take_profit": {
+    "type": "structure",
+    "value": null,
+    "level": null
+  },
+  "risk_pct": 1.0,
+  "risk_reward": 2.0,
+  "session_filter": [],
+  "trend_filter": null,
+  "day_filter": [],
+  "breakeven_at_rr": null,
+  "entry_type": "market",
+  "entry_price_offset_pct": null,
+  "partial_take_profit": null,
+  "trailing_stop": null,
+  "time_exit_bars": null,
+  "tags": [
+    "support",
+    "resistance",
+    "fvg",
+    "strategy",
+    "15m",
+    "1h",
+    "4h"
+  ],
+  "favourite": false,
+  "missing": [],
+  "warnings": []
+}
