@@ -212,6 +212,31 @@ def build_structured_extraction_prompt(source_hint=None, content_type=None):
         "turns a selective setup into one that fires on almost every bar. A "
         "condition list that is true on most bars means you dropped the "
         "filters.\n\n"
+        "BRANCHING / CONDITIONAL ENTRY LOGIC (\"if the market shows shape/"
+        "regime X, enter this way; if Y, enter that way\" -- e.g. a "
+        "strategy with THREE OR MORE distinct alternative setups for the "
+        "same direction, or entry rules that explicitly depend on which "
+        "named state/pattern/shape is currently active): entry_conditions/"
+        "long_entry_conditions/short_entry_conditions can each only "
+        "represent ONE AND-gated setup per direction -- do NOT try to "
+        "merge multiple alternative setups into one of these lists by "
+        "picking a subset of conditions or averaging them together, and do "
+        "NOT invent a fake extra AND-condition to fake-select between "
+        "them. Instead use the top-level \"entry_rule_groups\" list: each "
+        "item is {\"label\": a short name for THIS specific setup (e.g. "
+        "\"P-Shape Continuation\", \"B-Shape Breakout\"), \"direction\": "
+        "\"bullish\"|\"bearish\", \"conditions\": [<condition>, ...]} -- "
+        "conditions within ONE group are AND-ed together exactly like "
+        "entry_conditions; groups are OR'd against each other (ANY group "
+        "whose conditions are all true fires an entry in that group's "
+        "direction). Use entry_rule_groups INSTEAD OF entry_conditions/"
+        "long_entry_conditions/short_entry_conditions when the document "
+        "genuinely has this branching shape -- leave those three empty "
+        "([]) in that case. A simple long-setup/short-setup pair (exactly "
+        "one setup per direction) still belongs in long_entry_conditions/"
+        "short_entry_conditions as before -- entry_rule_groups is for "
+        "when there are MULTIPLE alternative setups, not just two mirrored "
+        "ones.\n\n"
         "INDICATOR-VS-INDICATOR COMPARISONS (MA cross, MA alignment, EMA "
         "vs EMA): indicator_compare only compares an indicator to a FIXED "
         "NUMBER (e.g. \"RSI > 40\") and price_compare only compares price "
@@ -294,6 +319,7 @@ def build_structured_extraction_prompt(source_hint=None, content_type=None):
         '    "entry_conditions": [<condition>],\n'
         '    "long_entry_conditions": [<condition>],\n'
         '    "short_entry_conditions": [<condition>],\n'
+        '    "entry_rule_groups": [{"label": "P-Shape Continuation", "direction": "bullish", "conditions": [<condition>]}],\n'
         '    "exit_conditions": [<condition>],\n'
         '    "confirmation_conditions": [<condition>],\n'
         '    "stop_loss": {"type": "structure", "value": null, "level": null},\n'
@@ -502,6 +528,28 @@ def _clean_strategy(entry):
             return []
         return [c for c in (_clean_condition(e) for e in raw) if c]
 
+    def _rule_groups():
+        raw = entry.get("entry_rule_groups")
+        if not isinstance(raw, list):
+            return []
+        groups = []
+        for g in raw:
+            if not isinstance(g, dict):
+                continue
+            direction = g.get("direction")
+            if direction not in ("bullish", "bearish"):
+                continue
+            conditions = g.get("conditions")
+            conditions = [c for c in (_clean_condition(e) for e in conditions or []) if c] if isinstance(conditions, list) else []
+            if not conditions:
+                continue
+            groups.append({
+                "label": str(g.get("label") or "").strip(),
+                "direction": direction,
+                "conditions": conditions,
+            })
+        return groups
+
     try:
         risk_pct = float(entry["risk_pct"]) if entry.get("risk_pct") is not None else None
     except (TypeError, ValueError):
@@ -530,6 +578,7 @@ def _clean_strategy(entry):
         "entry_conditions": _conditions("entry_conditions"),
         "long_entry_conditions": _conditions("long_entry_conditions"),
         "short_entry_conditions": _conditions("short_entry_conditions"),
+        "entry_rule_groups": _rule_groups(),
         "exit_conditions": _conditions("exit_conditions"),
         "confirmation_conditions": _conditions("confirmation_conditions"),
         "stop_loss": _clean_sltp(entry.get("stop_loss")),

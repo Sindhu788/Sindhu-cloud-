@@ -393,9 +393,12 @@ def repair_condition_roles(config):
         return False
     lines = [ln for ln in config.raw_text.splitlines() if ln.strip()]
     changed = False
-    for bucket_name in ("entry_conditions", "long_entry_conditions", "short_entry_conditions",
-                        "exit_conditions", "confirmation_conditions"):
-        for cond in getattr(config, bucket_name):
+    all_buckets = [getattr(config, n) for n in
+                   ("entry_conditions", "long_entry_conditions", "short_entry_conditions",
+                    "exit_conditions", "confirmation_conditions")]
+    all_buckets += [g.get("conditions") or [] for g in config.entry_rule_groups]
+    for bucket in all_buckets:
+        for cond in bucket:
             if cond.type not in ("concept", "indicator_vs_indicator") or cond.role or not (cond.name or cond.indicator):
                 continue
             # indicator_vs_indicator has no `name` (it compares indicator to
@@ -579,9 +582,12 @@ def _ensure_indicators_for_conditions(config):
         config.indicators.append({"name": name, "params": dict(params or {}), "role": role})
         existing.add(key)
 
-    for bucket in ("entry_conditions", "long_entry_conditions", "short_entry_conditions",
-                   "exit_conditions", "confirmation_conditions"):
-        for cond in getattr(config, bucket):
+    all_buckets = [getattr(config, n) for n in
+                   ("entry_conditions", "long_entry_conditions", "short_entry_conditions",
+                    "exit_conditions", "confirmation_conditions")]
+    all_buckets += [g.get("conditions") or [] for g in config.entry_rule_groups]
+    for bucket in all_buckets:
+        for cond in bucket:
             if cond.type in ("indicator_compare", "price_compare") and cond.indicator:
                 _ensure(cond.indicator, cond.params, None)
             elif cond.type == "indicator_vs_indicator":
@@ -592,7 +598,7 @@ def _ensure_indicators_for_conditions(config):
 def _fill_missing_and_warnings(config):
     if "entry" not in config.timeframes:
         config.missing.append("entry timeframe")
-    if not config.entry_conditions and not (config.long_entry_conditions or config.short_entry_conditions):
+    if not config.entry_conditions and not (config.long_entry_conditions or config.short_entry_conditions) and not config.entry_rule_groups:
         config.missing.append("entry rules")
     if not config.exit_conditions and config.stop_loss.type == "unknown":
         config.missing.append("exit rules (no exit conditions or stop-loss detected)")

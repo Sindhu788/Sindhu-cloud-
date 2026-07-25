@@ -74,6 +74,20 @@ class StrategyConfig:
     # (every strategy saved before this feature) is completely unaffected.
     long_entry_conditions: list = field(default_factory=list)   # list[Condition]
     short_entry_conditions: list = field(default_factory=list)  # list[Condition]
+    # Branching/conditional entry logic: N independent alternative entry
+    # paths (e.g. "if the market shows a P-shape profile, enter this way;
+    # if B-shape, enter that way; if D-shape, enter a third way"), each its
+    # own AND-gated rule set, evaluated as OR across groups -- ANY group
+    # whose conditions are all true fires an entry in that group's
+    # direction. This is what entry_conditions/long_entry_conditions/
+    # short_entry_conditions structurally cannot express (each of those is
+    # exactly ONE AND-gate per direction, never a menu of alternatives).
+    # [{"label": "P-Shape Continuation", "direction": "bullish"|"bearish",
+    #   "conditions": [Condition, ...]}, ...]. When non-empty, this takes
+    # priority over entry_conditions/long_entry_conditions/
+    # short_entry_conditions (which should be left empty) -- see
+    # ConfiguredStrategy.on_bar().
+    entry_rule_groups: list = field(default_factory=list)
 
     stop_loss: SLTPSpec = field(default_factory=SLTPSpec)
     take_profit: SLTPSpec = field(default_factory=SLTPSpec)
@@ -137,4 +151,8 @@ class StrategyConfig:
         d["confirmation_conditions"] = [Condition(**c) for c in d.get("confirmation_conditions", [])]
         d["long_entry_conditions"] = [Condition(**c) for c in d.get("long_entry_conditions", [])]
         d["short_entry_conditions"] = [Condition(**c) for c in d.get("short_entry_conditions", [])]
+        d["entry_rule_groups"] = [
+            {**g, "conditions": [Condition(**c) for c in g.get("conditions", [])]}
+            for g in d.get("entry_rule_groups", [])
+        ]
         return StrategyConfig(**d)

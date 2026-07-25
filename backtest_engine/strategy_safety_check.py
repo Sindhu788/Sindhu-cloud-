@@ -77,11 +77,15 @@ def _describe(cond):
 
 
 def _entry_buckets(config):
-    return [
+    buckets = [
         ("entry_conditions", list(config.entry_conditions)),
         ("long_entry_conditions", list(config.long_entry_conditions)),
         ("short_entry_conditions", list(config.short_entry_conditions)),
     ]
+    for idx, group in enumerate(config.entry_rule_groups):
+        label = group.get("label") or f"entry_rule_groups[{idx}]"
+        buckets.append((f"entry_rule_groups: {label}", list(group.get("conditions") or [])))
+    return buckets
 
 
 def check_duplicate_entry_exit_clauses(config):

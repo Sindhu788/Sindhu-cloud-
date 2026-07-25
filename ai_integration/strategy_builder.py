@@ -175,6 +175,16 @@ def build_strategy_config(ai_strategy, name, raw_text):
         # otherwise-complete strategy to clarification.
         return [c for c in built if not _is_degenerate_raw(c)]
 
+    def _rule_groups():
+        groups = []
+        for g in ai_strategy.get("entry_rule_groups") or []:
+            conditions = [c for c in (build_condition(c) for c in g.get("conditions") or []) if c]
+            conditions = [c for c in conditions if not _is_degenerate_raw(c)]
+            if not conditions:
+                continue
+            groups.append({"label": g.get("label") or "", "direction": g.get("direction"), "conditions": conditions})
+        return groups
+
     config = StrategyConfig(
         name=ai_strategy.get("name") or name or "Unnamed Strategy",
         raw_text=raw_text,
@@ -184,6 +194,7 @@ def build_strategy_config(ai_strategy, name, raw_text):
         entry_conditions=_conditions("entry_conditions"),
         long_entry_conditions=_conditions("long_entry_conditions"),
         short_entry_conditions=_conditions("short_entry_conditions"),
+        entry_rule_groups=_rule_groups(),
         exit_conditions=_conditions("exit_conditions"),
         confirmation_conditions=_conditions("confirmation_conditions"),
         stop_loss=build_stop_loss_take_profit(ai_strategy.get("stop_loss") or {}),
@@ -241,9 +252,12 @@ def sync_concepts_used(config):
     config.concepts_used in place; returns True if anything changed."""
     concepts_used_set = set(config.concepts_used)
     changed = False
-    for bucket_name in ("entry_conditions", "long_entry_conditions", "short_entry_conditions",
-                        "exit_conditions", "confirmation_conditions"):
-        for cond in getattr(config, bucket_name):
+    all_condition_buckets = [getattr(config, n) for n in
+                              ("entry_conditions", "long_entry_conditions", "short_entry_conditions",
+                               "exit_conditions", "confirmation_conditions")]
+    all_condition_buckets += [g.get("conditions") or [] for g in config.entry_rule_groups]
+    for bucket in all_condition_buckets:
+        for cond in bucket:
             if cond.type != "concept" or cond.name not in _CONCEPT_REQUIRES_ANY_OF:
                 continue
             required_any = _CONCEPT_REQUIRES_ANY_OF[cond.name]

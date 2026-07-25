@@ -103,7 +103,12 @@ class ConfiguredStrategy(Strategy):
 
     def _condition_roles(self):
         roles = set()
-        for bucket in (self.config.entry_conditions, self.config.exit_conditions, self.config.confirmation_conditions):
+        buckets = [
+            self.config.entry_conditions, self.config.exit_conditions, self.config.confirmation_conditions,
+            self.config.long_entry_conditions, self.config.short_entry_conditions,
+        ]
+        buckets += [g.get("conditions") or [] for g in self.config.entry_rule_groups]
+        for bucket in buckets:
             for cond in bucket:
                 if cond.type == "concept" and cond.role:
                     roles.add(cond.role)
@@ -203,13 +208,24 @@ class ConfiguredStrategy(Strategy):
         cfg = self.config
 
         if position is None:
+            # Branching/conditional entry logic (entry_rule_groups: N
+            # independent alternative entry paths, e.g. "P-shape enters
+            # this way, B-shape enters that way, D-shape enters a third
+            # way") takes priority over everything else whenever populated
+            # -- it's strictly more expressive than long/short (which is
+            # itself just a 2-group special case), so a strategy using it
+            # should have entry_conditions/long_entry_conditions/
+            # short_entry_conditions left empty.
+            if cfg.entry_rule_groups:
+                direction, matched_conditions = self._eval_rule_groups(df, i)
+                entry_ok = direction is not None
             # Two mutually-exclusive rule sets (a strategy with separate
             # "Long Entry Rules"/"Short Entry Rules" sections) take priority
             # over the legacy single entry_conditions gate whenever either is
             # populated. A strategy that only ever fills entry_conditions
             # (every strategy saved before this feature existed) falls
             # through to the unchanged legacy branch below.
-            if cfg.long_entry_conditions or cfg.short_entry_conditions:
+            elif cfg.long_entry_conditions or cfg.short_entry_conditions:
                 direction, matched_conditions = self._eval_long_short(df, i)
                 entry_ok = direction is not None
             else:
@@ -256,6 +272,32 @@ class ConfiguredStrategy(Strategy):
         if short_ok:
             return "bearish", cfg.short_entry_conditions
         return None, None
+
+    def _eval_rule_groups(self, df, i):
+        """Returns (direction, matched_conditions) for the FIRST alternative
+        entry-path group (in declared order) whose conditions are all true
+        on this bar, or (None, None) if none match -- or if groups from
+        BOTH directions somehow match the same bar (a genuinely
+        contradictory bar), treated as no signal rather than an arbitrary
+        guess about which one to take, exactly like _eval_long_short."""
+        matched_bullish, matched_short = None, None
+        for group in self.config.entry_rule_groups:
+            conditions = group.get("conditions") or []
+            if not conditions:
+                continue
+            if not all(self._eval_traced(c, df, i) for c in conditions):
+                continue
+            direction = group.get("direction")
+            if direction == "bullish" and matched_bullish is None:
+                matched_bullish = group
+            elif direction == "bearish" and matched_short is None:
+                matched_short = group
+        if matched_bullish and matched_short:
+            return None, None
+        matched = matched_bullish or matched_short
+        if matched is None:
+            return None, None
+        return matched["direction"], matched["conditions"]
 
     def manage_position(self, df, i, position):
         """Break-even stop-move: if configured (breakeven_at_rr), moves
@@ -429,10 +471,25 @@ class ConfiguredStrategy(Strategy):
                 poc = self._get(df, i, _rcol("poc"))
                 return price is not None and poc is not None and abs(price - poc) / price < 0.005
             if cond.name == "value_area":
+                # Bare (direction=None): "price is currently inside the
+                # value area" -- unchanged, original behavior. A directional
+                # value_area (bullish/bearish) means "acceptance" outside
+                # the value area on that side (e.g. PBD Volume Profile
+                # Strategy's "acceptance above the balance area" / "fade the
+                # edge at VAL") -- same real above/below comparison pattern
+                # already used for pdh/pdl/support/resistance, just applied
+                # to the value-area's own high/low edges (VAH/VAL) instead
+                # of a swing level.
                 price = self._get(df, i, "close")
                 vah = self._get(df, i, _rcol("vah"))
                 val = self._get(df, i, _rcol("val"))
-                return price is not None and vah is not None and val is not None and val <= price <= vah
+                if price is None or vah is None or val is None:
+                    return False
+                if cond.direction == "bullish":
+                    return price > vah
+                if cond.direction == "bearish":
+                    return price < val
+                return val <= price <= vah
             if cond.name == "lvn":
                 return bool(self._get(df, i, _rcol("in_lvn")))
             if cond.name == "hvn":

@@ -162,12 +162,15 @@ def validate(config):
             "Add the concept this strategy's stop is based on, or use a fixed % / ATR stop."
         )
 
-    # A strategy with separate Long/Short entry rule sets satisfies "has
-    # entry rules" via EITHER of those instead of entry_conditions -- see
-    # ConfiguredStrategy.on_bar(), which uses long/short_entry_conditions in
-    # place of entry_conditions whenever either is populated.
+    # A strategy with separate Long/Short entry rule sets, OR branching
+    # entry_rule_groups (N alternative entry paths -- e.g. a different rule
+    # per market "shape"/regime), satisfies "has entry rules" via EITHER of
+    # those instead of entry_conditions -- see ConfiguredStrategy.on_bar(),
+    # which prioritizes entry_rule_groups, then long/short_entry_conditions,
+    # over entry_conditions whenever populated.
     uses_long_short = bool(config.long_entry_conditions or config.short_entry_conditions)
-    if not config.entry_conditions and not uses_long_short:
+    uses_rule_groups = bool(config.entry_rule_groups)
+    if not config.entry_conditions and not uses_long_short and not uses_rule_groups:
         errors.append("Missing entry rules. No entry conditions were detected.")
     else:
         # A long-only or short-only strategy (only one of the two rule sets
@@ -176,6 +179,18 @@ def validate(config):
             for c in getattr(config, bucket_name):
                 if c.is_unclear():
                     errors.append(f'Unclear entry rule, needs clarification: "{c.text}"')
+        for idx, group in enumerate(config.entry_rule_groups):
+            label = group.get("label") or f"group #{idx}"
+            if group.get("direction") not in ("bullish", "bearish"):
+                errors.append(
+                    f"entry_rule_groups[{idx}] ('{label}') has direction "
+                    f"{group.get('direction')!r} -- must be 'bullish' or 'bearish'."
+                )
+            if not group.get("conditions"):
+                errors.append(f"entry_rule_groups[{idx}] ('{label}') has no conditions -- an empty group can never fire.")
+            for c in group.get("conditions") or []:
+                if c.is_unclear():
+                    errors.append(f'Unclear entry rule in entry_rule_groups[{idx}] (\'{label}\'), needs clarification: "{c.text}"')
 
     if not config.exit_conditions and config.stop_loss.type == "unknown":
         errors.append("Missing exit rules. No exit conditions or stop-loss were detected.")
@@ -237,21 +252,32 @@ def validate(config):
     if config.time_exit_bars is not None and config.time_exit_bars <= 0:
         errors.append(f"time_exit_bars must be a positive integer, got {config.time_exit_bars}.")
 
-    for bucket_name in ("entry_conditions", "long_entry_conditions", "short_entry_conditions",
-                        "exit_conditions", "confirmation_conditions"):
-        for cond in getattr(config, bucket_name):
+    def _named_condition_buckets():
+        """Yields (label, [Condition, ...]) for every AND-gated bucket in
+        the strategy, including each entry_rule_groups group individually
+        -- shared by every check below that needs to look at "every
+        condition, tagged with where it came from"."""
+        for bucket_name in ("entry_conditions", "long_entry_conditions", "short_entry_conditions",
+                             "exit_conditions", "confirmation_conditions"):
+            yield bucket_name.replace("_", " "), getattr(config, bucket_name)
+        for idx, group in enumerate(config.entry_rule_groups):
+            label = group.get("label") or f"entry_rule_groups[{idx}]"
+            yield f"entry rule group '{label}'", group.get("conditions") or []
+
+    for bucket_label, bucket in _named_condition_buckets():
+        for cond in bucket:
             if cond.type not in _KNOWN_CONDITION_TYPES:
                 continue
             if cond.type == "indicator_compare" and cond.indicator not in _KNOWN_INDICATORS:
-                errors.append(f"Invalid indicator in {bucket_name.replace('_', ' ')}: {cond.indicator!r}")
+                errors.append(f"Invalid indicator in {bucket_label}: {cond.indicator!r}")
             if cond.type == "indicator_vs_indicator" and (
                     cond.indicator not in _KNOWN_INDICATORS or cond.indicator2 not in _KNOWN_INDICATORS):
                 errors.append(
-                    f"Invalid indicator in {bucket_name.replace('_', ' ')}: "
+                    f"Invalid indicator in {bucket_label}: "
                     f"{cond.indicator!r} vs {cond.indicator2!r}"
                 )
             if cond.type == "concept" and cond.name not in _KNOWN_INDICATORS:
-                errors.append(f"Invalid indicator/concept in {bucket_name.replace('_', ' ')}: {cond.name!r}")
+                errors.append(f"Invalid indicator/concept in {bucket_label}: {cond.name!r}")
 
     # An indicator's role must be one of the strategy's OWN declared
     # timeframes -- ConfiguredStrategy._indicator_column() builds the
@@ -275,15 +301,14 @@ def validate(config):
     # check, via a different mechanism: the condition references a concept
     # that was never added to concepts_used.
     concepts_used_set = set(config.concepts_used)
-    for bucket_name in ("entry_conditions", "long_entry_conditions", "short_entry_conditions",
-                        "exit_conditions", "confirmation_conditions"):
-        for cond in getattr(config, bucket_name):
+    for bucket_label, bucket in _named_condition_buckets():
+        for cond in bucket:
             if cond.type != "concept" or cond.name not in _CONCEPT_REQUIRES_ANY_OF:
                 continue
             required_any = _CONCEPT_REQUIRES_ANY_OF[cond.name]
             if not (required_any & concepts_used_set):
                 errors.append(
-                    f"Concept '{cond.name}' is used in {bucket_name.replace('_', ' ')} but "
+                    f"Concept '{cond.name}' is used in {bucket_label} but "
                     f"concepts_used doesn't include any of {sorted(required_any)} -- its indicator "
                     f"is never computed, so this condition can never be true. "
                     f"Add one of {sorted(required_any)} to concepts_used."
@@ -297,9 +322,16 @@ def validate(config):
     # every bar, no edge at all). It shows up when a document describing a
     # long setup AND a mirror-image short setup gets flattened into one
     # condition list; the two setups need to be separate strategies.
-    for bucket_name in ("entry_conditions", "long_entry_conditions", "short_entry_conditions", "confirmation_conditions"):
+    same_direction_buckets = [
+        (n.replace("_", " "), getattr(config, n))
+        for n in ("entry_conditions", "long_entry_conditions", "short_entry_conditions", "confirmation_conditions")
+    ] + [
+        (f"entry rule group '{group.get('label') or f'#{idx}'}'", group.get("conditions") or [])
+        for idx, group in enumerate(config.entry_rule_groups)
+    ]
+    for bucket_label, bucket in same_direction_buckets:
         seen_directions = {}
-        for cond in getattr(config, bucket_name):
+        for cond in bucket:
             if cond.type != "concept" or cond.direction not in ("bullish", "bearish"):
                 continue
             seen_directions.setdefault(cond.name, set()).add(cond.direction)
@@ -307,7 +339,7 @@ def validate(config):
             if len(directions) > 1:
                 errors.append(
                     f"'{concept_name}' is required in BOTH bullish and bearish direction in "
-                    f"{bucket_name.replace('_', ' ')}, but these are AND-ed on the same bar -- the market "
+                    f"{bucket_label}, but these are AND-ed on the same bar -- the market "
                     f"cannot do both at once. This usually means a long setup and a mirrored short setup "
                     f"were merged; keep one direction per strategy."
                 )
@@ -338,6 +370,10 @@ def validate(config):
     if config.short_entry_conditions:
         gates.append(("short entry conditions + confirmation conditions",
                        list(config.short_entry_conditions) + list(config.confirmation_conditions)))
+    for idx, group in enumerate(config.entry_rule_groups):
+        label = group.get("label") or f"#{idx}"
+        gates.append((f"entry rule group '{label}' + confirmation conditions",
+                       list(group.get("conditions") or []) + list(config.confirmation_conditions)))
     gates.append(("exit conditions", config.exit_conditions))
     for label, bucket in gates:
         by_key = {}
