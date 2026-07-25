@@ -1117,6 +1117,18 @@
     return `<span class="pill ${cls}">${esc(label)}</span>`;
   }
 
+  // Strategy Performance Dashboard: a single GREEN/RED read at a glance,
+  // combining expectancy/profit-factor/trade-count/Walk-Forward into one
+  // verdict (backtest_engine/performance_dashboard.py computes this --
+  // display-only here, never blocks or hides a strategy either way).
+  function performanceBadge(verdict, label, failedFactors) {
+    if (!verdict) return "";
+    const cls = verdict === "GREEN" ? "pill-completed" : "pill-error";
+    const title = verdict === "RED" && failedFactors && failedFactors.length
+      ? esc(failedFactors.join(" | ")) : "";
+    return `<span class="pill ${cls}" title="${title}">${verdict === "GREEN" ? "🟢" : "🔴"} ${esc(label || verdict)}</span>`;
+  }
+
   function lastBacktestCell(r) {
     if (!r) return `<span class="muted">Never run</span>`;
     if (r.status !== "completed") return `<span class="pill pill-pending">${esc(r.status)}</span>`;
@@ -1148,7 +1160,7 @@
       const rows = res.strategies.map(s => `
         <tr>
           <td>${s.favourite ? "★" : "☆"}</td>
-          <td>${esc(s.name)}</td>
+          <td>${esc(s.name)} ${performanceBadge(s.performance_verdict, s.performance_label, s.performance_failed_factors)}</td>
           <td>${(s.concepts_used || []).join(", ") || "-"}</td>
           <td>${Object.entries(s.timeframes || {}).map(([role, tf]) => `${role}:${tf}`).join(", ") || "-"}</td>
           <td>${conditionRolesCell(s.condition_roles)}</td>
@@ -1427,6 +1439,7 @@
     let loadedRawText = null;
     let loadedValid = false;
     let loadedErrors = [];
+    let loadedPerformance = null;
     let wins = 0, total = 0;
     let cumulativePnl = 0, peakPnl = 0, jobStartTime = null;
     const equityCurve = [0];
@@ -1466,7 +1479,8 @@
           loadedRawText = res.config.raw_text;
           loadedValid = res.valid;
           loadedErrors = res.errors || [];
-          renderConfigPreview(res.config, res.valid, res.errors);
+          loadedPerformance = res.performance || null;
+          renderConfigPreview(res.config, res.valid, res.errors, res.performance);
         };
       });
     }
@@ -1509,7 +1523,8 @@
         loadedRawText = res.config.raw_text;
         loadedValid = res.valid;
         loadedErrors = res.errors || [];
-        renderConfigPreview(res.config, res.valid, res.errors);
+        loadedPerformance = res.performance || null;
+        renderConfigPreview(res.config, res.valid, res.errors, res.performance);
       } catch (e) { /* strategy may have been deleted meanwhile */ }
     }
 
@@ -1548,7 +1563,26 @@
       </div>`;
     }
 
-    function renderConfigPreview(config, valid, errors) {
+    // Strategy Performance Dashboard detail breakdown: each of the 4
+    // factors (backtest_engine/performance_dashboard.py computes these --
+    // this only renders what the API already returned), with its real
+    // number and pass/fail, plus the overall GREEN/RED verdict.
+    function performanceBreakdownHtml(performance) {
+      if (!performance) return "";
+      const cls = performance.verdict === "GREEN" ? "pill-completed" : "pill-error";
+      const rows = (performance.factors || []).map(f => {
+        const icon = f.passed ? "✅" : "❌";
+        return `<div style="margin:3px 0;">${icon} <b>${esc(f.factor.replace("_", " "))}</b> `
+          + `(need ${esc(f.requirement)}): ${esc(f.detail)}</div>`;
+      }).join("");
+      return `<br><br><b>Performance Dashboard</b> `
+        + `<span class="pill ${cls}">${performance.verdict === "GREEN" ? "🟢" : "🔴"} ${esc(performance.label)}</span>`
+        + (performance.batch_id ? `<div class="muted" style="margin-top:2px;">based on backtest ${esc(performance.batch_id)} `
+            + `(${performance.symbols_tested} symbol${performance.symbols_tested === 1 ? "" : "s"})</div>` : "")
+        + `<div style="margin-top:6px;">${rows}</div>`;
+    }
+
+    function renderConfigPreview(config, valid, errors, performance) {
       const conditionRowsHtml = ["entry_conditions", "exit_conditions", "confirmation_conditions"]
         .map(bucket => (config[bucket] || []).map((c, i) => _conditionRoleRow(bucket, i, c)).join(""))
         .join("");
@@ -1561,7 +1595,8 @@
         (valid ? "STATUS: VALID" : "STATUS: INVALID<br>" + errors.map(e => " - " + esc(e)).join("<br>")) +
         (conditionRowsHtml
           ? `<br><br><b>Condition timeframe roles</b> (which declared timeframe each concept actually reads from -- change if wrong):<br>${conditionRowsHtml}`
-          : "");
+          : "") +
+        performanceBreakdownHtml(performance);
       document.querySelectorAll(".cond-role-select").forEach(sel => {
         sel.onchange = () => {
           const row = sel.closest(".cond-role-row");
@@ -1583,12 +1618,13 @@
       // below. If the text still matches what Load put there, just
       // re-show the already-valid loaded config instead of mangling it.
       if (currentConfig && text === loadedRawText && name === currentConfig.name) {
-        renderConfigPreview(currentConfig, loadedValid, loadedErrors);
+        renderConfigPreview(currentConfig, loadedValid, loadedErrors, loadedPerformance);
         return;
       }
       const res = await apiPost("/api/backtesting/parse", { text, name });
       currentConfig = res.config;
-      renderConfigPreview(res.config, res.valid, res.errors);
+      loadedPerformance = null;  // a freshly (re-)parsed, not-yet-saved config has no backtest history to judge yet
+      renderConfigPreview(res.config, res.valid, res.errors, null);
       if (res.valid) doAutosaveStrategy();
     }
 

@@ -10,6 +10,7 @@ from backtest_engine.strategy_parser import parse_strategy_text
 from backtest_engine.strategy_config import StrategyConfig
 from backtest_engine.validator import validate
 from backtest_engine.strategy_safety_check import run_safety_check
+from backtest_engine.performance_dashboard import evaluate_strategy_performance
 from backtest_engine import strategy_library as lib
 from backtest_engine import runner
 from backtest_engine import sanity_check
@@ -157,6 +158,17 @@ def list_strategies(q: str = ""):
             meta["safety_reasons"] = []
             meta["condition_roles"] = []
         meta["last_batch_result"] = _strategy_last_batch_result(meta["name"], recent_batches)
+        # Strategy Performance Dashboard (display-only -- reads already-
+        # computed backtest/walk-forward results, never runs anything, never
+        # blocks or removes a strategy): a single GREEN/RED verdict combining
+        # expectancy, profit factor, trade count, and Walk-Forward status.
+        try:
+            performance = evaluate_strategy_performance(meta["id"], recent_batches=recent_batches)
+        except Exception:
+            performance = None
+        meta["performance_verdict"] = performance["verdict"] if performance else None
+        meta["performance_label"] = performance["label"] if performance else None
+        meta["performance_failed_factors"] = performance["failed_factors"] if performance else []
     return {"strategies": strategies}
 
 
@@ -177,9 +189,11 @@ def get_strategy(strategy_id: str):
     # unsafe for AI-imported strategies).
     errors = validate(cfg)
     safety = run_safety_check(cfg)
+    performance = evaluate_strategy_performance(strategy_id)
     return {
         "config": cfg.to_dict(), "errors": errors, "valid": not errors,
         "safety_status": safety["status"], "safety_reasons": safety["reasons"],
+        "performance": performance,
     }
 
 
