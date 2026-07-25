@@ -176,6 +176,51 @@ def test_same_concept_in_both_directions_is_split():
     assert run_safety_check(cfg)["passed"] is True
 
 
+def test_dead_entry_buckets_left_by_ai_are_cleared():
+    """Real defect found live: an AI re-extraction populated
+    entry_rule_groups correctly (6 real groups) but ALSO left
+    long_entry_conditions/short_entry_conditions behind -- PBD Volume
+    Profile Strategy's second re-extraction did exactly this. Since
+    entry_rule_groups takes exclusive priority in on_bar(), those legacy
+    buckets are permanently unreachable dead code, and the Verification
+    Engine correctly reported them as SKIPPED forever despite the
+    strategy trading correctly through entry_rule_groups."""
+    cfg = StrategyConfig(
+        name="Dead Buckets Test", timeframes={"entry": "1h"},
+        entry_rule_groups=[
+            {"label": "Real Setup", "direction": "bullish",
+             "conditions": [Condition(type="concept", name="value_area", direction="bullish")]},
+        ],
+        long_entry_conditions=[Condition(type="concept", name="value_area", direction="bullish")],
+        short_entry_conditions=[Condition(type="concept", name="value_area", direction="bearish")],
+        stop_loss=SLTPSpec(type="fixed_pct", value=1.0),
+        take_profit=SLTPSpec(type="rr", value=2.0),
+        risk_pct=1.0,
+    )
+    assert run_safety_check(cfg)["passed"] is False
+    result = self_correction.self_correct(cfg, use_ai=False, allow_level2=False)
+    assert result["level"] == 1
+    assert result["status"] == "ready"
+    assert cfg.long_entry_conditions == []
+    assert cfg.short_entry_conditions == []
+    assert len(cfg.entry_rule_groups) == 1  # the real, reachable group is untouched
+    assert run_safety_check(cfg)["passed"] is True
+
+
+def test_entry_rule_groups_alone_does_not_trigger_dead_bucket_check():
+    cfg = StrategyConfig(
+        name="Groups Only Test", timeframes={"entry": "1h"},
+        entry_rule_groups=[
+            {"label": "Setup", "direction": "bullish",
+             "conditions": [Condition(type="concept", name="value_area", direction="bullish")]},
+        ],
+        stop_loss=SLTPSpec(type="fixed_pct", value=1.0),
+        take_profit=SLTPSpec(type="rr", value=2.0),
+        risk_pct=1.0,
+    )
+    assert run_safety_check(cfg)["passed"] is True
+
+
 def test_numeric_contradiction_is_not_guessed_at_and_escalates():
     """"RSI < 30" AND "RSI > 70" is impossible, but deciding which side is
     the long leg is a trading judgement, not a structural fact. The

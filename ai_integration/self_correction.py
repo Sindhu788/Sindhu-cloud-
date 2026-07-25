@@ -300,6 +300,36 @@ def _repair_contradictory_entry_gate(config):
     return repairs
 
 
+def _repair_dead_entry_buckets(config):
+    """ConfiguredStrategy.on_bar() gives entry_rule_groups exclusive
+    priority the instant it's non-empty -- entry_conditions/
+    long_entry_conditions/short_entry_conditions are then NEVER evaluated
+    at all, by design (see the schema prompt's own instruction: "leave
+    those three empty" when using entry_rule_groups). An AI response that
+    populates entry_rule_groups but leaves the old buckets behind anyway
+    (found live: PBD Volume Profile Strategy's re-extraction did exactly
+    this) creates permanently-dead, unreachable rules -- the Strategy
+    Verification Engine correctly reports every condition in them as
+    SKIPPED forever, which fails verification even though the strategy
+    itself trades correctly through entry_rule_groups. Clearing the dead
+    buckets is a mechanical fact (on_bar()'s priority order is fixed
+    code, not a judgement call), never a guess about what the strategy
+    means."""
+    if not config.entry_rule_groups:
+        return []
+    dead = [name for name in _entry_bucket_names() if getattr(config, name)]
+    if not dead:
+        return []
+    for name in dead:
+        setattr(config, name, [])
+    return [
+        f"Cleared '{name.replace('_', ' ')}' -- entry_rule_groups is populated, so those conditions "
+        f"would never actually be evaluated (permanently unreachable dead rules), not a real gap in "
+        f"the strategy's behavior."
+        for name in dead
+    ]
+
+
 def auto_repair(config):
     """LEVEL 1 (enforcing half): every deterministic, AI-free repair, applied
     in place. Returns a list of plain-language descriptions of what was
@@ -309,6 +339,7 @@ def auto_repair(config):
     repairs += _repair_contradictory_entry_gate(config)
     repairs += _repair_duplicate_exit_clauses(config)
     repairs += _repair_unreachable_exit_gate(config)
+    repairs += _repair_dead_entry_buckets(config)
     return repairs
 
 

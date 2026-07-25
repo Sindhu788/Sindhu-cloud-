@@ -1,0 +1,105 @@
+{
+  "name": "Daily Liquidity Scalping (LQDTY) Strategy",
+  "raw_text": "### Daily Liquidity Scalping Strategy Analysis\n\nThis analysis converts the \"Daily Liquidity Strategy\" described in the sources into a formal trading specification suitable for quantitative backtesting.\n\n---\n\n### Strategy Overview\n\n| Feature | Details |\n| :--- | :--- |\n| **Strategy Name** | Daily Liquidity Scalping (LQDTY) Strategy |\n| **Market** | Gold (XAUUSD) primary; Crypto (BTC, ETH) and Indices (Nifty, Sensex) mentioned as secondary [1]. |\n| **Timeframe(s)** | **Higher Timeframe:** 1-Day (D1) for levels; **Execution Timeframe:** 1-Minute (M1) [2-4]. |\n| **Indicators Used** | None (Pure Price Action / Liquidity based) [5, 6]. |\n| **Indicator Settings** | Not specified in the video. |\n| **Market Conditions** | Reversal environments following a sweep of the previous day's high or low [7, 8]. |\n\n---\n\n### Core Trading Rules\n\n#### 1. Setup & Market Preparation\n*   **Identify Levels:** Select the **Previous Day\u2019s Candle** (the one immediately preceding the current running candle) [3].\n*   **Draw Boundaries:** Mark a horizontal line at the **High** and the **Low** of that Daily candle [3].\n*   **Execution Chart:** Switch to the **1-minute (M1) timeframe** for monitoring price action near these lines [4].\n\n#### 2. Entry Rules (Long)\n*   **Pre-condition:** Price must cross below the **Previous Day\u2019s Low (PDL)** [9].\n*   **Signal:** Wait for a \"Fresh Green Candle\" to form on the M1 timeframe after the PDL is breached [9, 10].\n*   **Trigger:** Enter a Long position when the **High** of that specific M1 Green candle is broken by a subsequent candle [9, 10].\n\n#### 3. Entry Rules (Short)\n*   **Pre-condition:** Price must cross above the **Previous Day\u2019s High (PDH)** [4, 11].\n*   **Signal:** Wait for a \"Fresh Red Candle\" to form on the M1 timeframe after the PDH is breached [11].\n*   **Trigger:** Enter a Short position when the **Low** of that specific M1 Red candle is broken by a subsequent candle [11].\n\n#### 4. Exit & Risk Management\n*   **Stop Loss (SL):**\n    *   **Short:** Place SL above the high of the signal Red candle [11].\n    *   **Long:** Place SL below the low of the signal Green candle [10].\n*   **Take Profit (TP):**\n    *   **Primary Target (TP1):** The \"Swing High/Low\" where the market last reversed before heading to the liquidity line [10-12].\n    *   **Runners:** Close the majority of the position at TP1; leave **20% quantity** for extended moves (targeting 1:10+ ratios) [11, 13].\n*   **Risk-to-Reward Ratio:** Aims for high R:R (Average 1:6 or 1:7; mentions up to 1:10 - 1:100) [1, 13, 14].\n*   **Position Sizing:** Not specified in the video.\n*   **Daily Trade Limit:** Max **2 \"Full\" Stop Losses** per day. If a trade is moved to Break-Even (Cost to Cost) or partially exited, it does not count as a full SL [13, 15].\n*   **Max Trades:** Up to 3 trades if the first two are not full losses [14, 15].\n\n---\n\n### Rule-Based Checklist for Automation\n\n1.  [ ] **D1 Level Check:** Is the current price above PDH or below PDL?\n2.  [ ] **M1 Candle Filter:** If > PDH, has an M1 Red candle closed? If < PDL, has an M1 Green candle closed?\n3.  [ ] **Trigger Check:** Has the low of the Red candle (Short) or high of the Green candle (Long) been breached in the next candle(s)?\n4.  [ ] **SL Calculation:** Is the calculated SL distance \"Logical\"? (Filter trades if SL is excessively large, e.g., > 70-140 pips) [16, 17].\n5.  [ ] **Daily Cap:** Have fewer than 2 full stop-losses been hit today?\n\n---\n\n### Discretionary vs. Objective Rules\n\n| Subjective Rule | Suggested Objective Alternative for Backtesting |\n| :--- | :--- |\n| \"Swing High/Low\" Target [10, 11] | Use the highest high/lowest low of the last 20-50 M1 candles. |\n| \"Avoid too big of an SL\" [16, 17] | Set a hard cap (e.g., 50 pips). If the M1 signal candle is > 50 pips, ignore the trade. |\n| \"Fresh Red/Green candle\" [9, 11] | A candle that closes in the opposite direction of the breach (e.g., a Red candle closing below its open). |\n| \"Creative\" Entries (CHOC) [18, 19] | Ignore for strict backtesting; focus only on the candle-high/low break logic. |\n\n---\n\n### Potential Weaknesses & Biases\n*   **M1 Noise:** On the 1-minute timeframe, many candles may breach the PDH/PDL and immediately reverse, leading to multiple \"false signals\" before the real move occurs [15].\n*   **Slippage/Spread:** Gold (XAUUSD) spreads and slippage on the 1-minute timeframe can significantly impact 1:10 R:R targets, which is not accounted for in the video logic.\n*   **Look-ahead Bias:** The speaker identifies the \"best\" reversal points on historical charts; real-time execution may involve multiple stopped-out attempts before catching the \"1200 pip\" move [17, 20].\n\n---\n\n### Backtesting Specification\n\n#### Data Requirements\n*   **Assets:** XAUUSD (Gold).\n*   **Data Type:** OHLCV (Open, High, Low, Close, Volume).\n*   **Frequency:** M1 (Minute) for entries; D1 (Daily) for range levels.\n\n#### Execution Logic\n1.  **Level Initialization:** Every 00:00 (Market Time), store the High and Low of the previous 24-hour period.\n2.  **Detection:** On every M1 bar, check if `Price > PDH` or `Price < PDL`.\n3.  **Short Trigger:** If `Price > PDH`, and `M1_Close < M1_Open`, set `Trigger_Price = M1_Low`. If `Next_M1_Price < Trigger_Price`, Enter Short.\n4.  **Long Trigger:** If `Price < PDL`, and `M1_Close > M1_Open`, set `Trigger_Price = M1_High`. If `Next_M1_Price > Trigger_Price`, Enter Long.\n5.  **Stop Loss:** High of Signal Candle (Short) or Low of Signal Candle (Long).\n6.  **Take Profit:** 3x Risk (Static) or Previous M1 Swing High/Low (Dynamic).\n\n#### Performance Metrics\n*   **Win Rate:** Expected to be moderate (~40-50%) due to high R:R [14].\n*   **Profit Factor:** Total Gross Profit / Total Gross Loss.\n*   **Max Drawdown:** The largest peak-to-valley decline.\n*   **Expectancy:** (Win Rate % * Average Win) - (Loss Rate % * Average Loss).\n*   **Total Number of Trades:** Frequency per month/year based on daily level touches.",
+  "timeframes": {
+    "entry": "1m",
+    "bias": "1d"
+  },
+  "indicators": [],
+  "concepts_used": [
+    "pdh",
+    "pdl",
+    "candle_break",
+    "support",
+    "resistance"
+  ],
+  "entry_conditions": [],
+  "exit_conditions": [],
+  "confirmation_conditions": [],
+  "long_entry_conditions": [
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "pdl",
+      "direction": "bearish",
+      "text": null,
+      "role": "entry",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {}
+    },
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "candle_break",
+      "direction": "bullish",
+      "text": null,
+      "role": null,
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {}
+    }
+  ],
+  "short_entry_conditions": [
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "pdh",
+      "direction": "bullish",
+      "text": null,
+      "role": "entry",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {}
+    },
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "candle_break",
+      "direction": "bearish",
+      "text": null,
+      "role": null,
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {}
+    }
+  ],
+  "entry_rule_groups": [],
+  "stop_loss": {
+    "type": "structure",
+    "value": null,
+    "level": null
+  },
+  "take_profit": {
+    "type": "rr",
+    "value": 6.0,
+    "level": null
+  },
+  "risk_pct": 1.0,
+  "risk_reward": 6.0,
+  "session_filter": [],
+  "trend_filter": null,
+  "day_filter": [],
+  "breakeven_at_rr": null,
+  "entry_type": "market",
+  "entry_price_offset_pct": null,
+  "partial_take_profit": null,
+  "trailing_stop": null,
+  "time_exit_bars": null,
+  "tags": [],
+  "favourite": false,
+  "missing": [],
+  "warnings": []
+}

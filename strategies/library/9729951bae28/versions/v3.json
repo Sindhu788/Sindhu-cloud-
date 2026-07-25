@@ -1,0 +1,122 @@
+{
+  "name": "Break and Bounce",
+  "raw_text": "The **Break and Bounce strategy** is a mechanical scalping method designed to capture moves during the first **two and a half hours** of the market open. It utilizes three different time frames to identify key liquidity levels and execute trades based on specific price reactions.\n\n### Step 1: Establish the Daily Blueprint (Daily Time Frame)\n*   **Identify the Range:** Open a daily chart of any asset and locate the previous day's candle. \n*   **Draw the Box:** Use a box drawing tool to mark the area from the **high of the day** (the top of the wick) to the **low of the day** (the bottom of the wick). \n*   **Extend the Level:** Extend this box one day into the future to create a \"blueprint\" for the current trading day. \n*   **Significance:** These levels are critical because they represent where the strongest buyers and sellers entered previously, and significant **liquidity** rests just above and below these points.\n\n### Step 2: Confirm the Breakout (15-Minute Time Frame)\n*   **Switch Time Frames:** Move to the 15-minute chart to monitor how price interacts with the box drawn in Step 1.\n*   **Wait for a Close:** A breakout is only confirmed if a **full 15-minute candle closes** above the high level or below the low level. \n*   **Avoid False Starts:** Simply seeing the price move past the level momentarily is not enough; you must wait for the candle to close to ensure a high-probability direction.\n\n### Step 3: The Entry and Bounce (5-Minute Time Frame)\n*   **The Retest:** Once a breakout is confirmed on the 15-minute chart, move to the 5-minute time frame and wait for the price to **retest the breakout level**.\n*   **Time Restriction:** The trade setup must occur within the **first 2.5 hours** of the market opening; if it happens later, the opportunity is considered lost and should be ignored.\n*   **Specific Reversal Candlesticks:** You must see one of two specific candle types at the retest level to enter the trade. If these do not appear, the price may simply fall back into the range, and no trade is taken.\n\n#### Reversal Candle Types and Entry Rules:\n1.  **Hammer / Inverted Hammer:**\n    *   **Hammer (Long):** Must follow a clear red movement toward the level. The long wick indicates institutional buying power. **Entry** is at the break of the hammer candle's high, with the **stop loss** placed at its low.\n    *   **Inverted Hammer (Short):** Must follow a clear green movement. **Entry** is at the break of the candle's low, with the **stop loss** slightly above its high.\n2.  **Engulfing Candles:**\n    *   **Bullish Engulfing (Long):** The current candle's low is lower than the previous red candle's low, and its high is higher than the previous candle's high. **Entry** is placed at the **high of the previous red candle** (you do not have to wait for the engulfing candle to close). Place the **stop loss** slightly below the low of the engulfing candle.\n    *   **Bearish Engulfing (Short):** The current candle's high is higher than the previous green candle's high, and its low is lower than the previous candle's low. **Entry** is placed at the **low of the previous green candle**, with the **stop loss** slightly above the high of the engulfing candle.\n\n### Risk Management and Exit Strategy\n*   **Take Profit:** The target profit is typically set to **two or three times** the value of the stop loss (2:1 or 3:1 reward-to-risk ratio).\n*   **Market Close Rule:** If the trade is still active when the market is about to close, **manually close the position** regardless of whether the target was hit.\n*   **Frequency:** This specific setup typically occurs only **two or three times per month per stock**, so scanning multiple assets is necessary to find daily opportunities.\n\nAccording to the source, an algorithm coded with these exact rules achieved a **70% win rate** and a profit factor of 1.6 over a nine-month period. However, it is noted that historic results do not guarantee future performance, and you should conduct your own backtesting before trading live.\n",
+  "timeframes": {
+    "bias": "daily",
+    "trend": "15m",
+    "analysis": "5m",
+    "entry": "5m"
+  },
+  "indicators": [],
+  "concepts_used": [
+    "session_high_low",
+    "support",
+    "resistance",
+    "pin_bar",
+    "engulfing"
+  ],
+  "entry_conditions": [],
+  "exit_conditions": [],
+  "confirmation_conditions": [
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "session_high_low",
+      "direction": null,
+      "text": null,
+      "role": "trend",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {}
+    }
+  ],
+  "long_entry_conditions": [
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "pin_bar",
+      "direction": "bullish",
+      "text": null,
+      "role": "analysis",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {}
+    },
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "engulfing",
+      "direction": "bullish",
+      "text": null,
+      "role": "analysis",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {}
+    }
+  ],
+  "short_entry_conditions": [
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "pin_bar",
+      "direction": "bearish",
+      "text": null,
+      "role": "analysis",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {}
+    },
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "engulfing",
+      "direction": "bearish",
+      "text": null,
+      "role": "analysis",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {}
+    }
+  ],
+  "entry_rule_groups": [],
+  "stop_loss": {
+    "type": "structure",
+    "value": null,
+    "level": null
+  },
+  "take_profit": {
+    "type": "rr",
+    "value": 2.0,
+    "level": null
+  },
+  "risk_pct": 1.0,
+  "risk_reward": 2.0,
+  "session_filter": [],
+  "trend_filter": null,
+  "day_filter": [],
+  "breakeven_at_rr": null,
+  "entry_type": "market",
+  "entry_price_offset_pct": null,
+  "partial_take_profit": null,
+  "trailing_stop": null,
+  "time_exit_bars": null,
+  "tags": [],
+  "favourite": false,
+  "missing": [],
+  "warnings": []
+}

@@ -11,8 +11,8 @@
   ],
   "favourite": false,
   "created_at": "2026-07-17T22:50:12.254480+00:00",
-  "updated_at": "2026-07-17T22:50:12.254480+00:00",
-  "current_version": 1,
+  "updated_at": "2026-07-25T07:00:13.751132+00:00",
+  "current_version": 2,
   "clarification": {
     "notes": [
       "Unclear entry rule, needs clarification: \"Price must move above the previous day's High\"",

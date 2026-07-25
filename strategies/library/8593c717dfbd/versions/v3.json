@@ -1,0 +1,154 @@
+{
+  "name": "LSI plus Halftrend",
+  "raw_text": "In this video, I will test this free LSI plus halftrend strategy that claims a 91% win rate created by the trading nerds to see if it's really that accurate. I will back test it 100 times with an account size set at $1,000, risking 1% per trade. We will be using the price of GBP JPY since it is one of the most trend respecting forex pairs. To reduce market noise for initial signals, we will be looking at the 1 hour chart and then a 5-minute chart for sniper entries. This strategy consists of two free Trading View indicators. So, let's go ahead and add them to our chart. For the first indicator, let's add the half trend indicator. We need to adjust its settings. So, let's set the amplitude at five and leave the channel deviation at two. Here we can already see a few winning trades, but this is not enough as half trend alone produces many fake signals, especially at periods of low volatility. So, next we will add our confirmation indicator. We will add the legair RSI or Lassi for short created by John Aers, a well-known technical analyst. It is a modified version of the standard RSI. It reduces noise and lag as you can see in this comparison. All right, now the strategy setup is complete. So, let's go over the trading rules. Here are the rules for entering a long position. First, on a 1 hour chart, the price must be above the main halftrend line showing bullish momentum. Second, the lay RSI has to be oversold, crossing over the 20 level upwards. If our indicators are aligned, we can head down to the fiveminut chart and look for a pullback for our sniper entry. Let's draw a vertical line to more clearly see our 1-hour chart signal. As we can see, after a few candles, we have a pullback. The strategy creator suggests using Fibonacci for entry confirmations. We will be entering the trade at the first golden zone rejection and exiting at the first Fibonacci profit line rejection which sometimes gives very good risk to rewards. Our stop loss will be below the last low. I draw Fibonacci from the low wick to the high wick of the move. If you like other methods of using it, you can test them on your own. By the way, if you don't already have your Fibonacci set up, here are all my settings. For a short position, it's exactly the opposite. On a 1 hour, the price must be below the main half trend line, showing bearish momentum. The LA RSI has to be overbought, crossing over the 80 level downwards. If our indicators are aligned, we look for a pullback on the 5-minute chart. We enter the trade at the first golden zone rejection and exit at the first Fibonacci profit line rejection. Our stop loss will be above the last high. That was a lot to take in and you might have missed a few details. So, let's dive into some more buy and sell examples. Feel free to open up a chart and test it out alongside me. Hey, hey, hey. Hey, hey, hey. Heat. Hey. Hey. Hey. Hopefully these examples clarified everything. Now let's start the back test. All right, with our results in, we can see that the strategy isn't too bad, though it doesn't quite reach the advertised 91% win rate. My back test showed a modest 44% win rate, which might sound disappointing at first. However, with an impressive 2.88 average risk-to-reward ratio, the strategy still proves profitable. Over 100 trades from 2022 to 2023, we achieved a 102% gain, effectively doubling our initial investment. While this may not be ideal for smaller accounts, it has strong potential when trading with funded capital or bigger low-risk accounts. If this strategy aligns with your trading style, be sure to back test it yourself and share your results in the comments. If you have any questions or need clarification, don't hesitate to reach out. I hope you enjoyed this video and learned something new. Make sure to subscribe because I will be testing many other profitable trading strategies from scalping to long-term investing ones, mainly on forex and crypto markets. If you want any of the shown strategies to be improved and tested with other confirmation indicators or strategies, let us know in the comments below. Thanks for watching and see you in the next",
+  "timeframes": {
+    "bias": "1h",
+    "trend": "1h",
+    "analysis": "1h",
+    "entry": "5m"
+  },
+  "indicators": [
+    {
+      "name": "halftrend",
+      "params": {
+        "amplitude": 5,
+        "channel_deviation": 2
+      },
+      "role": "trend"
+    },
+    {
+      "name": "rsi",
+      "params": {
+        "period": 14,
+        "level": 20
+      },
+      "role": "analysis"
+    },
+    {
+      "name": "rsi",
+      "params": {},
+      "role": null
+    }
+  ],
+  "concepts_used": [
+    "support",
+    "resistance"
+  ],
+  "entry_conditions": [],
+  "exit_conditions": [],
+  "confirmation_conditions": [],
+  "long_entry_conditions": [
+    {
+      "type": "raw",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": "halftrend >",
+      "role": null,
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {}
+    },
+    {
+      "type": "indicator_compare",
+      "indicator": "rsi",
+      "params": {},
+      "op": ">",
+      "value": 20.0,
+      "name": null,
+      "direction": null,
+      "text": null,
+      "role": null,
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {}
+    },
+    {
+      "type": "raw",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": "pullback bullish",
+      "role": null,
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {}
+    }
+  ],
+  "short_entry_conditions": [
+    {
+      "type": "raw",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": "halftrend <",
+      "role": null,
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {}
+    },
+    {
+      "type": "indicator_compare",
+      "indicator": "rsi",
+      "params": {},
+      "op": "<",
+      "value": 80.0,
+      "name": null,
+      "direction": null,
+      "text": null,
+      "role": null,
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {}
+    },
+    {
+      "type": "raw",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": "pullback bearish",
+      "role": null,
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {}
+    }
+  ],
+  "entry_rule_groups": [],
+  "stop_loss": {
+    "type": "structure",
+    "value": null,
+    "level": null
+  },
+  "take_profit": {
+    "type": "rr",
+    "value": 2.88,
+    "level": null
+  },
+  "risk_pct": 0.01,
+  "risk_reward": 2.88,
+  "session_filter": [],
+  "trend_filter": null,
+  "day_filter": [],
+  "breakeven_at_rr": null,
+  "entry_type": "market",
+  "entry_price_offset_pct": null,
+  "partial_take_profit": null,
+  "trailing_stop": null,
+  "time_exit_bars": null,
+  "tags": [],
+  "favourite": false,
+  "missing": [],
+  "warnings": []
+}

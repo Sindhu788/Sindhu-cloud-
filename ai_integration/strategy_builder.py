@@ -19,6 +19,7 @@ import uuid
 from datetime import datetime, timezone
 
 from backtest_engine.strategy_config import Condition, SLTPSpec, StrategyConfig
+from backtest_engine.validator import normalize_timeframes
 from knowledge_engine.lesson import Lesson
 
 from ai_integration.schema import KNOWN_INDICATORS, KNOWN_SESSIONS, KNOWN_SLTP_TYPES
@@ -185,10 +186,23 @@ def build_strategy_config(ai_strategy, name, raw_text):
             groups.append({"label": g.get("label") or "", "direction": g.get("direction"), "conditions": conditions})
         return groups
 
+    # Normalize AI-reported timeframe strings ("daily" -> "1d", "hourly" ->
+    # "1h", ...) to exactly what the resampler accepts (data_engine.config.
+    # SUPPORTED_INTERVALS) -- validator.normalize_timeframes() already
+    # existed for this (the deterministic text-parser path calls it via
+    # sindhu_web/api/backtesting.py's /parse endpoint), but was never wired
+    # into the AI-native path, so an AI-reported "daily"/"5m/15m" reached
+    # MultiTimeframeContext unnormalized and crashed the backtest outright
+    # with a raw "Unsupported interval" exception instead of failing
+    # cleanly at validation. Unrecognized strings are left untouched (same
+    # as before) so validate() still reports them, rather than silently
+    # guessing.
+    normalized_timeframes, _ = normalize_timeframes(ai_strategy.get("timeframes") or {})
+
     config = StrategyConfig(
         name=ai_strategy.get("name") or name or "Unnamed Strategy",
         raw_text=raw_text,
-        timeframes=dict(ai_strategy.get("timeframes") or {}),
+        timeframes=normalized_timeframes,
         indicators=list(ai_strategy.get("indicators") or []),
         concepts_used=list(ai_strategy.get("concepts_used") or []),
         entry_conditions=_conditions("entry_conditions"),

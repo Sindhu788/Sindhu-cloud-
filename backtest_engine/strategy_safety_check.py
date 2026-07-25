@@ -191,12 +191,40 @@ def check_contradictory_entry_gates(config):
     return reasons
 
 
+def check_dead_entry_buckets(config):
+    """CHECK 4: entry_rule_groups, when populated, has EXCLUSIVE priority
+    in ConfiguredStrategy.on_bar() -- entry_conditions/
+    long_entry_conditions/short_entry_conditions are then never evaluated
+    at all. An AI response that populates entry_rule_groups but leaves the
+    legacy buckets behind too (found live: PBD Volume Profile Strategy's
+    re-extraction did exactly this) creates rules that can LOOK real but
+    are permanently unreachable -- the Strategy Verification Engine
+    correctly reports every condition in them as SKIPPED forever, which
+    fails verification even though the strategy trades correctly through
+    entry_rule_groups. This is a mechanical fact (on_bar()'s priority
+    order is fixed code), not a judgement call."""
+    if not config.entry_rule_groups:
+        return []
+    dead = [name for name in ("entry_conditions", "long_entry_conditions", "short_entry_conditions")
+            if getattr(config, name)]
+    if not dead:
+        return []
+    return [
+        f"'{name.replace('_', ' ')}' has {len(getattr(config, name))} condition(s) but will NEVER be "
+        f"evaluated -- entry_rule_groups is populated, and it takes exclusive priority over "
+        f"{name.replace('_', ' ')} in ConfiguredStrategy.on_bar(). These conditions are permanently "
+        f"dead, unreachable rules."
+        for name in dead
+    ]
+
+
 def run_safety_check(config):
     """Returns {"status": "ready"|"needs_review", "passed": bool,
     "reasons": [str, ...]}. Empty reasons list = passed. Never raises --
     a strategy that can't even be checked cleanly (missing fields, etc.)
     is a validator.validate() concern, not this one's."""
     reasons = []
+    reasons += check_dead_entry_buckets(config)
     reasons += check_duplicate_entry_exit_clauses(config)
     reasons += check_exit_gives_realistic_room(config)
     reasons += check_contradictory_entry_gates(config)
