@@ -107,6 +107,19 @@ def recheck_safety(strategy_id):
     return safety
 
 
+def save_walk_forward_result(strategy_id, result):
+    """Persists a Walk-Forward Test result (automation_pipeline.
+    walk_forward.run_walk_forward_test's return dict) into meta.json ONLY
+    -- never touches the strategy's own versioned config/rules in
+    versions/vN.json. Safe to call repeatedly; each call overwrites the
+    previous result with the latest one. Mirrors recheck_safety()'s
+    pattern (meta-only, no new version) exactly."""
+    meta = _read_meta(strategy_id)
+    meta["walk_forward_status"] = result.get("status")
+    meta["walk_forward_result"] = result
+    _write_meta(strategy_id, meta)
+
+
 def load(strategy_id, version=None):
     meta = _read_meta(strategy_id)
     version = version or meta["current_version"]

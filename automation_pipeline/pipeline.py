@@ -29,6 +29,7 @@ from sindhu_web.jobs import job_manager
 from sindhu_web import sync
 
 from automation_pipeline import optimizer
+from automation_pipeline import walk_forward
 
 FAST_SCREEN_WINDOW_DAYS = 30
 
@@ -468,6 +469,44 @@ def run_pipeline(job_id, strategy_id, control=None, symbols=None, resume=None):
 
         if control and control.should_stop():
             return _stopped("comparing")
+
+        # ---------------------------------------------------------- Stage 3.5: walk-forward testing
+        # Checks whether this strategy (or its winning optimized version,
+        # if optimizing won above) is genuinely robust, or just tuned to
+        # fit whatever already happened in the past -- a SEPARATE,
+        # additional check layered on top of the existing Backtest Engine
+        # and Auto-Optimizer, not a change to either of them. Informational
+        # only: a FAIL here does NOT block Paper Trading below -- this
+        # pipeline has no existing precedent for a backtest-quality check
+        # halting deployment (the sanity check earlier DOES halt the
+        # pipeline, but that catches a strategy that's structurally broken,
+        # not one that's merely unconvincing), so the result is saved and
+        # surfaced, and the CEO decides what to do with a FAIL from there.
+        if not checkpoint.get("walk_forward_done"):
+            _stage("walk_forward_testing",
+                   stage_label="Checking whether this strategy holds up on data it hasn't seen yet")
+            _say("Step 3.5 of 4 -- Walk-Forward Test: splitting this strategy's own historical data "
+                 "chronologically (the earliest 70% for training, the most recent 30% for testing -- never "
+                 "shuffled, since this checks behavior on genuinely LATER data) to see whether it's actually "
+                 "good, or just fit to the past. Re-tuning its settings using ONLY the training period, then "
+                 "testing those exact settings on the testing period, which the tuning step never saw.")
+            wf_config = best_candidate if (winner == "optimized" and best_candidate is not None) else cfg
+            wf_symbol = symbols[0]
+            try:
+                wf_result = walk_forward.run_walk_forward_test(
+                    wf_config, exchange, wf_symbol, dict(settings), log_fn=_say, control=control,
+                )
+                lib.save_walk_forward_result(strategy_id, wf_result)
+                _say(f"Walk-Forward Test verdict: {wf_result['status']} -- {wf_result['reason']}")
+            except Exception as exc:
+                _say(f"Walk-Forward Test could not complete ({exc!r}) -- this is an informational check, so "
+                     f"it doesn't block Paper Trading below; you can re-run it later from the Strategies page.")
+            _checkpoint("starting_paper_trading", walk_forward_done=True)
+        else:
+            _say("Step 3.5 of 4 -- Walk-Forward Test: already completed before the interruption.")
+
+        if control and control.should_stop():
+            return _stopped("walk_forward_testing")
 
         # ---------------------------------------------------------- Stage 4/4: paper trading handoff
         # Idempotent and additive: multiple strategies can run in Paper

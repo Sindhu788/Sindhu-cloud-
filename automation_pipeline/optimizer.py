@@ -127,12 +127,42 @@ def tunable_dimensions(config):
         if not period:
             continue
         base = int(period)
+        ind_name, ind_role = ind["name"], ind.get("role")
         candidates = sorted({max(2, round(base * f)) for f in _PERIOD_FACTORS})
         if len(candidates) < 2:
             continue
 
-        def _apply(cfg, value, _idx=idx):
+        def _apply(cfg, value, _idx=idx, _name=ind_name, _role=ind_role, _old_period=base):
             cfg.indicators[_idx]["params"]["period"] = value
+            # Real bug fixed live (found via a Walk-Forward Test run):
+            # a Condition can carry its OWN period directly in its params
+            # dict (e.g. price_compare: {"indicator": "ema", "params":
+            # {"period": 50}, "role": "trend"}) rather than leaving it
+            # None to inherit from this indicators-list entry --
+            # ConfiguredStrategy._indicator_column() resolves the column
+            # using the CONDITION's own params first. Mutating only
+            # cfg.indicators[_idx] left every such condition still
+            # pointing at the OLD period, silently resolving to a column
+            # that was never computed (the new period was only declared
+            # in `indicators`, not on the condition), so the condition's
+            # _eval() always returned False -- EVERY candidate for this
+            # dimension silently produced 0 trades and could never be
+            # discovered as an improvement, no matter how good it
+            # actually was. Confirmed live on EMA Trend-Pullback Strategy:
+            # 20/20 period candidates showed "0 trades" until this fix.
+            for bucket in (cfg.entry_conditions, cfg.long_entry_conditions, cfg.short_entry_conditions,
+                           cfg.exit_conditions, cfg.confirmation_conditions):
+                for cond in bucket:
+                    if cond.indicator == _name and cond.role == _role and cond.params.get("period") == _old_period:
+                        cond.params["period"] = value
+                    if cond.indicator2 == _name and cond.role == _role and cond.params2.get("period") == _old_period:
+                        cond.params2["period"] = value
+            for group in cfg.entry_rule_groups:
+                for cond in group.get("conditions") or []:
+                    if cond.indicator == _name and cond.role == _role and cond.params.get("period") == _old_period:
+                        cond.params["period"] = value
+                    if cond.indicator2 == _name and cond.role == _role and cond.params2.get("period") == _old_period:
+                        cond.params2["period"] = value
             return cfg
 
         dims.append({
