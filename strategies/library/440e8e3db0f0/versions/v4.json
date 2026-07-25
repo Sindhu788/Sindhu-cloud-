@@ -1,0 +1,256 @@
+{
+  "name": "Multi-Timeframe Trend-Pullback Strategy",
+  "raw_text": "Strategy Name: Multi-Timeframe Trend-Pullback Strategy\n\nTimeframes:\n- Bias (4H): overall market direction\n- Trend (1H): confirms bias direction\n- Entry (15m): precise entry trigger\n\nLong Entry Rules:\n1. Bias (4H): 50-period EMA must be sloping upward (current EMA value greater than EMA value 10 bars ago), and price must be trading above the 50-period EMA.\n2. Trend (1H): 20-period EMA must be above the 50-period EMA (bullish EMA alignment).\n3. Entry (15m): price must pull back to touch or cross below the 20-period EMA, then close back above the 20-period EMA on a subsequent candle (pullback-and-reclaim pattern).\n4. RSI (15m, 14-period) must be between 40 and 60 at the moment of entry (avoids entries in overbought/oversold extremes).\n\nShort Entry Rules (mirror of long):\n1. Bias (4H): 50-period EMA sloping downward, price below 50-period EMA.\n2. Trend (1H): 20-period EMA below 50-period EMA (bearish alignment).\n3. Entry (15m): price pulls back to touch or cross above the 20-period EMA, then closes back below it.\n4. RSI (15m, 14-period) between 40 and 60 at entry.\n\nStop Loss:\n- Long: below the low of the pullback candle, minus a 0.2% buffer.\n- Short: above the high of the pullback candle, plus a 0.2% buffer.\n\nTake Profit:\n- Fixed 2.5:1 Risk-Reward ratio.\n\nRisk Management:\n- Risk 1% of account equity per trade, fixed (not compounding).\n\nSession Filters:\n- None specified -- evaluated continuously.",
+  "timeframes": {
+    "bias": "4h",
+    "trend": "1h",
+    "entry": "15m"
+  },
+  "indicators": [
+    {
+      "name": "ema",
+      "params": {
+        "period": 50
+      },
+      "role": "bias"
+    },
+    {
+      "name": "ema",
+      "params": {
+        "period": 20
+      },
+      "role": "trend"
+    },
+    {
+      "name": "ema",
+      "params": {
+        "period": 50
+      },
+      "role": "trend"
+    },
+    {
+      "name": "ema",
+      "params": {
+        "period": 20
+      },
+      "role": "entry"
+    },
+    {
+      "name": "rsi",
+      "params": {
+        "period": 14
+      },
+      "role": "entry"
+    },
+    {
+      "name": "rsi",
+      "params": {
+        "period": 14
+      },
+      "role": null
+    }
+  ],
+  "concepts_used": [],
+  "entry_conditions": [],
+  "exit_conditions": [],
+  "confirmation_conditions": [],
+  "long_entry_conditions": [
+    {
+      "type": "price_compare",
+      "indicator": "ema",
+      "params": {
+        "period": 50
+      },
+      "op": ">",
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": null,
+      "role": "bias",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {}
+    },
+    {
+      "type": "indicator_vs_indicator",
+      "indicator": "ema",
+      "params": {
+        "period": 20
+      },
+      "op": ">",
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": null,
+      "role": "trend",
+      "lookback_bars": null,
+      "indicator2": "ema",
+      "params2": {
+        "period": 50
+      }
+    },
+    {
+      "type": "price_compare",
+      "indicator": "ema",
+      "params": {
+        "period": 20
+      },
+      "op": ">",
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": null,
+      "role": "entry",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {}
+    },
+    {
+      "type": "indicator_compare",
+      "indicator": "rsi",
+      "params": {
+        "period": 14
+      },
+      "op": ">",
+      "value": 40.0,
+      "name": null,
+      "direction": null,
+      "text": null,
+      "role": null,
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {}
+    },
+    {
+      "type": "indicator_compare",
+      "indicator": "rsi",
+      "params": {
+        "period": 14
+      },
+      "op": "<",
+      "value": 60.0,
+      "name": null,
+      "direction": null,
+      "text": null,
+      "role": null,
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {}
+    }
+  ],
+  "short_entry_conditions": [
+    {
+      "type": "price_compare",
+      "indicator": "ema",
+      "params": {
+        "period": 50
+      },
+      "op": "<",
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": null,
+      "role": "bias",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {}
+    },
+    {
+      "type": "indicator_vs_indicator",
+      "indicator": "ema",
+      "params": {
+        "period": 20
+      },
+      "op": "<",
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": null,
+      "role": "trend",
+      "lookback_bars": null,
+      "indicator2": "ema",
+      "params2": {
+        "period": 50
+      }
+    },
+    {
+      "type": "price_compare",
+      "indicator": "ema",
+      "params": {
+        "period": 20
+      },
+      "op": "<",
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": null,
+      "role": "entry",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {}
+    },
+    {
+      "type": "indicator_compare",
+      "indicator": "rsi",
+      "params": {
+        "period": 14
+      },
+      "op": ">",
+      "value": 40.0,
+      "name": null,
+      "direction": null,
+      "text": null,
+      "role": null,
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {}
+    },
+    {
+      "type": "indicator_compare",
+      "indicator": "rsi",
+      "params": {
+        "period": 14
+      },
+      "op": "<",
+      "value": 60.0,
+      "name": null,
+      "direction": null,
+      "text": null,
+      "role": null,
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {}
+    }
+  ],
+  "entry_rule_groups": [],
+  "stop_loss": {
+    "type": "fixed_pct",
+    "value": 0.2,
+    "level": null
+  },
+  "take_profit": {
+    "type": "rr",
+    "value": 2.5,
+    "level": null
+  },
+  "risk_pct": 1.0,
+  "risk_reward": 2.5,
+  "session_filter": [],
+  "trend_filter": null,
+  "day_filter": [],
+  "breakeven_at_rr": null,
+  "entry_type": "market",
+  "entry_price_offset_pct": null,
+  "partial_take_profit": null,
+  "trailing_stop": null,
+  "time_exit_bars": null,
+  "tags": [
+    "strategy",
+    "15m",
+    "1h",
+    "4h"
+  ],
+  "favourite": false,
+  "missing": [],
+  "warnings": []
+}

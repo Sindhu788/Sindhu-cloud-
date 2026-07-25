@@ -589,7 +589,23 @@ def _ensure_indicators_for_conditions(config):
     for bucket in all_buckets:
         for cond in bucket:
             if cond.type in ("indicator_compare", "price_compare") and cond.indicator:
-                _ensure(cond.indicator, cond.params, None)
+                # cond.role, not a hardcoded None -- _indicator_column()
+                # resolves indicator_compare/price_compare columns using
+                # the CONDITION's own role (exactly like it already does
+                # for indicator_vs_indicator below), so backfilling under
+                # role=None regardless of what the condition actually
+                # declared registered a redundant, wrongly-tagged entry
+                # instead of the one the evaluator will actually look up
+                # first. Harmless when a name+period fallback match
+                # exists (found live: EMA/Multi-Timeframe Trend-Pullback,
+                # Daily High-Low Liquidity -- already-registered entries
+                # under a real role still resolve correctly via that
+                # fallback), but leaves a real gap when NO other entry
+                # exists at all for that indicator (found live: Five A+
+                # iFVG Setups' vwap was never declared under ANY role, so
+                # "price < vwap" silently evaluated False on all 60,996
+                # bars it was checked, forever).
+                _ensure(cond.indicator, cond.params, cond.role)
             elif cond.type == "indicator_vs_indicator":
                 _ensure(cond.indicator, cond.params, cond.role)
                 _ensure(cond.indicator2, cond.params2, cond.role)

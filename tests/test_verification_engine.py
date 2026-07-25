@@ -48,6 +48,26 @@ def test_validator_catches_stop_loss_on_wrong_side_of_entry():
     assert any("WRONG side" in i for i in issues)
 
 
+def test_validator_accepts_a_breakeven_stop_exactly_at_entry_price():
+    """Real defect found on a full-library backtest run: Five A+ iFVG
+    Setups (breakeven_at_rr=1.0) legitimately moves its stop to exactly
+    entry_price once 1R profit is reached -- a normal, correct "risk-free
+    trade" stop placement, not a broken one. The validator's stop-loss
+    check must accept sl == entry_price; only a stop strictly PAST entry,
+    into the profitable side, is actually nonsensical."""
+    trade = _good_long_trade()
+    trade["stop_loss"] = trade["entry_price"]  # breakeven
+    issues = trade_validator.validate_trade(trade)
+    assert not any("WRONG side" in i for i in issues)
+
+
+def test_validator_still_catches_a_stop_strictly_past_entry():
+    bad = _good_long_trade()
+    bad["stop_loss"] = bad["entry_price"] + 0.01  # strictly on the profitable side -- genuinely impossible
+    issues = trade_validator.validate_trade(bad)
+    assert any("WRONG side" in i for i in issues)
+
+
 def test_validator_catches_take_profit_on_wrong_side_of_entry():
     bad = _good_long_trade()
     bad["take_profit"] = 90.0  # BELOW entry for a long -- impossible

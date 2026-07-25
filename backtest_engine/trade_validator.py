@@ -67,7 +67,17 @@ def validate_trade(trade, df=None):
     # ---- Stop-loss / take-profit are on the CORRECT side of entry ----
     if entry_price is not None and side in ("long", "short"):
         if sl is not None:
-            wrong_side = (side == "long" and sl >= entry_price) or (side == "short" and sl <= entry_price)
+            # Strictly ">"/"<", not ">="/"<=" -- a stop sitting EXACTLY at
+            # entry_price is a real, common, correct thing (a breakeven
+            # stop, e.g. breakeven_at_rr moving the stop to entry once
+            # unrealized profit reaches 1R -- a "risk-free" trade, not a
+            # broken one). Found live: Five A+ iFVG Setups
+            # (breakeven_at_rr=1.0) was flagged "WRONG side" for a
+            # perfectly legitimate breakeven stop, a false positive in
+            # this check, not a defect in the trade it was checking.
+            # Only a stop genuinely PAST entry, into the profitable side,
+            # is actually nonsensical.
+            wrong_side = (side == "long" and sl > entry_price) or (side == "short" and sl < entry_price)
             if wrong_side:
                 issues.append(
                     f"stop_loss ({sl}) is on the WRONG side of entry_price ({entry_price}) "
