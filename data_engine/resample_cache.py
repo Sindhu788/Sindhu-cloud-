@@ -23,14 +23,26 @@ cache entry was written, get_symbol_time_bounds() no longer matches the
 entry's stored bounds, so it's treated as a miss and recomputed -- no
 explicit "clear cache on download" wiring needed.
 
-Cache files live under data/market_data/resample_cache/ and are written
-atomically (temp file + os.replace) so concurrent backtest worker processes
-never observe a half-written entry.
+Cache files live under data/market_data/resample_cache/<exchange>__<symbol>/
+and are written atomically (temp file + os.replace) so concurrent backtest
+worker processes never observe a half-written entry.
+
+Sharded one subdirectory per (exchange, symbol): a single flat directory
+holding every entry for every symbol grew to 212,000+ files within 12 days
+of normal use (Paper Trading's coin filter + the Market page each score all
+~50 tracked symbols repeatedly), and NTFS individual file lookup/create
+performance degrades badly once a single directory holds that many entries
+-- a single cache existence check was measured taking 1.2-1.8s, regardless
+of hit or miss, which was the dominant cost, bigger than any recomputation.
+Sharding by symbol keeps each directory's entry count low (proportional to
+how many distinct exact-range requests that ONE symbol has ever received,
+not all 50 combined) so lookups stay fast as the cache keeps growing.
 """
 
 import os
 import json
 import hashlib
+import shutil
 import tempfile
 
 import pandas as pd
@@ -52,11 +64,16 @@ def _range_tag(start_ms, end_ms):
     return hashlib.sha1(raw).hexdigest()[:16]
 
 
+def _shard_dir(exchange, symbol):
+    return os.path.join(CACHE_DIR, f"{exchange}__{_safe_symbol(symbol)}")
+
+
 def _paths(exchange, symbol, interval, start_ms, end_ms):
-    base = f"{exchange}__{_safe_symbol(symbol)}__{interval}__{_range_tag(start_ms, end_ms)}"
+    base = f"{interval}__{_range_tag(start_ms, end_ms)}"
+    shard = _shard_dir(exchange, symbol)
     return (
-        os.path.join(CACHE_DIR, base + ".pkl"),
-        os.path.join(CACHE_DIR, base + ".meta.json"),
+        os.path.join(shard, base + ".pkl"),
+        os.path.join(shard, base + ".meta.json"),
     )
 
 
@@ -86,31 +103,39 @@ def save(exchange, symbol, interval, start_ms, end_ms, df, source_bounds):
     """Atomically write `df` as the cache entry for this exact
     (exchange, symbol, interval, start_ms, end_ms) request, tagged with the
     source bounds it was computed from."""
-    os.makedirs(CACHE_DIR, exist_ok=True)
+    shard = _shard_dir(exchange, symbol)
+    os.makedirs(shard, exist_ok=True)
     data_path, meta_path = _paths(exchange, symbol, interval, start_ms, end_ms)
 
-    fd, tmp_data = tempfile.mkstemp(dir=CACHE_DIR, prefix=".tmp_", suffix=".pkl")
+    fd, tmp_data = tempfile.mkstemp(dir=shard, prefix=".tmp_", suffix=".pkl")
     os.close(fd)
     df.to_pickle(tmp_data)
     os.replace(tmp_data, data_path)
 
-    fd, tmp_meta = tempfile.mkstemp(dir=CACHE_DIR, prefix=".tmp_", suffix=".json")
+    fd, tmp_meta = tempfile.mkstemp(dir=shard, prefix=".tmp_", suffix=".json")
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         json.dump({"source_bounds": list(source_bounds), "start_ms": start_ms, "end_ms": end_ms}, f)
     os.replace(tmp_meta, meta_path)
 
 
 def clear_all():
-    """Wipe every cached resample entry. Not needed for normal operation
-    (invalidation is automatic via source_bounds) -- exposed for manual
-    troubleshooting only."""
+    """Wipe every cached resample entry (every per-symbol shard directory,
+    plus any legacy flat-layout files left over from before sharding).
+    Not needed for normal operation (invalidation is automatic via
+    source_bounds) -- exposed for manual troubleshooting only."""
     if not os.path.isdir(CACHE_DIR):
         return 0
     removed = 0
     for name in os.listdir(CACHE_DIR):
+        full = os.path.join(CACHE_DIR, name)
         try:
-            os.remove(os.path.join(CACHE_DIR, name))
-            removed += 1
+            if os.path.isdir(full):
+                n = sum(len(files) for _, _, files in os.walk(full))
+                shutil.rmtree(full)
+                removed += n
+            else:
+                os.remove(full)
+                removed += 1
         except OSError:
             pass
     return removed

@@ -23,13 +23,32 @@ _LOOKBACK_HOURS = 72
 # few minutes of staleness here is fine.
 _CACHE_BUCKET_MS = 5 * 60 * 1000
 
+# Even with the on-disk resample cache genuinely hitting, get_ohlcv() still
+# calls storage.get_symbol_time_bounds() up front on every call to check
+# freshness -- a plain indexed SQLite query that measured ~1-1.5s under the
+# concurrent write load the live Paper Trading tick itself generates (each
+# storage call opens its own fresh connection; see storage.get_conn()).
+# That cost is paid once per symbol per tick regardless of the resample
+# cache. This in-memory, bucket-aligned score cache skips the DB round-trip
+# entirely for repeat calls within the same window -- same staleness
+# tolerance as the disk-cache bucket above, just avoiding the query that
+# turned out to still dominate. Safe to be process-local/non-persistent:
+# worst case on a fresh process is one extra compute per symbol.
+_score_cache = {}
+
 
 def _coin_activity_score(exchange, symbol):
     now_ms = int(time.time() * 1000)
     end_ms = now_ms - (now_ms % _CACHE_BUCKET_MS)
     start_ms = end_ms - _LOOKBACK_HOURS * 3600 * 1000
+
+    cache_key = (exchange, symbol, end_ms)
+    if cache_key in _score_cache:
+        return _score_cache[cache_key]
+
     df = get_ohlcv(exchange, symbol, interval="1h", start_ms=start_ms, end_ms=end_ms)
     if len(df) < 10:
+        _score_cache[cache_key] = None
         return None
 
     closes = df["close"]
@@ -42,13 +61,19 @@ def _coin_activity_score(exchange, symbol):
     ema_slow = closes.ewm(span=21, adjust=False).mean()
     trend_score = abs(float((ema_fast.iloc[-1] - ema_slow.iloc[-1]) / ema_slow.iloc[-1] * 100)) if ema_slow.iloc[-1] else 0.0
 
-    return {
+    score = {
         "symbol": symbol,
         "volume": volume_score,
         "volatility_pct": round(volatility_score, 4),
         "trend_strength_pct": round(trend_score, 4),
         "last_close_time": int(df.index[-1].timestamp() * 1000),
     }
+    _score_cache[cache_key] = score
+    if len(_score_cache) > 500:
+        stale = [k for k in _score_cache if k[2] != end_ms]
+        for k in stale:
+            del _score_cache[k]
+    return score
 
 
 def shortlist(exchange, symbols, top_n):

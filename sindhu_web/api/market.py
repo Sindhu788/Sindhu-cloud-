@@ -21,6 +21,16 @@ router = APIRouter()
 # not a trade decision, so a few minutes of staleness is fine.
 _CACHE_BUCKET_MS = 5 * 60 * 1000
 
+# Even with the on-disk resample cache hitting, get_ohlcv() still calls
+# storage.get_symbol_time_bounds() up front on every call to check
+# freshness -- a plain indexed SQLite query that measured ~1-1.5s under the
+# write load the Paper Trading engine's own tick generates concurrently
+# (each storage call opens its own fresh connection; see
+# storage.get_conn()). This in-memory, bucket-aligned cache skips that
+# DB round-trip entirely for repeat requests within the same window --
+# same staleness tolerance as the disk-cache bucket above.
+_signal_cache = {}
+
 
 def _signal_and_volatility(exchange_id, symbol):
     """Cheap, honest-effort signal (price vs 20-period EMA on 1h candles)
@@ -30,9 +40,16 @@ def _signal_and_volatility(exchange_id, symbol):
     now_ms = int(time.time() * 1000)
     end_ms = now_ms - (now_ms % _CACHE_BUCKET_MS)
     start_ms = end_ms - 50 * 3600 * 1000
+
+    cache_key = (exchange_id, symbol, end_ms)
+    if cache_key in _signal_cache:
+        return _signal_cache[cache_key]
+
     df = get_ohlcv(exchange_id, symbol, interval="1h", start_ms=start_ms, end_ms=end_ms)
     if len(df) < 5:
-        return "Neutral", None
+        result = ("Neutral", None)
+        _signal_cache[cache_key] = result
+        return result
 
     closes = df["close"]
     ema20 = closes.ewm(span=20, adjust=False).mean()
@@ -46,7 +63,13 @@ def _signal_and_volatility(exchange_id, symbol):
 
     returns = closes.pct_change().dropna()
     volatility_pct = round(float(returns.std() * 100), 3) if len(returns) else None
-    return signal, volatility_pct
+    result = (signal, volatility_pct)
+    _signal_cache[cache_key] = result
+    if len(_signal_cache) > 500:
+        stale = [k for k in _signal_cache if k[2] != end_ms]
+        for k in stale:
+            del _signal_cache[k]
+    return result
 
 
 @router.get("/api/market")
