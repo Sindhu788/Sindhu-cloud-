@@ -293,6 +293,7 @@ tr:last-child td { border-bottom: none; }
 tbody tr { transition: background .12s ease; }
 tbody tr:hover { background: var(--bg-hover); }
 .table-wrap { overflow-x: auto; border-radius: 10px; margin-bottom: 8px; }
+.pt-action-group { display: flex; gap: 6px; flex-wrap: wrap; }
 
 .period-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0; }
 .period-tab {
@@ -556,6 +557,14 @@ textarea { font-family: Consolas, monospace; min-height: 160px; }
   .content table td:not([data-label])::before { content: none; }
   /* progress bars inside card-mode cells need room to breathe */
   .content table td .progress-bar { flex: 1 1 auto; min-width: 80px; }
+
+  /* action-button groups inside a card-mode cell (e.g. Paper Trading's
+     Flag/History/Real-Trading-Check row): full-width stacked buttons
+     instead of 2-3 squeezed side by side, matching the 44px touch-target
+     rule above. */
+  .content table td:has(.pt-action-group) { flex-direction: column; align-items: stretch; }
+  .pt-action-group { flex-direction: column; }
+  .pt-action-group .btn-ghost { width: 100%; }
 }
 
 @media (min-width: 769px) {

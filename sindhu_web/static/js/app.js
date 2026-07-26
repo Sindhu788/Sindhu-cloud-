@@ -2500,12 +2500,17 @@
               <td>${p.confidence_score != null ? p.confidence_score + "%" : "-"}</td>
               <td>${p.streak && p.streak.count ? `<span class="pill ${p.streak.type === "win" ? "pill-bullish" : "pill-error"}">${p.streak.count} ${p.streak.type}</span>` : "-"}</td>
               <td>
-                <button class="btn-ghost pt-override" data-id="${p.strategy_id}" data-active="${p.manual_alert ? "1" : "0"}">
-                  ${p.manual_alert ? "Flagged for Telegram" : "Flag for Telegram"}
-                </button>
+                <div class="pt-action-group">
+                  <button class="btn-ghost pt-override" data-id="${p.strategy_id}" data-active="${p.manual_alert ? "1" : "0"}">
+                    ${p.manual_alert ? "Flagged for Telegram" : "Flag for Telegram"}
+                  </button>
+                  <button class="btn-ghost pt-genealogy" data-id="${p.strategy_id}" data-name="${esc(p.strategy_name || p.strategy_id)}">History</button>
+                  <button class="btn-ghost pt-readiness" data-id="${p.strategy_id}" data-name="${esc(p.strategy_name || p.strategy_id)}">Real-Trading Check</button>
+                </div>
               </td>
             </tr>`).join("") || '<tr><td colspan="8">No data yet.</td></tr>'}</tbody>
         </table></div>
+        <div id="ptStrategyDetail" class="card" style="display:none;white-space:pre-wrap;font-family:Consolas,monospace;font-size:12px;"></div>
 
         <div class="two-col">
           <div>
@@ -2606,6 +2611,31 @@
             ? `Strategy ${btn.dataset.id} flagged for Telegram alert (manual override).`
             : `Manual Telegram flag removed for ${btn.dataset.id}.`);
           render();
+        };
+      });
+
+      document.querySelectorAll(".pt-genealogy").forEach(btn => {
+        btn.onclick = async () => {
+          const res = await apiGet(`/api/paper-trading/genealogy/${btn.dataset.id}`);
+          const box = document.getElementById("ptStrategyDetail");
+          box.style.display = "block";
+          const versions = res.versions || [];
+          box.textContent = `Version History -- ${btn.dataset.name}\n\n` +
+            (versions.length
+              ? versions.map(v => `v${v.version} -- saved ${v.modified_at.slice(0, 19).replace("T", " ")}`).join("\n")
+              : "No saved versions recorded for this strategy yet.");
+        };
+      });
+
+      document.querySelectorAll(".pt-readiness").forEach(btn => {
+        btn.onclick = async () => {
+          const res = await apiGet(`/api/paper-trading/readiness/${btn.dataset.id}`);
+          const box = document.getElementById("ptStrategyDetail");
+          box.style.display = "block";
+          box.textContent = `Real Trading Readiness -- ${btn.dataset.name}\n\n` +
+            `Verdict: ${res.ready_for_real_trading ? "READY to consider for real trading" : "NOT YET ready"}\n\n` +
+            res.checklist.map(c => `${c.passed ? "[PASS]" : "[FAIL]"} ${c.label} (${c.detail})`).join("\n") +
+            `\n\nThis is informational only -- it never starts real trading or moves money by itself.`;
         };
       });
 
