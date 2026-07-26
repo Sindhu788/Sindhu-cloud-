@@ -575,7 +575,17 @@
     sidebar.classList.remove("open"); overlay.classList.remove("open");
 
     const renderFn = PAGES[id] || renderHome;
-    content.innerHTML = `<p class="muted">Loading...</p>`;
+    content.innerHTML = `
+      <div class="page-skeleton">
+        <div class="skel-bar skel-title"></div>
+        <div class="skel-grid">
+          <div class="skel-card"></div><div class="skel-card"></div>
+          <div class="skel-card"></div><div class="skel-card"></div>
+        </div>
+        <div class="skel-bar skel-row"></div>
+        <div class="skel-bar skel-row"></div>
+        <div class="skel-bar skel-row"></div>
+      </div>`;
     try {
       await renderFn();
     } catch (e) {

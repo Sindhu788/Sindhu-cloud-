@@ -483,6 +483,13 @@ textarea { font-family: Consolas, monospace; min-height: 160px; }
   /* 16px stops iOS Safari's auto-zoom-on-focus; still comfortable to read */
   textarea, input, select { font-size: 16px; padding: 11px 12px; min-height: 44px; }
   input[type="checkbox"] { min-height: 20px; width: 20px; height: 20px; }
+  /* a checkbox's own box stays small (visual convention), but the tappable
+     area around it -- typically a <label>wrapping "checkbox + text" -- must
+     still hit 44px, or a checkbox row reads as fiddly on a phone */
+  label:has(> input[type="checkbox"]) {
+    display: flex; align-items: center; gap: 8px;
+    min-height: 44px; padding: 4px 0;
+  }
 
   /* -- typography floor: nothing below 13px body text -- */
   .content { font-size: 14px; }
@@ -608,6 +615,46 @@ textarea { font-family: Consolas, monospace; min-height: 160px; }
 }
 .bottom-nav a svg { width: 21px; height: 21px; }
 .bottom-nav a.active { color: var(--accent); }
+
+/* ---- page-transition skeleton (replaces a bare "Loading..." string with
+   something that reads instantly, like a native app's placeholder screen,
+   while the real page's own data fetch is still in flight) ---- */
+.page-skeleton { animation: skel-fade-in .15s ease; }
+.skel-bar.skel-title { height: 22px; width: 40%; margin-bottom: 18px; }
+.skel-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 20px; }
+.skel-card { height: 74px; border-radius: 12px; }
+.skel-bar.skel-row { height: 54px; margin-bottom: 10px; }
+.page-skeleton .skel-bar, .page-skeleton .skel-card {
+  background: linear-gradient(90deg, var(--bg-card) 25%, var(--bg-hover) 37%, var(--bg-card) 63%);
+  background-size: 400% 100%;
+  animation: skel-shimmer 1.4s ease infinite;
+  border-radius: 10px;
+}
+@media (min-width: 769px) {
+  .skel-grid { grid-template-columns: repeat(4, 1fr); }
+}
+@keyframes skel-shimmer {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+@keyframes skel-fade-in {
+  from { opacity: 0; } to { opacity: 1; }
+}
+
+/* ---- swipeable tab strips on mobile (period tabs etc): a real app scrolls
+   a row of tabs with a thumb instead of wrapping it into extra lines -- */
+@media (max-width: 768px) {
+  .period-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x proximity;
+    padding-bottom: 6px;
+    margin-bottom: 4px;
+  }
+  .period-tabs::-webkit-scrollbar { height: 0; }
+  .period-tab { flex: none; scroll-snap-align: start; }
+}
 
 /* App-wide toast/banner notifications (e.g. backtest completion) -- fixed
    above everything so they're visible regardless of which page is open. */
