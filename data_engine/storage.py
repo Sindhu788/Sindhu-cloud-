@@ -265,6 +265,54 @@ CREATE TABLE IF NOT EXISTS paper_strategy_config (
     updated_at TEXT
 );
 
+-- Manual Override: a human can flag a strategy for a Telegram alert
+-- regardless of what its automatic score says. This table only records
+-- the flag (and who/why) -- it never touches paper_strategy_config
+-- (enabled/priority/coin routing), trade execution, or scoring.
+CREATE TABLE IF NOT EXISTS paper_strategy_overrides (
+    strategy_id TEXT PRIMARY KEY,
+    manual_alert INTEGER NOT NULL DEFAULT 0,
+    note TEXT,
+    updated_at TEXT
+);
+
+-- Real-Time Alert / Drawdown Alert history -- computed fresh each time
+-- paper_trading.alerts is asked to check (see that module), persisted here
+-- only so the UI has a short recent history instead of alerts vanishing
+-- the instant nobody happens to be polling. Never read by the trading
+-- engine itself -- purely a reporting/notification trail.
+CREATE TABLE IF NOT EXISTS paper_alerts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    alert_type TEXT NOT NULL,
+    strategy_id TEXT,
+    strategy_name TEXT,
+    message TEXT NOT NULL,
+    severity TEXT NOT NULL DEFAULT 'info',
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_paper_alerts_created ON paper_alerts(created_at DESC);
+
+-- Lesson Candidate Auto-Flagging (self-learning foundation, Group 3):
+-- repeated patterns detected in closed trades get flagged here for human
+-- review. Never auto-applied to any strategy or lesson -- status stays
+-- 'flagged' until a person acts on it elsewhere.
+CREATE TABLE IF NOT EXISTS paper_lesson_candidates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    strategy_id TEXT,
+    strategy_name TEXT,
+    symbol TEXT,
+    market_state TEXT,
+    session TEXT,
+    pattern_description TEXT NOT NULL,
+    sample_size INTEGER NOT NULL,
+    win_rate REAL,
+    total_pnl REAL,
+    status TEXT NOT NULL DEFAULT 'flagged',
+    created_at TEXT NOT NULL,
+    UNIQUE(strategy_id, symbol, market_state, session)
+);
+
 CREATE TABLE IF NOT EXISTS compiled_documents (
     id TEXT PRIMARY KEY,
     title TEXT,
@@ -2147,6 +2195,194 @@ def save_paper_strategy_config(strategy_id, enabled, priority, supported_coins, 
             (strategy_id, int(enabled), priority, json.dumps(supported_coins or []),
              json.dumps(supported_market_types or []), now_iso),
         )
+
+
+def get_paper_strategy_override(strategy_id):
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT strategy_id, manual_alert, note, updated_at FROM paper_strategy_overrides WHERE strategy_id=?",
+            (strategy_id,),
+        ).fetchone()
+    if not row:
+        return {"strategy_id": strategy_id, "manual_alert": False, "note": None, "updated_at": None}
+    return {"strategy_id": row[0], "manual_alert": bool(row[1]), "note": row[2], "updated_at": row[3]}
+
+
+def list_paper_strategy_overrides():
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT strategy_id, manual_alert, note, updated_at FROM paper_strategy_overrides"
+        ).fetchall()
+    return {
+        r[0]: {"strategy_id": r[0], "manual_alert": bool(r[1]), "note": r[2], "updated_at": r[3]}
+        for r in rows
+    }
+
+
+def save_paper_strategy_override(strategy_id, manual_alert, note, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO paper_strategy_overrides (strategy_id, manual_alert, note, updated_at)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(strategy_id) DO UPDATE SET
+                 manual_alert=excluded.manual_alert, note=excluded.note, updated_at=excluded.updated_at""",
+            (strategy_id, int(manual_alert), note, now_iso),
+        )
+
+
+def create_paper_alert(alert_type, strategy_id, strategy_name, message, severity, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO paper_alerts (alert_type, strategy_id, strategy_name, message, severity, created_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (alert_type, strategy_id, strategy_name, message, severity, now_iso),
+        )
+
+
+def list_paper_alerts(limit=50):
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, alert_type, strategy_id, strategy_name, message, severity, created_at "
+            "FROM paper_alerts ORDER BY created_at DESC LIMIT ?", (limit,),
+        ).fetchall()
+    return [
+        {"id": r[0], "alert_type": r[1], "strategy_id": r[2], "strategy_name": r[3],
+         "message": r[4], "severity": r[5], "created_at": r[6]}
+        for r in rows
+    ]
+
+
+def get_recent_paper_alert(alert_type, strategy_id, since_iso):
+    """Most recent alert of this type/strategy at or after since_iso, or None
+    -- used to avoid re-flagging the same condition on every single poll."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT id FROM paper_alerts WHERE alert_type=? AND strategy_id IS ? AND created_at >= ? "
+            "ORDER BY created_at DESC LIMIT 1",
+            (alert_type, strategy_id, since_iso),
+        ).fetchone()
+    return row is not None
+
+
+def list_paper_session_stats(since_iso=None, until_iso=None, strategy_id=None):
+    """Closed-trade performance grouped by trading session (asian/london/ny/
+    etc, as classified at entry time) -- time-of-day performance split."""
+    query = ("SELECT session, COUNT(*), COALESCE(SUM(pnl),0), SUM(CASE WHEN pnl>0 THEN 1 ELSE 0 END) "
+             "FROM paper_positions WHERE status='closed' AND pnl IS NOT NULL AND session IS NOT NULL")
+    params = []
+    if since_iso:
+        query += " AND closed_at >= ?"
+        params.append(since_iso)
+    if until_iso:
+        query += " AND closed_at < ?"
+        params.append(until_iso)
+    if strategy_id:
+        query += " AND strategy_id = ?"
+        params.append(strategy_id)
+    query += " GROUP BY session ORDER BY SUM(pnl) DESC"
+    with get_conn() as conn:
+        rows = conn.execute(query, params).fetchall()
+    return [
+        {"session": r[0], "closed_trades": r[1], "total_pnl": r[2],
+         "win_rate": round(r[3] / r[1] * 100, 2) if r[1] else 0.0}
+        for r in rows
+    ]
+
+
+def list_paper_coin_stats_by_strategy(strategy_id, since_iso=None, until_iso=None):
+    """Same shape as list_paper_coin_stats but scoped to one strategy's own
+    book -- Coin-Wise Performance Split per strategy."""
+    query = ("SELECT symbol, COUNT(*), COALESCE(SUM(pnl),0), SUM(CASE WHEN pnl>0 THEN 1 ELSE 0 END) "
+             "FROM paper_positions WHERE status='closed' AND pnl IS NOT NULL AND strategy_id = ?")
+    params = [strategy_id]
+    if since_iso:
+        query += " AND closed_at >= ?"
+        params.append(since_iso)
+    if until_iso:
+        query += " AND closed_at < ?"
+        params.append(until_iso)
+    query += " GROUP BY symbol ORDER BY SUM(pnl) DESC"
+    with get_conn() as conn:
+        rows = conn.execute(query, params).fetchall()
+    return [
+        {"symbol": r[0], "closed_trades": r[1], "total_pnl": r[2],
+         "win_rate": round(r[3] / r[1] * 100, 2) if r[1] else 0.0}
+        for r in rows
+    ]
+
+
+def list_paper_coin_pattern_memory(strategy_id=None):
+    """Coin-Specific Pattern Memory: closed-trade performance grouped by
+    (strategy, symbol, market_state, session) -- how has THIS strategy done
+    on THIS coin under THIS kind of market before. Purely computed from
+    paper_positions on read; nothing is persisted or fed back into trading
+    decisions automatically."""
+    query = ("SELECT strategy_id, strategy_name, symbol, market_state, session, COUNT(*), "
+              "COALESCE(SUM(pnl),0), SUM(CASE WHEN pnl>0 THEN 1 ELSE 0 END) "
+              "FROM paper_positions WHERE status='closed' AND pnl IS NOT NULL "
+              "AND strategy_id IS NOT NULL AND market_state IS NOT NULL AND session IS NOT NULL")
+    params = []
+    if strategy_id:
+        query += " AND strategy_id = ?"
+        params.append(strategy_id)
+    query += " GROUP BY strategy_id, symbol, market_state, session ORDER BY COUNT(*) DESC"
+    with get_conn() as conn:
+        rows = conn.execute(query, params).fetchall()
+    return [
+        {"strategy_id": r[0], "strategy_name": r[1], "symbol": r[2], "market_state": r[3],
+         "session": r[4], "trades": r[5], "total_pnl": r[6],
+         "win_rate": round(r[7] / r[5] * 100, 2) if r[5] else 0.0}
+        for r in rows
+    ]
+
+
+def list_paper_closed_trades_ordered(strategy_id=None, limit=500):
+    """Closed trades ordered oldest-to-newest for streak/pattern analysis
+    (separate from list_closed_paper_positions, which orders newest-first
+    for display). strategy_id=None returns every strategy's trades in one
+    query (each row carries its own strategy_id) -- used by
+    paper_trading.insights.all_streaks() to compute every strategy's streak
+    without one query per strategy."""
+    query = ("SELECT id, strategy_id, symbol, pnl, closed_at FROM paper_positions "
+              "WHERE status='closed' AND pnl IS NOT NULL")
+    params = []
+    if strategy_id:
+        query += " AND strategy_id = ?"
+        params.append(strategy_id)
+    query += " ORDER BY closed_at ASC LIMIT ?"
+    params.append(limit)
+    with get_conn() as conn:
+        rows = conn.execute(query, params).fetchall()
+    return [{"id": r[0], "strategy_id": r[1], "symbol": r[2], "pnl": r[3], "closed_at": r[4]} for r in rows]
+
+
+def save_paper_lesson_candidate(strategy_id, strategy_name, symbol, market_state, session,
+                                 pattern_description, sample_size, win_rate, total_pnl, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO paper_lesson_candidates
+               (strategy_id, strategy_name, symbol, market_state, session, pattern_description,
+                sample_size, win_rate, total_pnl, status, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'flagged', ?)
+               ON CONFLICT(strategy_id, symbol, market_state, session) DO UPDATE SET
+                 strategy_name=excluded.strategy_name, pattern_description=excluded.pattern_description,
+                 sample_size=excluded.sample_size, win_rate=excluded.win_rate,
+                 total_pnl=excluded.total_pnl, created_at=excluded.created_at""",
+            (strategy_id, strategy_name, symbol, market_state, session, pattern_description,
+             sample_size, win_rate, total_pnl, now_iso),
+        )
+
+
+def list_paper_lesson_candidates(status="flagged", limit=100):
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, strategy_id, strategy_name, symbol, market_state, session, pattern_description, "
+            "sample_size, win_rate, total_pnl, status, created_at FROM paper_lesson_candidates "
+            "WHERE status=? ORDER BY created_at DESC LIMIT ?", (status, limit),
+        ).fetchall()
+    cols = ["id", "strategy_id", "strategy_name", "symbol", "market_state", "session",
+            "pattern_description", "sample_size", "win_rate", "total_pnl", "status", "created_at"]
+    return [dict(zip(cols, r)) for r in rows]
 
 
 # --------------------------------------------------------------- Knowledge Compiler

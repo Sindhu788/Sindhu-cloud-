@@ -5,9 +5,11 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from backtest_engine import strategy_library as lib
+from backtest_engine import validator
+from backtest_engine.strategy_safety_check import run_safety_check
 from data_engine import storage
 from data_engine.logging_setup import log as file_log
-from paper_trading import config as pt_config
+from paper_trading import config as pt_config, insights
 from paper_trading.engine import engine
 from sindhu_web import broadcast, cache, sync
 
@@ -90,7 +92,11 @@ def get_open_positions(strategy_id: Optional[str] = None):
 
 @router.get("/api/paper-trading/trades")
 def get_closed_trades(limit: int = 100, strategy_id: Optional[str] = None):
-    return {"trades": storage.list_closed_paper_positions(limit=limit, strategy_id=strategy_id)}
+    trades = storage.list_closed_paper_positions(limit=limit, strategy_id=strategy_id)
+    for t in trades:
+        t["win_loss_tag"] = insights.classify_win_loss(t)
+        t["reason_plain"] = insights.humanize_reason(t.get("entry_reason"))
+    return {"trades": trades}
 
 
 @router.post("/api/paper-trading/positions/{position_id}/close")
@@ -199,10 +205,28 @@ def _compute_analytics(period):
     for p in open_positions:
         key = p.get("strategy_id") or "__lessons__"
         open_by_strategy[key] = open_by_strategy.get(key, 0) + 1
+    overrides = storage.list_paper_strategy_overrides()
+    account_states = {s["strategy_id"]: s for s in storage.list_paper_account_states()}
+    initial_balance = pt_config.load().get("initial_balance", 10000.0)
+    # Each of these does ONE query across all strategies rather than one
+    # query per strategy -- with 14 active strategies, a naive per-strategy
+    # loop here made /api/paper-trading/analytics itself slow enough to
+    # time out, the exact class of bug just fixed elsewhere today.
+    confidence_scores = insights.all_confidence_scores()
+    streaks = insights.all_streaks()
     for s in strategy_stats:
-        s["open_positions"] = open_by_strategy.get(s["strategy_id"], 0)
+        sid = s["strategy_id"]
+        s["open_positions"] = open_by_strategy.get(sid, 0)
+        s["confidence_score"] = confidence_scores.get(sid)  # Group 2 #2
+        s["streak"] = streaks.get(sid, {"type": "none", "count": 0})  # Group 3 #14
+        s["manual_alert"] = overrides.get(sid, {}).get("manual_alert", False)  # Group 1
+        acct = account_states.get(sid)
+        s["balance"] = round(initial_balance + acct["realized_pnl_total"], 2) if acct else initial_balance  # Group 2 #4
+
+    new_alerts = insights.detect_alerts(strategy_stats, streaks=streaks)  # Group 2 #8/#9
 
     return {
+        "new_alerts": new_alerts,
         "period": period,
         "summary": summary,
         "open_positions_count": len(open_positions),
@@ -232,3 +256,96 @@ def get_analytics(period: str = "all"):
     caching means most polls hit the 10s-old value instead of triggering
     (and queuing behind) a fresh pass every single time."""
     return cache.cached(f"paper_analytics_{period}", 10, lambda: _compute_analytics(period))
+
+
+# --------------------------------------------------------------- Group 1: Manual Override
+
+class OverrideUpdate(BaseModel):
+    manual_alert: bool
+    note: Optional[str] = None
+
+
+@router.post("/api/paper-trading/override/{strategy_id}")
+def set_strategy_override(strategy_id: str, req: OverrideUpdate):
+    """Manual Override: flag this strategy for a Telegram alert regardless
+    of its automatic score. No Telegram bot is connected in this build yet
+    -- this records the flag (visible in the UI and the activity log) so
+    it's ready to wire up to real delivery without lying about having
+    already sent anything."""
+    now = datetime.now(timezone.utc).isoformat()
+    storage.save_paper_strategy_override(strategy_id, req.manual_alert, req.note, now)
+    if req.manual_alert:
+        _log_and_broadcast(f"[paper-trading] MANUAL OVERRIDE: {strategy_id} flagged for Telegram alert"
+                            + (f" -- {req.note}" if req.note else ""))
+    sync.notify("paper_trading", "updated", "Manual override updated", id=strategy_id)
+    return {"ok": True, "override": storage.get_paper_strategy_override(strategy_id)}
+
+
+@router.get("/api/paper-trading/overrides")
+def get_strategy_overrides():
+    return {"overrides": storage.list_paper_strategy_overrides()}
+
+
+# --------------------------------------------------------------- Group 2: session/coin splits, alerts
+
+@router.get("/api/paper-trading/session-stats")
+def get_session_stats(strategy_id: Optional[str] = None, period: str = "all"):
+    since_iso, until_iso = _period_bounds(period)
+    return {"sessions": storage.list_paper_session_stats(since_iso, until_iso, strategy_id)}
+
+
+@router.get("/api/paper-trading/coin-stats/{strategy_id}")
+def get_coin_stats_for_strategy(strategy_id: str, period: str = "all"):
+    since_iso, until_iso = _period_bounds(period)
+    return {"coins": storage.list_paper_coin_stats_by_strategy(strategy_id, since_iso, until_iso)}
+
+
+@router.get("/api/paper-trading/alerts")
+def get_alerts(limit: int = 30):
+    return {"alerts": storage.list_paper_alerts(limit=limit)}
+
+
+# --------------------------------------------------------------- Group 3: self-learning foundation
+
+@router.get("/api/paper-trading/pattern-memory")
+def get_pattern_memory(strategy_id: Optional[str] = None):
+    return {"patterns": storage.list_paper_coin_pattern_memory(strategy_id)}
+
+
+@router.get("/api/paper-trading/lesson-candidates")
+def get_lesson_candidates():
+    """Runs the detector fresh each call (cheap read-only aggregation) so
+    the list reflects the latest closed trades, then returns what's flagged.
+    Never applies a candidate automatically -- review/action happens
+    elsewhere, by a person."""
+    insights.detect_lesson_candidates()
+    return {"candidates": storage.list_paper_lesson_candidates()}
+
+
+@router.get("/api/paper-trading/streak/{strategy_id}")
+def get_streak(strategy_id: str):
+    return insights.compute_streak(strategy_id)
+
+
+@router.get("/api/paper-trading/genealogy/{strategy_id}")
+def get_genealogy(strategy_id: str):
+    return {"versions": lib.version_history(strategy_id)}
+
+
+# --------------------------------------------------------------- Group 4: paper -> real bridge
+
+@router.get("/api/paper-trading/readiness/{strategy_id}")
+def get_readiness(strategy_id: str):
+    since_iso, until_iso = _period_bounds("all")
+    strategy_stats = next(
+        (s for s in storage.list_paper_strategy_stats(since_iso, until_iso) if s["strategy_id"] == strategy_id),
+        {"closed_trades": 0, "win_rate": 0.0},
+    )
+    try:
+        cfg = lib.load(strategy_id)
+        safety_passed = run_safety_check(cfg)["passed"] and not validator.validate(cfg)
+    except Exception:
+        safety_passed = False
+    meta = next((m for m in lib.list_all() if m["id"] == strategy_id), {})
+    wf_status = meta.get("walk_forward_status")
+    return insights.real_trading_readiness(strategy_id, strategy_stats, safety_passed, wf_status)

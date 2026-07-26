@@ -2329,7 +2329,8 @@
     const myToken = activeRouteToken;
     const render = async () => {
       const [status, positionsRes, tradesRes, decisionsRes, stratPerfRes, lessonPerfRes,
-             settings, strategiesRes, lessonsRes, allTimeAnalytics] = await Promise.all([
+             settings, strategiesRes, lessonsRes, allTimeAnalytics, alertsRes, sessionsRes,
+             candidatesRes] = await Promise.all([
         apiGet("/api/paper-trading/status"),
         apiGet("/api/paper-trading/positions"),
         apiGet("/api/paper-trading/trades?limit=50"),
@@ -2340,6 +2341,9 @@
         apiGet("/api/backtesting/strategies").catch(() => ({ strategies: [] })),
         apiGet("/api/knowledge/lessons?status=active").catch(() => ({ lessons: [] })),
         apiGet("/api/paper-trading/analytics?period=all"),
+        apiGet("/api/paper-trading/alerts?limit=10").catch(() => ({ alerts: [] })),
+        apiGet("/api/paper-trading/session-stats").catch(() => ({ sessions: [] })),
+        apiGet("/api/paper-trading/lesson-candidates").catch(() => ({ candidates: [] })),
       ]);
       if (isStaleRoute(myToken)) return;
 
@@ -2371,6 +2375,17 @@
           ${card("Queue (shortlisted coins)", fmtNum(status.queue))}
         </div>
         <div class="muted" style="font-size:12px;">Each strategy runs its own independent book -- balance/PnL/open positions are never merged between strategies. See the breakdown below.</div>
+
+        ${(alertsRes.alerts || []).length ? `
+        <div class="section-title">Alerts</div>
+        <div class="card">
+          ${alertsRes.alerts.slice(0, 8).map(a => `
+            <div style="padding:4px 0;border-bottom:1px solid var(--border,#333);font-size:13px;">
+              <span class="pill ${a.severity === "positive" ? "pill-bullish" : a.severity === "warning" ? "pill-error" : "pill-pending"}">${a.severity === "positive" ? "Strong" : a.severity === "warning" ? "Drawdown" : "Info"}</span>
+              ${esc(a.message)}
+              <span class="muted" style="float:right;">${esc((a.created_at||"").slice(0,16).replace("T"," "))}</span>
+            </div>`).join("")}
+        </div>` : ""}
 
         <div class="section-title">Analytics</div>
         <div id="ptAnalyticsBox"></div>
@@ -2442,7 +2457,7 @@
 
         <div class="section-title">Closed Trades (most recent 30 of ${allTimeSummary.closed_trades})</div>
         <div class="table-wrap"><table>
-          <thead><tr><th>Strategy</th><th>Coin</th><th>Direction</th><th>Entry</th><th>Exit</th><th>PnL</th><th>PnL%</th><th>Exit Reason</th><th>Tags</th><th></th></tr></thead>
+          <thead><tr><th>Strategy</th><th>Coin</th><th>Direction</th><th>Entry</th><th>Exit</th><th>PnL</th><th>PnL%</th><th>Result</th><th>Why</th><th></th></tr></thead>
           <tbody>${trades.slice(0, 30).map((t, idx) => `
             <tr>
               <td>${esc(t.strategy_name || "(lesson-only)")}</td>
@@ -2452,8 +2467,8 @@
               <td>${t.exit_price != null ? t.exit_price : "-"}</td>
               <td class="${(t.pnl||0) >= 0 ? "pill-up" : "pill-down"}">${t.pnl != null ? t.pnl.toFixed(2) : "-"}</td>
               <td class="${(t.pnl_pct||0) >= 0 ? "pill-up" : "pill-down"}">${t.pnl_pct != null ? t.pnl_pct.toFixed(2) : "-"}%</td>
-              <td>${esc(t.exit_reason || "-")}</td>
-              <td>${(t.tags||[]).join(", ") || "-"}</td>
+              <td style="font-size:12px;">${esc(t.win_loss_tag || t.exit_reason || "-")}</td>
+              <td style="font-size:12px;max-width:220px;">${esc(t.reason_plain || "-")}</td>
               <td><button class="btn-ghost pt-view-trade" data-idx="${idx}">Replay</button></td>
             </tr>`).join("") || '<tr><td colspan="10">No closed trades yet.</td></tr>'}</tbody>
         </table></div>
@@ -2472,15 +2487,35 @@
             </tr>`).join("") || '<tr><td colspan="5">No decisions logged yet.</td></tr>'}</tbody>
         </table></div>
 
+        <div class="section-title">Strategy Comparison (side-by-side)</div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Strategy</th><th>Balance</th><th>Trades</th><th>Win Rate</th><th>PnL</th><th>Confidence</th><th>Streak</th><th>Alert</th></tr></thead>
+          <tbody>${(allTimeAnalytics.per_strategy || []).map(p => `
+            <tr>
+              <td>${esc(p.strategy_name || p.strategy_id)}</td>
+              <td>$${Number(p.balance).toFixed(2)}</td>
+              <td>${p.closed_trades}</td>
+              <td>${Number(p.win_rate).toFixed(1)}%</td>
+              <td class="${p.total_pnl >= 0 ? "pill-up" : "pill-down"}">${p.total_pnl.toFixed(2)}</td>
+              <td>${p.confidence_score != null ? p.confidence_score + "%" : "-"}</td>
+              <td>${p.streak && p.streak.count ? `<span class="pill ${p.streak.type === "win" ? "pill-bullish" : "pill-error"}">${p.streak.count} ${p.streak.type}</span>` : "-"}</td>
+              <td>
+                <button class="btn-ghost pt-override" data-id="${p.strategy_id}" data-active="${p.manual_alert ? "1" : "0"}">
+                  ${p.manual_alert ? "Flagged for Telegram" : "Flag for Telegram"}
+                </button>
+              </td>
+            </tr>`).join("") || '<tr><td colspan="8">No data yet.</td></tr>'}</tbody>
+        </table></div>
+
         <div class="two-col">
           <div>
-            <div class="section-title">Strategy Performance</div>
+            <div class="section-title">Session-Wise Performance</div>
             <div class="table-wrap"><table>
-              <thead><tr><th>Strategy</th><th>Trades</th><th>Win Rate</th><th>PnL</th><th>Score</th></tr></thead>
-              <tbody>${(stratPerfRes.performance || []).map(p => `
-                <tr><td>${esc(p.strategy_name || p.strategy_id)}</td><td>${p.trades}</td>
-                <td>${p.trades ? ((p.wins/p.trades)*100).toFixed(1) : "0.0"}%</td>
-                <td>${p.total_pnl.toFixed(2)}</td><td>${p.score}</td></tr>`).join("") || '<tr><td colspan="5">No data yet.</td></tr>'}</tbody>
+              <thead><tr><th>Session</th><th>Trades</th><th>Win Rate</th><th>PnL</th></tr></thead>
+              <tbody>${(sessionsRes.sessions || []).map(s => `
+                <tr><td>${esc(s.session)}</td><td>${s.closed_trades}</td>
+                <td>${s.win_rate.toFixed(1)}%</td>
+                <td class="${s.total_pnl >= 0 ? "pill-up" : "pill-down"}">${s.total_pnl.toFixed(2)}</td></tr>`).join("") || '<tr><td colspan="4">No data yet.</td></tr>'}</tbody>
             </table></div>
           </div>
           <div>
@@ -2494,6 +2529,14 @@
             </table></div>
           </div>
         </div>
+
+        <div class="section-title">Self-Learning Insights (flagged for review, nothing auto-applied)</div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Pattern</th><th>Trades</th><th>Win Rate</th></tr></thead>
+          <tbody>${(candidatesRes.candidates || []).slice(0, 15).map(c => `
+            <tr><td>${esc(c.pattern_description)}</td><td>${c.sample_size}</td><td>${Number(c.win_rate).toFixed(0)}%</td></tr>`).join("")
+            || '<tr><td colspan="3">No repeated patterns flagged yet -- needs more closed trades.</td></tr>'}</tbody>
+        </table></div>
       `;
 
       loadPaperAnalytics("ptAnalyticsBox", "pt", "today");
@@ -2551,6 +2594,17 @@
         btn.onclick = async () => {
           await apiPost(`/api/paper-trading/positions/${btn.dataset.id}/close`);
           appendLog("Position closed manually.");
+          render();
+        };
+      });
+
+      document.querySelectorAll(".pt-override").forEach(btn => {
+        btn.onclick = async () => {
+          const nowActive = btn.dataset.active !== "1";
+          await apiPost(`/api/paper-trading/override/${btn.dataset.id}`, { manual_alert: nowActive });
+          appendLog(nowActive
+            ? `Strategy ${btn.dataset.id} flagged for Telegram alert (manual override).`
+            : `Manual Telegram flag removed for ${btn.dataset.id}.`);
           render();
         };
       });
