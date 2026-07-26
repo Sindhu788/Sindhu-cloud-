@@ -314,12 +314,14 @@ def get_pattern_memory(strategy_id: Optional[str] = None):
 
 @router.get("/api/paper-trading/lesson-candidates")
 def get_lesson_candidates():
-    """Runs the detector fresh each call (cheap read-only aggregation) so
-    the list reflects the latest closed trades, then returns what's flagged.
-    Never applies a candidate automatically -- review/action happens
-    elsewhere, by a person."""
-    insights.detect_lesson_candidates()
-    return {"candidates": storage.list_paper_lesson_candidates()}
+    """Re-runs the detector at most once per 60s (cached, stale-while-
+    revalidate) -- measured ~6s over 1500+ closed trades grouped 4 ways,
+    too slow to redo on every single page load. Never applies a candidate
+    automatically -- review/action happens elsewhere, by a person."""
+    def _refresh():
+        insights.detect_lesson_candidates()
+        return storage.list_paper_lesson_candidates()
+    return {"candidates": cache.cached("paper_lesson_candidates", 60, _refresh)}
 
 
 @router.get("/api/paper-trading/streak/{strategy_id}")
