@@ -13,9 +13,20 @@ from data_engine.resample import get_ohlcv
 
 _LOOKBACK_HOURS = 72
 
+# get_ohlcv's on-disk resample cache is keyed on the EXACT (start_ms, end_ms)
+# of the request (see data_engine.resample_cache for why). Using a raw
+# time.time()-relative end_ms made every single call unique -- a guaranteed
+# cache miss, every symbol, every tick, forcing a full resample from raw 1m
+# klines each time (measured ~1-2s/symbol). Flooring end_ms to this boundary
+# means repeated ticks within the same window reuse the exact same cache
+# entry -- the score is a coin-ranking signal, not a trade decision, so a
+# few minutes of staleness here is fine.
+_CACHE_BUCKET_MS = 5 * 60 * 1000
+
 
 def _coin_activity_score(exchange, symbol):
-    end_ms = int(time.time() * 1000)
+    now_ms = int(time.time() * 1000)
+    end_ms = now_ms - (now_ms % _CACHE_BUCKET_MS)
     start_ms = end_ms - _LOOKBACK_HOURS * 3600 * 1000
     df = get_ohlcv(exchange, symbol, interval="1h", start_ms=start_ms, end_ms=end_ms)
     if len(df) < 10:

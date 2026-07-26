@@ -11,12 +11,24 @@ from sindhu_web.api.data import _default_exchange
 router = APIRouter()
 
 
+# get_ohlcv's on-disk resample cache is keyed on the EXACT (start_ms, end_ms)
+# of the request. A raw time.time()-relative end_ms made every call unique --
+# a guaranteed cache miss for all ~50 symbols on every request, forcing a
+# full resample from raw 1m klines each time (measured ~1-2s/symbol, which
+# is how a cold /api/market request could blow past a 15s client timeout).
+# Flooring end_ms to this boundary lets repeated requests within the same
+# window reuse the same cache entry -- this is a dashboard display signal,
+# not a trade decision, so a few minutes of staleness is fine.
+_CACHE_BUCKET_MS = 5 * 60 * 1000
+
+
 def _signal_and_volatility(exchange_id, symbol):
     """Cheap, honest-effort signal (price vs 20-period EMA on 1h candles)
     and volatility (stdev of 1h returns, %) -- reads only the last ~50
     hours of candles per coin via the indexed (exchange, symbol, open_time)
     range query, so it stays fast even against a multi-million-row table."""
-    end_ms = int(time.time() * 1000)
+    now_ms = int(time.time() * 1000)
+    end_ms = now_ms - (now_ms % _CACHE_BUCKET_MS)
     start_ms = end_ms - 50 * 3600 * 1000
     df = get_ohlcv(exchange_id, symbol, interval="1h", start_ms=start_ms, end_ms=end_ms)
     if len(df) < 5:
