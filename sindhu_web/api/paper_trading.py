@@ -309,7 +309,7 @@ def get_alerts(limit: int = 30):
 
 @router.get("/api/paper-trading/pattern-memory")
 def get_pattern_memory(strategy_id: Optional[str] = None):
-    return {"patterns": storage.list_paper_coin_pattern_memory(strategy_id)}
+    return {"patterns": storage.list_paper_coin_pattern_memory(strategy_id, since=insights.fresh_session_start())}
 
 
 @router.get("/api/paper-trading/lesson-candidates")

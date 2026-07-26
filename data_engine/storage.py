@@ -2043,14 +2043,20 @@ def log_paper_decision(entry):
         )
 
 
-def list_paper_decisions(decision=None, limit=100):
+def list_paper_decisions(decision=None, limit=100, since=None):
     query = "SELECT id, exchange, symbol, direction, decision, reason, strategy_id, strategy_name, " \
             "lesson_ids_json, confidence, market_state, session, timeframe, position_id, " \
             "market_snapshot_json, created_at FROM paper_decision_log"
+    conditions = []
     params = []
     if decision:
-        query += " WHERE decision = ?"
+        conditions.append("decision = ?")
         params.append(decision)
+    if since:
+        conditions.append("created_at >= ?")
+        params.append(since)
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
     query += " ORDER BY id DESC LIMIT ?"
     params.append(limit)
     cols = ["id", "exchange", "symbol", "direction", "decision", "reason", "strategy_id", "strategy_name",
@@ -2311,7 +2317,7 @@ def list_paper_coin_stats_by_strategy(strategy_id, since_iso=None, until_iso=Non
     ]
 
 
-def list_paper_coin_pattern_memory(strategy_id=None):
+def list_paper_coin_pattern_memory(strategy_id=None, since=None):
     """Coin-Specific Pattern Memory: closed-trade performance grouped by
     (strategy, symbol, market_state, session) -- how has THIS strategy done
     on THIS coin under THIS kind of market before. Purely computed from
@@ -2325,6 +2331,9 @@ def list_paper_coin_pattern_memory(strategy_id=None):
     if strategy_id:
         query += " AND strategy_id = ?"
         params.append(strategy_id)
+    if since:
+        query += " AND created_at >= ?"
+        params.append(since)
     query += " GROUP BY strategy_id, symbol, market_state, session ORDER BY COUNT(*) DESC"
     with get_conn() as conn:
         rows = conn.execute(query, params).fetchall()
@@ -2336,7 +2345,7 @@ def list_paper_coin_pattern_memory(strategy_id=None):
     ]
 
 
-def list_paper_closed_trades_ordered(strategy_id=None, limit=500):
+def list_paper_closed_trades_ordered(strategy_id=None, limit=500, since=None):
     """Closed trades ordered oldest-to-newest for streak/pattern analysis
     (separate from list_closed_paper_positions, which orders newest-first
     for display). strategy_id=None returns every strategy's trades in one
@@ -2349,6 +2358,9 @@ def list_paper_closed_trades_ordered(strategy_id=None, limit=500):
     if strategy_id:
         query += " AND strategy_id = ?"
         params.append(strategy_id)
+    if since:
+        query += " AND created_at >= ?"
+        params.append(since)
     query += " ORDER BY closed_at ASC LIMIT ?"
     params.append(limit)
     with get_conn() as conn:

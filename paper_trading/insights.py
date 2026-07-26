@@ -11,10 +11,24 @@ history.
 from datetime import datetime, timezone
 
 from data_engine import storage
+from data_engine import config as base_config
 
 
 def _now_iso():
     return datetime.now(timezone.utc).isoformat()
+
+
+def fresh_session_start():
+    """The timestamp Paper Trading's data was last archived/reset (see
+    scripts/archive_and_reset_paper_trading.py), if any. Every insights
+    function below scopes its queries to trades/decisions created at or
+    after this point -- paper_positions and paper_decision_log rows from
+    before a reset are never deleted (kept for audit), so without this
+    filter every function here would silently blend pre-fix legacy trades
+    back in with the current, trustworthy session's data. Returns None if
+    no reset marker exists yet (nothing to scope to -- use all history)."""
+    session = base_config.load_or_seed("paper_trading_session.json", {})
+    return session.get("fresh_session_started_at")
 
 
 # --------------------------------------------------------------- Group 2
@@ -25,7 +39,7 @@ def all_confidence_scores(lookback=20):
     per strategy (a 14-strategy page would otherwise be 14x slower for no
     reason). Strategies with no decisions yet simply don't appear -- callers
     should treat a missing key as "not enough data" (None)."""
-    decisions = storage.list_paper_decisions(limit=1000)
+    decisions = storage.list_paper_decisions(limit=1000, since=fresh_session_start())
     by_strategy = {}
     for d in decisions:
         sid = d.get("strategy_id")
@@ -165,7 +179,7 @@ def compute_streak(strategy_id):
     when you need this for more than one strategy (e.g. a comparison table)
     -- it does the same computation with a single shared query instead of
     one query per strategy."""
-    trades = storage.list_paper_closed_trades_ordered(strategy_id=strategy_id, limit=1000)
+    trades = storage.list_paper_closed_trades_ordered(strategy_id=strategy_id, limit=1000, since=fresh_session_start())
     return _streak_from_trades_newest_first(list(reversed(trades)))
 
 
@@ -173,7 +187,7 @@ def all_streaks(limit=5000):
     """{strategy_id: {"type", "count"}} for every strategy, computed from
     ONE query instead of one per strategy -- see compute_streak's docstring
     for when to prefer this."""
-    trades = storage.list_paper_closed_trades_ordered(limit=limit)  # oldest-first, all strategies
+    trades = storage.list_paper_closed_trades_ordered(limit=limit, since=fresh_session_start())  # oldest-first, all strategies
     by_strategy = {}
     for t in trades:
         sid = t.get("strategy_id")
@@ -193,7 +207,7 @@ def detect_lesson_candidates(min_sample=5, win_rate_extreme=75):
     review. NEVER creates or edits an actual lesson -- only writes to
     paper_lesson_candidates with status='flagged'. Returns the candidates
     written this call."""
-    patterns = storage.list_paper_coin_pattern_memory()
+    patterns = storage.list_paper_coin_pattern_memory(since=fresh_session_start())
     now = _now_iso()
     flagged = []
     for p in patterns:
