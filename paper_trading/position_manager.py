@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 
 from backtest_engine.engine import _apply_slippage
 from data_engine import storage
-from paper_trading import reflection, evolution, auto_avoid, drawdown_guard, telegram_bot
+from paper_trading import reflection, evolution, auto_avoid, drawdown_guard, telegram_bot, ai_trade_review
 from paper_trading.guards import book_key as _book_key
 # Evolution Core Engine (Phase 7A, A.1): turns this closed trade's outcome,
 # combined with this strategy's own trade history, into a traceable BOT
@@ -183,6 +183,13 @@ def _close(pos, exit_price, exit_reason):
     # sent for this exact position earlier (checked inside the function).
     try:
         telegram_bot.send_close_followup(closed_pos)
+    except Exception:
+        pass
+
+    # AI Trade Review (B4): at most one AI call, OFF by default, never lets
+    # an AI failure affect the trade close already fully recorded above.
+    try:
+        ai_trade_review.review_trade(closed_pos)
     except Exception:
         pass
     return closed_pos

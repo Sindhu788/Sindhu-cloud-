@@ -256,6 +256,16 @@ CREATE TABLE IF NOT EXISTS paper_lesson_performance (
     updated_at TEXT
 );
 
+-- AI Trade Review (Additional Features, B4): at most one AI call per
+-- trade, optional/toggleable (uses AI tokens) -- one row per reviewed trade.
+CREATE TABLE IF NOT EXISTS paper_trade_reviews (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    position_id TEXT NOT NULL UNIQUE,
+    review_text TEXT NOT NULL,
+    provider TEXT,
+    created_at TEXT NOT NULL
+);
+
 -- Telegram Integration: permanent audit trail of every message sent or
 -- attempted (manual or automatic), so nothing is ever sent silently.
 CREATE TABLE IF NOT EXISTS telegram_message_log (
@@ -2500,6 +2510,27 @@ def list_paper_pattern_trades_ordered(strategy_id, symbol, market_state, session
     with get_conn() as conn:
         rows = conn.execute(query, params).fetchall()
     return [{"pnl": r[0], "closed_at": r[1]} for r in rows]
+
+
+# --------------------------------------------------------------- AI Trade Review
+
+def save_trade_review(position_id, review_text, provider, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO paper_trade_reviews (position_id, review_text, provider, created_at)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(position_id) DO NOTHING""",
+            (position_id, review_text, provider, now_iso),
+        )
+
+
+def get_trade_review(position_id):
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT review_text, provider, created_at FROM paper_trade_reviews WHERE position_id=?",
+            (position_id,),
+        ).fetchone()
+    return {"review_text": row[0], "provider": row[1], "created_at": row[2]} if row else None
 
 
 # --------------------------------------------------------------- Telegram Integration

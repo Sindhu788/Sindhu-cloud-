@@ -11,7 +11,7 @@ from data_engine import storage
 from data_engine.logging_setup import log as file_log
 from paper_trading import config as pt_config, insights
 from paper_trading import drawdown_guard, regime, correlation, portfolio, strategy_profile, weekly_report
-from paper_trading import confluence, graveyard, telegram_bot, capital_allocation
+from paper_trading import confluence, graveyard, telegram_bot, capital_allocation, ai_trade_review
 from paper_trading.engine import engine
 from data_engine import config as base_config
 from sindhu_web import broadcast, cache, sync
@@ -415,6 +415,29 @@ def resume_strategy(strategy_id: str):
 @router.get("/api/paper-trading/risk-metrics/{strategy_id}")
 def get_risk_metrics(strategy_id: str):
     return insights.compute_risk_metrics(strategy_id, since=insights.fresh_session_start())
+
+
+@router.get("/api/paper-trading/ai-trade-review/settings")
+def get_ai_trade_review_settings():
+    return {"enabled": ai_trade_review.is_enabled()}
+
+
+class AiReviewToggle(BaseModel):
+    enabled: bool
+
+
+@router.post("/api/paper-trading/ai-trade-review/settings")
+def set_ai_trade_review_settings(req: AiReviewToggle):
+    ai_trade_review.set_enabled(req.enabled)
+    return {"ok": True, "enabled": req.enabled}
+
+
+@router.get("/api/paper-trading/ai-trade-review/{position_id}")
+def get_ai_trade_review(position_id: str):
+    review = storage.get_trade_review(position_id)
+    if review is None:
+        raise HTTPException(404, "no review for this trade yet")
+    return review
 
 
 @router.get("/api/paper-trading/capital-allocations")
