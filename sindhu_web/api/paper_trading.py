@@ -10,6 +10,7 @@ from backtest_engine.strategy_safety_check import run_safety_check
 from data_engine import storage
 from data_engine.logging_setup import log as file_log
 from paper_trading import config as pt_config, insights
+from paper_trading import drawdown_guard
 from paper_trading.engine import engine
 from sindhu_web import broadcast, cache, sync
 
@@ -351,3 +352,55 @@ def get_readiness(strategy_id: str):
     meta = next((m for m in lib.list_all() if m["id"] == strategy_id), {})
     wf_status = meta.get("walk_forward_status")
     return insights.real_trading_readiness(strategy_id, strategy_stats, safety_passed, wf_status)
+
+
+# --------------------------------------------------------------- Self-Learning Activation: Auto-Avoid
+
+@router.get("/api/paper-trading/auto-avoid-rules")
+def get_auto_avoid_rules(active_only: bool = True):
+    return {"rules": storage.list_paper_auto_avoid_rules(active_only=active_only)}
+
+
+@router.post("/api/paper-trading/auto-avoid-rules/{rule_id}/deactivate")
+def deactivate_auto_avoid_rule(rule_id: int):
+    storage.deactivate_paper_auto_avoid_rule(rule_id, datetime.now(timezone.utc).isoformat())
+    _log_and_broadcast(f"[paper-trading] auto-avoid rule #{rule_id} deactivated by a person")
+    sync.notify("paper_trading", "updated", "Auto-avoid rule deactivated", id=str(rule_id))
+    return {"ok": True}
+
+
+# --------------------------------------------------------------- Self-Learning Activation: Auto-Lessons
+
+@router.get("/api/paper-trading/auto-lessons")
+def get_auto_lessons(active_only: bool = True):
+    return {"lessons": storage.list_paper_auto_lessons(active_only=active_only)}
+
+
+@router.post("/api/paper-trading/auto-lessons/{lesson_id}/deactivate")
+def deactivate_auto_lesson(lesson_id: int):
+    storage.deactivate_paper_auto_lesson(lesson_id, datetime.now(timezone.utc).isoformat())
+    _log_and_broadcast(f"[paper-trading] auto-applied lesson #{lesson_id} deactivated by a person")
+    sync.notify("paper_trading", "updated", "Auto-lesson deactivated", id=str(lesson_id))
+    return {"ok": True}
+
+
+# --------------------------------------------------------------- Drawdown Protection Engine
+
+@router.get("/api/paper-trading/paused-strategies")
+def get_paused_strategies():
+    return {"paused": storage.list_paused_strategies()}
+
+
+@router.post("/api/paper-trading/resume/{strategy_id}")
+def resume_strategy(strategy_id: str):
+    drawdown_guard.resume_strategy(strategy_id)
+    _log_and_broadcast(f"[paper-trading] {strategy_id} resumed (Drawdown Protection pause cleared) by a person")
+    sync.notify("paper_trading", "updated", "Strategy resumed", id=strategy_id)
+    return {"ok": True}
+
+
+# --------------------------------------------------------------- Basic Risk Analytics
+
+@router.get("/api/paper-trading/risk-metrics/{strategy_id}")
+def get_risk_metrics(strategy_id: str):
+    return insights.compute_risk_metrics(strategy_id, since=insights.fresh_session_start())

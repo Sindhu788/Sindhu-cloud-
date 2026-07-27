@@ -25,6 +25,16 @@ _DEFAULTS = {
     "lesson_default_sl_pct": 2.0,
     "lesson_default_rr": 2.0,
     "daily_goal_pct": 2.0,
+    # Drawdown Protection Engine (Risk & Safety Group, item 4): a strategy
+    # pauses NEW entries (existing open positions still managed normally)
+    # once either bar is crossed. The loss-streak bar is set higher than
+    # auto_avoid's per-PATTERN threshold (5) since this pauses the WHOLE
+    # strategy across every coin/condition, a bigger action that deserves a
+    # stricter bar. 15% drawdown-from-peak is a common, conservative risk
+    # management convention (comparable to typical prop-firm daily/overall
+    # drawdown limits) -- not a custom invention.
+    "drawdown_pause_streak_threshold": 7,
+    "drawdown_pause_pct_threshold": 15.0,
 }
 
 

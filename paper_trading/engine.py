@@ -25,6 +25,7 @@ from data_engine.logging_setup import log as default_log
 from paper_trading import config as pt_config
 from paper_trading import coin_filter, live_feed, market_state, strategy_matcher, lesson_matcher
 from paper_trading import signal_generator, confidence, risk_manager, guards, position_manager
+from paper_trading import auto_avoid, drawdown_guard
 
 
 def _now_iso():
@@ -270,6 +271,17 @@ class PaperTradingEngine:
     def _open_if_allowed(self, book, exchange, symbol, pick, snapshot, settings):
         if not self._guards.reserve(book, exchange, symbol):
             return 0, 0
+
+        paused, pause_reason, _ = storage.is_strategy_paused(book)
+        if paused:
+            self._log_decision(exchange, symbol, pick, "rejected",
+                                f"strategy paused (Drawdown Protection): {pause_reason}", snapshot)
+            return 0, 1
+
+        avoid_reason = auto_avoid.is_avoided(book, symbol, snapshot.get("market_state"), snapshot.get("session"))
+        if avoid_reason:
+            self._log_decision(exchange, symbol, pick, "rejected", avoid_reason, snapshot)
+            return 0, 1
 
         side = "long" if pick["direction"] == "bullish" else "short"
 

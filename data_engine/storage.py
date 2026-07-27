@@ -256,12 +256,60 @@ CREATE TABLE IF NOT EXISTS paper_lesson_performance (
     updated_at TEXT
 );
 
+-- Pattern-Based Auto-Avoid (self-learning, active): one row per exact
+-- (strategy, symbol, market_state, session) pattern that hit the
+-- consecutive-loss threshold. Presence of an active=1 row is the veto
+-- itself -- checked by paper_trading.auto_avoid before a new entry opens.
+-- Never deletes the strategy or blocks other patterns for it, and a person
+-- can deactivate any row from the dashboard (reversible, fully audited).
+CREATE TABLE IF NOT EXISTS paper_auto_avoid_rules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    strategy_id TEXT NOT NULL,
+    strategy_name TEXT,
+    symbol TEXT NOT NULL,
+    market_state TEXT NOT NULL,
+    session TEXT NOT NULL,
+    consecutive_losses INTEGER NOT NULL,
+    reason TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1,
+    triggered_at TEXT NOT NULL,
+    deactivated_at TEXT,
+    UNIQUE(strategy_id, symbol, market_state, session)
+);
+
+-- Lesson Auto-Apply (self-learning, active): a paper_lesson_candidate that
+-- accumulated enough evidence gets promoted here as a live, reversible soft
+-- filter (confidence nudge, never a hard block) -- see
+-- paper_trading.lesson_auto_apply. influence is "boost" (strongly winning
+-- pattern) or "avoid" (strongly losing pattern, softer than the streak-based
+-- auto-avoid rule above since it triggers on win-rate evidence, not a live
+-- streak).
+CREATE TABLE IF NOT EXISTS paper_auto_lessons (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    strategy_id TEXT,
+    strategy_name TEXT,
+    symbol TEXT NOT NULL,
+    market_state TEXT NOT NULL,
+    session TEXT NOT NULL,
+    influence TEXT NOT NULL,
+    sample_size INTEGER NOT NULL,
+    win_rate REAL NOT NULL,
+    explanation TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1,
+    applied_at TEXT NOT NULL,
+    deactivated_at TEXT,
+    UNIQUE(strategy_id, symbol, market_state, session)
+);
+
 CREATE TABLE IF NOT EXISTS paper_strategy_config (
     strategy_id TEXT PRIMARY KEY,
     enabled INTEGER NOT NULL DEFAULT 1,
     priority INTEGER NOT NULL DEFAULT 5,
     supported_coins_json TEXT,
     supported_market_types_json TEXT,
+    paused INTEGER NOT NULL DEFAULT 0,
+    paused_reason TEXT,
+    paused_at TEXT,
     updated_at TEXT
 );
 
@@ -589,6 +637,27 @@ def _migrate_ai_import_cache_v8_columns(conn):
 _BACKTEST_BATCH_NEW_COLUMNS = {
     "display_name": "TEXT",
 }
+
+
+_PAPER_STRATEGY_CONFIG_PAUSE_COLUMNS = {
+    "paused": "INTEGER NOT NULL DEFAULT 0",
+    "paused_reason": "TEXT",
+    "paused_at": "TEXT",
+}
+
+
+def _migrate_paper_strategy_config_pause_columns(conn):
+    """Drawdown Protection Engine: additive columns on an existing
+    paper_strategy_config table (CREATE TABLE IF NOT EXISTS is a no-op once
+    the table already exists from before this feature)."""
+    existing = {r[0] for r in
+                conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "paper_strategy_config" not in existing:
+        return
+    have_columns = {r[1] for r in conn.execute("PRAGMA table_info(paper_strategy_config)").fetchall()}
+    for col, col_type in _PAPER_STRATEGY_CONFIG_PAUSE_COLUMNS.items():
+        if col not in have_columns:
+            conn.execute(f"ALTER TABLE paper_strategy_config ADD COLUMN {col} {col_type}")
 
 
 def _migrate_backtest_batch_columns(conn):
@@ -931,6 +1000,7 @@ def init_db():
         _migrate_backtest_batch_columns(conn)
         _migrate_lesson_stats_summary_backfill(conn)
         _migrate_paper_account_state_per_strategy(conn)
+        _migrate_paper_strategy_config_pause_columns(conn)
 
 
 def save_symbols(exchange, symbols, now_iso):
@@ -2366,6 +2436,162 @@ def list_paper_closed_trades_ordered(strategy_id=None, limit=500, since=None):
     with get_conn() as conn:
         rows = conn.execute(query, params).fetchall()
     return [{"id": r[0], "strategy_id": r[1], "symbol": r[2], "pnl": r[3], "closed_at": r[4]} for r in rows]
+
+
+def list_paper_pattern_trades_ordered(strategy_id, symbol, market_state, session, since=None, limit=200):
+    """Closed trades for one EXACT (strategy, symbol, market_state, session)
+    pattern, oldest-to-newest -- used by paper_trading.auto_avoid to compute
+    a consecutive-loss streak scoped to that specific pattern (not the
+    strategy's overall streak, which insights.compute_streak already
+    covers)."""
+    query = ("SELECT pnl, closed_at FROM paper_positions WHERE status='closed' AND pnl IS NOT NULL "
+              "AND strategy_id=? AND symbol=? AND market_state=? AND session=?")
+    params = [strategy_id, symbol, market_state, session]
+    if since:
+        query += " AND created_at >= ?"
+        params.append(since)
+    query += " ORDER BY closed_at ASC LIMIT ?"
+    params.append(limit)
+    with get_conn() as conn:
+        rows = conn.execute(query, params).fetchall()
+    return [{"pnl": r[0], "closed_at": r[1]} for r in rows]
+
+
+# --------------------------------------------------------------- Pattern-Based Auto-Avoid (active)
+
+def save_paper_auto_avoid_rule(strategy_id, strategy_name, symbol, market_state, session,
+                                consecutive_losses, reason, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO paper_auto_avoid_rules
+               (strategy_id, strategy_name, symbol, market_state, session, consecutive_losses,
+                reason, active, triggered_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
+               ON CONFLICT(strategy_id, symbol, market_state, session) DO UPDATE SET
+                 consecutive_losses=excluded.consecutive_losses, reason=excluded.reason,
+                 active=1, triggered_at=excluded.triggered_at, deactivated_at=NULL""",
+            (strategy_id, strategy_name, symbol, market_state, session, consecutive_losses, reason, now_iso),
+        )
+
+
+def is_pattern_auto_avoided(strategy_id, symbol, market_state, session):
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT reason FROM paper_auto_avoid_rules WHERE strategy_id=? AND symbol=? "
+            "AND market_state=? AND session=? AND active=1",
+            (strategy_id, symbol, market_state, session),
+        ).fetchone()
+    return row[0] if row else None
+
+
+def list_paper_auto_avoid_rules(active_only=False):
+    query = ("SELECT id, strategy_id, strategy_name, symbol, market_state, session, "
+              "consecutive_losses, reason, active, triggered_at, deactivated_at "
+              "FROM paper_auto_avoid_rules")
+    if active_only:
+        query += " WHERE active=1"
+    query += " ORDER BY triggered_at DESC"
+    with get_conn() as conn:
+        rows = conn.execute(query).fetchall()
+    cols = ["id", "strategy_id", "strategy_name", "symbol", "market_state", "session",
+            "consecutive_losses", "reason", "active", "triggered_at", "deactivated_at"]
+    return [dict(zip(cols, r)) for r in rows]
+
+
+def deactivate_paper_auto_avoid_rule(rule_id, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE paper_auto_avoid_rules SET active=0, deactivated_at=? WHERE id=?",
+            (now_iso, rule_id),
+        )
+
+
+# --------------------------------------------------------------- Lesson Auto-Apply (active)
+
+def save_paper_auto_lesson(strategy_id, strategy_name, symbol, market_state, session,
+                            influence, sample_size, win_rate, explanation, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO paper_auto_lessons
+               (strategy_id, strategy_name, symbol, market_state, session, influence,
+                sample_size, win_rate, explanation, active, applied_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+               ON CONFLICT(strategy_id, symbol, market_state, session) DO UPDATE SET
+                 influence=excluded.influence, sample_size=excluded.sample_size,
+                 win_rate=excluded.win_rate, explanation=excluded.explanation,
+                 active=1, applied_at=excluded.applied_at, deactivated_at=NULL""",
+            (strategy_id, strategy_name, symbol, market_state, session, influence,
+             sample_size, win_rate, explanation, now_iso),
+        )
+
+
+def get_paper_auto_lesson(strategy_id, symbol, market_state, session):
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT influence, win_rate, explanation FROM paper_auto_lessons "
+            "WHERE strategy_id=? AND symbol=? AND market_state=? AND session=? AND active=1",
+            (strategy_id, symbol, market_state, session),
+        ).fetchone()
+    return {"influence": row[0], "win_rate": row[1], "explanation": row[2]} if row else None
+
+
+def list_paper_auto_lessons(active_only=False):
+    query = ("SELECT id, strategy_id, strategy_name, symbol, market_state, session, influence, "
+              "sample_size, win_rate, explanation, active, applied_at, deactivated_at "
+              "FROM paper_auto_lessons")
+    if active_only:
+        query += " WHERE active=1"
+    query += " ORDER BY applied_at DESC"
+    with get_conn() as conn:
+        rows = conn.execute(query).fetchall()
+    cols = ["id", "strategy_id", "strategy_name", "symbol", "market_state", "session", "influence",
+            "sample_size", "win_rate", "explanation", "active", "applied_at", "deactivated_at"]
+    return [dict(zip(cols, r)) for r in rows]
+
+
+def deactivate_paper_auto_lesson(lesson_id, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE paper_auto_lessons SET active=0, deactivated_at=? WHERE id=?",
+            (now_iso, lesson_id),
+        )
+
+
+# --------------------------------------------------------------- Drawdown Protection (strategy pause)
+
+def set_strategy_paused(strategy_id, paused, reason, now_iso):
+    """Ensures a paper_strategy_config row exists (defaults match
+    save_paper_strategy_config's own enabled=1 default) before flipping the
+    pause flag, so pausing a strategy that never had a config row yet still
+    works instead of silently no-op'ing."""
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO paper_strategy_config (strategy_id, enabled, priority, paused, paused_reason, paused_at, updated_at)
+               VALUES (?, 1, 5, ?, ?, ?, ?)
+               ON CONFLICT(strategy_id) DO UPDATE SET
+                 paused=excluded.paused, paused_reason=excluded.paused_reason,
+                 paused_at=excluded.paused_at, updated_at=excluded.updated_at""",
+            (strategy_id, int(paused), reason if paused else None, now_iso if paused else None, now_iso),
+        )
+
+
+def is_strategy_paused(strategy_id):
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT paused, paused_reason, paused_at FROM paper_strategy_config WHERE strategy_id=?",
+            (strategy_id,),
+        ).fetchone()
+    if not row or not row[0]:
+        return False, None, None
+    return True, row[1], row[2]
+
+
+def list_paused_strategies():
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT strategy_id, paused_reason, paused_at FROM paper_strategy_config WHERE paused=1"
+        ).fetchall()
+    return [{"strategy_id": r[0], "reason": r[1], "paused_at": r[2]} for r in rows]
 
 
 def save_paper_lesson_candidate(strategy_id, strategy_name, symbol, market_state, session,

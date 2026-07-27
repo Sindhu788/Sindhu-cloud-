@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 
 from backtest_engine.engine import _apply_slippage
 from data_engine import storage
-from paper_trading import reflection, evolution
+from paper_trading import reflection, evolution, auto_avoid, drawdown_guard
 from paper_trading.guards import book_key as _book_key
 # Evolution Core Engine (Phase 7A, A.1): turns this closed trade's outcome,
 # combined with this strategy's own trade history, into a traceable BOT
@@ -166,4 +166,16 @@ def _close(pos, exit_price, exit_reason):
     generated_lessons = lesson_generator.analyze_and_generate_lessons(closed_pos, now)
     if generated_lessons:
         lifecycle["bot_lessons_generated"] = generated_lessons
+
+    # Pattern-Based Auto-Avoid (Self-Learning Group, item 1): re-check this
+    # exact pattern's consecutive-loss streak now that this close is
+    # recorded. A pure read-then-audit-write side effect -- never touches
+    # pnl/exit_price/anything already computed above.
+    auto_avoid.evaluate_pattern(
+        pos.get("strategy_id"), pos.get("strategy_name"), pos["symbol"],
+        pos.get("market_state"), pos.get("session"),
+    )
+    # Drawdown Protection Engine (item 4): same read-then-audit-write shape,
+    # strategy-scoped, never touches the pnl/exit values already computed above.
+    drawdown_guard.evaluate_strategy(pos.get("strategy_id"), pos.get("strategy_name"))
     return closed_pos

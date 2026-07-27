@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 
 from data_engine import storage
 from data_engine import config as base_config
+from paper_trading import config as pt_config
 
 
 def _now_iso():
@@ -225,6 +226,72 @@ def detect_lesson_candidates(min_sample=5, win_rate_extreme=75):
         )
         flagged.append(desc)
     return flagged
+
+
+# --------------------------------------------------------------- Risk Analytics (Group 2 #6) +
+# --------------------------------------------------------------- Drawdown Protection (Group 2 #4)
+
+def compute_risk_metrics(strategy_id, since=None):
+    """Sharpe Ratio and Max/Current Drawdown %, computed from this
+    strategy's own closed-trade equity curve (fresh session only, via
+    `since`). Standard, well-known formulas -- nothing custom-invented:
+
+    Sharpe Ratio: mean(per-trade return) / stdev(per-trade return) * sqrt(N).
+    This is the plain per-trade-sample form of the standard Sharpe formula
+    (mean excess return / stdev of returns), NOT annualized to calendar time
+    since trades arrive at irregular intervals, not one-per-fixed-period --
+    annualizing would silently misrepresent an unevenly-spaced trade
+    sequence as if it were a regular daily/monthly return series. A
+    risk-free rate of 0 is used (paper trading has no risk-free alternative
+    to compare against).
+
+    Max Drawdown %: largest peak-to-trough decline in the cumulative equity
+    curve (running balance = initial_balance + cumulative pnl), the
+    standard definition used industry-wide.
+
+    Returns None fields (not zeros) when there's too little data to mean
+    anything -- degrades gracefully instead of showing a misleading 0.00
+    Sharpe for a strategy with one or two trades."""
+    trades = storage.list_paper_closed_trades_ordered(strategy_id=strategy_id, limit=2000, since=since)
+    if len(trades) < 2:
+        return {"sharpe_ratio": None, "max_drawdown_pct": None, "current_drawdown_pct": None, "sample_size": len(trades)}
+
+    pnls = [t["pnl"] for t in trades if t["pnl"] is not None]
+    n = len(pnls)
+    if n < 2:
+        return {"sharpe_ratio": None, "max_drawdown_pct": None, "current_drawdown_pct": None, "sample_size": n}
+
+    mean_pnl = sum(pnls) / n
+    variance = sum((p - mean_pnl) ** 2 for p in pnls) / (n - 1)  # sample stdev, standard for a finite trade sample
+    stdev = variance ** 0.5
+    sharpe = round((mean_pnl / stdev) * (n ** 0.5), 3) if stdev > 0 else None
+
+    equity = []
+    running = 0.0
+    for p in pnls:
+        running += p
+        equity.append(running)
+
+    peak = equity[0]
+    max_dd_pct = 0.0
+    settings = pt_config.load()
+    initial_balance = settings.get("initial_balance", 10000.0)
+    for e in equity:
+        balance = initial_balance + e
+        peak_balance = initial_balance + peak
+        if e > peak:
+            peak = e
+        dd_pct = ((peak_balance - balance) / peak_balance * 100) if peak_balance > 0 else 0.0
+        max_dd_pct = max(max_dd_pct, dd_pct)
+
+    current_balance = initial_balance + equity[-1]
+    peak_balance = initial_balance + peak
+    current_dd_pct = ((peak_balance - current_balance) / peak_balance * 100) if peak_balance > 0 else 0.0
+
+    return {
+        "sharpe_ratio": sharpe, "max_drawdown_pct": round(max_dd_pct, 2),
+        "current_drawdown_pct": round(current_dd_pct, 2), "sample_size": n,
+    }
 
 
 # --------------------------------------------------------------- Group 4
