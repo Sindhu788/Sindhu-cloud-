@@ -10,7 +10,7 @@ from backtest_engine.strategy_safety_check import run_safety_check
 from data_engine import storage
 from data_engine.logging_setup import log as file_log
 from paper_trading import config as pt_config, insights
-from paper_trading import drawdown_guard, regime, correlation, portfolio
+from paper_trading import drawdown_guard, regime, correlation, portfolio, strategy_profile
 from paper_trading.engine import engine
 from data_engine import config as base_config
 from sindhu_web import broadcast, cache, sync
@@ -491,6 +491,20 @@ def get_coin_exposure():
 
 
 # --------------------------------------------------------------- Trade Audit Engine (Group 6 #5)
+
+@router.get("/api/paper-trading/strategy-profile/{strategy_id}")
+def get_strategy_profile_endpoint(strategy_id: str):
+    exchanges_cfg = base_config.load_or_seed("exchanges.json", base_config.DEFAULTS["exchanges.json"])
+    exchange = exchanges_cfg["default"]
+    # Reuse the same 60s cache correlation-warnings/portfolio already warm
+    # -- avoids re-running the ~60s-cold pairwise price comparison on every
+    # Profile click (the same bug class fixed in portfolio.py earlier).
+    warnings = cache.cached(f"correlation_warnings_{exchange}", 60, lambda: correlation.detect_warnings(exchange))
+    profile = strategy_profile.get_strategy_profile(strategy_id, exchange, correlation_warnings=warnings)
+    if profile is None:
+        raise HTTPException(404, "strategy not found")
+    return profile
+
 
 @router.get("/api/paper-trading/trade-audit/{position_id}")
 def get_paper_trade_audit(position_id: str):

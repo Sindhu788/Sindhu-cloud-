@@ -1217,6 +1217,7 @@
           <td>${riskCell(s.id)}</td>
           <td>V${s.current_version || 1} <button class="btn-ghost strat-versions" data-id="${s.id}" data-name="${esc(s.name)}">History</button></td>
           <td>
+            <button class="btn-ghost strat-profile" data-id="${s.id}" data-name="${esc(s.name)}">Profile</button>
             <button class="btn-ghost strat-edit" data-id="${s.id}">Edit</button>
             ${s.status !== "READY_FOR_BACKTEST" ? `<button class="btn-ghost strat-clarify" data-id="${s.id}" data-name="${esc(s.name)}">Clarify</button>` : ""}
             <button class="btn-ghost strat-fav" data-id="${s.id}" data-fav="${s.favourite}">${s.favourite ? "★" : "☆"}</button>
@@ -1245,6 +1246,10 @@
         <div id="clarifyBox" style="display:none;">
           <div class="section-title" id="clarifyTitle">Clarification Needed</div>
           <div id="clarifyBody"></div>
+        </div>
+        <div id="strategyProfileBox" style="display:none;">
+          <div class="section-title" id="strategyProfileTitle">Strategy Profile</div>
+          <div id="strategyProfileBody"></div>
         </div>`;
 
       document.getElementById("stratLibSearch").addEventListener("input", debounce(render, 300));
@@ -1267,6 +1272,60 @@
         await apiSend("DELETE", `/api/backtesting/strategies/${btn.dataset.id}`);
         render();
       });
+      document.querySelectorAll(".strat-profile").forEach(btn => btn.onclick = async () => {
+        const box = document.getElementById("strategyProfileBox");
+        const body = document.getElementById("strategyProfileBody");
+        document.getElementById("strategyProfileTitle").textContent = `Strategy Profile -- ${btn.dataset.name}`;
+        body.innerHTML = `<p class="muted">Loading everything known about this strategy...</p>`;
+        box.style.display = "block";
+        box.scrollIntoView({ behavior: "smooth", block: "start" });
+        try {
+          const p = await apiGet(`/api/paper-trading/strategy-profile/${btn.dataset.id}`);
+          const readiness = p.real_trading_readiness;
+          body.innerHTML = `
+            <div class="grid">
+              ${card("Confidence Score", p.confidence_score != null ? p.confidence_score : "No data yet")}
+              ${card("Current Streak", p.streak ? `${p.streak.count} ${p.streak.type}${p.streak.count !== 1 ? "es" : ""}` : "-")}
+              ${p.risk_metrics.sharpe_ratio != null ? card("Sharpe / Max DD", `${p.risk_metrics.sharpe_ratio.toFixed(2)} / ${p.risk_metrics.max_drawdown_pct.toFixed(1)}%`) : card("Sharpe / Max DD", "Not enough data")}
+              ${cardClass("Drawdown Protection", p.paused ? "Paused" : "Active", p.paused ? "negative" : "positive")}
+              ${card("Backtest Verdict", p.backtest_verdict || "-")}
+              ${card("Walk-Forward", p.walk_forward_status || "not yet run")}
+            </div>
+            ${p.paused ? `<div class="card" style="margin-bottom:16px;"><b>Why paused:</b> ${esc(p.pause_reason)}</div>` : ""}
+
+            <div class="section-title">Coins Currently Traded &amp; Their Market Condition</div>
+            <div class="card">${Object.keys(p.traded_coin_regimes).length
+              ? Object.entries(p.traded_coin_regimes).map(([sym, r]) => `<span class="pill pill-neutral" style="margin:2px;">${esc(sym)}: ${esc(r)}</span>`).join("")
+              : `<span class="muted">No open positions right now.</span>`}</div>
+
+            ${p.correlation_warnings.length ? `
+            <div class="section-title">Correlation Warnings Involving This Strategy</div>
+            <div class="card">${p.correlation_warnings.map(w => `<div style="padding:4px 0;">${esc(w.message)}</div>`).join("")}</div>` : ""}
+
+            ${p.auto_avoid_rules.length ? `
+            <div class="section-title">Active Pattern Auto-Avoid Rules</div>
+            <div class="card">${p.auto_avoid_rules.map(r => `<div style="padding:4px 0;">${esc(r.reason)}</div>`).join("")}</div>` : ""}
+
+            ${p.auto_lessons.length ? `
+            <div class="section-title">Auto-Applied Lessons</div>
+            <div class="card">${p.auto_lessons.map(l => `<div style="padding:4px 0;">${esc(l.explanation)}</div>`).join("")}</div>` : ""}
+
+            ${p.lesson_candidates.length ? `
+            <div class="section-title">Lesson Candidates Awaiting Review</div>
+            <div class="card">${p.lesson_candidates.map(c => `<div style="padding:4px 0;">${esc(c.pattern_description)}</div>`).join("")}</div>` : ""}
+
+            <div class="section-title">Real-Trading Readiness Checklist</div>
+            <div class="card">${readiness.checklist.map(c => `<div style="padding:4px 0;">${c.passed ? "✅" : "❌"} ${esc(c.label)} <span class="muted">(${esc(c.detail)})</span></div>`).join("")}
+              <div style="margin-top:8px;"><b>${readiness.ready_for_real_trading ? "✅ Ready for real-trading consideration" : "❌ Not ready yet"}</b></div>
+            </div>
+
+            <div class="section-title">Version History</div>
+            <div class="card">${p.genealogy.map(v => `<div>V${v.version} -- ${esc((v.modified_at || "").slice(0,19))}</div>`).join("") || `<span class="muted">No history.</span>`}</div>`;
+        } catch (e) {
+          body.innerHTML = `<p class="muted">Could not load profile: ${esc(e.message)}</p>`;
+        }
+      });
+
       document.querySelectorAll(".strat-versions").forEach(btn => btn.onclick = async () => {
         const v = await apiGet(`/api/backtesting/strategies/${btn.dataset.id}/versions`).catch(() => ({ versions: [] }));
         document.getElementById("versionHistoryTitle").textContent = `Version History -- ${btn.dataset.name}`;
