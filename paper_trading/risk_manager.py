@@ -11,15 +11,15 @@ from paper_trading import dynamic_risk
 
 
 def account_balance(book_key, initial_balance):
-    """initial_balance + this book's realized pnl, read from the O(1)
-    running total in paper_account_state (kept in sync by
-    storage.close_paper_position()) instead of scanning every closed
-    position on every call. Every strategy (book_key) gets its own
-    independent balance, all starting from the same configured
-    initial_balance -- this is called on every /api/paper-trading/status
-    poll and every trade-sizing decision, so it needs to stay cheap as trade
-    history grows."""
-    return initial_balance + storage.get_paper_realized_pnl_total(book_key)
+    """(initial_balance * this strategy's Capital Allocation multiplier) +
+    this book's realized pnl, read from the O(1) running total in
+    paper_account_state (kept in sync by storage.close_paper_position())
+    instead of scanning every closed position on every call. The
+    multiplier (paper_trading.capital_allocation, default 1.0 = unchanged)
+    is the ONLY thing that makes strategies' allocations diverge -- every
+    strategy still starts from the same configured initial_balance base."""
+    multiplier, _ = storage.get_strategy_capital_multiplier(book_key)
+    return initial_balance * multiplier + storage.get_paper_realized_pnl_total(book_key)
 
 
 def evaluate(book_key, symbol, candidate, settings, exchange=None):

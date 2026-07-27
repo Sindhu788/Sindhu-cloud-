@@ -25,7 +25,7 @@ from data_engine.logging_setup import log as default_log
 from paper_trading import config as pt_config
 from paper_trading import coin_filter, live_feed, market_state, strategy_matcher, lesson_matcher
 from paper_trading import signal_generator, confidence, risk_manager, guards, position_manager
-from paper_trading import auto_avoid, drawdown_guard, lesson_auto_apply, telegram_bot
+from paper_trading import auto_avoid, drawdown_guard, lesson_auto_apply, telegram_bot, capital_allocation
 
 
 def _now_iso():
@@ -199,6 +199,13 @@ class PaperTradingEngine:
             lesson_auto_apply.promote_candidates()
         except Exception as e:
             self._log(f"[paper-trading] lesson auto-apply error: {e!r}")
+
+        # Capital Allocation Engine (B2): recompute per-strategy multipliers
+        # once per tick -- cheap (reuses already-computed risk metrics).
+        try:
+            capital_allocation.recompute_all_allocations()
+        except Exception as e:
+            self._log(f"[paper-trading] capital allocation error: {e!r}")
 
         self._tick_count += 1
         self._last_tick_at = _now_iso()

@@ -683,6 +683,11 @@ _PAPER_STRATEGY_CONFIG_PAUSE_COLUMNS = {
     "paused": "INTEGER NOT NULL DEFAULT 0",
     "paused_reason": "TEXT",
     "paused_at": "TEXT",
+    # Capital Allocation Engine (B2): a bounded multiplier on the base
+    # initial_balance, recomputed periodically from this strategy's own
+    # Sharpe Ratio -- 1.0 (unchanged) until enough trade history exists.
+    "capital_multiplier": "REAL NOT NULL DEFAULT 1.0",
+    "capital_multiplier_reason": "TEXT",
 }
 
 
@@ -2728,6 +2733,36 @@ def is_strategy_paused(strategy_id):
     if not row or not row[0]:
         return False, None, None
     return True, row[1], row[2]
+
+
+def set_strategy_capital_multiplier(strategy_id, multiplier, reason, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO paper_strategy_config (strategy_id, enabled, priority, capital_multiplier, capital_multiplier_reason, updated_at)
+               VALUES (?, 1, 5, ?, ?, ?)
+               ON CONFLICT(strategy_id) DO UPDATE SET
+                 capital_multiplier=excluded.capital_multiplier,
+                 capital_multiplier_reason=excluded.capital_multiplier_reason,
+                 updated_at=excluded.updated_at""",
+            (strategy_id, multiplier, reason, now_iso),
+        )
+
+
+def get_strategy_capital_multiplier(strategy_id):
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT capital_multiplier, capital_multiplier_reason FROM paper_strategy_config WHERE strategy_id=?",
+            (strategy_id,),
+        ).fetchone()
+    return (row[0], row[1]) if row else (1.0, None)
+
+
+def list_capital_allocations():
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT strategy_id, capital_multiplier, capital_multiplier_reason FROM paper_strategy_config"
+        ).fetchall()
+    return [{"strategy_id": r[0], "capital_multiplier": r[1], "reason": r[2]} for r in rows]
 
 
 def list_paused_strategies():

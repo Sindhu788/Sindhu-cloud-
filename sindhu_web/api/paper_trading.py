@@ -11,7 +11,7 @@ from data_engine import storage
 from data_engine.logging_setup import log as file_log
 from paper_trading import config as pt_config, insights
 from paper_trading import drawdown_guard, regime, correlation, portfolio, strategy_profile, weekly_report
-from paper_trading import confluence, graveyard, telegram_bot
+from paper_trading import confluence, graveyard, telegram_bot, capital_allocation
 from paper_trading.engine import engine
 from data_engine import config as base_config
 from sindhu_web import broadcast, cache, sync
@@ -415,6 +415,16 @@ def resume_strategy(strategy_id: str):
 @router.get("/api/paper-trading/risk-metrics/{strategy_id}")
 def get_risk_metrics(strategy_id: str):
     return insights.compute_risk_metrics(strategy_id, since=insights.fresh_session_start())
+
+
+@router.get("/api/paper-trading/capital-allocations")
+def get_capital_allocations():
+    return {"allocations": storage.list_capital_allocations()}
+
+
+@router.post("/api/paper-trading/capital-allocations/recompute-now")
+def recompute_capital_allocations_now():
+    return {"updated": capital_allocation.recompute_all_allocations()}
 
 
 @router.get("/api/paper-trading/risk-metrics-all")
