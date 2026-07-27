@@ -14,7 +14,13 @@ from data_engine.logging_setup import log
 router = APIRouter()
 
 _BACKUP_DIR = os.path.join(DATABASE_DIR, "backups")
-_DEFAULT_BACKUP_SETTINGS = {"auto_backup_enabled": True, "interval_hours": 24}
+# Automated Backup Engine (System Reliability Group, item 8): runs
+# continuously and unattended, separate from the one-off manual archive
+# snapshot done earlier in the project. Every few hours is frequent enough
+# to bound data loss without generating excessive backup file churn for a
+# single-machine personal deployment; keep_last=10 bounds disk usage while
+# still covering roughly 1-2 days of history at the default interval.
+_DEFAULT_BACKUP_SETTINGS = {"auto_backup_enabled": True, "interval_hours": 6, "keep_last": 10}
 
 
 def _now_stamp():
@@ -37,7 +43,28 @@ def create_backup():
         src.close()
         dst.close()
     log(f"Backup created: {backup_name}")
+    _prune_old_backups()
     return backup_name
+
+
+def _prune_old_backups():
+    """Keeps only the most recent `keep_last` backups, oldest deleted first.
+    Called after every create_backup() (both manual and automatic) so the
+    limit holds regardless of which path created the newest one."""
+    settings = config.load_or_seed("backup_settings.json", _DEFAULT_BACKUP_SETTINGS)
+    keep_last = settings.get("keep_last", 10)
+    if not os.path.isdir(_BACKUP_DIR):
+        return
+    files = sorted(
+        (f for f in os.listdir(_BACKUP_DIR) if f.startswith("sindhu_") and f.endswith(".db")),
+        reverse=True,  # newest first (filenames are timestamp-sortable)
+    )
+    for stale in files[keep_last:]:
+        try:
+            os.remove(os.path.join(_BACKUP_DIR, stale))
+            log(f"Pruned old backup: {stale}")
+        except OSError as e:
+            log(f"Failed to prune old backup {stale}: {e!r}")
 
 
 @router.post("/api/backup/create")

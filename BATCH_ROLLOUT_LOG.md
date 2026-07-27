@@ -11,7 +11,7 @@ Constraint: do not touch backtest engine, PnL engine, or trade execution logic.
 - [x] 5. Correlation Warning System
 - [x] 6. Basic Risk Analytics (Sharpe + Max Drawdown)
 - [ ] 7. System Health Dashboard
-- [ ] 8. Automated Backup Engine
+- [x] 8. Automated Backup Engine
 - [ ] 9. Autonomous Strategy Research
 - [ ] 10. Source Quality Filter
 
@@ -95,3 +95,19 @@ Constraint: do not touch backtest engine, PnL engine, or trade execution logic.
   Dashboard: NOT YET WIRED into the frontend -- backend/API complete and
   tested, UI display still pending (will revisit if time allows after
   higher-priority items).
+
+## 8. Automated Backup Engine -- DONE
+- The continuous/unattended scheduler (`start_auto_backup_thread`, sqlite
+  hot-backup via `create_backup`) already existed from an earlier session --
+  what was missing was pruning. Added `_prune_old_backups()`, called after
+  every `create_backup()` (both manual and automatic paths), keeping the
+  newest `keep_last` (default 10) and deleting the rest.
+- Default interval lowered from 24h to 6h ("every few hours" per spec).
+- Evidence: real DB is 15.6GB so I did NOT run 5 real full-DB backups for
+  the test (too slow/heavy) -- instead verified `_prune_old_backups()`
+  directly against lightweight fake files matching the real naming pattern:
+  7 files -> prune(keep_last=3) -> exactly the 3 newest survive, confirmed
+  by filename. The underlying create_backup()/sqlite .backup() mechanism
+  was already shipped and in production before this session.
+- NOT YET WIRED: keep_last/interval_hours aren't exposed in the Settings UI
+  yet (backup_settings.json is editable, just not from a dashboard form).
