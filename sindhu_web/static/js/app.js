@@ -2154,7 +2154,43 @@
       loadComparisonBox(box, batchId).catch(console.error);
       loadMonteCarloBox(batchId).catch(console.error);
       wireTradeAuditForm(batchId);
+      wireStressTestForm();
       return renderBatchDetailInto(batchId, histDetailIds);
+    }
+
+    // Stress Testing Engine (B5): re-runs a strategy against the single
+    // worst real historical week already in the stored data.
+    function wireStressTestForm() {
+      const box = document.getElementById("histStressTestBox");
+      box.innerHTML = `
+        <div class="btn-row">
+          <input id="stStrategyId" placeholder="Strategy ID" style="max-width:180px;">
+          <input id="stSymbol" placeholder="Symbol (e.g. BTCUSDT)" style="max-width:160px;">
+          <button class="btn" id="btnRunStressTest">Run Stress Test</button>
+        </div>
+        <div id="stResult"></div>`;
+      document.getElementById("btnRunStressTest").onclick = async () => {
+        const sid = document.getElementById("stStrategyId").value.trim();
+        const symbol = document.getElementById("stSymbol").value.trim();
+        const resultBox = document.getElementById("stResult");
+        if (!sid || !symbol) { resultBox.innerHTML = `<p class="muted">Fill in strategy ID and symbol.</p>`; return; }
+        resultBox.innerHTML = `<p class="muted">Finding the worst historical week and re-running...</p>`;
+        try {
+          const r = await apiGet(`/api/backtesting/stress-test/${sid}/${symbol}`);
+          if (!r.available) { resultBox.innerHTML = `<p class="muted">${esc(r.reason)}</p>`; return; }
+          const m = r.metrics;
+          resultBox.innerHTML = `
+            <p>Worst week found: <b>${r.worst_week.range_pct}%</b> price range (${new Date(r.worst_week.start_ms).toISOString().slice(0,10)} to ${new Date(r.worst_week.end_ms).toISOString().slice(0,10)})</p>
+            <div class="grid">
+              ${card("Trades That Week", m.total_trades)}
+              ${card("Win Rate", m.win_rate + "%")}
+              ${cardClass("Profit %", m.profit_pct + "%", m.profit_pct >= 0 ? "positive" : "negative")}
+              ${card("Max Drawdown", m.max_drawdown_pct + "%")}
+            </div>`;
+        } catch (e) {
+          resultBox.innerHTML = `<p class="muted">${esc(e.message)}</p>`;
+        }
+      };
     }
 
     // Monte Carlo Engine (Group 6 #4): reshuffles this batch's own real
@@ -2247,6 +2283,9 @@
 
         <div class="section-title">Trade Audit -- Inspect Any Trade</div>
         <div id="histTradeAuditBox" class="card"></div>
+
+        <div class="section-title">Stress Test -- Worst Historical Week</div>
+        <div id="histStressTestBox" class="card"></div>
         <div class="section-title">Per-Coin Breakdown</div>
         <div class="table-wrap"><table>
           <thead><tr><th>Coin</th><th>Trades</th><th>Win Rate</th><th>Profit %</th><th>Total PnL</th><th>Max Drawdown</th></tr></thead>

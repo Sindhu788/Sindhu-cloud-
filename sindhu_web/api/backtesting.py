@@ -15,7 +15,7 @@ from backtest_engine import strategy_library as lib
 from backtest_engine import runner
 from backtest_engine import sanity_check
 from backtest_engine.reports import generate_report
-from backtest_engine import monte_carlo
+from backtest_engine import monte_carlo, stress_test
 from data_engine.resample import get_ohlcv
 from sindhu_web.jobs import job_manager
 from sindhu_web.api.data import _default_exchange
@@ -231,6 +231,14 @@ def list_coins():
 @router.get("/api/backtesting/monte-carlo/{batch_id}")
 def get_monte_carlo(batch_id: str, iterations: int = 1000):
     return monte_carlo.run_monte_carlo(batch_id, iterations=iterations)
+
+
+# --------------------------------------------------------------- Stress Testing Engine (B5)
+
+@router.get("/api/backtesting/stress-test/{strategy_id}/{symbol}")
+def get_stress_test(strategy_id: str, symbol: str):
+    exchange = _default_exchange()
+    return stress_test.run_stress_test(strategy_id, exchange, symbol)
 
 
 # --------------------------------------------------------------- Trade Audit Engine (Group 6 #5)
