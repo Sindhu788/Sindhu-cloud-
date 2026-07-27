@@ -407,6 +407,19 @@ def get_risk_metrics(strategy_id: str):
     return insights.compute_risk_metrics(strategy_id, since=insights.fresh_session_start())
 
 
+@router.get("/api/paper-trading/risk-metrics-all")
+def get_risk_metrics_all():
+    """Bulk version for a table view (Strategy Performance Dashboard) --
+    one call instead of one per strategy. All reads are cheap indexed DB
+    queries (no network), so a loop here is fine unlike coin_filter's
+    per-symbol exchange calls."""
+    since = insights.fresh_session_start()
+    out = {}
+    for meta in lib.list_all():
+        out[meta["id"]] = insights.compute_risk_metrics(meta["id"], since=since)
+    return {"metrics": out}
+
+
 # --------------------------------------------------------------- Basic Market Regime Detection
 
 @router.get("/api/paper-trading/regime")

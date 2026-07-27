@@ -1058,11 +1058,22 @@
   async function renderMarket() {
     const myToken = activeRouteToken;
     const settings = await apiGet("/api/settings").catch(() => ({ refresh_speed_seconds: 10 }));
+    const regimeCls = { trending: "pill-bullish", ranging: "pill-neutral", high_volatility: "pill-bearish" };
+    const regimeLabel = { trending: "Trending", ranging: "Ranging", high_volatility: "High Volatility" };
     const render = async () => {
-      const m = await apiGet("/api/market");
+      const filterEl = document.getElementById("marketRegimeFilter");
+      const filterValue = filterEl ? filterEl.value : "all";
+      const [m, regimeRes] = await Promise.all([
+        apiGet("/api/market"),
+        apiGet("/api/paper-trading/regime").catch(() => ({ regimes: {} })),
+      ]);
       if (isStaleRoute(myToken)) return;
+      const regimes = regimeRes.regimes || {};
       const signalCls = s => s === "Bullish" ? "pill-bullish" : s === "Bearish" ? "pill-bearish" : "pill-neutral";
-      const rows = m.coins.map(c => `
+      const coins = filterValue === "all" ? m.coins : m.coins.filter(c => (regimes[c.symbol] || {}).regime === filterValue);
+      const rows = coins.map(c => {
+        const r = regimes[c.symbol];
+        return `
         <tr>
           <td>${esc(c.symbol)}</td>
           <td>${c.price}</td>
@@ -1071,13 +1082,26 @@
           <td><span class="pill ${c.trend === 'up' ? 'pill-up' : 'pill-down'}">${c.trend}</span></td>
           <td><span class="pill ${signalCls(c.signal)}">${esc(c.signal || "-")}</span></td>
           <td>${c.volatility_pct != null ? c.volatility_pct + "%" : "-"}</td>
-        </tr>`).join("");
+          <td>${r ? `<span class="pill ${regimeCls[r.regime] || 'pill-neutral'}">${regimeLabel[r.regime] || esc(r.regime)}</span>` : `<span class="muted">-</span>`}</td>
+        </tr>`;
+      }).join("");
       content.innerHTML = `
         <div class="section-title">Market (${esc(m.exchange)} / ${esc(m.quote)})</div>
+        <div class="btn-row">
+          <label class="muted" style="display:flex;align-items:center;gap:6px;">Market Condition:
+            <select id="marketRegimeFilter" style="width:auto;">
+              <option value="all" ${filterValue === "all" ? "selected" : ""}>All</option>
+              <option value="trending" ${filterValue === "trending" ? "selected" : ""}>Trending</option>
+              <option value="ranging" ${filterValue === "ranging" ? "selected" : ""}>Ranging</option>
+              <option value="high_volatility" ${filterValue === "high_volatility" ? "selected" : ""}>High Volatility</option>
+            </select>
+          </label>
+        </div>
         <div class="table-wrap"><table>
-          <thead><tr><th>Coin</th><th>Price</th><th>24H Change</th><th>Volume</th><th>Trend</th><th>Signal</th><th>Volatility</th></tr></thead>
-          <tbody>${rows || '<tr><td colspan="7">No market data</td></tr>'}</tbody>
+          <thead><tr><th>Coin</th><th>Price</th><th>24H Change</th><th>Volume</th><th>Trend</th><th>Signal</th><th>Volatility</th><th>Market Condition</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="8">No market data</td></tr>'}</tbody>
         </table></div>`;
+      document.getElementById("marketRegimeFilter").addEventListener("change", render);
     };
     await render();
     autoRefresh(render, Math.max(settings.refresh_speed_seconds || 10, 15));
@@ -1165,8 +1189,22 @@
     const render = async () => {
       const searchEl = document.getElementById("stratLibSearch");
       const q = searchEl ? searchEl.value : "";
-      const res = await apiGet(`/api/backtesting/strategies?q=${encodeURIComponent(q)}`).catch(() => ({ strategies: [] }));
+      const [res, riskRes] = await Promise.all([
+        apiGet(`/api/backtesting/strategies?q=${encodeURIComponent(q)}`).catch(() => ({ strategies: [] })),
+        apiGet("/api/paper-trading/risk-metrics-all").catch(() => ({ metrics: {} })),
+      ]);
       if (isStaleRoute(myToken)) return;
+      const riskMetrics = riskRes.metrics || {};
+      // Basic Risk Analytics (Sharpe Ratio / Max Drawdown %): computed from
+      // this strategy's own live Paper Trading trade history, not the
+      // backtest -- shows "-" until a strategy has at least 2 closed paper
+      // trades (see paper_trading.insights.compute_risk_metrics).
+      function riskCell(sid) {
+        const r = riskMetrics[sid];
+        if (!r || r.sharpe_ratio == null) return `<span class="muted" title="Needs at least 2 closed Paper Trading trades">Not enough data</span>`;
+        const ddCls = r.max_drawdown_pct > 15 ? "negative" : "";
+        return `Sharpe ${r.sharpe_ratio.toFixed(2)}, Max DD <span class="${ddCls}">${r.max_drawdown_pct.toFixed(1)}%</span>`;
+      }
       const rows = res.strategies.map(s => `
         <tr>
           <td>${s.favourite ? "★" : "☆"}</td>
@@ -1176,6 +1214,7 @@
           <td>${conditionRolesCell(s.condition_roles)}</td>
           <td>${strategyStatusPill(s.status)}</td>
           <td>${lastBacktestCell(s.last_batch_result)}</td>
+          <td>${riskCell(s.id)}</td>
           <td>V${s.current_version || 1} <button class="btn-ghost strat-versions" data-id="${s.id}" data-name="${esc(s.name)}">History</button></td>
           <td>
             <button class="btn-ghost strat-edit" data-id="${s.id}">Edit</button>
@@ -1193,8 +1232,8 @@
           <button class="btn" id="btnNewStrategy">New Strategy</button>
         </div>
         <div class="table-wrap"><table>
-          <thead><tr><th></th><th>Name</th><th>Concepts</th><th>Timeframes</th><th>Condition Roles</th><th>Status</th><th>Last Backtest</th><th>Version</th><th></th></tr></thead>
-          <tbody>${rows || '<tr><td colspan="9">No saved strategies yet -- create one on the Backtesting page.</td></tr>'}</tbody>
+          <thead><tr><th></th><th>Name</th><th>Concepts</th><th>Timeframes</th><th>Condition Roles</th><th>Status</th><th>Last Backtest</th><th>Live Risk (Sharpe / Max DD)</th><th>Version</th><th></th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="10">No saved strategies yet -- create one on the Backtesting page.</td></tr>'}</tbody>
         </table></div>
         <div id="versionHistoryBox" style="display:none;">
           <div class="section-title" id="versionHistoryTitle">Version History</div>
