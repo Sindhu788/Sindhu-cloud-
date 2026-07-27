@@ -2070,7 +2070,76 @@
       const box = document.getElementById("histComparisonBox");
       box.style.display = "block";
       loadComparisonBox(box, batchId).catch(console.error);
+      loadMonteCarloBox(batchId).catch(console.error);
+      wireTradeAuditForm(batchId);
       return renderBatchDetailInto(batchId, histDetailIds);
+    }
+
+    // Monte Carlo Engine (Group 6 #4): reshuffles this batch's own real
+    // trades 1000 times and shows the distribution -- a wide gap between
+    // p5 and p95 means the reported result depended heavily on lucky order.
+    async function loadMonteCarloBox(batchId) {
+      const mcBox = document.getElementById("histMonteCarloBox");
+      mcBox.innerHTML = `<button class="btn" id="btnRunMonteCarlo">Run Monte Carlo Simulation (1,000 iterations)</button>`;
+      document.getElementById("btnRunMonteCarlo").onclick = async () => {
+        mcBox.innerHTML = `<span class="muted">Running 1,000 simulations...</span>`;
+        const r = await apiGet(`/api/backtesting/monte-carlo/${batchId}`);
+        if (!r.available) {
+          mcBox.innerHTML = `<span class="muted">Not enough trades for a meaningful simulation: ${esc(r.reason)}</span>`;
+          return;
+        }
+        mcBox.innerHTML = `
+          <div class="grid">
+            ${card("Actual Result", `$${r.original_final_equity.toLocaleString()}`)}
+            ${card("Worst Case (5th %ile)", `$${r.p5_final_equity.toLocaleString()}`)}
+            ${card("Typical (Median)", `$${r.median_final_equity.toLocaleString()}`)}
+            ${card("Best Case (95th %ile)", `$${r.p95_final_equity.toLocaleString()}`)}
+            ${cardClass("Risk of Ruin", `${r.risk_of_ruin_pct}%`, r.risk_of_ruin_pct > 20 ? "negative" : "")}
+            ${card("Profitable Outcomes", `${r.profitable_outcomes_pct}%`)}
+          </div>
+          <div class="muted" style="font-size:12px;">
+            Based on ${r.trade_count} real trades reshuffled ${r.iterations} times. "Risk of Ruin" = share of
+            reshuffled orders where equity fell 50%+ below its peak at some point -- ${esc(r.ruin_definition)}.
+          </div>`;
+      };
+    }
+
+    // Trade Audit Engine (Group 6 #5): look up any single trade by its
+    // coordinates and see the exact entry/exit rule plus raw candles --
+    // manual end-to-end verification without touching the database.
+    function wireTradeAuditForm(batchId) {
+      const box = document.getElementById("histTradeAuditBox");
+      box.innerHTML = `
+        <div class="btn-row">
+          <input id="taSymbol" placeholder="Symbol (e.g. BTCUSDT)" style="max-width:160px;">
+          <input id="taTimeframe" placeholder="Timeframe (e.g. 1h)" style="max-width:120px;">
+          <input id="taTradeNum" type="number" placeholder="Trade #" style="max-width:100px;">
+          <button class="btn" id="btnTradeAudit">Inspect Trade</button>
+        </div>
+        <div id="taResult"></div>`;
+      document.getElementById("btnTradeAudit").onclick = async () => {
+        const symbol = document.getElementById("taSymbol").value.trim();
+        const timeframe = document.getElementById("taTimeframe").value.trim();
+        const tradeNum = document.getElementById("taTradeNum").value.trim();
+        const resultBox = document.getElementById("taResult");
+        if (!symbol || !timeframe || !tradeNum) { resultBox.innerHTML = `<p class="muted">Fill in symbol, timeframe, and trade number.</p>`; return; }
+        resultBox.innerHTML = `<p class="muted">Loading...</p>`;
+        try {
+          const r = await apiGet(`/api/backtesting/trade-audit/${batchId}/${symbol}/${timeframe}/${tradeNum}`);
+          const t = r.trade;
+          resultBox.innerHTML = `
+            <div class="card">
+              <div class="label">Trade #${t.trade_num} -- ${esc(t.symbol)} ${esc(t.side)}</div>
+              <p><b>Entry:</b> $${t.entry_price} at ${new Date(t.entry_time).toISOString().slice(0,19)} -- reason: "${esc(t.entry_reason || "-")}"</p>
+              <p><b>Exit:</b> $${t.exit_price} at ${t.exit_time ? new Date(t.exit_time).toISOString().slice(0,19) : "-"} -- reason: "${esc(t.exit_reason || "-")}"</p>
+              <p><b>PnL:</b> <span class="${t.pnl > 0 ? 'positive' : t.pnl < 0 ? 'negative' : ''}">${t.pnl != null ? '$' + t.pnl.toFixed(2) : "-"} (${t.pnl_pct != null ? t.pnl_pct.toFixed(2) : "-"}%)</span></p>
+              <p><b>Stop-Loss:</b> ${t.stop_loss != null ? '$' + t.stop_loss : "-"} &nbsp; <b>Take-Profit:</b> ${t.take_profit != null ? '$' + t.take_profit : "-"}</p>
+              <p class="muted">${r.candles.length} raw 1-minute candles fetched spanning this trade (30min padding each side) -- available via the API for anyone who wants to plot/verify it directly.</p>
+            </div>`;
+        } catch (e) {
+          resultBox.innerHTML = `<p class="muted">${esc(e.message)}</p>`;
+        }
+      };
     }
 
     const histDetailIds = {
@@ -2090,6 +2159,12 @@
         <div id="histComparisonBox" class="card" style="display:none;margin-bottom:16px;"></div>
         <div id="histSummary" class="card" style="white-space:pre-wrap;font-family:Consolas,monospace;font-size:12px;"></div>
         <div id="histZeroDiagnosis"></div>
+
+        <div class="section-title">Monte Carlo Simulation</div>
+        <div id="histMonteCarloBox" class="card"></div>
+
+        <div class="section-title">Trade Audit -- Inspect Any Trade</div>
+        <div id="histTradeAuditBox" class="card"></div>
         <div class="section-title">Per-Coin Breakdown</div>
         <div class="table-wrap"><table>
           <thead><tr><th>Coin</th><th>Trades</th><th>Win Rate</th><th>Profit %</th><th>Total PnL</th><th>Max Drawdown</th></tr></thead>

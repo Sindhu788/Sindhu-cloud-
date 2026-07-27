@@ -15,6 +15,8 @@ from backtest_engine import strategy_library as lib
 from backtest_engine import runner
 from backtest_engine import sanity_check
 from backtest_engine.reports import generate_report
+from backtest_engine import monte_carlo
+from data_engine.resample import get_ohlcv
 from sindhu_web.jobs import job_manager
 from sindhu_web.api.data import _default_exchange
 from sindhu_web import sync
@@ -222,6 +224,42 @@ def duplicate_strategy(strategy_id: str):
 def list_coins():
     exchange = _default_exchange()
     return {"exchange": exchange, "symbols": storage.load_symbols(exchange)}
+
+
+# --------------------------------------------------------------- Monte Carlo Engine (Group 6 #4)
+
+@router.get("/api/backtesting/monte-carlo/{batch_id}")
+def get_monte_carlo(batch_id: str, iterations: int = 1000):
+    return monte_carlo.run_monte_carlo(batch_id, iterations=iterations)
+
+
+# --------------------------------------------------------------- Trade Audit Engine (Group 6 #5)
+
+@router.get("/api/backtesting/trade-audit/{batch_id}/{symbol}/{timeframe}/{trade_num}")
+def get_trade_audit(batch_id: str, symbol: str, timeframe: str, trade_num: int):
+    """Full manual-verification detail for one backtest trade: the exact
+    entry/exit rule that fired (already recorded at trade time, not
+    re-derived), and the raw 1-minute candles spanning the trade so the
+    entry/exit prices can be checked against real market data by hand."""
+    trades = storage.get_trades(batch_id, symbol=symbol, timeframe=timeframe)
+    trade = next((t for t in trades if t["trade_num"] == trade_num), None)
+    if not trade:
+        raise HTTPException(404, "trade not found")
+
+    exchange = _default_exchange()
+    start_ms = trade["entry_time"] - 30 * 60 * 1000  # 30min padding before entry
+    end_ms = (trade["exit_time"] or trade["entry_time"]) + 30 * 60 * 1000
+    try:
+        df = get_ohlcv(exchange, symbol, interval="1m", start_ms=start_ms, end_ms=end_ms)
+        candles = [
+            {"time": int(idx.timestamp() * 1000), "open": row.open, "high": row.high,
+             "low": row.low, "close": row.close, "volume": row.volume}
+            for idx, row in df.iterrows()
+        ]
+    except Exception:
+        candles = []
+
+    return {"trade": trade, "candles": candles}
 
 
 class RunRequest(BaseModel):

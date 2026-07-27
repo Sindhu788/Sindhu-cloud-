@@ -488,3 +488,33 @@ def get_coin_exposure():
     exchanges_cfg = base_config.load_or_seed("exchanges.json", base_config.DEFAULTS["exchanges.json"])
     exchange = exchanges_cfg["default"]
     return {"exposure": portfolio.compute_coin_exposure(exchange)}
+
+
+# --------------------------------------------------------------- Trade Audit Engine (Group 6 #5)
+
+@router.get("/api/paper-trading/trade-audit/{position_id}")
+def get_paper_trade_audit(position_id: str):
+    """Full manual-verification detail for one Paper Trading position --
+    entry/exit price+time, the exact rule that fired (entry_reason,
+    already recorded at open time), the market snapshot at entry, and raw
+    1-minute candles spanning the trade for a person to check by hand."""
+    from data_engine.resample import get_ohlcv
+
+    pos = storage.get_paper_position(position_id)
+    if not pos:
+        raise HTTPException(404, "position not found")
+
+    end_reference = pos.get("exit_time") or pos["entry_time"]
+    start_ms = pos["entry_time"] - 30 * 60 * 1000
+    end_ms = end_reference + 30 * 60 * 1000
+    try:
+        df = get_ohlcv(pos["exchange"], pos["symbol"], interval="1m", start_ms=start_ms, end_ms=end_ms)
+        candles = [
+            {"time": int(idx.timestamp() * 1000), "open": row.open, "high": row.high,
+             "low": row.low, "close": row.close, "volume": row.volume}
+            for idx, row in df.iterrows()
+        ]
+    except Exception:
+        candles = []
+
+    return {"position": pos, "candles": candles}
