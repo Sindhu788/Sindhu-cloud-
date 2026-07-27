@@ -16,6 +16,8 @@ from backtest_engine import runner
 from backtest_engine import sanity_check
 from backtest_engine.reports import generate_report
 from backtest_engine import monte_carlo, stress_test
+from automation_pipeline import optimizer as grid_optimizer
+from automation_pipeline import genetic_optimizer
 from data_engine.resample import get_ohlcv
 from sindhu_web.jobs import job_manager
 from sindhu_web.api.data import _default_exchange
@@ -239,6 +241,47 @@ def get_monte_carlo(batch_id: str, iterations: int = 1000):
 def get_stress_test(strategy_id: str, symbol: str):
     exchange = _default_exchange()
     return stress_test.run_stress_test(strategy_id, exchange, symbol)
+
+
+# --------------------------------------------------------------- Genetic Optimization Engine (B6)
+
+@router.get("/api/backtesting/genetic-optimize/{strategy_id}/{symbol}")
+def get_genetic_optimize(strategy_id: str, symbol: str, days: int = 30,
+                          population_size: int = 10, generations: int = 5):
+    """Runs BOTH the existing grid-search optimizer and the new genetic
+    optimizer on the exact same strategy/symbol/date-window, so the two
+    can be directly compared. Neither writes anything to the database --
+    same in-memory-only contract _run_in_memory already guarantees."""
+    exchange = _default_exchange()
+    min_ms, max_ms = storage.get_symbol_time_bounds(exchange, symbol)
+    if min_ms is None:
+        return {"available": False, "reason": f"no stored data for {symbol}"}
+    start_ms = max(min_ms, max_ms - days * 86400 * 1000)
+    end_ms = max_ms
+
+    try:
+        cfg = lib.load(strategy_id)
+    except Exception as e:
+        return {"available": False, "reason": f"could not load strategy: {e!r}"}
+
+    settings = {"initial_balance": 10000.0}
+
+    best_cfg, tried_log, best_description = grid_optimizer.optimize(cfg, exchange, symbol, settings, start_ms, end_ms)
+    grid_metrics = None
+    if best_cfg is not None:
+        grid_metrics = grid_optimizer._run_in_memory(best_cfg, exchange, symbol, settings, start_ms, end_ms)
+    grid_result = {
+        "candidates_tried": len(tried_log), "best_description": best_description,
+        "best_metrics": grid_metrics,
+    }
+
+    genetic_result = genetic_optimizer.run_genetic_optimization(
+        cfg, exchange, symbol, settings, start_ms, end_ms,
+        population_size=population_size, generations=generations,
+    )
+
+    return {"available": True, "strategy_id": strategy_id, "symbol": symbol,
+            "window_days": days, "grid_search": grid_result, "genetic": genetic_result}
 
 
 # --------------------------------------------------------------- Trade Audit Engine (Group 6 #5)
