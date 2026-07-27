@@ -10,8 +10,9 @@ from backtest_engine.strategy_safety_check import run_safety_check
 from data_engine import storage
 from data_engine.logging_setup import log as file_log
 from paper_trading import config as pt_config, insights
-from paper_trading import drawdown_guard
+from paper_trading import drawdown_guard, regime
 from paper_trading.engine import engine
+from data_engine import config as base_config
 from sindhu_web import broadcast, cache, sync
 
 router = APIRouter()
@@ -404,3 +405,29 @@ def resume_strategy(strategy_id: str):
 @router.get("/api/paper-trading/risk-metrics/{strategy_id}")
 def get_risk_metrics(strategy_id: str):
     return insights.compute_risk_metrics(strategy_id, since=insights.fresh_session_start())
+
+
+# --------------------------------------------------------------- Basic Market Regime Detection
+
+@router.get("/api/paper-trading/regime")
+def get_market_regime():
+    """Bulk regime classification for every tracked symbol -- cached 60s
+    (stale-while-revalidate, same pattern as /api/home) since it's a
+    50-symbol ATR/MA pass, not free to redo on every poll."""
+    exchanges_cfg = base_config.load_or_seed("exchanges.json", base_config.DEFAULTS["exchanges.json"])
+    exchange = exchanges_cfg["default"]
+    symbols = storage.load_symbols(exchange)
+
+    def _compute():
+        return regime.classify_all(exchange, symbols)
+    return {"exchange": exchange, "regimes": cache.cached(f"market_regime_{exchange}", 60, _compute)}
+
+
+@router.get("/api/paper-trading/regime/{symbol}")
+def get_symbol_regime(symbol: str):
+    exchanges_cfg = base_config.load_or_seed("exchanges.json", base_config.DEFAULTS["exchanges.json"])
+    exchange = exchanges_cfg["default"]
+    result = regime.classify_regime(exchange, symbol)
+    if result is None:
+        raise HTTPException(404, "not enough data yet for this symbol")
+    return result

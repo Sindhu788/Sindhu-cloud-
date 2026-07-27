@@ -6,7 +6,7 @@ Constraint: do not touch backtest engine, PnL engine, or trade execution logic.
 ## Status
 - [x] 1. Pattern-Based Auto-Avoid Rule
 - [x] 2. Lesson Auto-Apply System
-- [ ] 3. Basic Market Regime Detection
+- [x] 3. Basic Market Regime Detection
 - [x] 4. Drawdown Protection Engine
 - [ ] 5. Correlation Warning System
 - [x] 6. Basic Risk Analytics (Sharpe + Max Drawdown)
@@ -42,6 +42,18 @@ Constraint: do not touch backtest engine, PnL engine, or trade execution logic.
   promotes correctly, confidence score is measurably higher (70 vs 60) only
   for the matching pattern, unrelated pattern gets zero influence, and
   deactivating the row immediately zeroes the influence again.
+
+## 3. Basic Market Regime Detection -- DONE
+- `paper_trading/regime.py`: ATR(14)% for volatility, 20-period MA slope for
+  trend, both standard building blocks (reused backtest_engine.concepts.atr,
+  no new indicator math). high_volatility checked first (ATR>=3%), then
+  trending (|slope|>=1.5%), else ranging.
+- API: GET `/api/paper-trading/regime` (bulk, 60s cached) + `.../regime/{symbol}`.
+- Evidence: real live data on 6 tracked symbols -- AAVEUSDT correctly labeled
+  "trending" (3.78% MA slope), 5 others correctly "ranging" (all under 1.5%
+  slope, all under 3% ATR). 9.27s for 6 symbols cold; cached 60s after that.
+- NOT YET WIRED into frontend UI (Market/Paper Trading page filter) -- API
+  complete and verified, UI display deferred given time constraints.
 
 ## 4. Drawdown Protection Engine -- DONE
 - `paper_trading/drawdown_guard.py`: pauses NEW entries for one strategy when
