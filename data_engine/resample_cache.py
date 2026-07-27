@@ -102,20 +102,37 @@ def load(exchange, symbol, interval, start_ms, end_ms, source_bounds):
 def save(exchange, symbol, interval, start_ms, end_ms, df, source_bounds):
     """Atomically write `df` as the cache entry for this exact
     (exchange, symbol, interval, start_ms, end_ms) request, tagged with the
-    source bounds it was computed from."""
+    source bounds it was computed from.
+
+    Bucketing end_ms to a fixed window (coin_filter.py, market.py) makes it
+    common for two callers -- e.g. the startup cache-warm thread and a real
+    request landing at the same moment -- to compute and write the SAME
+    cache key concurrently. On Windows, os.replace() onto a destination
+    another thread/process has open (mid-read via pd.read_pickle, or its own
+    concurrent os.replace()) can raise PermissionError instead of silently
+    winning or losing a race the way POSIX rename does. That exception used
+    to propagate all the way up through get_ohlcv() and abort the entire
+    caller's work (e.g. all 50 symbols in one /api/market computation) over
+    what is, functionally, a no-op: some other thread already wrote this
+    exact entry, or is about to. A cache write losing a race is never a
+    correctness problem -- the next miss just recomputes -- so it's caught
+    and swallowed here instead of raised."""
     shard = _shard_dir(exchange, symbol)
-    os.makedirs(shard, exist_ok=True)
-    data_path, meta_path = _paths(exchange, symbol, interval, start_ms, end_ms)
+    try:
+        os.makedirs(shard, exist_ok=True)
+        data_path, meta_path = _paths(exchange, symbol, interval, start_ms, end_ms)
 
-    fd, tmp_data = tempfile.mkstemp(dir=shard, prefix=".tmp_", suffix=".pkl")
-    os.close(fd)
-    df.to_pickle(tmp_data)
-    os.replace(tmp_data, data_path)
+        fd, tmp_data = tempfile.mkstemp(dir=shard, prefix=".tmp_", suffix=".pkl")
+        os.close(fd)
+        df.to_pickle(tmp_data)
+        os.replace(tmp_data, data_path)
 
-    fd, tmp_meta = tempfile.mkstemp(dir=shard, prefix=".tmp_", suffix=".json")
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        json.dump({"source_bounds": list(source_bounds), "start_ms": start_ms, "end_ms": end_ms}, f)
-    os.replace(tmp_meta, meta_path)
+        fd, tmp_meta = tempfile.mkstemp(dir=shard, prefix=".tmp_", suffix=".json")
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump({"source_bounds": list(source_bounds), "start_ms": start_ms, "end_ms": end_ms}, f)
+        os.replace(tmp_meta, meta_path)
+    except OSError:
+        pass
 
 
 def clear_all():
