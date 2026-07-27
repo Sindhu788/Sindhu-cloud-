@@ -2843,10 +2843,16 @@
       document.querySelectorAll(".pt-override").forEach(btn => {
         btn.onclick = async () => {
           const nowActive = btn.dataset.active !== "1";
-          await apiPost(`/api/paper-trading/override/${btn.dataset.id}`, { manual_alert: nowActive });
-          appendLog(nowActive
-            ? `Strategy ${btn.dataset.id} flagged for Telegram alert (manual override).`
-            : `Manual Telegram flag removed for ${btn.dataset.id}.`);
+          const res = await apiPost(`/api/paper-trading/override/${btn.dataset.id}`, { manual_alert: nowActive });
+          if (nowActive && res.telegram_send_result) {
+            appendLog(res.telegram_send_result.ok
+              ? `Telegram signal SENT for strategy ${btn.dataset.id}.`
+              : `Telegram send FAILED for ${btn.dataset.id}: ${res.telegram_send_result.error}`);
+          } else {
+            appendLog(nowActive
+              ? `Strategy ${btn.dataset.id} flagged for Telegram alert (manual override).`
+              : `Manual Telegram flag removed for ${btn.dataset.id}.`);
+          }
           render();
         };
       });
@@ -2937,7 +2943,26 @@
       <div class="card">
         <div class="btn-row"><button class="btn" id="btnGenerateReport">Generate Report Now</button></div>
         <div id="weeklyReportList"></div>
-      </div>`;
+      </div>
+
+      <div class="section-title">Telegram Integration</div>
+      <div class="card" style="max-width:480px;">
+        <div class="form-row"><label>Bot Token (write-only -- never shown again after saving)</label>
+          <input id="tgToken" type="password" placeholder="Enter to set/replace"></div>
+        <div class="form-row"><label>Channel ID</label><input id="tgChannelId" placeholder="e.g. -1001234567890"></div>
+        <div class="form-row"><label>Rate Limit (messages per hour)</label><input id="tgRateLimit" type="number"></div>
+        <div class="form-row"><label><input id="tgAutoSend" type="checkbox" style="width:auto;"> Enable automatic high-confidence sending (OFF by default -- a deliberate safety choice)</label></div>
+        <div class="btn-row">
+          <button class="btn" id="btnSaveTelegram">Save Settings</button>
+          <button class="btn-ghost" id="btnTestTelegram">Send Test Message</button>
+          <span id="tgStatus" class="muted"></span>
+        </div>
+      </div>
+      <div class="section-title">Telegram Message Log</div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Time</th><th>Trigger</th><th>Strategy</th><th>Result</th></tr></thead>
+        <tbody id="tgLogBody"><tr><td colspan="4">Loading...</td></tr></tbody>
+      </table></div>`;
 
     function fmtUptime(seconds) {
       const h = Math.floor(seconds / 3600), m = Math.floor((seconds % 3600) / 60);
@@ -3014,6 +3039,49 @@
       loadWeeklyReports();
     };
     loadWeeklyReports();
+
+    async function loadTelegramSettings() {
+      const s = await apiGet("/api/paper-trading/telegram/settings").catch(() => null);
+      if (!s) return;
+      document.getElementById("tgChannelId").value = s.channel_id || "";
+      document.getElementById("tgRateLimit").value = s.rate_limit_per_hour;
+      document.getElementById("tgAutoSend").checked = s.auto_send_enabled;
+      document.getElementById("tgToken").placeholder = s.token_configured ? "Token already set -- enter to replace" : "Enter to set/replace";
+    }
+    async function loadTelegramLog() {
+      const r = await apiGet("/api/paper-trading/telegram/log").catch(() => ({ messages: [] }));
+      document.getElementById("tgLogBody").innerHTML = r.messages.map(m => `
+        <tr>
+          <td>${esc((m.sent_at||"").slice(0,19))}</td>
+          <td>${esc(m.trigger_type)}</td>
+          <td>${esc(m.strategy_name || "-")}</td>
+          <td>${m.success ? '<span class="pill pill-completed">Sent</span>' : `<span class="pill pill-error" title="${esc(m.error||"")}">Failed</span>`}</td>
+        </tr>`).join("") || '<tr><td colspan="4">No messages yet.</td></tr>';
+    }
+    document.getElementById("btnSaveTelegram").onclick = async () => {
+      const status = document.getElementById("tgStatus");
+      status.textContent = "Saving...";
+      const body = {
+        channel_id: document.getElementById("tgChannelId").value.trim(),
+        rate_limit_per_hour: parseInt(document.getElementById("tgRateLimit").value, 10) || 10,
+        auto_send_enabled: document.getElementById("tgAutoSend").checked,
+      };
+      const token = document.getElementById("tgToken").value.trim();
+      if (token) body.bot_token = token;
+      await apiPost("/api/paper-trading/telegram/settings", body);
+      document.getElementById("tgToken").value = "";
+      status.textContent = "Saved.";
+      loadTelegramSettings();
+    };
+    document.getElementById("btnTestTelegram").onclick = async () => {
+      const status = document.getElementById("tgStatus");
+      status.textContent = "Sending test message...";
+      const r = await apiPost("/api/paper-trading/telegram/test", {});
+      status.textContent = r.ok ? "Test message sent successfully -- check your channel." : `Failed: ${r.error}`;
+      loadTelegramLog();
+    };
+    loadTelegramSettings();
+    loadTelegramLog();
   }
 
   // ------------------------------------------------------------ KNOWLEDGE

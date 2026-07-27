@@ -256,6 +256,21 @@ CREATE TABLE IF NOT EXISTS paper_lesson_performance (
     updated_at TEXT
 );
 
+-- Telegram Integration: permanent audit trail of every message sent or
+-- attempted (manual or automatic), so nothing is ever sent silently.
+CREATE TABLE IF NOT EXISTS telegram_message_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    position_id TEXT,
+    strategy_id TEXT,
+    strategy_name TEXT,
+    trigger_type TEXT NOT NULL,
+    message_text TEXT NOT NULL,
+    success INTEGER NOT NULL,
+    error TEXT,
+    sent_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_telegram_log_sent_at ON telegram_message_log(sent_at DESC);
+
 -- Weekly Auto-Report (Dashboard Consolidation Group, item 7): one row per
 -- generated report, permanently stored so past reports stay reviewable.
 CREATE TABLE IF NOT EXISTS paper_weekly_reports (
@@ -2480,6 +2495,47 @@ def list_paper_pattern_trades_ordered(strategy_id, symbol, market_state, session
     with get_conn() as conn:
         rows = conn.execute(query, params).fetchall()
     return [{"pnl": r[0], "closed_at": r[1]} for r in rows]
+
+
+# --------------------------------------------------------------- Telegram Integration
+
+def log_telegram_message(position_id, strategy_id, strategy_name, trigger_type,
+                          message_text, success, error, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO telegram_message_log
+               (position_id, strategy_id, strategy_name, trigger_type, message_text, success, error, sent_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (position_id, strategy_id, strategy_name, trigger_type, message_text, int(success), error, now_iso),
+        )
+
+
+def list_telegram_messages(limit=100):
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, position_id, strategy_id, strategy_name, trigger_type, message_text, "
+            "success, error, sent_at FROM telegram_message_log ORDER BY sent_at DESC LIMIT ?", (limit,),
+        ).fetchall()
+    cols = ["id", "position_id", "strategy_id", "strategy_name", "trigger_type",
+            "message_text", "success", "error", "sent_at"]
+    return [dict(zip(cols, r)) for r in rows]
+
+
+def count_telegram_messages_since(since_iso):
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM telegram_message_log WHERE sent_at >= ? AND success=1", (since_iso,),
+        ).fetchone()
+    return row[0] if row else 0
+
+
+def has_telegram_signal_for_position(position_id):
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT id FROM telegram_message_log WHERE position_id=? AND trigger_type IN ('manual','automatic') "
+            "AND success=1 LIMIT 1", (position_id,),
+        ).fetchone()
+    return row is not None
 
 
 # --------------------------------------------------------------- Weekly Auto-Report

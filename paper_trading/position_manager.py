@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 
 from backtest_engine.engine import _apply_slippage
 from data_engine import storage
-from paper_trading import reflection, evolution, auto_avoid, drawdown_guard
+from paper_trading import reflection, evolution, auto_avoid, drawdown_guard, telegram_bot
 from paper_trading.guards import book_key as _book_key
 # Evolution Core Engine (Phase 7A, A.1): turns this closed trade's outcome,
 # combined with this strategy's own trade history, into a traceable BOT
@@ -178,4 +178,11 @@ def _close(pos, exit_price, exit_reason):
     # Drawdown Protection Engine (item 4): same read-then-audit-write shape,
     # strategy-scoped, never touches the pnl/exit values already computed above.
     drawdown_guard.evaluate_strategy(pos.get("strategy_id"), pos.get("strategy_name"))
+
+    # A5: two-way Telegram awareness -- only sends if a signal was actually
+    # sent for this exact position earlier (checked inside the function).
+    try:
+        telegram_bot.send_close_followup(closed_pos)
+    except Exception:
+        pass
     return closed_pos

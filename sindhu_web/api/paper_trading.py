@@ -11,7 +11,7 @@ from data_engine import storage
 from data_engine.logging_setup import log as file_log
 from paper_trading import config as pt_config, insights
 from paper_trading import drawdown_guard, regime, correlation, portfolio, strategy_profile, weekly_report
-from paper_trading import confluence, graveyard
+from paper_trading import confluence, graveyard, telegram_bot
 from paper_trading.engine import engine
 from data_engine import config as base_config
 from sindhu_web import broadcast, cache, sync
@@ -270,18 +270,27 @@ class OverrideUpdate(BaseModel):
 
 @router.post("/api/paper-trading/override/{strategy_id}")
 def set_strategy_override(strategy_id: str, req: OverrideUpdate):
-    """Manual Override: flag this strategy for a Telegram alert regardless
-    of its automatic score. No Telegram bot is connected in this build yet
-    -- this records the flag (visible in the UI and the activity log) so
-    it's ready to wire up to real delivery without lying about having
-    already sent anything."""
+    """Manual Override (A2): flag this strategy for a Telegram alert
+    regardless of its automatic score, and genuinely SEND a real message
+    for that strategy's most recent open position -- not just an internal
+    flag. If no Telegram bot is configured yet, or there's no open
+    position, this is reported honestly (send_result), never silently."""
     now = datetime.now(timezone.utc).isoformat()
     storage.save_paper_strategy_override(strategy_id, req.manual_alert, req.note, now)
+    send_result = None
     if req.manual_alert:
         _log_and_broadcast(f"[paper-trading] MANUAL OVERRIDE: {strategy_id} flagged for Telegram alert"
                             + (f" -- {req.note}" if req.note else ""))
+        open_positions = [p for p in storage.get_open_paper_positions() if p.get("strategy_id") == strategy_id]
+        if open_positions:
+            most_recent = max(open_positions, key=lambda p: p["entry_time"])
+            send_result = telegram_bot.send_signal_for_position(most_recent["id"], trigger_type="manual")
+            _log_and_broadcast(f"[paper-trading] Telegram send for {strategy_id}: "
+                                f"{'sent' if send_result['ok'] else 'FAILED - ' + str(send_result.get('error'))}")
+        else:
+            send_result = {"ok": False, "error": "no open position for this strategy right now"}
     sync.notify("paper_trading", "updated", "Manual override updated", id=strategy_id)
-    return {"ok": True, "override": storage.get_paper_strategy_override(strategy_id)}
+    return {"ok": True, "override": storage.get_paper_strategy_override(strategy_id), "telegram_send_result": send_result}
 
 
 @router.get("/api/paper-trading/overrides")
@@ -505,6 +514,50 @@ def get_strategy_profile_endpoint(strategy_id: str):
     if profile is None:
         raise HTTPException(404, "strategy not found")
     return profile
+
+
+# --------------------------------------------------------------- Telegram Integration (Section A)
+
+class TelegramSettingsUpdate(BaseModel):
+    bot_token: Optional[str] = None
+    channel_id: Optional[str] = None
+    auto_send_enabled: Optional[bool] = None
+    auto_send_min_confluence_ratio: Optional[float] = None
+    rate_limit_per_hour: Optional[int] = None
+    send_close_followups: Optional[bool] = None
+
+
+@router.get("/api/paper-trading/telegram/settings")
+def get_telegram_settings():
+    """Never returns the raw bot token -- only whether one is configured."""
+    return telegram_bot.public_settings()
+
+
+@router.post("/api/paper-trading/telegram/settings")
+def update_telegram_settings(req: TelegramSettingsUpdate):
+    telegram_bot.save_settings(**req.dict(exclude_unset=True))
+    _log_and_broadcast("[paper-trading] Telegram settings updated"
+                        + (" (auto-send " + ("ENABLED" if req.auto_send_enabled else "disabled") + ")"
+                           if req.auto_send_enabled is not None else ""))
+    return {"ok": True, "settings": telegram_bot.public_settings()}
+
+
+@router.post("/api/paper-trading/telegram/test")
+def send_telegram_test():
+    """A1: real connection confirmation, not simulated."""
+    return telegram_bot.send_test_message()
+
+
+@router.get("/api/paper-trading/telegram/log")
+def get_telegram_log(limit: int = 50):
+    return {"messages": storage.list_telegram_messages(limit=limit)}
+
+
+@router.post("/api/paper-trading/telegram/send/{position_id}")
+def send_telegram_for_position(position_id: str):
+    """On-demand real send for any specific position -- used by A6's
+    end-to-end verification with real current Paper Trading data."""
+    return telegram_bot.send_signal_for_position(position_id, trigger_type="manual")
 
 
 @router.get("/api/paper-trading/confluence/{position_id}")

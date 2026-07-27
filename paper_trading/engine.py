@@ -25,7 +25,7 @@ from data_engine.logging_setup import log as default_log
 from paper_trading import config as pt_config
 from paper_trading import coin_filter, live_feed, market_state, strategy_matcher, lesson_matcher
 from paper_trading import signal_generator, confidence, risk_manager, guards, position_manager
-from paper_trading import auto_avoid, drawdown_guard, lesson_auto_apply
+from paper_trading import auto_avoid, drawdown_guard, lesson_auto_apply, telegram_bot
 
 
 def _now_iso():
@@ -325,6 +325,18 @@ class PaperTradingEngine:
         self._log(f"[paper-trading] OPENED {symbol} {pos['direction']} @ {pos['entry_price']:.6f} "
                   f"(strategy={pick.get('strategy_name') or pick.get('lesson_title')})")
         self._emit({"type": "position_opened", "position": pos})
+
+        # A3: automatic high-confidence Telegram signal -- OFF by default
+        # (telegram_bot.evaluate_auto_send checks the settings flag first
+        # and short-circuits immediately if it's not explicitly enabled).
+        try:
+            should_send, reason = telegram_bot.evaluate_auto_send(pos["id"])
+            if should_send:
+                telegram_bot.send_signal_for_position(pos["id"], trigger_type="automatic")
+                self._log(f"[paper-trading] Telegram auto-signal sent for {pos['id']}: {reason}")
+        except Exception as e:
+            self._log(f"[paper-trading] Telegram auto-send check failed: {e!r}")
+
         return 1, 0
 
     def _log_decision(self, exchange, symbol, candidate, decision, reason, snapshot, position_id=None):
