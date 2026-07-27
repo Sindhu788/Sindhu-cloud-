@@ -6,6 +6,8 @@ state and the CEO's configured risk limits.
 
 from backtest_engine.engine import _position_size
 from data_engine import storage
+from data_engine.logging_setup import log as _log
+from paper_trading import dynamic_risk
 
 
 def account_balance(book_key, initial_balance):
@@ -20,7 +22,7 @@ def account_balance(book_key, initial_balance):
     return initial_balance + storage.get_paper_realized_pnl_total(book_key)
 
 
-def evaluate(book_key, symbol, candidate, settings):
+def evaluate(book_key, symbol, candidate, settings, exchange=None):
     """Returns (approved: bool, reason: str|None, size: float|None, risk_amount: float|None).
 
     The open-position cap is per book (per strategy, or the shared
@@ -40,7 +42,14 @@ def evaluate(book_key, symbol, candidate, settings):
     if balance <= 0:
         return False, "account balance depleted", None, None
 
-    risk_pct = settings.get("risk_pct_default", 1.0) / 100.0
+    risk_pct_default = settings.get("risk_pct_default", 1.0)
+    if exchange:
+        adjusted_pct, note = dynamic_risk.compute_risk_pct(exchange, symbol, risk_pct_default)
+        if note:
+            _log(f"[paper-trading] Dynamic Risk Sizing: {note}")
+    else:
+        adjusted_pct = risk_pct_default
+    risk_pct = adjusted_pct / 100.0
     # Live/paper trading risks a % of the real current balance (both
     # arguments are the same value here) -- unlike a backtest's single-pass
     # replay of thousands of historical bars, trades here happen slowly in

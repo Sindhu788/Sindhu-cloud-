@@ -310,7 +310,7 @@ class PaperTradingEngine:
         if action == "close_and_reverse":
             position_manager.force_close(info, snapshot["price"], reason="reversed")
 
-        risk_ok, risk_reason, size, risk_amount = risk_manager.evaluate(book, symbol, pick, settings)
+        risk_ok, risk_reason, size, risk_amount = risk_manager.evaluate(book, symbol, pick, settings, exchange=exchange)
         if not risk_ok:
             self._log_decision(exchange, symbol, pick, "rejected", risk_reason, snapshot)
             return 0, 1
