@@ -10,7 +10,7 @@ from backtest_engine.strategy_safety_check import run_safety_check
 from data_engine import storage
 from data_engine.logging_setup import log as file_log
 from paper_trading import config as pt_config, insights
-from paper_trading import drawdown_guard, regime
+from paper_trading import drawdown_guard, regime, correlation
 from paper_trading.engine import engine
 from data_engine import config as base_config
 from sindhu_web import broadcast, cache, sync
@@ -431,3 +431,18 @@ def get_symbol_regime(symbol: str):
     if result is None:
         raise HTTPException(404, "not enough data yet for this symbol")
     return result
+
+
+# --------------------------------------------------------------- Correlation Warning System
+
+@router.get("/api/paper-trading/correlation-warnings")
+def get_correlation_warnings():
+    """Informational only -- cached 60s (same stale-while-revalidate
+    pattern used throughout this file) since it's a pairwise price-history
+    comparison, not free to redo on every dashboard poll."""
+    exchanges_cfg = base_config.load_or_seed("exchanges.json", base_config.DEFAULTS["exchanges.json"])
+    exchange = exchanges_cfg["default"]
+
+    def _compute():
+        return correlation.detect_warnings(exchange)
+    return {"warnings": cache.cached(f"correlation_warnings_{exchange}", 60, _compute)}

@@ -8,7 +8,7 @@ Constraint: do not touch backtest engine, PnL engine, or trade execution logic.
 - [x] 2. Lesson Auto-Apply System
 - [x] 3. Basic Market Regime Detection
 - [x] 4. Drawdown Protection Engine
-- [ ] 5. Correlation Warning System
+- [x] 5. Correlation Warning System
 - [x] 6. Basic Risk Analytics (Sharpe + Max Drawdown)
 - [ ] 7. System Health Dashboard
 - [ ] 8. Automated Backup Engine
@@ -66,6 +66,22 @@ Constraint: do not touch backtest engine, PnL engine, or trade execution logic.
   entries for a paused strategy's book.
 - API: GET `/api/paper-trading/paused-strategies`, POST `.../resume/{id}`.
 - Evidence: same test script -- streak reaches 7, strategy pauses, resume clears it.
+
+## 5. Correlation Warning System -- DONE
+- `paper_trading/correlation.py`: REAL computed Pearson correlation of 1h
+  returns (72h lookback) between symbols that currently have open positions
+  -- not a hardcoded "these coins move together" list, since that goes
+  stale. Threshold 0.7 (standard "strong correlation" convention). Bounded
+  to symbols with open positions (not all 50 tracked), capped at 25/direction.
+  Informational only -- never blocks a trade, nothing called from the
+  trading loop.
+- API: GET `/api/paper-trading/correlation-warnings` (60s cached) + added to
+  the startup `_warm_caches()` thread (same fix pattern as the Market page
+  bug earlier this session) so real visitors never hit the slow cold path.
+- Evidence: run against the LIVE current deployment (92 open positions, 35
+  distinct symbols) -- found 4 real warnings, e.g. "4 strategies are
+  currently short on SUIUSDT and XRPUSDT at the same time (correlation
+  0.75)". Cold computation measured 59.62s (hence the warm-cache addition).
 
 ## 6. Basic Risk Analytics -- DONE
 - `paper_trading/insights.compute_risk_metrics()`: Sharpe Ratio (mean/stdev of
