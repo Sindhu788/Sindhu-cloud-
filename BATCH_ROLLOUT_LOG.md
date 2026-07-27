@@ -5,7 +5,7 @@ Constraint: do not touch backtest engine, PnL engine, or trade execution logic.
 
 ## Status
 - [x] 1. Pattern-Based Auto-Avoid Rule
-- [ ] 2. Lesson Auto-Apply System
+- [x] 2. Lesson Auto-Apply System
 - [ ] 3. Basic Market Regime Detection
 - [x] 4. Drawdown Protection Engine
 - [ ] 5. Correlation Warning System
@@ -26,6 +26,22 @@ Constraint: do not touch backtest engine, PnL engine, or trade execution logic.
 - Evidence: `/tmp/test_auto_avoid_drawdown.py` -- 4 losses = no trigger, 5th loss
   triggers, different symbol on same strategy stays allowed (pattern-specific,
   not strategy-wide), audit row persisted with reason.
+
+## 2. Lesson Auto-Apply System -- DONE
+- `paper_trading/lesson_auto_apply.py`: stricter bar than candidate-flagging
+  (10+ trades, 80%+ one-sided win rate vs the flagging bar of 5+/75%) --
+  auto-applying changes live ranking, so it needs more evidence first.
+- influence = "boost" (winning pattern) or "avoid" (losing pattern), applied
+  as a bounded +/-10 point nudge in confidence.score() -- soft, never a hard
+  block (confidence never gates a trade by design; Risk Manager is the only
+  real gate).
+- Wired: engine._tick() calls promote_candidates() once per tick (cheap
+  indexed query). New table `paper_auto_lessons`, visible + reversible via
+  GET `/api/paper-trading/auto-lessons` + POST `.../deactivate`.
+- Evidence: `/tmp/test_lesson_auto_apply.py` -- 10 trades at 90% win rate
+  promotes correctly, confidence score is measurably higher (70 vs 60) only
+  for the matching pattern, unrelated pattern gets zero influence, and
+  deactivating the row immediately zeroes the influence again.
 
 ## 4. Drawdown Protection Engine -- DONE
 - `paper_trading/drawdown_guard.py`: pauses NEW entries for one strategy when

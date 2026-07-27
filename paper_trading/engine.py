@@ -25,7 +25,7 @@ from data_engine.logging_setup import log as default_log
 from paper_trading import config as pt_config
 from paper_trading import coin_filter, live_feed, market_state, strategy_matcher, lesson_matcher
 from paper_trading import signal_generator, confidence, risk_manager, guards, position_manager
-from paper_trading import auto_avoid, drawdown_guard
+from paper_trading import auto_avoid, drawdown_guard, lesson_auto_apply
 
 
 def _now_iso():
@@ -190,6 +190,15 @@ class PaperTradingEngine:
                 self._log(f"[paper-trading] decision error {symbol}: {e!r}")
 
         closed += self._monitor_orphaned_positions(exchange, client, shortlisted_symbols)
+
+        # Lesson Auto-Apply (item 2): re-scan pattern memory once per tick
+        # and promote/refresh any pattern that now clears the auto-apply
+        # bar. Cheap (one indexed group-by query); never touches a trade
+        # directly -- only writes rows that confidence.score() later reads.
+        try:
+            lesson_auto_apply.promote_candidates()
+        except Exception as e:
+            self._log(f"[paper-trading] lesson auto-apply error: {e!r}")
 
         self._tick_count += 1
         self._last_tick_at = _now_iso()

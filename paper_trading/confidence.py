@@ -4,10 +4,20 @@ Manager is the only gate that can reject one.
 """
 
 from data_engine import storage
+from paper_trading import lesson_auto_apply
 
 
 def score(candidate, market_snapshot):
     value = 50.0
+
+    # Lesson Auto-Apply (Self-Learning Group, item 2): a SOFT nudge only --
+    # bounded at +/-10 points out of 100, never enough alone to flip a
+    # candidate between approved/rejected (confidence never gates a trade,
+    # per this module's own docstring; Risk Manager is the only real gate).
+    value += lesson_auto_apply.get_influence(
+        candidate.get("strategy_id"), market_snapshot.get("symbol"),
+        market_snapshot.get("market_state"), market_snapshot.get("session"),
+    )
 
     if candidate["source"] == "strategy":
         value += min(candidate.get("strategy_version") or 5, 10) * 2
