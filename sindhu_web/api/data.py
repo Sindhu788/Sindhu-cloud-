@@ -4,6 +4,7 @@ from data_engine import storage, config
 from data_engine.symbols import pick_top_symbols
 from data_engine.downloader import download_all
 from data_engine.exchanges.registry import get_exchange_client
+from data_engine import data_quality_score
 from sindhu_web import cache
 from sindhu_web.jobs import job_manager
 
@@ -46,6 +47,19 @@ def get_data_overview():
         "total_coins": len(symbols),
         "database_size_bytes": storage.db_file_size_bytes(),
     }
+
+
+@router.get("/api/data/quality")
+def get_data_quality():
+    """Data Quality Engine (B3): a live per-symbol health score, kept
+    entirely separate from strategy performance -- cached 5min (a 50-symbol
+    scan) since this is a slow-changing signal, not something that needs
+    second-by-second freshness."""
+    exchange = _default_exchange()
+
+    def _compute():
+        return data_quality_score.score_all_tracked_symbols(exchange)
+    return cache.cached(f"data_quality_{exchange}", 300, _compute)
 
 
 @router.post("/api/data/download")

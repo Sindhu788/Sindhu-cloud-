@@ -1111,7 +1111,10 @@
   async function renderData() {
     const myToken = activeRouteToken;
     const render = async () => {
-      const d = await apiGet("/api/data");
+      const [d, dq] = await Promise.all([
+        apiGet("/api/data"),
+        apiGet("/api/data/quality").catch(() => null),
+      ]);
       if (isStaleRoute(myToken)) return;
       const rows = d.coins.map(c => `
         <tr>
@@ -1125,7 +1128,13 @@
           ${card("Downloaded Coins", fmtNum(d.total_coins))}
           ${card("Database Size", fmtBytes(d.database_size_bytes))}
           ${card("Missing Data", d.missing_data.length ? d.missing_data.join(", ") : "None")}
+          ${dq ? cardClass("Data Quality (separate from strategy performance)", `${dq.overall_score}/100`, dq.overall_score >= 90 ? "positive" : dq.overall_score >= 70 ? "" : "negative") : ""}
         </div>
+        ${dq && dq.symbols_with_issues ? `
+        <div class="section-title">Data Quality Issues (${dq.symbols_with_issues} coin(s))</div>
+        <div class="card">${dq.per_symbol.filter(s => s.issues.length).map(s => `
+          <div style="padding:4px 0;"><b>${esc(s.symbol)}</b> (score ${s.score}/100): ${esc(s.issues.join("; "))}</div>`).join("")}
+        </div>` : ""}
         <div class="btn-row"><button class="btn" id="btnDownload">Start / Resume Download</button></div>
         <div class="section-title">Available Timeframes</div>
         <div class="card">${d.timeframes.join(", ")}</div>
