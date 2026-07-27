@@ -2687,11 +2687,45 @@
         <div class="form-row"><label>Database Location (read-only)</label><input value="${esc(s.database_location)}" disabled></div>
         <div class="btn-row"><button class="btn" id="btnSaveSettings">Save Settings</button><span id="setSaveStatus" class="muted"></span></div>
       </div>
+      <div class="section-title">System Health</div>
+      <div class="grid" id="healthGrid">
+        ${cardId("healthUptime", "Server Uptime", "...")}
+        ${cardId("healthCpu", "CPU Usage", "...")}
+        ${cardId("healthRam", "Memory Usage", "...")}
+        ${cardId("healthDbSize", "Database Size", "...")}
+        ${cardId("healthActive", "Active Processes", "...")}
+      </div>
+      <div class="card" id="healthErrorsCard" style="margin-bottom:22px;">
+        <div class="label">Recent Errors (from logs)</div>
+        <div id="healthErrors" class="activity-feed muted">Loading...</div>
+      </div>
+
       <div class="section-title">Backup</div>
       <div class="card">
         <div class="btn-row"><button class="btn" id="btnBackupNow">Create Backup Now</button></div>
         <div id="backupList" class="table-wrap"></div>
       </div>`;
+
+    function fmtUptime(seconds) {
+      const h = Math.floor(seconds / 3600), m = Math.floor((seconds % 3600) / 60);
+      return h > 0 ? `${h}h ${m}m` : `${m}m ${Math.floor(seconds % 60)}s`;
+    }
+    async function loadHealth() {
+      const h = await apiGet("/api/system/health");
+      document.getElementById("healthUptime").textContent = fmtUptime(h.uptime_seconds);
+      document.getElementById("healthCpu").textContent = `${h.cpu_percent.toFixed(0)}%`;
+      document.getElementById("healthRam").textContent = `${h.ram_percent.toFixed(0)}%`;
+      document.getElementById("healthDbSize").textContent = fmtBytes(h.database_size_bytes);
+      document.getElementById("healthActive").textContent = h.active_process_count;
+      const errBox = document.getElementById("healthErrors");
+      if (!h.recent_errors.length) {
+        errBox.innerHTML = `<div class="muted">No recent errors -- looking healthy.</div>`;
+      } else {
+        errBox.innerHTML = h.recent_errors.map(line => `<div class="activity-item">${esc(line)}</div>`).join("");
+      }
+    }
+    loadHealth();
+    autoRefresh(loadHealth, 15);
 
     async function saveSettings() {
       const status = document.getElementById("setSaveStatus");

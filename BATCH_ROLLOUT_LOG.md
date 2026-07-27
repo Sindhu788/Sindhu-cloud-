@@ -10,7 +10,7 @@ Constraint: do not touch backtest engine, PnL engine, or trade execution logic.
 - [x] 4. Drawdown Protection Engine
 - [x] 5. Correlation Warning System
 - [x] 6. Basic Risk Analytics (Sharpe + Max Drawdown)
-- [ ] 7. System Health Dashboard
+- [x] 7. System Health Dashboard
 - [x] 8. Automated Backup Engine
 - [ ] 9. Autonomous Strategy Research
 - [ ] 10. Source Quality Filter
@@ -95,6 +95,24 @@ Constraint: do not touch backtest engine, PnL engine, or trade execution logic.
   Dashboard: NOT YET WIRED into the frontend -- backend/API complete and
   tested, UI display still pending (will revisit if time allows after
   higher-priority items).
+
+## 7. System Health Dashboard -- DONE
+- `sindhu_web/api/system.py`: GET `/api/system/health` -- uptime (stamped at
+  module import = server start), CPU/RAM (psutil, same calls /api/home
+  already makes), DB size, active background processes (reuses
+  job_manager.list_jobs() + paper_engine.is_running() + evolution_engine.is_running(),
+  no new tracking mechanism invented), and last 10 error-looking lines
+  tailed from sindhu.log (reads only the last 200KB, not the whole file).
+- Frontend: new "System Health" section on the Settings page (grid of 5
+  stat cards + a Recent Errors panel), auto-refreshing every 15s via the
+  existing autoRefresh() helper.
+- Evidence: verified LIVE in the actual browser after a real server
+  restart -- uptime "0m 37s", CPU 74%, RAM 71%, DB 14.5 GB, 1 active
+  process (Paper Trading engine), and real error lines from the log.
+- Side-finding (not fixed, out of scope for this batch): the health check
+  immediately surfaced a genuine recurring error from 2026-07-25 --
+  "StrategyConfig.__init__() got an unexpected keyword argument
+  'entry_rule_groups'" on multiple symbols. Worth a look separately.
 
 ## 8. Automated Backup Engine -- DONE
 - The continuous/unattended scheduler (`start_auto_backup_thread`, sqlite
