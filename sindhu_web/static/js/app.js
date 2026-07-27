@@ -1250,7 +1250,21 @@
         <div id="strategyProfileBox" style="display:none;">
           <div class="section-title" id="strategyProfileTitle">Strategy Profile</div>
           <div id="strategyProfileBody"></div>
-        </div>`;
+        </div>
+
+        <div class="section-title">Strategy Graveyard</div>
+        <div id="graveyardBox" class="card"><span class="muted">Loading...</span></div>`;
+
+    (async () => {
+      const g = await apiGet("/api/paper-trading/graveyard").catch(() => ({ graveyard: [] }));
+      const box = document.getElementById("graveyardBox");
+      if (!box) return;
+      box.innerHTML = g.graveyard.length
+        ? g.graveyard.map(x => `<div style="padding:6px 0;border-bottom:1px solid var(--border,#333);">
+            <b>${esc(x.strategy_name)}</b> -- retired ${esc((x.buried_at||"").slice(0,10))}<br>
+            <span class="muted">${esc(x.reason_detail)}</span></div>`).join("")
+        : `<span class="muted">No strategies retired yet.</span>`;
+    })();
 
       document.getElementById("stratLibSearch").addEventListener("input", debounce(render, 300));
       document.getElementById("btnNewStrategy").onclick = () => { location.hash = "#backtesting"; };
@@ -2917,6 +2931,12 @@
       <div class="card">
         <div class="btn-row"><button class="btn" id="btnBackupNow">Create Backup Now</button></div>
         <div id="backupList" class="table-wrap"></div>
+      </div>
+
+      <div class="section-title">Weekly Reports</div>
+      <div class="card">
+        <div class="btn-row"><button class="btn" id="btnGenerateReport">Generate Report Now</button></div>
+        <div id="weeklyReportList"></div>
       </div>`;
 
     function fmtUptime(seconds) {
@@ -2977,6 +2997,23 @@
       loadBackups();
     };
     loadBackups();
+
+    async function loadWeeklyReports() {
+      const r = await apiGet("/api/paper-trading/weekly-reports").catch(() => ({ reports: [] }));
+      const box = document.getElementById("weeklyReportList");
+      if (!r.reports.length) { box.innerHTML = `<p class="muted">No reports yet -- generate one now, or wait for the automatic weekly cycle.</p>`; return; }
+      box.innerHTML = r.reports.map((rep, i) => `
+        <details ${i === 0 ? "open" : ""} style="margin-bottom:8px;">
+          <summary>${esc((rep.created_at || "").slice(0,10))}</summary>
+          <pre style="white-space:pre-wrap;font-family:inherit;font-size:13px;">${esc(rep.report_text)}</pre>
+        </details>`).join("");
+    }
+    document.getElementById("btnGenerateReport").onclick = async () => {
+      await apiPost("/api/paper-trading/weekly-reports/generate-now", {});
+      appendLog("Weekly report generated.");
+      loadWeeklyReports();
+    };
+    loadWeeklyReports();
   }
 
   // ------------------------------------------------------------ KNOWLEDGE

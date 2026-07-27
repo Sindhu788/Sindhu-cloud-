@@ -109,6 +109,8 @@ async def _lifespan(app: FastAPI):
     from sindhu_strategy.generator import start_daily_scheduler_thread
     start_daily_scheduler_thread()
     backup.start_auto_backup_thread()
+    from paper_trading.weekly_report import start_weekly_report_scheduler_thread
+    start_weekly_report_scheduler_thread()
     threading.Thread(target=_warm_caches, daemon=True).start()
     task = asyncio.create_task(_broadcast_loop())
     yield

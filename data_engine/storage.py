@@ -256,6 +256,31 @@ CREATE TABLE IF NOT EXISTS paper_lesson_performance (
     updated_at TEXT
 );
 
+-- Weekly Auto-Report (Dashboard Consolidation Group, item 7): one row per
+-- generated report, permanently stored so past reports stay reviewable.
+CREATE TABLE IF NOT EXISTS paper_weekly_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    period_start TEXT NOT NULL,
+    period_end TEXT NOT NULL,
+    report_json TEXT NOT NULL,
+    report_text TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+-- Strategy Graveyard (Confidence & Signal Quality Group, item 9): a
+-- permanent, never-deleted record of why a strategy was effectively
+-- abandoned, so a similar future import can be warned it resembles
+-- something that already failed.
+CREATE TABLE IF NOT EXISTS strategy_graveyard (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    strategy_id TEXT NOT NULL,
+    strategy_name TEXT NOT NULL,
+    reason_category TEXT NOT NULL,
+    reason_detail TEXT NOT NULL,
+    concepts_used_json TEXT,
+    buried_at TEXT NOT NULL
+);
+
 -- Pattern-Based Auto-Avoid (self-learning, active): one row per exact
 -- (strategy, symbol, market_state, session) pattern that hit the
 -- consecutive-loss threshold. Presence of an active=1 row is the veto
@@ -2455,6 +2480,69 @@ def list_paper_pattern_trades_ordered(strategy_id, symbol, market_state, session
     with get_conn() as conn:
         rows = conn.execute(query, params).fetchall()
     return [{"pnl": r[0], "closed_at": r[1]} for r in rows]
+
+
+# --------------------------------------------------------------- Weekly Auto-Report
+
+def save_weekly_report(period_start, period_end, report_json, report_text, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO paper_weekly_reports (period_start, period_end, report_json, report_text, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (period_start, period_end, report_json, report_text, now_iso),
+        )
+
+
+def list_weekly_reports(limit=20):
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, period_start, period_end, report_json, report_text, created_at "
+            "FROM paper_weekly_reports ORDER BY created_at DESC LIMIT ?", (limit,),
+        ).fetchall()
+    return [
+        {"id": r[0], "period_start": r[1], "period_end": r[2], "report_json": r[3],
+         "report_text": r[4], "created_at": r[5]}
+        for r in rows
+    ]
+
+
+def get_latest_weekly_report():
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT created_at FROM paper_weekly_reports ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()
+    return row[0] if row else None
+
+
+# --------------------------------------------------------------- Strategy Graveyard
+
+def bury_strategy(strategy_id, strategy_name, reason_category, reason_detail, concepts_used, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO strategy_graveyard
+               (strategy_id, strategy_name, reason_category, reason_detail, concepts_used_json, buried_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (strategy_id, strategy_name, reason_category, reason_detail, json.dumps(concepts_used or []), now_iso),
+        )
+
+
+def list_graveyard(limit=100):
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, strategy_id, strategy_name, reason_category, reason_detail, concepts_used_json, buried_at "
+            "FROM strategy_graveyard ORDER BY buried_at DESC LIMIT ?", (limit,),
+        ).fetchall()
+    return [
+        {"id": r[0], "strategy_id": r[1], "strategy_name": r[2], "reason_category": r[3],
+         "reason_detail": r[4], "concepts_used": json.loads(r[5]) if r[5] else [], "buried_at": r[6]}
+        for r in rows
+    ]
+
+
+def is_strategy_buried(strategy_id):
+    with get_conn() as conn:
+        row = conn.execute("SELECT id FROM strategy_graveyard WHERE strategy_id=? LIMIT 1", (strategy_id,)).fetchone()
+    return row is not None
 
 
 # --------------------------------------------------------------- Pattern-Based Auto-Avoid (active)

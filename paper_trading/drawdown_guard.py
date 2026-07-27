@@ -35,6 +35,13 @@ def evaluate_strategy(strategy_id, strategy_name):
 
     already_paused, _, _ = storage.is_strategy_paused(strategy_id)
     if already_paused:
+        # Strategy Graveyard (Confidence & Signal Quality Group, item 9):
+        # burial only applies once a strategy is ALREADY paused and its
+        # streak keeps growing past the (stricter) burial bar -- checked
+        # here since this is the one place that already re-evaluates the
+        # streak on every trade close, paused or not.
+        from paper_trading import graveyard
+        graveyard.bury_if_abandoned(strategy_id, strategy_name)
         return None  # don't re-trigger/overwrite an existing pause's reason
 
     settings = pt_config.load()

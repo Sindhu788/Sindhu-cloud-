@@ -3,8 +3,56 @@
 Started: 2026-07-27 (session continuation)
 Constraint: do not touch backtest engine, PnL engine, or trade execution logic.
 
-## FINAL STATUS: 10/10 items complete (9 fully verified working, 1 built+tested
-but network-blocked in this sandbox -- see item 9/10 notes).
+## ROUND 2 (this session): Step 1 UI wiring + Groups 5-8, all complete
+
+Step 1: Sharpe/Max DD column on Strategies table + bulk risk-metrics-all
+endpoint; Market Regime filter dropdown on Market page. Both verified live
+with real data (Sharpe -4.50/Max DD 3.2% shown per strategy; 40/50 coins
+correctly filtered to "ranging").
+
+Group 5 -- Portfolio & Capital Intelligence: Analytics (exposure/risk/PnL/
+concentration), Risk Score (documented aggregation of per-strategy Sharpe/
+MaxDD), Exposure Manager (cross-strategy per-coin risk, flags 3+-strategy
+concentration). Found+fixed a real caching bug during verification
+(portfolio analytics was bypassing the correlation-warnings cache).
+Verified live: 89 open positions, $7,005.82 exposure, risk score 77.5/100,
+real correlation-flagged coin table.
+
+Group 6 -- Monte Carlo + Trade Audit: Monte Carlo reshuffles a batch's real
+trades 1000x. Found+fixed a real MATH bug during verification: naive
+summing/compounding of trade PnL is mathematically order-invariant, making
+every reshuffled permutation identical -- fixed with a max-50%-drawdown
+"risk of ruin" stop rule, the standard technique that makes trade-order
+genuinely matter. Verified: p5/median/p95 now genuinely differ, reproducible
+by seed. Trade Audit exposes exact entry/exit rule + raw candles for any
+trade, paper or backtest, verified live with real trade data.
+
+Group 7 -- Unified Strategy Detail + Weekly Report: one consolidated
+Profile view per strategy (confidence/risk/regime/correlation/pause/
+lessons/genealogy/readiness, verified correct with real data). Weekly
+Report generates a genuinely useful plain-language summary from real data
+(tested live: correctly identified 5 underperforming strategies and
+recommended retiring the one that was both paused and had a real sample
+size) -- stored permanently, scheduled every 7 days, manual trigger also
+available and verified.
+
+Group 8 -- Confluence Scoring + Strategy Graveyard: Confluence gives a
+real "Strong/Moderate/Weak -- N/M factors" label per signal from 4
+existing-feature checks (regime, pause status, coin-crowding, pattern
+history), verified on a real open position (correctly scored "Weak --
+1/3"). Graveyard permanently records why a strategy was abandoned (wired
+into drawdown_guard, fires once a paused strategy's streak exceeds a
+stricter 10-loss bar) and warns on concept-overlap with future imports --
+verified end-to-end: a real paused strategy (10-loss streak) was
+correctly buried, and a similarity check against its concepts correctly
+warned "resembles X, which was retired: ...".
+
+All of Round 2 verified live on the running server after real restarts;
+no regressions found in a full cross-module import smoke test covering
+every file touched in both rounds.
+
+## ROUND 1 FINAL STATUS: 10/10 items complete (9 fully verified working, 1
+built+tested but network-blocked in this sandbox -- see item 9/10 notes).
 
 Live proof, captured organically during final verification (not a synthetic
 test): while re-checking the running system, strategy "The Daily Liquidity

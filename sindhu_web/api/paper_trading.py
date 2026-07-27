@@ -10,7 +10,8 @@ from backtest_engine.strategy_safety_check import run_safety_check
 from data_engine import storage
 from data_engine.logging_setup import log as file_log
 from paper_trading import config as pt_config, insights
-from paper_trading import drawdown_guard, regime, correlation, portfolio, strategy_profile
+from paper_trading import drawdown_guard, regime, correlation, portfolio, strategy_profile, weekly_report
+from paper_trading import confluence, graveyard
 from paper_trading.engine import engine
 from data_engine import config as base_config
 from sindhu_web import broadcast, cache, sync
@@ -504,6 +505,48 @@ def get_strategy_profile_endpoint(strategy_id: str):
     if profile is None:
         raise HTTPException(404, "strategy not found")
     return profile
+
+
+@router.get("/api/paper-trading/confluence/{position_id}")
+def get_confluence_for_position(position_id: str):
+    """Retroactive confluence score for a real (open or closed) position --
+    uses the exact strategy/symbol/market_state/session/direction that
+    signal actually fired under."""
+    pos = storage.get_paper_position(position_id)
+    if not pos:
+        raise HTTPException(404, "position not found")
+    exchanges_cfg = base_config.load_or_seed("exchanges.json", base_config.DEFAULTS["exchanges.json"])
+    exchange = exchanges_cfg["default"]
+    return confluence.score_confluence(
+        pos.get("strategy_id"), pos["symbol"], exchange,
+        pos.get("market_state"), pos.get("session"), pos["direction"],
+    )
+
+
+@router.get("/api/paper-trading/graveyard")
+def get_graveyard():
+    return {"graveyard": storage.list_graveyard()}
+
+
+class SimilarityCheck(BaseModel):
+    concepts_used: list[str] = []
+
+
+@router.post("/api/paper-trading/graveyard/check-similarity")
+def check_graveyard_similarity(req: SimilarityCheck):
+    return {"warnings": graveyard.check_similarity_warnings(req.concepts_used)}
+
+
+@router.get("/api/paper-trading/weekly-reports")
+def get_weekly_reports(limit: int = 20):
+    return {"reports": storage.list_weekly_reports(limit=limit)}
+
+
+@router.post("/api/paper-trading/weekly-reports/generate-now")
+def generate_weekly_report_now():
+    """Manual trigger, bypassing the 7-day gate -- for testing/on-demand use."""
+    result = weekly_report.generate_weekly_report()
+    return {"ok": True, "report_text": result["report_text"]}
 
 
 @router.get("/api/paper-trading/trade-audit/{position_id}")
