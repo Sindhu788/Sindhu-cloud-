@@ -2379,7 +2379,7 @@
     const render = async () => {
       const [status, positionsRes, tradesRes, decisionsRes, stratPerfRes, lessonPerfRes,
              settings, strategiesRes, lessonsRes, allTimeAnalytics, alertsRes, sessionsRes,
-             candidatesRes] = await Promise.all([
+             candidatesRes, portfolioRes, riskScoreRes, exposureRes, corrWarningsRes] = await Promise.all([
         apiGet("/api/paper-trading/status"),
         apiGet("/api/paper-trading/positions"),
         apiGet("/api/paper-trading/trades?limit=50"),
@@ -2393,6 +2393,10 @@
         apiGet("/api/paper-trading/alerts?limit=10").catch(() => ({ alerts: [] })),
         apiGet("/api/paper-trading/session-stats").catch(() => ({ sessions: [] })),
         apiGet("/api/paper-trading/lesson-candidates").catch(() => ({ candidates: [] })),
+        apiGet("/api/paper-trading/portfolio").catch(() => null),
+        apiGet("/api/paper-trading/portfolio-risk-score").catch(() => null),
+        apiGet("/api/paper-trading/coin-exposure").catch(() => ({ exposure: [] })),
+        apiGet("/api/paper-trading/correlation-warnings").catch(() => ({ warnings: [] })),
       ]);
       if (isStaleRoute(myToken)) return;
 
@@ -2435,6 +2439,42 @@
               <span class="muted" style="float:right;">${esc((a.created_at||"").slice(0,16).replace("T"," "))}</span>
             </div>`).join("")}
         </div>` : ""}
+
+        <div class="section-title">Portfolio (All Strategies Combined)</div>
+        <div class="grid">
+          ${portfolioRes ? `
+          ${card("Open Positions", fmtNum(portfolioRes.open_position_count))}
+          ${card("Total Exposure", `$${portfolioRes.total_exposure.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}`)}
+          ${card("Total Open Risk", `$${portfolioRes.total_open_risk.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}`)}
+          ${cardClass("Combined Realized PnL", `${portfolioRes.combined_realized_pnl >= 0 ? "+" : ""}$${portfolioRes.combined_realized_pnl.toFixed(2)}`, portfolioRes.combined_realized_pnl > 0 ? "positive" : portfolioRes.combined_realized_pnl < 0 ? "negative" : "")}
+          ${card("Correlation Concentration", `${portfolioRes.correlation_concentration_pct}%`)}
+          ` : `<div class="muted">Portfolio data not available yet.</div>`}
+          ${riskScoreRes && riskScoreRes.risk_score != null ? cardClass("Portfolio Risk Score", `${riskScoreRes.risk_score}/100`, riskScoreRes.risk_score >= 70 ? "positive" : riskScoreRes.risk_score >= 40 ? "" : "negative") : card("Portfolio Risk Score", "Not enough data")}
+        </div>
+        ${riskScoreRes && riskScoreRes.risk_score != null ? `<div class="muted" style="font-size:12px;">Based on ${riskScoreRes.strategies_with_data} strategies with enough trade history -- average Sharpe ${riskScoreRes.avg_sharpe}, worst single-strategy drawdown ${riskScoreRes.worst_drawdown_pct}%.</div>` : ""}
+
+        ${(corrWarningsRes.warnings || []).length ? `
+        <div class="section-title">Correlation Warnings</div>
+        <div class="card">
+          ${corrWarningsRes.warnings.map(w => `
+            <div style="padding:4px 0;border-bottom:1px solid var(--border,#333);font-size:13px;">
+              <span class="pill pill-pending">Info</span> ${esc(w.message)}
+            </div>`).join("")}
+        </div>` : ""}
+
+        ${(exposureRes.exposure || []).length ? `
+        <div class="section-title">Exposure Per Coin (All Strategies)</div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Coin</th><th>Open Positions</th><th>Strategies Involved</th><th>Total Notional</th><th>Total Risk</th></tr></thead>
+          <tbody>${exposureRes.exposure.slice(0, 15).map(e => `
+            <tr>
+              <td>${esc(e.symbol)}</td>
+              <td>${e.position_count}</td>
+              <td>${e.strategy_count}${e.strategy_count >= 3 ? ` <span class="pill pill-pending">Concentrated</span>` : ""}</td>
+              <td>$${e.total_notional.toFixed(2)}</td>
+              <td>$${e.total_risk.toFixed(2)}</td>
+            </tr>`).join("")}</tbody>
+        </table></div>` : ""}
 
         <div class="section-title">Analytics</div>
         <div id="ptAnalyticsBox"></div>

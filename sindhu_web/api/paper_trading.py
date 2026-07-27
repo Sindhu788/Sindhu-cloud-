@@ -10,7 +10,7 @@ from backtest_engine.strategy_safety_check import run_safety_check
 from data_engine import storage
 from data_engine.logging_setup import log as file_log
 from paper_trading import config as pt_config, insights
-from paper_trading import drawdown_guard, regime, correlation
+from paper_trading import drawdown_guard, regime, correlation, portfolio
 from paper_trading.engine import engine
 from data_engine import config as base_config
 from sindhu_web import broadcast, cache, sync
@@ -459,3 +459,32 @@ def get_correlation_warnings():
     def _compute():
         return correlation.detect_warnings(exchange)
     return {"warnings": cache.cached(f"correlation_warnings_{exchange}", 60, _compute)}
+
+
+# --------------------------------------------------------------- Portfolio & Capital Intelligence
+
+@router.get("/api/paper-trading/portfolio")
+def get_portfolio_analytics():
+    """Cached 60s -- compute_portfolio_analytics() calls correlation.detect_warnings()
+    internally, the same 60s+-cold pairwise price comparison the dedicated
+    correlation-warnings endpoint already caches; without caching here too,
+    every /portfolio poll would silently repeat that full cost."""
+    exchanges_cfg = base_config.load_or_seed("exchanges.json", base_config.DEFAULTS["exchanges.json"])
+    exchange = exchanges_cfg["default"]
+
+    def _compute():
+        return portfolio.compute_portfolio_analytics(exchange)
+    return cache.cached(f"portfolio_analytics_{exchange}", 60, _compute)
+
+
+@router.get("/api/paper-trading/portfolio-risk-score")
+def get_portfolio_risk_score():
+    strategy_ids = [m["id"] for m in lib.list_all()]
+    return portfolio.compute_portfolio_risk_score(strategy_ids, since=insights.fresh_session_start())
+
+
+@router.get("/api/paper-trading/coin-exposure")
+def get_coin_exposure():
+    exchanges_cfg = base_config.load_or_seed("exchanges.json", base_config.DEFAULTS["exchanges.json"])
+    exchange = exchanges_cfg["default"]
+    return {"exposure": portfolio.compute_coin_exposure(exchange)}

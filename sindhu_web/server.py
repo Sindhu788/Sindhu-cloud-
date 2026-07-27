@@ -56,7 +56,7 @@ def _warm_caches():
     /api/data. Doing that work here, off the request path, means whoever
     opens those pages first gets an already-populated cache instead."""
     import time as _time
-    from paper_trading import correlation as _correlation
+    from paper_trading import correlation as _correlation, portfolio as _portfolio
     from data_engine import config as _base_config
     from sindhu_web import cache as _cache
 
@@ -64,11 +64,16 @@ def _warm_caches():
         exchange = _base_config.load_or_seed("exchanges.json", _base_config.DEFAULTS["exchanges.json"])["default"]
         return _cache.cached(f"correlation_warnings_{exchange}", 60, lambda: _correlation.detect_warnings(exchange))
 
+    def _warm_portfolio_analytics():
+        exchange = _base_config.load_or_seed("exchanges.json", _base_config.DEFAULTS["exchanges.json"])["default"]
+        return _cache.cached(f"portfolio_analytics_{exchange}", 60, lambda: _portfolio.compute_portfolio_analytics(exchange))
+
     for label, fn in (
         ("market", lambda: market.get_market()),
         ("data", lambda: data.get_data_overview()),
         ("home", lambda: home.get_home()),
         ("correlation_warnings", _warm_correlation_warnings),
+        ("portfolio_analytics", _warm_portfolio_analytics),
     ):
         try:
             t0 = _time.perf_counter()
