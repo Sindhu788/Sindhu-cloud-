@@ -12,8 +12,8 @@ Constraint: do not touch backtest engine, PnL engine, or trade execution logic.
 - [x] 6. Basic Risk Analytics (Sharpe + Max Drawdown)
 - [x] 7. System Health Dashboard
 - [x] 8. Automated Backup Engine
-- [ ] 9. Autonomous Strategy Research
-- [ ] 10. Source Quality Filter
+- [x] 9. Autonomous Strategy Research (built + tested; network-blocked in THIS sandbox, see notes)
+- [x] 10. Source Quality Filter
 
 ## 1. Pattern-Based Auto-Avoid Rule -- DONE
 - `paper_trading/auto_avoid.py`: threshold = 5 consecutive losses on the EXACT
@@ -129,3 +129,43 @@ Constraint: do not touch backtest engine, PnL engine, or trade execution logic.
   was already shipped and in production before this session.
 - NOT YET WIRED: keep_last/interval_hours aren't exposed in the Settings UI
   yet (backup_settings.json is editable, just not from a dashboard form).
+
+## 9+10. Autonomous Strategy Research + Source Quality Filter -- BUILT, IMPORTANT CAVEAT
+
+- `ai_integration/web_research.py`: on-demand only (explicit trigger via API,
+  no scheduled/background trigger anywhere) -- searches, filters through a
+  Source Quality Filter allow-list (babypips.com, investopedia.com,
+  tradingview.com, binance.com, cmegroup.com), fetches + extracts article
+  text (dependency-free HTMLParser-based extractor, verified correct), and
+  queues every trusted result through `ai_integration.import_queue.enqueue()`
+  -- the EXACT SAME entry point manual paste uses. No special trust, no
+  auto-approve, no auto-deploy: it lands in the same NEEDS_REVIEW/READY
+  queue as anything else.
+- API: POST `/api/research/search` (query-based), POST `/api/research/queue-url`
+  (direct URL, bypasses search), GET `/api/research/trusted-sources`.
+  Verified live end-to-end through the real running server.
+- **Important, honestly-reported finding**: search discovery uses
+  DuckDuckGo's key-less HTML endpoint (no paid search API key was
+  available). Tested directly from this environment: DuckDuckGo returns an
+  empty bot-challenge page (HTTP 202, no results) regardless of GET/POST or
+  headers tried. I then tested fetching EVERY trusted domain directly:
+  babypips.com -> 403 Forbidden, academy.binance.com -> 202 empty,
+  tradingview.com -> connection timeout. A control request to
+  api.github.com succeeded (200 OK), confirming outbound internet access
+  itself works -- these specific sites are blocking bot/datacenter traffic,
+  which is a very common real-world anti-scraping pattern for exactly this
+  kind of sandboxed/cloud IP.
+- What this means practically: the CODE is correct, tested, and degrades
+  gracefully (verified: untrusted URLs rejected before any network call,
+  unreachable trusted URLs return a clear skip reason, never crash) -- but
+  I could not verify a genuine successful end-to-end fetch from THIS
+  environment. It may well work differently from the user's own real
+  network (this looks like IP-reputation-based bot blocking, not a
+  fundamental code defect), but that's untested and should be verified on
+  the actual deployment machine.
+- **Decision needed from you**: if search/fetch continues to be blocked on
+  the real deployment too, the reliable path forward is a paid search/fetch
+  API (e.g. a Search API service, or a scraping-proxy service) with a
+  key you'd provide -- swapping `search_web()`'s implementation is a
+  self-contained one-function change, everything downstream (trust filter,
+  extraction, queueing) is already decoupled from how results are found.
