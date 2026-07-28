@@ -3480,6 +3480,19 @@
           <span id="tgStatus" class="muted"></span>
         </div>
       </div>
+
+      <div class="section-title">Telegram Proxy (for networks that block Telegram)</div>
+      <div class="card" style="max-width:520px;">
+        <p class="muted" style="font-size:12px;margin-top:0;">If Telegram is blocked on this network (some ISPs block it), route Telegram messages through a proxy server instead of connecting directly. Leave this off if Telegram already works normally.</p>
+        <div class="form-row"><label><input id="tgProxyEnabled" type="checkbox" style="width:auto;"> Route Telegram traffic through a proxy</label></div>
+        <div class="form-row"><label>Proxy URL (write-only -- never shown again after saving)</label>
+          <input id="tgProxyUrl" type="password" placeholder="socks5://user:pass@host:port or http://user:pass@host:port"></div>
+        <div class="btn-row">
+          <button class="btn" id="btnSaveTelegramProxy">Save Proxy Settings</button>
+          <button class="btn-ghost" id="btnTestProxy">Test Proxy Connection</button>
+          <span id="tgProxyStatus" class="muted"></span>
+        </div>
+      </div>
       <div class="section-title">Telegram Message Log</div>
       <div class="table-wrap"><table>
         <thead><tr><th>Time</th><th>Trigger</th><th>Strategy</th><th>Result</th></tr></thead>
@@ -3569,6 +3582,8 @@
       document.getElementById("tgRateLimit").value = s.rate_limit_per_hour;
       document.getElementById("tgAutoSend").checked = s.auto_send_enabled;
       document.getElementById("tgToken").placeholder = s.token_configured ? "Token already set -- enter to replace" : "Enter to set/replace";
+      document.getElementById("tgProxyEnabled").checked = !!s.proxy_enabled;
+      document.getElementById("tgProxyUrl").placeholder = s.proxy_configured ? "Proxy URL already set -- enter to replace" : "socks5://user:pass@host:port or http://user:pass@host:port";
     }
     async function loadTelegramLog() {
       const r = await apiGet("/api/paper-trading/telegram/log").catch(() => ({ messages: [] }));
@@ -3598,9 +3613,26 @@
     document.getElementById("btnTestTelegram").onclick = async () => {
       const status = document.getElementById("tgStatus");
       status.textContent = "Sending test message...";
-      const r = await apiPost("/api/paper-trading/telegram/test", {});
+      const r = await apiPost("/api/paper-trading/telegram/test", {}, 120000);
       status.textContent = r.ok ? "Test message sent successfully -- check your channel." : `Failed: ${r.error}`;
       loadTelegramLog();
+    };
+    document.getElementById("btnSaveTelegramProxy").onclick = async () => {
+      const status = document.getElementById("tgProxyStatus");
+      status.textContent = "Saving...";
+      const body = { proxy_enabled: document.getElementById("tgProxyEnabled").checked };
+      const url = document.getElementById("tgProxyUrl").value.trim();
+      if (url) body.proxy_url = url;
+      await apiPost("/api/paper-trading/telegram/settings", body);
+      document.getElementById("tgProxyUrl").value = "";
+      status.textContent = "Saved.";
+      loadTelegramSettings();
+    };
+    document.getElementById("btnTestProxy").onclick = async () => {
+      const status = document.getElementById("tgProxyStatus");
+      status.textContent = "Testing proxy connection...";
+      const r = await apiPost("/api/paper-trading/telegram/test-proxy", {}, 120000);
+      status.textContent = r.ok ? `Proxy works -- outbound IP is ${r.exit_ip}.` : `Failed: ${r.error}`;
     };
     loadTelegramSettings();
     loadTelegramLog();

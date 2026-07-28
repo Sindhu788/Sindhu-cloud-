@@ -8,6 +8,19 @@ Security: the bot token is stored in data/config/telegram_settings.json
 (same JSON-config pattern as every other setting in this project) and is
 NEVER returned by any GET endpoint or written to the log -- only a
 "token_configured": true/false boolean is ever exposed after saving.
+
+Proxy support: api.telegram.org is network-blocked in some countries at
+the ISP/network level (TLS-handshake/SNI-based interference -- confirmed
+via direct diagnostic testing, not a code-side timeout bug: DNS resolves
+fine, a raw TCP connect succeeds instantly, but the actual HTTPS exchange
+with that specific host stalls/resets while every other host works
+normally). proxy_url (same write-only treatment as bot_token -- never
+returned in plaintext, since it may embed a username:password) routes
+ALL Telegram API calls through a configured SOCKS5 or HTTP proxy instead
+of connecting directly, so this works unattended/24-7 without a manually
+toggled VPN. Accepts any URL scheme Python's `requests` library itself
+understands: "socks5://[user:pass@]host:port" (requires the PySocks
+package, already added to requirements.txt) or "http://[user:pass@]host:port".
 """
 
 import time
@@ -25,6 +38,8 @@ _DEFAULTS = {
     "auto_send_min_confluence_ratio": 1.0,  # require ALL counted factors aligned (e.g. 4/4) by default -- conservative
     "rate_limit_per_hour": 10,
     "send_close_followups": True,
+    "proxy_enabled": False,
+    "proxy_url": "",  # e.g. "socks5://user:pass@host:1080" or "http://user:pass@host:8080"
 }
 
 DISCLAIMER = ("This is an experimental signal from a system still under development. "
@@ -61,6 +76,8 @@ def public_settings():
         "auto_send_min_confluence_ratio": s.get("auto_send_min_confluence_ratio", 1.0),
         "rate_limit_per_hour": s.get("rate_limit_per_hour", 10),
         "send_close_followups": s.get("send_close_followups", True),
+        "proxy_enabled": s.get("proxy_enabled", False),
+        "proxy_configured": bool(s.get("proxy_url")),
     }
 
 
@@ -73,6 +90,23 @@ def _rate_limited():
     return sent >= limit
 
 
+def _build_proxies(settings):
+    """Returns a requests-style {"http": url, "https": url} dict if a
+    proxy is configured and enabled, else None (direct connection,
+    today's default/original behavior -- nothing changes for anyone who
+    never touches this setting). Both proxy entries point at the SAME
+    url on purpose: Telegram's API is HTTPS-only, but requests still
+    needs an "http" key present for some urllib3/proxy combinations to
+    route correctly, and a single proxy server conventionally handles
+    both schemes."""
+    if not settings.get("proxy_enabled"):
+        return None
+    url = (settings.get("proxy_url") or "").strip()
+    if not url:
+        return None
+    return {"http": url, "https": url}
+
+
 def _raw_send(text):
     """Real HTTP call to the Telegram Bot API -- no simulation. Returns
     (success: bool, error: str|None).
@@ -82,11 +116,18 @@ def _raw_send(text):
     errors) -- these are transient-network-shaped failures worth retrying.
     A real API response (even an error one, e.g. bad chat_id) is NOT
     retried -- that's a genuine, immediate answer from Telegram, retrying
-    it would just get the same answer again."""
+    it would just get the same answer again.
+
+    If proxy_enabled + proxy_url are configured, every request routes
+    through that proxy instead of connecting directly -- see the module
+    docstring for why (api.telegram.org is network-blocked in some
+    countries at the ISP level, confirmed via direct diagnostic testing,
+    not fixable by timeout/retry tuning alone)."""
     settings = load_settings()
     token, channel_id = settings.get("bot_token"), settings.get("channel_id")
     if not token or not channel_id:
         return False, "Telegram bot token or channel ID not configured yet"
+    proxies = _build_proxies(settings)
 
     last_err = None
     for attempt in range(1, _API_MAX_ATTEMPTS + 1):
@@ -95,6 +136,7 @@ def _raw_send(text):
                 f"https://api.telegram.org/bot{token}/sendMessage",
                 json={"chat_id": channel_id, "text": text, "parse_mode": "HTML"},
                 timeout=(_API_CONNECT_TIMEOUT, _API_READ_TIMEOUT),
+                proxies=proxies,
             )
             data = resp.json()
             if resp.status_code == 200 and data.get("ok"):
@@ -105,6 +147,28 @@ def _raw_send(text):
             if attempt < _API_MAX_ATTEMPTS:
                 time.sleep(_API_RETRY_BACKOFF_SECONDS)
     return False, f"failed after {_API_MAX_ATTEMPTS} attempts: {last_err}"
+
+
+def test_proxy_connectivity():
+    """Separate, lighter-weight check than send_test_message(): confirms
+    the CONFIGURED PROXY ITSELF is reachable and can reach the public
+    internet at all (via https://api.ipify.org, a tiny plain-text "what's
+    my IP" endpoint), without needing a valid bot token/channel or
+    touching Telegram. Useful for isolating "is my proxy server even
+    working" from "is Telegram reachable through it" as two separate
+    questions when troubleshooting."""
+    settings = load_settings()
+    proxies = _build_proxies(settings)
+    if proxies is None:
+        return {"ok": False, "error": "No proxy is configured/enabled -- nothing to test."}
+    try:
+        resp = requests.get("https://api.ipify.org?format=json", proxies=proxies,
+                             timeout=(_API_CONNECT_TIMEOUT, _API_READ_TIMEOUT))
+        if resp.status_code == 200:
+            return {"ok": True, "exit_ip": resp.json().get("ip")}
+        return {"ok": False, "error": f"HTTP {resp.status_code}"}
+    except requests.RequestException as e:
+        return {"ok": False, "error": repr(e)}
 
 
 def send_test_message():

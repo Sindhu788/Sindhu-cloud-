@@ -694,6 +694,8 @@ class TelegramSettingsUpdate(BaseModel):
     auto_send_min_confluence_ratio: Optional[float] = None
     rate_limit_per_hour: Optional[int] = None
     send_close_followups: Optional[bool] = None
+    proxy_enabled: Optional[bool] = None
+    proxy_url: Optional[str] = None
 
 
 @router.get("/api/paper-trading/telegram/settings")
@@ -715,6 +717,14 @@ def update_telegram_settings(req: TelegramSettingsUpdate):
 def send_telegram_test():
     """A1: real connection confirmation, not simulated."""
     return telegram_bot.send_test_message()
+
+
+@router.post("/api/paper-trading/telegram/test-proxy")
+def test_telegram_proxy():
+    """Isolates "is my proxy server reachable at all" from "can it reach
+    Telegram specifically" -- checks the configured proxy against a
+    plain, unrelated internet endpoint (no bot token/channel needed)."""
+    return telegram_bot.test_proxy_connectivity()
 
 
 @router.get("/api/paper-trading/telegram/log")
