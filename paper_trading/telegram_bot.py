@@ -30,7 +30,10 @@ _DEFAULTS = {
 DISCLAIMER = ("This is an experimental signal from a system still under development. "
               "Not financial advice. Trade at your own risk.")
 
-_API_TIMEOUT = 10
+_API_CONNECT_TIMEOUT = 15
+_API_READ_TIMEOUT = 30
+_API_MAX_ATTEMPTS = 3
+_API_RETRY_BACKOFF_SECONDS = 2
 
 
 def _now_iso():
@@ -72,23 +75,36 @@ def _rate_limited():
 
 def _raw_send(text):
     """Real HTTP call to the Telegram Bot API -- no simulation. Returns
-    (success: bool, error: str|None)."""
+    (success: bool, error: str|None).
+
+    Retries up to _API_MAX_ATTEMPTS times (short backoff between attempts)
+    on connection-level failures (timeout, connection reset, DNS/network
+    errors) -- these are transient-network-shaped failures worth retrying.
+    A real API response (even an error one, e.g. bad chat_id) is NOT
+    retried -- that's a genuine, immediate answer from Telegram, retrying
+    it would just get the same answer again."""
     settings = load_settings()
     token, channel_id = settings.get("bot_token"), settings.get("channel_id")
     if not token or not channel_id:
         return False, "Telegram bot token or channel ID not configured yet"
-    try:
-        resp = requests.post(
-            f"https://api.telegram.org/bot{token}/sendMessage",
-            json={"chat_id": channel_id, "text": text, "parse_mode": "HTML"},
-            timeout=_API_TIMEOUT,
-        )
-        data = resp.json()
-        if resp.status_code == 200 and data.get("ok"):
-            return True, None
-        return False, data.get("description", f"HTTP {resp.status_code}")
-    except requests.RequestException as e:
-        return False, repr(e)
+
+    last_err = None
+    for attempt in range(1, _API_MAX_ATTEMPTS + 1):
+        try:
+            resp = requests.post(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                json={"chat_id": channel_id, "text": text, "parse_mode": "HTML"},
+                timeout=(_API_CONNECT_TIMEOUT, _API_READ_TIMEOUT),
+            )
+            data = resp.json()
+            if resp.status_code == 200 and data.get("ok"):
+                return True, None
+            return False, data.get("description", f"HTTP {resp.status_code}")
+        except requests.RequestException as e:
+            last_err = repr(e)
+            if attempt < _API_MAX_ATTEMPTS:
+                time.sleep(_API_RETRY_BACKOFF_SECONDS)
+    return False, f"failed after {_API_MAX_ATTEMPTS} attempts: {last_err}"
 
 
 def send_test_message():
