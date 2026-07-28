@@ -97,6 +97,13 @@ _CONCEPT_KEYWORDS = {
     "engulfing": ["engulfing"],
     "pin_bar": ["pin bar"],
     "inside_bar": ["inside bar"],
+    "premium_discount_zone": ["premium zone", "discount zone", "premium and discount", "premium/discount"],
+    "rejection_block": ["rejection block"],
+    "orb": ["opening range breakout", "orb"],
+    "initial_balance": ["initial balance"],
+    "anchored_vwap": ["anchored vwap", "avwap"],
+    "cvd": ["cumulative volume delta", "cvd"],
+    "kill_zone": ["kill zone", "killzone", "kz"],
     "session_filter": ["session"],
     "trend_filter": ["trend filter", "with trend", "trend ke sath", "trend follow"],
 }

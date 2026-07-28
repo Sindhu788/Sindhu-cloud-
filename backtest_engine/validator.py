@@ -19,6 +19,9 @@ _KNOWN_INDICATORS = {
     "session_high_low", "session_open",
     # Price-action
     "engulfing", "pin_bar", "inside_bar",
+    # Advanced Concept Library expansion
+    "premium_discount_zone", "rejection_block", "orb", "initial_balance",
+    "anchored_vwap", "cvd", "kill_zone",
 }
 
 _KNOWN_CONDITION_TYPES = {"indicator_compare", "price_compare", "indicator_vs_indicator", "concept", "session", "trend"}

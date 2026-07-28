@@ -38,6 +38,12 @@ KNOWN_INDICATORS = [
     "session_high_low", "session_open",
     # Price-action
     "engulfing", "pin_bar", "inside_bar",
+    # Advanced Concept Library expansion (Genuine Evolution Engine + Advanced
+    # Concept Library batch): rejection_block/premium_discount_zone/orb/
+    # initial_balance are type="concept"; anchored_vwap/cvd are period-less
+    # indicators (usable via price_compare/indicator_compare, same as vwap).
+    "premium_discount_zone", "rejection_block", "orb", "initial_balance",
+    "anchored_vwap", "cvd", "kill_zone",
 ]
 KNOWN_SESSIONS = ["asian", "london", "ny"]
 KNOWN_DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]

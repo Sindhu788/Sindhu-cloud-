@@ -56,6 +56,11 @@ class ConfiguredStrategy(Strategy):
                 # shape as the other indicators; _indicator_column() already
                 # falls back to a bare "{role}_vwap" column name for it.
                 df["vwap"] = concepts.vwap_daily(df)
+            elif name == "anchored_vwap" and "anchored_vwap" not in df.columns:
+                anchor = (ind["params"].get("anchor") or "swing_low")
+                df["anchored_vwap"] = concepts.anchored_vwap(df, anchor=anchor)
+            elif name == "cvd" and "cvd" not in df.columns:
+                df["cvd"] = concepts.cumulative_volume_delta(df)
 
         entry_df = ctx.frames.get("entry")
         if entry_df is not None and not entry_df.empty:
@@ -174,6 +179,18 @@ class ConfiguredStrategy(Strategy):
             df["bull_pin_bar"], df["bear_pin_bar"] = concepts.pin_bar(df)
         if "inside_bar" in used:
             df["inside_bar"] = concepts.inside_bar(df)
+        if "premium_discount_zone" in used:
+            df["in_discount"], df["in_premium"] = concepts.premium_discount_zone(df)
+        if "rejection_block" in used:
+            rbl, rbh, rrbl, rrbh = concepts.rejection_blocks(df)
+            df["bull_rejection_low"], df["bull_rejection_high"] = rbl, rbh
+            df["bear_rejection_low"], df["bear_rejection_high"] = rrbl, rrbh
+        if "orb" in used:
+            df["bull_orb"], df["bear_orb"] = concepts.opening_range_breakout(df)
+        if "initial_balance" in used:
+            df["ib_above"], df["ib_below"] = concepts.initial_balance_extension(df)
+        if "kill_zone" in used:
+            df["in_kill_zone"] = concepts.in_kill_zone(df)
 
     # -------------------------------------------------- Strategy interface
     def prepare(self, df):
@@ -419,6 +436,8 @@ class ConfiguredStrategy(Strategy):
                 "equal_highs_lows": (_rcol("bull_equal_lows"), _rcol("bear_equal_highs")),
                 "engulfing": (_rcol("bull_engulfing"), _rcol("bear_engulfing")),
                 "pin_bar": (_rcol("bull_pin_bar"), _rcol("bear_pin_bar")),
+                "orb": (_rcol("bull_orb"), _rcol("bear_orb")),
+                "initial_balance": (_rcol("ib_above"), _rcol("ib_below")),
             }
             if cond.name in event_colmap:
                 bull_col, bear_col = event_colmap[cond.name]
@@ -517,6 +536,19 @@ class ConfiguredStrategy(Strategy):
                 return price is not None and session_open is not None and abs(price - session_open) / price < 0.005
             if cond.name == "inside_bar":
                 return bool(self._get(df, i, _rcol("inside_bar")))
+            if cond.name == "premium_discount_zone":
+                in_discount = bool(self._get(df, i, _rcol("in_discount")))
+                in_premium = bool(self._get(df, i, _rcol("in_premium")))
+                if cond.direction == "bullish":
+                    return in_discount
+                if cond.direction == "bearish":
+                    return in_premium
+                return in_discount or in_premium
+            if cond.name == "rejection_block":
+                return (self._get(df, i, _rcol("bull_rejection_low")) is not None
+                        or self._get(df, i, _rcol("bear_rejection_low")) is not None)
+            if cond.name == "kill_zone":
+                return bool(self._get(df, i, _rcol("in_kill_zone")))
             return False
 
         if cond.type == "indicator_compare":

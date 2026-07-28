@@ -550,6 +550,192 @@ def equal_highs_lows(df, lookback=2, tolerance=0.001):
     return bull_equal_lows, bear_equal_highs
 
 
+# ------------------------------------------------------------ Advanced Concept Library expansion
+#
+# Premium & Discount Zones, Rejection Block, Cumulative Volume Delta,
+# Opening Range Breakout, Initial Balance, Anchored VWAP, and Kill Zones.
+# (Breaker Block, Mitigation Block, and Equal Highs/Equal Lows were already
+# implemented above -- see breaker_blocks(), mitigation_blocks(),
+# equal_highs_lows() -- so are reused as-is rather than reimplemented.)
+# Same rules as everything else in this file: pure, vectorized, causal.
+
+def premium_discount_zone(df, lookback=2):
+    """ICT-style Premium/Discount Zones: whether the current close sits in
+    the lower half (discount -- favorable to look for buys) or upper half
+    (premium -- favorable to look for sells) of the most recently CONFIRMED
+    swing-high-to-swing-low range, split at its midpoint (equilibrium).
+    Reuses swing_points()'s already-causal confirmation delay -- the range
+    only updates once a swing is confirmed, never on the still-forming bar.
+    Returns (in_discount, in_premium) boolean Series."""
+    swing_high, swing_low = swing_points(df, lookback)
+    recent_high = df["high"].where(swing_high).ffill()
+    recent_low = df["low"].where(swing_low).ffill()
+    equilibrium = (recent_high + recent_low) / 2
+    in_discount = (df["close"] < equilibrium).fillna(False)
+    in_premium = (df["close"] > equilibrium).fillna(False)
+    return in_discount, in_premium
+
+
+def rejection_blocks(df, lookback=2, wick_ratio=2.0):
+    """Rejection Block: at a confirmed swing low, the zone from that
+    candle's low up to its body's lower edge, on a candle with a long lower
+    wick (wick >= wick_ratio x body) -- the area price was sharply
+    REJECTED FROM. Mirrors on the upside at a confirmed swing high with a
+    long upper wick. Distinct from Order Block (origin candle's full body,
+    confirmed by a later BOS) and Mitigation Block (same, but body-only) --
+    a Rejection Block is anchored to the wick itself and to the swing
+    point directly, not to a later break of structure. A doji (body == 0)
+    with any wick at all counts as an infinitely strong rejection, matching
+    pin_bar()'s treatment of the same edge case.
+    Returns (bull_low, bull_high, bear_low, bear_high) -- forward-filled
+    from the last confirmed rejection, NaN until the first one."""
+    swing_high, swing_low = swing_points(df, lookback)
+    body_top = df[["open", "close"]].max(axis=1)
+    body_bottom = df[["open", "close"]].min(axis=1)
+    body = (df["close"] - df["open"]).abs()
+    lower_wick = body_bottom - df["low"]
+    upper_wick = df["high"] - body_top
+
+    strong_lower = ((lower_wick >= wick_ratio * body) | ((body == 0) & (lower_wick > 0))).fillna(False)
+    strong_upper = ((upper_wick >= wick_ratio * body) | ((body == 0) & (upper_wick > 0))).fillna(False)
+
+    bull_trigger = swing_low & strong_lower
+    bear_trigger = swing_high & strong_upper
+
+    bull_low = df["low"].where(bull_trigger).ffill()
+    bull_high = body_bottom.where(bull_trigger).ffill()
+    bear_low = body_top.where(bear_trigger).ffill()
+    bear_high = df["high"].where(bear_trigger).ffill()
+    return bull_low, bull_high, bear_low, bear_high
+
+
+def cumulative_volume_delta(df):
+    """Cumulative Volume Delta (CVD), approximated from OHLCV bars -- this
+    system stores only standard exchange candles (see data_engine/storage.py),
+    not bid/ask-classified trade prints, so a genuine tick-level delta
+    cannot be computed here. The standard OHLCV approximation is used
+    instead: a bar's full volume counts as buy-side (+) if it closed up,
+    sell-side (-) if it closed down, and zero if unchanged (a doji), then
+    cumulatively summed within each UTC day (reset at each day boundary,
+    the same anchoring as vwap_daily()) so CVD reads as "today's net
+    buy/sell pressure so far" rather than drifting forever. This is a
+    real, commonly-used approximation, not the true order-flow figure --
+    documented here rather than silently presented as exact."""
+    signed_volume = pd.Series(
+        np.where(df["close"] > df["open"], df["volume"],
+                 np.where(df["close"] < df["open"], -df["volume"], 0.0)),
+        index=df.index,
+    )
+    day_key = pd.Series(df.index.date, index=df.index)
+    return signed_volume.groupby(day_key).cumsum()
+
+
+def _first_window_range(df, window_minutes):
+    """Shared mechanism for Opening Range and Initial Balance: the
+    high/low established in the first `window_minutes` of each UTC day.
+    Expanding-window cummax/cummin inside the window (causal -- only
+    reflects bars seen so far this window). NOTE: unlike a plain (non-
+    grouped) Series.cummax(), pandas' groupby().cummax()/cummin() do NOT
+    carry the last valid value through NaN -- they leave the NaN positions
+    NaN (verified directly; this is not the ungrouped method's behavior).
+    So the window's final value must be explicitly forward-filled to hold
+    for the rest of that day, per day (grouped ffill, so day N's range
+    can never leak into day N+1)."""
+    day_key = pd.Series(df.index.date, index=df.index)
+    minutes_since_midnight = df.index.hour * 60 + df.index.minute
+    in_window = minutes_since_midnight < window_minutes
+    win_high = df["high"].where(in_window).groupby(day_key).cummax().groupby(day_key).ffill()
+    win_low = df["low"].where(in_window).groupby(day_key).cummin().groupby(day_key).ffill()
+    return win_high, win_low
+
+
+def opening_range(df, range_minutes=30):
+    """Opening Range: the high/low established in the first `range_minutes`
+    minutes of each UTC trading day -- the range an Opening Range Breakout
+    (ORB) strategy waits for price to break out of."""
+    return _first_window_range(df, range_minutes)
+
+
+def opening_range_breakout(df, range_minutes=30):
+    """ORB: price closes above/below the Opening Range, but only AFTER the
+    opening window has fully closed -- a still-forming range can't be
+    "broken" yet, so breakouts are only flagged once
+    minutes_since_midnight >= range_minutes for that bar."""
+    or_high, or_low = opening_range(df, range_minutes)
+    minutes_since_midnight = df.index.hour * 60 + df.index.minute
+    window_closed = minutes_since_midnight >= range_minutes
+    bull_break = (window_closed & (df["close"] > or_high)).fillna(False)
+    bear_break = (window_closed & (df["close"] < or_low)).fillna(False)
+    return bull_break, bear_break
+
+
+def initial_balance(df, ib_minutes=60):
+    """Initial Balance (IB): market-profile terminology for the high/low
+    range established in the first `ib_minutes` of the UTC trading day
+    (conventionally 60 minutes / the first two 30-minute TPO periods) --
+    distinct from the shorter Opening Range typically used for ORB
+    breakout strategies, and read as a day-structure reference rather than
+    a single breakout trigger. Same underlying mechanism as opening_range(),
+    just a different conventional window."""
+    return _first_window_range(df, ib_minutes)
+
+
+def initial_balance_extension(df, ib_minutes=60):
+    """Whether the close is currently trading outside the Initial Balance
+    range (above or below) -- an "IB extension", commonly read as an early
+    sign of a trending (vs. balanced/rotational) day."""
+    ib_high, ib_low = initial_balance(df, ib_minutes)
+    above = (df["close"] > ib_high).fillna(False)
+    below = (df["close"] < ib_low).fillna(False)
+    return above, below
+
+
+def anchored_vwap(df, anchor="swing_low", lookback=2):
+    """VWAP anchored to the most recently CONFIRMED swing low or swing high
+    (anchor="swing_low" or "swing_high"), instead of resetting at a fixed
+    calendar boundary like vwap_daily() -- the common real-world usage
+    ("VWAP from the last swing low"). The running sum resets every time a
+    new anchor point confirms, so the anchor used at any bar is always the
+    most recent one already known as of that bar -- never a future swing
+    point later bars would reveal. Bars before the FIRST anchor point has
+    ever confirmed have no valid anchor and are NaN, rather than silently
+    anchoring to the start of the whole dataset."""
+    if anchor not in ("swing_low", "swing_high"):
+        raise ValueError("anchor must be 'swing_low' or 'swing_high'")
+    swing_high, swing_low = swing_points(df, lookback)
+    anchor_mask = swing_low if anchor == "swing_low" else swing_high
+    anchor_id = anchor_mask.cumsum()  # increments starting at each new anchor bar (inclusive)
+
+    typical = (df["high"] + df["low"] + df["close"]) / 3
+    pv = typical * df["volume"]
+    cum_pv = pv.groupby(anchor_id).cumsum()
+    cum_vol = df["volume"].groupby(anchor_id).cumsum()
+    result = cum_pv / cum_vol.replace(0, np.nan)
+    return result.where(anchor_id > 0)
+
+
+_KILL_ZONE_WINDOWS_UTC = [
+    ("london_kz", 7, 10),
+    ("ny_kz", 12, 15),
+]
+
+
+def kill_zone_column(df):
+    """ICT-style Kill Zones: narrow, high-liquidity windows around the
+    London and New York session opens -- distinct from the broader,
+    whole-session session_column() windows. Fixed-hour approximation, same
+    vectorized shape as session_column()."""
+    hours = df.index.hour.values
+    conditions = [(hours >= start) & (hours < end) for _, start, end in _KILL_ZONE_WINDOWS_UTC]
+    choices = [name for name, _, _ in _KILL_ZONE_WINDOWS_UTC]
+    return pd.Series(np.select(conditions, choices, default="none"), index=df.index)
+
+
+def in_kill_zone(df):
+    """True whenever the bar falls inside ANY kill zone window."""
+    return kill_zone_column(df) != "none"
+
+
 # ------------------------------------------------------------ price action
 
 def engulfing_candle(df):

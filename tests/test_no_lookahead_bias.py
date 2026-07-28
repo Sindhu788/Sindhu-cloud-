@@ -70,7 +70,34 @@ _CONCEPT_FUNCS = [
     concepts.inside_bar,
     concepts.vwap_daily,
     concepts.volume_filter,
+    # Advanced Concept Library expansion
+    concepts.premium_discount_zone,
+    concepts.rejection_blocks,
+    concepts.cumulative_volume_delta,
+    concepts.opening_range,
+    concepts.opening_range_breakout,
+    concepts.initial_balance,
+    concepts.initial_balance_extension,
+    concepts.kill_zone_column,
+    concepts.in_kill_zone,
 ]
+
+
+def test_anchored_vwap_is_causal_under_truncation():
+    """anchored_vwap() takes a required `anchor` arg so it can't sit in the
+    generic _CONCEPT_FUNCS list above (which only holds df->result
+    functions) -- same truncation-comparison proof, just called directly
+    for each anchor mode."""
+    full_df = _random_walk_df(400)
+    truncated_df = full_df.iloc[:250].copy()
+    compare_upto = 250 - _TAIL_BUFFER
+    for anchor in ("swing_low", "swing_high"):
+        full_s = concepts.anchored_vwap(full_df, anchor=anchor)
+        trunc_s = concepts.anchored_vwap(truncated_df, anchor=anchor)
+        a = full_s.iloc[:compare_upto].astype(float)
+        b = trunc_s.iloc[:compare_upto].astype(float)
+        mismatches = ~np.isclose(a, b, equal_nan=True)
+        assert not mismatches.any(), f"anchored_vwap(anchor={anchor}) is not causal: mismatches at {a.index[mismatches]}"
 
 
 @pytest.mark.parametrize("func", _CONCEPT_FUNCS, ids=lambda f: f.__name__)
