@@ -145,6 +145,7 @@
     confluence_score: "How many independent signals (like trend direction, momentum, and market condition) all agree, out of everything the system checked for this trade. A high confluence score means many separate signals pointed the same way, not just one.",
     market_regime: "A simple label for what the market is currently doing: \"Trending\" means prices are moving clearly in one direction, \"Ranging\" means prices are bouncing sideways without a clear direction, and \"High Volatility\" means prices are moving fast and unpredictably. Strategies often perform very differently depending on which of these is happening.",
     correlation_warning: "A heads-up that two or more strategies have open trades on coins that tend to move together (e.g. two coins that usually rise and fall at the same time). It doesn't mean anything is wrong -- it just means your real risk may be more concentrated than it looks, since a single market move could affect several trades at once.",
+    pattern_reliability: "Before the system trusts a win rate as real (not just luck), it needs at least 25 trades for that exact strategy + coin + market condition combination, and a statistical check (a 95% confidence interval) confirming the true win rate is clearly above or below 50% -- not just close to a coin flip. Below 25 trades, or when the result is too close to call, nothing is applied automatically.",
   };
 
   function helpIcon(key) {
@@ -2727,7 +2728,7 @@
     const render = async () => {
       const [status, positionsRes, tradesRes, decisionsRes, stratPerfRes, lessonPerfRes,
              settings, strategiesRes, lessonsRes, allTimeAnalytics, alertsRes, sessionsRes,
-             candidatesRes, portfolioRes, riskScoreRes, exposureRes, corrWarningsRes] = await Promise.all([
+             candidatesRes, portfolioRes, riskScoreRes, exposureRes, corrWarningsRes, patternReliabilityRes] = await Promise.all([
         apiGet("/api/paper-trading/status"),
         apiGet("/api/paper-trading/positions"),
         apiGet("/api/paper-trading/trades?limit=50"),
@@ -2745,6 +2746,7 @@
         apiGet("/api/paper-trading/portfolio-risk-score").catch(() => null),
         apiGet("/api/paper-trading/coin-exposure").catch(() => ({ exposure: [] })),
         apiGet("/api/paper-trading/correlation-warnings").catch(() => ({ warnings: [] })),
+        apiGet("/api/paper-trading/pattern-reliability").catch(() => ({ min_sample_size: 25, patterns: [] })),
       ]);
       if (isStaleRoute(myToken)) return;
 
@@ -2981,6 +2983,23 @@
           <tbody>${(candidatesRes.candidates || []).slice(0, 15).map(c => `
             <tr><td>${esc(c.pattern_description)}</td><td>${c.sample_size}</td><td>${Number(c.win_rate).toFixed(0)}%</td></tr>`).join("")
             || '<tr><td colspan="3">No repeated patterns flagged yet -- needs more closed trades.</td></tr>'}</tbody>
+        </table></div>
+
+        <div class="section-title">Pattern Reliability -- Statistical Gate ${helpIcon("pattern_reliability")}</div>
+        <p class="muted" style="margin-top:-8px;">This is exactly what Pattern Auto-Avoid and Lesson Auto-Apply act on -- every strategy + coin + market condition combination needs at least ${patternReliabilityRes.min_sample_size} trades before any conclusion is trusted.</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Strategy</th><th>Coin</th><th>Market</th><th>Session</th><th>Sample Size</th><th>Win Rate</th><th>95% Confidence Interval</th><th>Conclusion</th></tr></thead>
+          <tbody>${(patternReliabilityRes.patterns || []).slice(0, 40).map(r => `
+            <tr>
+              <td>${esc(r.strategy_name || r.strategy_id)}</td>
+              <td>${esc(r.symbol)}</td>
+              <td>${esc(r.market_state)}</td>
+              <td>${esc(r.session)}</td>
+              <td>${r.sample_size} / ${patternReliabilityRes.min_sample_size}</td>
+              <td>${r.win_rate_pct}%</td>
+              <td>${r.ci_lower_pct != null ? `${r.ci_lower_pct}% - ${r.ci_upper_pct}%` : "-"}</td>
+              <td><span class="pill ${r.status === "reliable_good" ? "pill-bullish" : r.status === "reliable_bad" ? "pill-bearish" : r.status === "reliable_inconclusive" ? "pill-neutral" : "pill-muted"}">${esc(r.conclusion)}</span></td>
+            </tr>`).join("") || '<tr><td colspan="8">No pattern data yet -- needs closed trades.</td></tr>'}</tbody>
         </table></div>
       `;
 

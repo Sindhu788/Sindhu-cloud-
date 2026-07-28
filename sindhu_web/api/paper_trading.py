@@ -12,6 +12,7 @@ from data_engine.logging_setup import log as file_log
 from paper_trading import config as pt_config, insights
 from paper_trading import drawdown_guard, regime, correlation, portfolio, strategy_profile, weekly_report
 from paper_trading import confluence, graveyard, telegram_bot, capital_allocation, ai_trade_review
+from paper_trading import pattern_stats
 from paper_trading.engine import engine
 from data_engine import config as base_config
 from sindhu_web import broadcast, cache, sync
@@ -322,6 +323,32 @@ def get_alerts(limit: int = 30):
 @router.get("/api/paper-trading/pattern-memory")
 def get_pattern_memory(strategy_id: Optional[str] = None):
     return {"patterns": storage.list_paper_coin_pattern_memory(strategy_id, since=insights.fresh_session_start())}
+
+
+@router.get("/api/paper-trading/pattern-reliability")
+def get_pattern_reliability(strategy_id: Optional[str] = None):
+    """Genuine Evolution Engine (statistically-sound lessons): for every
+    real (strategy, coin, market regime, session) combination seen this
+    session, shows the current sample size, whether it has crossed the
+    reliability threshold (pattern_stats.MIN_SAMPLE_SIZE, currently 25
+    trades), and -- once reliable -- the Wilson 95% confidence interval
+    and conclusion this is judged on. This is the exact same calculation
+    Pattern Auto-Avoid and Lesson Auto-Apply act on, just made visible."""
+    patterns = storage.list_paper_coin_pattern_memory(strategy_id, since=insights.fresh_session_start())
+    rows = []
+    for p in patterns:
+        result = pattern_stats.classify(p["wins"], p["trades"])
+        rows.append({
+            "strategy_id": p["strategy_id"], "strategy_name": p["strategy_name"],
+            "symbol": p["symbol"], "market_state": p["market_state"], "session": p["session"],
+            "total_pnl": p["total_pnl"], **result,
+        })
+    rows.sort(key=lambda r: r["sample_size"], reverse=True)
+    return {
+        "min_sample_size": pattern_stats.MIN_SAMPLE_SIZE,
+        "method": "wilson_score_95",
+        "patterns": rows,
+    }
 
 
 @router.get("/api/paper-trading/lesson-candidates")

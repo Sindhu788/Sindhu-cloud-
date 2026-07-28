@@ -2464,7 +2464,7 @@ def list_paper_coin_pattern_memory(strategy_id=None, since=None):
         rows = conn.execute(query, params).fetchall()
     return [
         {"strategy_id": r[0], "strategy_name": r[1], "symbol": r[2], "market_state": r[3],
-         "session": r[4], "trades": r[5], "total_pnl": r[6],
+         "session": r[4], "trades": r[5], "total_pnl": r[6], "wins": r[7],
          "win_rate": round(r[7] / r[5] * 100, 2) if r[5] else 0.0}
         for r in rows
     ]
@@ -2641,6 +2641,11 @@ def is_strategy_buried(strategy_id):
 
 def save_paper_auto_avoid_rule(strategy_id, strategy_name, symbol, market_state, session,
                                 consecutive_losses, reason, now_iso):
+    # NOTE: despite the column/param name (kept for schema compatibility),
+    # since the Genuine Evolution Engine statistical-gate pass this value
+    # holds the pattern's full sample size (trades), not a losing-streak
+    # count -- see paper_trading.auto_avoid / pattern_stats. The `reason`
+    # text always states which one it means.
     with get_conn() as conn:
         conn.execute(
             """INSERT INTO paper_auto_avoid_rules
