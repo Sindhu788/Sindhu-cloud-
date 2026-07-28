@@ -295,6 +295,20 @@ CREATE TABLE IF NOT EXISTS research_run_log (
 );
 CREATE INDEX IF NOT EXISTS idx_research_run_log_run_at ON research_run_log(run_at DESC);
 
+-- Historical Confluence Score Tracking (Remaining Dashboard Enhancements,
+-- item 5): one row per real signal, logged at position-open time
+-- (independent of Telegram -- confluence.score_confluence() is a plain
+-- paper_trading module, not Telegram code) so a strategy's Confluence
+-- Score trend can be shown over time, not just its current value.
+CREATE TABLE IF NOT EXISTS confluence_score_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    strategy_id TEXT NOT NULL,
+    position_id TEXT,
+    confluence_ratio REAL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_confluence_log_strategy ON confluence_score_log(strategy_id, created_at DESC);
+
 -- Weekly Auto-Report (Dashboard Consolidation Group, item 7): one row per
 -- generated report, permanently stored so past reports stay reviewable.
 CREATE TABLE IF NOT EXISTS paper_weekly_reports (
@@ -2607,6 +2621,25 @@ def list_research_runs(limit=50):
         {"id": r[0], "kind": r[1], "query_or_url": r[2], "queued_count": r[3], "run_at": r[4]}
         for r in rows
     ]
+
+
+def save_confluence_score(strategy_id, position_id, confluence_ratio, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO confluence_score_log (strategy_id, position_id, confluence_ratio, created_at) "
+            "VALUES (?, ?, ?, ?)",
+            (strategy_id, position_id, confluence_ratio, now_iso),
+        )
+
+
+def list_confluence_history(strategy_id, limit=100):
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT confluence_ratio, created_at FROM confluence_score_log "
+            "WHERE strategy_id=? ORDER BY created_at ASC LIMIT ?",
+            (strategy_id, limit),
+        ).fetchall()
+    return [{"confluence_ratio": r[0], "created_at": r[1]} for r in rows]
 
 
 def has_telegram_signal_for_position(position_id):

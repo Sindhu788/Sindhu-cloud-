@@ -1011,6 +1011,35 @@
     return `<svg viewBox="0 0 400 160" preserveAspectRatio="none">${sparklineInner(series, 400, 160, 6)}</svg>`;
   }
 
+  // Coin-Wise Performance -- Visual Chart (Remaining Dashboard
+  // Enhancements, item 2): a plain horizontal bar chart alongside the
+  // existing table, one bar per coin, positive/negative colored, for
+  // faster visual comparison than scanning a PnL column.
+  function barChartSvg(items, labelFn, valueFn, maxBars = 15) {
+    const rows = items.slice(0, maxBars);
+    if (!rows.length) return `<div class="muted">No data yet.</div>`;
+    const values = rows.map(valueFn);
+    const maxAbs = Math.max(...values.map(v => Math.abs(v)), 0.0001);
+    const rowH = 22, w = 400, labelW = 90, chartW = w - labelW - 10;
+    const midX = labelW + chartW / 2;
+    const bars = rows.map((r, i) => {
+      const v = values[i];
+      const barW = (Math.abs(v) / maxAbs) * (chartW / 2);
+      const x = v >= 0 ? midX : midX - barW;
+      const y = i * rowH + 3;
+      const fillColor = v >= 0 ? "var(--green)" : "var(--red)";
+      return `
+        <text x="0" y="${y + 12}" style="font-size:10.5px;fill:var(--text-dim);stroke:none;">${esc(String(labelFn(r)).slice(0, 12))}</text>
+        <rect x="${x.toFixed(1)}" y="${y}" width="${barW.toFixed(1)}" height="14" rx="2" style="fill:${fillColor};stroke:none;opacity:0.85;"/>
+        <text x="${(v >= 0 ? x + barW + 4 : x - 4)}" y="${y + 11}" style="font-size:10px;fill:var(--text-faint);stroke:none;" text-anchor="${v >= 0 ? "start" : "end"}">${v.toFixed(2)}</text>`;
+    }).join("");
+    const h = rows.length * rowH + 6;
+    return `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}">
+      <line x1="${midX}" y1="0" x2="${midX}" y2="${h}" style="stroke:var(--border);stroke-width:1;"/>
+      ${bars}
+    </svg>`;
+  }
+
   // ------------------------------------------------------------ shared Original vs Optimized comparison
   // Single component used by both the Backtest History page and the
   // SINDHU CEO Backtesting card, backed by the single shared endpoint
@@ -1422,8 +1451,16 @@
         box.style.display = "block";
         box.scrollIntoView({ behavior: "smooth", block: "start" });
         try {
-          const p = await apiGet(`/api/paper-trading/strategy-profile/${btn.dataset.id}`);
+          const [p, balHistRes, coinStatsRes, confHistRes] = await Promise.all([
+            apiGet(`/api/paper-trading/strategy-profile/${btn.dataset.id}`),
+            apiGet(`/api/paper-trading/balance-history/${btn.dataset.id}`).catch(() => ({ points: [] })),
+            apiGet(`/api/paper-trading/coin-stats/${btn.dataset.id}`).catch(() => ({ coins: [] })),
+            apiGet(`/api/paper-trading/confluence-history/${btn.dataset.id}`).catch(() => ({ history: [] })),
+          ]);
           const readiness = p.real_trading_readiness;
+          const balSeries = (balHistRes.points || []).map(pt => pt.balance);
+          const coinRows = coinStatsRes.coins || [];
+          const confSeries = (confHistRes.history || []).map(h => h.confluence_ratio * 100);
           body.innerHTML = `
             <div class="grid">
               ${card(`Confidence Score ${helpIcon("confidence_score")}`, p.confidence_score != null ? p.confidence_score : "No data yet")}
@@ -1434,6 +1471,26 @@
               ${card("Walk-Forward", p.walk_forward_status || "not yet run")}
             </div>
             ${p.paused ? `<div class="card" style="margin-bottom:16px;"><b>Why paused:</b> ${esc(p.pause_reason)}</div>` : ""}
+
+            <div class="section-title">Balance History (Fake Money)</div>
+            <div class="card">${sparklineSvg(balSeries)}</div>
+
+            <div class="section-title">Coin-Wise Performance</div>
+            <div class="two-col">
+              <div class="table-wrap"><table>
+                <thead><tr><th>Coin</th><th>Trades</th><th>Win Rate</th><th>Total PnL</th></tr></thead>
+                <tbody>${coinRows.map(c => `
+                  <tr><td>${esc(c.symbol)}</td><td>${c.closed_trades}</td><td>${c.win_rate}%</td>
+                  <td class="${c.total_pnl >= 0 ? "pill-up" : "pill-down"}">${c.total_pnl.toFixed(2)}</td></tr>`).join("")
+                  || '<tr><td colspan="4">No closed trades yet.</td></tr>'}</tbody>
+              </table></div>
+              <div class="card">${barChartSvg(coinRows, c => c.symbol, c => c.total_pnl)}</div>
+            </div>
+
+            <div class="section-title">Confluence Score Trend ${helpIcon("confluence_score")}</div>
+            <div class="card">${sparklineSvg(confSeries)}
+              <div class="muted" style="font-size:11px;margin-top:4px;">${confSeries.length} signal(s) logged${confSeries.length ? ` -- most recent: ${confSeries[confSeries.length - 1].toFixed(0)}%` : ""}</div>
+            </div>
 
             <div class="section-title">Coins Currently Traded &amp; Their Market Condition ${helpIcon("market_regime")}</div>
             <div class="card">${Object.keys(p.traded_coin_regimes).length
@@ -3104,10 +3161,17 @@
         </table></div>
 
         <div class="section-title">Strategy Comparison (side-by-side)</div>
+        <div class="btn-row">
+          <button class="btn-ghost" id="ptBulkFlag">Flag Selected for Telegram</button>
+          <button class="btn-ghost" id="ptBulkUnflag">Unflag Selected</button>
+          <button class="btn-ghost" id="ptExportComparison">Export to Excel</button>
+          <span id="ptBulkStatus" class="muted"></span>
+        </div>
         <div class="table-wrap"><table>
-          <thead><tr><th>Strategy</th><th>Balance</th><th>Trades</th><th>Win Rate</th><th>PnL</th><th>Confidence ${helpIcon("confidence_score")}</th><th>Streak</th><th>Alert</th></tr></thead>
+          <thead><tr><th><input type="checkbox" id="ptSelectAll" style="width:auto;"></th><th>Strategy</th><th>Balance</th><th>Trades</th><th>Win Rate</th><th>PnL</th><th>Confidence ${helpIcon("confidence_score")}</th><th>Streak</th><th>Alert</th></tr></thead>
           <tbody>${(allTimeAnalytics.per_strategy || []).map(p => `
             <tr data-confidence="${p.confidence_score != null ? p.confidence_score : ""}">
+              <td><input type="checkbox" class="pt-bulk-select" data-id="${p.strategy_id}" style="width:auto;"></td>
               <td>${esc(p.strategy_name || p.strategy_id)}</td>
               <td>$${Number(p.balance).toFixed(2)}</td>
               <td>${p.closed_trades}</td>
@@ -3124,7 +3188,7 @@
                   <button class="btn-ghost pt-readiness" data-id="${p.strategy_id}" data-name="${esc(p.strategy_name || p.strategy_id)}">Real-Trading Check</button>
                 </div>
               </td>
-            </tr>`).join("") || '<tr><td colspan="8">No data yet.</td></tr>'}</tbody>
+            </tr>`).join("") || '<tr><td colspan="9">No data yet.</td></tr>'}</tbody>
         </table></div>
         <div id="ptStrategyDetail" class="card" style="display:none;white-space:pre-wrap;font-family:Consolas,monospace;font-size:12px;"></div>
 
@@ -3252,6 +3316,50 @@
           render();
         };
       });
+
+      // Manual Override -- Bulk Action (Remaining Dashboard Enhancements,
+      // item 3): flag/unflag several strategies for Telegram in one click
+      // instead of one at a time -- reuses the exact same single-strategy
+      // /api/paper-trading/override/{id} endpoint per selected row, just
+      // looped, so no backend change is needed and every safety check that
+      // endpoint already does (real telegram_send_result, honest failure
+      // reporting) still applies to each one individually.
+      const selectAllBox = document.getElementById("ptSelectAll");
+      if (selectAllBox) {
+        selectAllBox.onchange = () => {
+          document.querySelectorAll(".pt-bulk-select").forEach(cb => { cb.checked = selectAllBox.checked; });
+        };
+      }
+      function selectedStrategyIds() {
+        return [...document.querySelectorAll(".pt-bulk-select:checked")].map(cb => cb.dataset.id);
+      }
+      async function bulkSetOverride(active) {
+        const status = document.getElementById("ptBulkStatus");
+        const ids = selectedStrategyIds();
+        if (!ids.length) { status.textContent = "Select at least one strategy first."; return; }
+        status.textContent = `${active ? "Flagging" : "Unflagging"} ${ids.length} strategy(ies)...`;
+        const results = await Promise.all(ids.map(id =>
+          apiPost(`/api/paper-trading/override/${id}`, { manual_alert: active }).catch(e => ({ ok: false, error: e.message }))
+        ));
+        const okCount = results.filter(r => r.ok !== false).length;
+        status.textContent = `${okCount}/${ids.length} strategy(ies) ${active ? "flagged" : "unflagged"} successfully.`;
+        appendLog(`Bulk Manual Override: ${okCount}/${ids.length} strategies ${active ? "flagged for" : "unflagged from"} Telegram.`);
+        render();
+      }
+      const bulkFlagBtn = document.getElementById("ptBulkFlag");
+      if (bulkFlagBtn) bulkFlagBtn.onclick = () => bulkSetOverride(true);
+      const bulkUnflagBtn = document.getElementById("ptBulkUnflag");
+      if (bulkUnflagBtn) bulkUnflagBtn.onclick = () => bulkSetOverride(false);
+
+      // Strategy Comparison -- Export (Remaining Dashboard Enhancements,
+      // item 4): a real .xlsx of exactly what's in the table above,
+      // generated server-side (GET is read-only, safe to open directly).
+      const exportBtn = document.getElementById("ptExportComparison");
+      if (exportBtn) {
+        exportBtn.onclick = () => {
+          window.open("/api/paper-trading/strategy-comparison/export?period=all", "_blank");
+        };
+      }
 
       document.querySelectorAll(".pt-genealogy").forEach(btn => {
         btn.onclick = async () => {

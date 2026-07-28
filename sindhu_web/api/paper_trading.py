@@ -241,6 +241,41 @@ def _compute_analytics(period):
     }
 
 
+@router.get("/api/paper-trading/strategy-comparison/export")
+def export_strategy_comparison(period: str = "all"):
+    """Strategy Comparison -- Export (Remaining Dashboard Enhancements,
+    item 4): the exact same per_strategy rows the Strategy Comparison
+    table on the dashboard already shows, written out as a real .xlsx
+    using openpyxl (already a project dependency, same pattern
+    backtest_engine/export.py's export_excel already uses) -- no new
+    computation, purely a different output format of the same data."""
+    import io
+    import pandas as pd
+    from fastapi.responses import StreamingResponse
+
+    analytics = _compute_analytics(period)
+    rows = [
+        {
+            "Strategy": p.get("strategy_name") or p.get("strategy_id"),
+            "Balance": p.get("balance"),
+            "Closed Trades": p.get("closed_trades"),
+            "Win Rate %": p.get("win_rate"),
+            "Total PnL": p.get("total_pnl"),
+            "Confidence Score": p.get("confidence_score"),
+        }
+        for p in analytics.get("per_strategy", [])
+    ]
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        pd.DataFrame(rows).to_excel(writer, sheet_name="Strategy Comparison", index=False)
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename=strategy_comparison_{period}.xlsx"},
+    )
+
+
 @router.get("/api/paper-trading/analytics")
 def get_analytics(period: str = "all"):
     """The single data source behind both the Paper Trading page's
@@ -323,6 +358,37 @@ def get_alerts(limit: int = 30):
 @router.get("/api/paper-trading/pattern-memory")
 def get_pattern_memory(strategy_id: Optional[str] = None):
     return {"patterns": storage.list_paper_coin_pattern_memory(strategy_id, since=insights.fresh_session_start())}
+
+
+@router.get("/api/paper-trading/balance-history/{strategy_id}")
+def get_balance_history(strategy_id: str, limit: int = 500):
+    """Fake Money Balance History (Remaining Dashboard Enhancements, item 1):
+    a real time-series of a strategy's own virtual balance, not just the
+    current number -- built from the same closed-trade PnL history and
+    Capital Allocation multiplier every other balance figure on this
+    dashboard already uses (paper_trading.risk_manager.account_balance),
+    just walked forward point-by-point instead of read once at the end."""
+    settings = pt_config.load()
+    initial_balance = settings.get("initial_balance", 10000.0)
+    multiplier, _ = storage.get_strategy_capital_multiplier(strategy_id)
+    trades = storage.list_paper_closed_trades_ordered(strategy_id=strategy_id, limit=limit)
+
+    base = initial_balance * multiplier
+    points = [{"at": None, "balance": round(base, 2)}]
+    running = base
+    for t in trades:
+        running += (t["pnl"] or 0.0)
+        points.append({"at": t["closed_at"], "balance": round(running, 2)})
+    return {"strategy_id": strategy_id, "initial_balance": round(base, 2), "points": points}
+
+
+@router.get("/api/paper-trading/confluence-history/{strategy_id}")
+def get_confluence_history(strategy_id: str, limit: int = 100):
+    """Historical Confluence Score Tracking (Remaining Dashboard
+    Enhancements, item 5): how a strategy's average Confluence Score has
+    trended over time, not just its current value -- reads the log
+    written at signal time (see paper_trading.engine._open_if_allowed)."""
+    return {"strategy_id": strategy_id, "history": storage.list_confluence_history(strategy_id, limit=limit)}
 
 
 @router.get("/api/paper-trading/pattern-reliability")

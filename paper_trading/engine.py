@@ -26,6 +26,7 @@ from paper_trading import config as pt_config
 from paper_trading import coin_filter, live_feed, market_state, strategy_matcher, lesson_matcher
 from paper_trading import signal_generator, confidence, risk_manager, guards, position_manager
 from paper_trading import auto_avoid, drawdown_guard, lesson_auto_apply, telegram_bot, capital_allocation
+from paper_trading import confluence
 
 
 def _now_iso():
@@ -359,6 +360,20 @@ class PaperTradingEngine:
         self._log(f"[paper-trading] OPENED {symbol} {pos['direction']} @ {pos['entry_price']:.6f} "
                   f"(strategy={pick.get('strategy_name') or pick.get('lesson_title')})")
         self._emit({"type": "position_opened", "position": pos})
+
+        # Historical Confluence Score Tracking (Remaining Dashboard
+        # Enhancements, item 5): logs this signal's confluence score so its
+        # trend over time can be shown, not just the current value -- fully
+        # independent of Telegram (confluence.score_confluence() is a plain
+        # paper_trading module), logged for every real position regardless
+        # of Telegram/auto-send settings.
+        try:
+            conf = confluence.score_confluence(book, symbol, exchange, snapshot.get("market_state"),
+                                                snapshot.get("session"), pick["direction"])
+            if conf["total"] > 0:
+                storage.save_confluence_score(book, pos["id"], conf["passed"] / conf["total"], _now_iso())
+        except Exception as e:
+            self._log(f"[paper-trading] confluence history logging failed: {e!r}")
 
         # A3: automatic high-confidence Telegram signal -- OFF by default
         # (telegram_bot.evaluate_auto_send checks the settings flag first
