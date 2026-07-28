@@ -281,6 +281,20 @@ CREATE TABLE IF NOT EXISTS telegram_message_log (
 );
 CREATE INDEX IF NOT EXISTS idx_telegram_log_sent_at ON telegram_message_log(sent_at DESC);
 
+-- Autonomous Strategy Research: one row per research RUN (a "search"
+-- click, or a single-URL queue), so a daily/weekly rate limit setting
+-- has something real to count against -- separate from ai_import_queue,
+-- which tracks each individual QUEUED ARTICLE (a single search can queue
+-- 0-5 articles), not each research invocation.
+CREATE TABLE IF NOT EXISTS research_run_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL,
+    query_or_url TEXT,
+    queued_count INTEGER NOT NULL DEFAULT 0,
+    run_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_research_run_log_run_at ON research_run_log(run_at DESC);
+
 -- Weekly Auto-Report (Dashboard Consolidation Group, item 7): one row per
 -- generated report, permanently stored so past reports stay reviewable.
 CREATE TABLE IF NOT EXISTS paper_weekly_reports (
@@ -2563,6 +2577,36 @@ def count_telegram_messages_since(since_iso):
             "SELECT COUNT(*) FROM telegram_message_log WHERE sent_at >= ? AND success=1", (since_iso,),
         ).fetchone()
     return row[0] if row else 0
+
+
+# --------------------------------------------------------------- Autonomous Strategy Research (rate limiting)
+
+def log_research_run(kind, query_or_url, queued_count, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO research_run_log (kind, query_or_url, queued_count, run_at) VALUES (?, ?, ?, ?)",
+            (kind, query_or_url, queued_count, now_iso),
+        )
+
+
+def count_research_runs_since(since_iso):
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM research_run_log WHERE run_at >= ?", (since_iso,),
+        ).fetchone()
+    return row[0] if row else 0
+
+
+def list_research_runs(limit=50):
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, kind, query_or_url, queued_count, run_at FROM research_run_log "
+            "ORDER BY run_at DESC LIMIT ?", (limit,),
+        ).fetchall()
+    return [
+        {"id": r[0], "kind": r[1], "query_or_url": r[2], "queued_count": r[3], "run_at": r[4]}
+        for r in rows
+    ]
 
 
 def has_telegram_signal_for_position(position_id):

@@ -669,6 +669,7 @@
     ai_center: renderAiCenter, backtest_history: renderBacktestHistory,
     pipeline_history: renderPipelineHistory,
     evolution: renderEvolution, sindhu_strategy: renderSindhuStrategy,
+    web_sourced_strategies: renderWebSourcedStrategies,
     ceo: renderCEO,
   };
   let refreshTimer = null;
@@ -2719,6 +2720,100 @@
       document.getElementById("sstratFilterNonAi").onclick = () => { filter = "non_ai"; render(); };
     }
 
+    await render();
+  }
+
+  // ------------------------------------------------------------ WEB-SOURCED STRATEGIES (Part 3)
+  // A dedicated, clearly-labeled view of every strategy that came from the
+  // Autonomous Strategy Research feature (separate from anything manually
+  // pasted) -- every one of these already went through the exact same
+  // validation pipeline (safety check, backtest, Walk-Forward) as any
+  // other saved strategy; this page is pure visibility, nothing special
+  // happens to them.
+  async function renderWebSourcedStrategies() {
+    const myToken = activeRouteToken;
+    async function render() {
+      const [listRes, runsRes] = await Promise.all([
+        apiGet("/api/research/web-sourced-strategies").catch(() => ({ strategies: [], count: 0 })),
+        apiGet("/api/research/runs?limit=10").catch(() => ({ runs: [], runs_used_today: 0, settings: { max_runs_per_day: 1 } })),
+      ]);
+      if (isStaleRoute(myToken)) return;
+      const settings = runsRes.settings || { max_runs_per_day: 1 };
+
+      content.innerHTML = `
+        <div class="section-title">Web-Sourced Strategies</div>
+        <p class="muted" style="margin-top:-10px;">Every strategy on this page was discovered automatically by the Autonomous Strategy Research feature (a web search or a single trusted article) -- never manually pasted. Each one went through the exact same checks (Safety Check, Backtest, Walk-Forward Test) as any other saved strategy; nothing here gets special treatment.</p>
+
+        <div class="grid">
+          ${card("Web-Sourced Strategies", fmtNum(listRes.count))}
+          ${card("Research Runs Today", `${runsRes.runs_used_today} / ${settings.max_runs_per_day}`)}
+        </div>
+
+        <div class="section-title">Run Research Now</div>
+        <div class="card">
+          <div class="form-row"><label>Search Query</label><input id="wsQuery" placeholder="e.g. ICT order block strategy"></div>
+          <div class="btn-row">
+            <button class="btn" id="wsRunSearch">Search &amp; Queue</button>
+            <span id="wsRunStatus" class="muted"></span>
+          </div>
+          <div class="muted" style="font-size:11.5px;margin-top:6px;">Limited to ${settings.max_runs_per_day} run(s) per day (change this below) -- respects trusted-source-only rules, same as before.</div>
+        </div>
+
+        <div class="section-title">Strategies Found</div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Strategy</th><th>Safety Status</th><th>Source</th><th>Source URL</th><th>Article</th><th>Queued</th></tr></thead>
+          <tbody>${listRes.strategies.map(s => `
+            <tr>
+              <td>${esc(s.strategy_name || s.strategy_id)}</td>
+              <td><span class="pill ${s.safety_status === "safe" ? "pill-bullish" : s.safety_status ? "pill-error" : "pill-muted"}">${esc(s.safety_status || "unknown")}</span></td>
+              <td><span class="pill pill-neutral">${esc(s.source)}</span></td>
+              <td><a href="${esc(s.source_url)}" target="_blank" rel="noopener noreferrer">${esc(s.source_domain)}</a></td>
+              <td style="max-width:260px;">${esc(s.document_title || "-")}</td>
+              <td>${esc((s.queued_at || "").slice(0, 10))}</td>
+            </tr>`).join("") || `<tr><td colspan="6">No web-sourced strategies yet -- none have been discovered by Autonomous Strategy Research so far. Run a search above, or check back after it finds something worth queuing.</td></tr>`}</tbody>
+        </table></div>
+
+        <div class="section-title">Recent Research Runs</div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>When</th><th>Type</th><th>Query / URL</th><th>Queued</th></tr></thead>
+          <tbody>${(runsRes.runs || []).map(r => `
+            <tr><td>${esc((r.run_at || "").slice(0, 19))}</td><td>${esc(r.kind)}</td>
+            <td>${esc(r.query_or_url || "-")}</td><td>${r.queued_count}</td></tr>`).join("")
+            || '<tr><td colspan="4">No research runs yet.</td></tr>'}</tbody>
+        </table></div>
+
+        <div class="section-title">Research Rate Limit</div>
+        <div class="card" style="max-width:420px;">
+          <div class="form-row"><label>Max Research Runs Per Day</label><input id="wsMaxRuns" type="number" min="1" value="${settings.max_runs_per_day}"></div>
+          <div class="muted" style="font-size:11.5px;">Keeps Autonomous Strategy Research from making too many outside web/AI calls -- one run is one search or one single-URL queue.</div>
+          <div class="btn-row"><button class="btn" id="wsSaveRateLimit">Save</button><span id="wsRateLimitStatus" class="muted"></span></div>
+        </div>
+      `;
+
+      document.getElementById("wsRunSearch").onclick = async () => {
+        const status = document.getElementById("wsRunStatus");
+        const query = document.getElementById("wsQuery").value.trim();
+        if (!query) { status.textContent = "Enter a search query first."; return; }
+        status.textContent = "Searching...";
+        try {
+          const res = await apiPost("/api/research/search", { query, max_results: 5 });
+          status.textContent = `Queued ${((res.queued || []).length)} article(s), skipped ${(res.skipped || []).length}.`;
+          render();
+        } catch (e) {
+          status.textContent = `Failed: ${e.message}`;
+        }
+      };
+
+      document.getElementById("wsSaveRateLimit").onclick = async () => {
+        const status = document.getElementById("wsRateLimitStatus");
+        const value = parseInt(document.getElementById("wsMaxRuns").value, 10);
+        if (!value || value < 1) { status.textContent = "Must be at least 1."; return; }
+        status.textContent = "Saving...";
+        await apiPost("/api/research/settings", { max_runs_per_day: value });
+        status.textContent = "Saved.";
+        render();
+      };
+    }
     await render();
   }
 
