@@ -134,6 +134,122 @@
   function fmtNum(n) { return n == null ? "-" : Number(n).toLocaleString(); }
   function esc(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 
+  // ------------------------------------------------------------ "Explain This to Me" popovers
+  // Pre-written, static plain-language text -- no AI call, just a tooltip.
+  // Any page can drop helpIcon("key") next to a metric; a single delegated
+  // click handler (registered once, below) shows the matching popover.
+  const HELP_TEXT = {
+    confidence_score: "How sure the system is that a trade setup is a good one, from 0-100%. Higher means more of the system's own checks agreed with each other before it acted. It is not a guarantee of profit -- it just means the setup looked stronger by the system's own rules.",
+    sharpe_ratio: "A single number for \"how smooth were the profits\" -- it compares how much a strategy made to how bumpy the ride was to get there. Roughly: above 1 is good, above 2 is very good, below 0 means it lost money on average. Two strategies can make the same profit, but the one with the higher Sharpe Ratio got there with fewer scary swings.",
+    max_drawdown: "The biggest drop a strategy's balance took from its highest point before recovering, shown as a percentage. A 20% max drawdown means that at its worst, this strategy was down 20% from its best-ever balance. Lower is safer -- it's the number that best answers \"how bad could it get?\"",
+    confluence_score: "How many independent signals (like trend direction, momentum, and market condition) all agree, out of everything the system checked for this trade. A high confluence score means many separate signals pointed the same way, not just one.",
+    market_regime: "A simple label for what the market is currently doing: \"Trending\" means prices are moving clearly in one direction, \"Ranging\" means prices are bouncing sideways without a clear direction, and \"High Volatility\" means prices are moving fast and unpredictably. Strategies often perform very differently depending on which of these is happening.",
+    correlation_warning: "A heads-up that two or more strategies have open trades on coins that tend to move together (e.g. two coins that usually rise and fall at the same time). It doesn't mean anything is wrong -- it just means your real risk may be more concentrated than it looks, since a single market move could affect several trades at once.",
+  };
+
+  function helpIcon(key) {
+    if (!HELP_TEXT[key]) return "";
+    return `<span class="help-icon" data-help-key="${key}" tabindex="0" role="button" aria-label="What does this mean?">?</span>`;
+  }
+
+  (function setupHelpPopovers() {
+    let popoverEl = null;
+    function closePopover() {
+      if (popoverEl) { popoverEl.remove(); popoverEl = null; }
+    }
+    function openPopover(icon) {
+      closePopover();
+      const text = HELP_TEXT[icon.dataset.helpKey];
+      if (!text) return;
+      const el = document.createElement("div");
+      el.className = "help-popover";
+      el.textContent = text;
+      document.body.appendChild(el);
+      const r = icon.getBoundingClientRect();
+      const maxLeft = window.innerWidth - el.offsetWidth - 12;
+      el.style.left = `${Math.max(8, Math.min(r.left, maxLeft))}px`;
+      el.style.top = `${r.bottom + 6 + window.scrollY}px`;
+      popoverEl = el;
+    }
+    document.addEventListener("click", (e) => {
+      const icon = e.target.closest(".help-icon");
+      if (icon) {
+        e.stopPropagation();
+        if (popoverEl && popoverEl.dataset.forKey === icon.dataset.helpKey) { closePopover(); return; }
+        openPopover(icon);
+        if (popoverEl) popoverEl.dataset.forKey = icon.dataset.helpKey;
+        return;
+      }
+      if (popoverEl && !popoverEl.contains(e.target)) closePopover();
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        const icon = document.activeElement && document.activeElement.closest && document.activeElement.closest(".help-icon");
+        if (icon) { e.preventDefault(); icon.click(); }
+      }
+      if (e.key === "Escape") closePopover();
+    });
+  })();
+
+  // ------------------------------------------------------------ Confidence Threshold filter
+  // A single, page-local slider (Paper Trading page) that dims or hides any
+  // row/card marked with a data-confidence attribute, applied client-side
+  // and instantly -- no reload, no server round-trip. The threshold and
+  // display mode are remembered in localStorage (same simple client-side
+  // persistence already used for the API token) so they survive across
+  // sessions/page reloads without needing a new server-side settings field.
+  const CONF_THRESH_KEY = "sindhu_confidence_threshold";
+  const CONF_HIDE_KEY = "sindhu_confidence_hide_mode";
+
+  function getConfidenceThreshold() {
+    const v = parseInt(localStorage.getItem(CONF_THRESH_KEY), 10);
+    return Number.isFinite(v) ? v : 0;
+  }
+  function getConfidenceHideMode() {
+    return localStorage.getItem(CONF_HIDE_KEY) === "1";
+  }
+  function applyConfidenceFilter() {
+    const threshold = getConfidenceThreshold();
+    const hide = getConfidenceHideMode();
+    document.querySelectorAll("[data-confidence]").forEach(el => {
+      const c = parseFloat(el.dataset.confidence);
+      const below = Number.isFinite(c) && c < threshold;
+      el.classList.toggle("conf-dimmed", below && !hide);
+      el.style.display = below && hide ? "none" : "";
+    });
+  }
+  function confidenceFilterHtml() {
+    const threshold = getConfidenceThreshold();
+    return `
+      <div class="section-title">Confidence Filter</div>
+      <div class="card" style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+        <div style="flex:1;min-width:220px;">
+          <label>Minimum Confidence: <b id="confThreshVal">${threshold}%</b></label>
+          <input type="range" id="confThreshSlider" min="0" max="100" value="${threshold}" style="width:100%;">
+          <div class="muted" style="font-size:11.5px;">Applies to Open Positions and Strategy Comparison below -- updates instantly as you move it.</div>
+        </div>
+        <label style="width:auto;display:flex;align-items:center;gap:6px;">
+          <input type="checkbox" id="confThreshHide" style="width:auto;" ${getConfidenceHideMode() ? "checked" : ""}>
+          Hide below threshold (instead of dimming)
+        </label>
+      </div>`;
+  }
+  function wireConfidenceFilter() {
+    const slider = document.getElementById("confThreshSlider");
+    const hideBox = document.getElementById("confThreshHide");
+    if (!slider) return;
+    slider.addEventListener("input", () => {
+      document.getElementById("confThreshVal").textContent = `${slider.value}%`;
+      localStorage.setItem(CONF_THRESH_KEY, slider.value);
+      applyConfidenceFilter();
+    });
+    hideBox.addEventListener("change", () => {
+      localStorage.setItem(CONF_HIDE_KEY, hideBox.checked ? "1" : "0");
+      applyConfidenceFilter();
+    });
+    applyConfidenceFilter();
+  }
+
   // ------------------------------------------------------------ WebSocket / live logs
   const logsBody = document.getElementById("logsBody");
   const connStatus = document.getElementById("connStatus");
@@ -1088,17 +1204,18 @@
       content.innerHTML = `
         <div class="section-title">Market (${esc(m.exchange)} / ${esc(m.quote)})</div>
         <div class="btn-row">
-          <label class="muted" style="display:flex;align-items:center;gap:6px;">Market Condition:
+          <span class="muted" style="display:flex;align-items:center;gap:6px;">
+            <label for="marketRegimeFilter">Market Condition</label>${helpIcon("market_regime")}:
             <select id="marketRegimeFilter" style="width:auto;">
               <option value="all" ${filterValue === "all" ? "selected" : ""}>All</option>
               <option value="trending" ${filterValue === "trending" ? "selected" : ""}>Trending</option>
               <option value="ranging" ${filterValue === "ranging" ? "selected" : ""}>Ranging</option>
               <option value="high_volatility" ${filterValue === "high_volatility" ? "selected" : ""}>High Volatility</option>
             </select>
-          </label>
+          </span>
         </div>
         <div class="table-wrap"><table>
-          <thead><tr><th>Coin</th><th>Price</th><th>24H Change</th><th>Volume</th><th>Trend</th><th>Signal</th><th>Volatility</th><th>Market Condition</th></tr></thead>
+          <thead><tr><th>Coin</th><th>Price</th><th>24H Change</th><th>Volume</th><th>Trend</th><th>Signal</th><th>Volatility</th><th>Market Condition ${helpIcon("market_regime")}</th></tr></thead>
           <tbody>${rows || '<tr><td colspan="8">No market data</td></tr>'}</tbody>
         </table></div>`;
       document.getElementById("marketRegimeFilter").addEventListener("change", render);
@@ -1242,7 +1359,7 @@
           <button class="btn" id="btnNewStrategy">New Strategy</button>
         </div>
         <div class="table-wrap"><table>
-          <thead><tr><th></th><th>Name</th><th>Concepts</th><th>Timeframes</th><th>Condition Roles</th><th>Status</th><th>Last Backtest</th><th>Live Risk (Sharpe / Max DD)</th><th>Version</th><th></th></tr></thead>
+          <thead><tr><th></th><th>Name</th><th>Concepts</th><th>Timeframes</th><th>Condition Roles</th><th>Status</th><th>Last Backtest</th><th>Live Risk (Sharpe ${helpIcon("sharpe_ratio")} / Max DD ${helpIcon("max_drawdown")})</th><th>Version</th><th></th></tr></thead>
           <tbody>${rows || '<tr><td colspan="10">No saved strategies yet -- create one on the Backtesting page.</td></tr>'}</tbody>
         </table></div>
         <div id="versionHistoryBox" style="display:none;">
@@ -1307,22 +1424,22 @@
           const readiness = p.real_trading_readiness;
           body.innerHTML = `
             <div class="grid">
-              ${card("Confidence Score", p.confidence_score != null ? p.confidence_score : "No data yet")}
+              ${card(`Confidence Score ${helpIcon("confidence_score")}`, p.confidence_score != null ? p.confidence_score : "No data yet")}
               ${card("Current Streak", p.streak ? `${p.streak.count} ${p.streak.type}${p.streak.count !== 1 ? "es" : ""}` : "-")}
-              ${p.risk_metrics.sharpe_ratio != null ? card("Sharpe / Max DD", `${p.risk_metrics.sharpe_ratio.toFixed(2)} / ${p.risk_metrics.max_drawdown_pct.toFixed(1)}%`) : card("Sharpe / Max DD", "Not enough data")}
+              ${p.risk_metrics.sharpe_ratio != null ? card(`Sharpe ${helpIcon("sharpe_ratio")} / Max DD ${helpIcon("max_drawdown")}`, `${p.risk_metrics.sharpe_ratio.toFixed(2)} / ${p.risk_metrics.max_drawdown_pct.toFixed(1)}%`) : card("Sharpe / Max DD", "Not enough data")}
               ${cardClass("Drawdown Protection", p.paused ? "Paused" : "Active", p.paused ? "negative" : "positive")}
               ${card("Backtest Verdict", p.backtest_verdict || "-")}
               ${card("Walk-Forward", p.walk_forward_status || "not yet run")}
             </div>
             ${p.paused ? `<div class="card" style="margin-bottom:16px;"><b>Why paused:</b> ${esc(p.pause_reason)}</div>` : ""}
 
-            <div class="section-title">Coins Currently Traded &amp; Their Market Condition</div>
+            <div class="section-title">Coins Currently Traded &amp; Their Market Condition ${helpIcon("market_regime")}</div>
             <div class="card">${Object.keys(p.traded_coin_regimes).length
               ? Object.entries(p.traded_coin_regimes).map(([sym, r]) => `<span class="pill pill-neutral" style="margin:2px;">${esc(sym)}: ${esc(r)}</span>`).join("")
               : `<span class="muted">No open positions right now.</span>`}</div>
 
             ${p.correlation_warnings.length ? `
-            <div class="section-title">Correlation Warnings Involving This Strategy</div>
+            <div class="section-title">Correlation Warnings Involving This Strategy ${helpIcon("correlation_warning")}</div>
             <div class="card">${p.correlation_warnings.map(w => `<div style="padding:4px 0;">${esc(w.message)}</div>`).join("")}</div>` : ""}
 
             ${p.auto_avoid_rules.length ? `
@@ -1526,6 +1643,7 @@
             <tbody id="stratTableBody"></tbody></table></div>
         </div>
         <div>
+          <div id="bResumeStatus" class="muted" style="font-size:12px;margin-bottom:6px;">Checking for a running backtest&hellip;</div>
           <div class="grid">
             ${card("Current Strategy", `<span id="bCurStrategy">-</span>`)}
             ${card("Current Coin", `<span id="bCurCoin">-</span>`)}
@@ -1625,7 +1743,12 @@
     try {
       const jobs = await apiGet("/api/jobs");
       const runningBacktest = (jobs.jobs || []).find(j => j.kind === "backtest" && j.status === "running");
+      const resumeStatusEl = document.getElementById("bResumeStatus");
+      if (!runningBacktest && resumeStatusEl) {
+        resumeStatusEl.textContent = "No backtest currently running.";
+      }
       if (runningBacktest) {
+        if (resumeStatusEl) resumeStatusEl.textContent = `Resuming live view of running backtest (job ${runningBacktest.id})… this can take a few seconds while the backtest's CPU-heavy workers are active.`;
         currentJobId = runningBacktest.id;
         jobStartTime = Date.parse(runningBacktest.started_at) || Date.now();
         const p = runningBacktest.progress || {};
@@ -1635,10 +1758,39 @@
         if (p.current_stage) document.getElementById("bStage").textContent = p.current_stage;
         if (p.bar_pct != null) document.getElementById("bBarProgressFill").style.width = `${p.bar_pct}%`;
         if (p.total != null) {
+          batchTotalCombos = p.total;
           document.getElementById("bProgress").textContent = `${p.done} / ${p.total}`;
           document.getElementById("bProgressFill").style.width = `${(p.done / Math.max(p.total, 1)) * 100}%`;
         }
-        appendLog(`Resumed live view of running backtest job: ${currentJobId}`);
+        // Trade-level stats (count/win-rate/PnL/drawdown/chart) are now
+        // persisted server-side too (see backtesting.py's _trade_cb), not
+        // just streamed live -- restore them here instead of starting
+        // back at zero, which is exactly what looked like "the backtest
+        // reset" even though it never stopped.
+        if (p.total_trades != null) {
+          total = p.total_trades;
+          wins = p.wins || 0;
+          cumulativePnl = p.cumulative_pnl || 0;
+          peakPnl = Math.max(cumulativePnl, cumulativePnl + (p.max_drawdown || 0));
+          if (Array.isArray(p.equity_curve) && p.equity_curve.length) {
+            equityCurve.length = 0;
+            equityCurve.push(0, ...p.equity_curve);
+          }
+          document.getElementById("bTotalTrades").textContent = total;
+          document.getElementById("bWinRate").textContent = total > 0 ? `${((wins / total) * 100).toFixed(1)}%` : "-";
+          document.getElementById("bPnl").textContent = `${cumulativePnl >= 0 ? "" : "-"}$${Math.abs(cumulativePnl).toFixed(2)}`;
+          document.getElementById("bPnl").className = cumulativePnl > 0 ? "positive" : cumulativePnl < 0 ? "negative" : "";
+          const batchCapital = Math.max(batchTotalCombos, 1) * BACKTEST_INITIAL_BALANCE;
+          const drawdown = peakPnl - cumulativePnl;
+          document.getElementById("bDrawdown").textContent = `${((drawdown / batchCapital) * 100).toFixed(2)}%`;
+          if (p.last_trade) {
+            document.getElementById("bCurTrade").textContent =
+              `#${p.last_trade.trade_num} ${p.last_trade.side} ${p.last_trade.symbol} pnl=${p.last_trade.pnl.toFixed(2)}`;
+          }
+          drawEquitySparkline();
+        }
+        if (resumeStatusEl) resumeStatusEl.textContent = `Live -- resumed job ${currentJobId} (${total} trade(s) so far).`;
+        appendLog(`Resumed live view of running backtest job: ${currentJobId} (${total} trade(s) so far).`);
       }
     } catch (e) { /* non-fatal -- page still works, just won't auto-resume */ }
 
@@ -2645,12 +2797,12 @@
           ${cardClass("Combined Realized PnL", `${portfolioRes.combined_realized_pnl >= 0 ? "+" : ""}$${portfolioRes.combined_realized_pnl.toFixed(2)}`, portfolioRes.combined_realized_pnl > 0 ? "positive" : portfolioRes.combined_realized_pnl < 0 ? "negative" : "")}
           ${card("Correlation Concentration", `${portfolioRes.correlation_concentration_pct}%`)}
           ` : `<div class="muted">Portfolio data not available yet.</div>`}
-          ${riskScoreRes && riskScoreRes.risk_score != null ? cardClass("Portfolio Risk Score", `${riskScoreRes.risk_score}/100`, riskScoreRes.risk_score >= 70 ? "positive" : riskScoreRes.risk_score >= 40 ? "" : "negative") : card("Portfolio Risk Score", "Not enough data")}
+          ${riskScoreRes && riskScoreRes.risk_score != null ? cardClass(`Portfolio Risk Score ${helpIcon("sharpe_ratio")}`, `${riskScoreRes.risk_score}/100`, riskScoreRes.risk_score >= 70 ? "positive" : riskScoreRes.risk_score >= 40 ? "" : "negative") : card("Portfolio Risk Score", "Not enough data")}
         </div>
-        ${riskScoreRes && riskScoreRes.risk_score != null ? `<div class="muted" style="font-size:12px;">Based on ${riskScoreRes.strategies_with_data} strategies with enough trade history -- average Sharpe ${riskScoreRes.avg_sharpe}, worst single-strategy drawdown ${riskScoreRes.worst_drawdown_pct}%.</div>` : ""}
+        ${riskScoreRes && riskScoreRes.risk_score != null ? `<div class="muted" style="font-size:12px;">Based on ${riskScoreRes.strategies_with_data} strategies with enough trade history -- average Sharpe ${helpIcon("sharpe_ratio")} ${riskScoreRes.avg_sharpe}, worst single-strategy drawdown ${helpIcon("max_drawdown")} ${riskScoreRes.worst_drawdown_pct}%.</div>` : ""}
 
         ${(corrWarningsRes.warnings || []).length ? `
-        <div class="section-title">Correlation Warnings</div>
+        <div class="section-title">Correlation Warnings ${helpIcon("correlation_warning")}</div>
         <div class="card">
           ${corrWarningsRes.warnings.map(w => `
             <div style="padding:4px 0;border-bottom:1px solid var(--border,#333);font-size:13px;">
@@ -2722,11 +2874,13 @@
           ${card("Lessons Available (active)", fmtNum(runningLessons.length))}
         </div>
 
+        ${confidenceFilterHtml()}
+
         <div class="section-title">Open Positions</div>
         <div class="table-wrap"><table>
-          <thead><tr><th>Coin</th><th>Direction</th><th>Entry</th><th>SL</th><th>TP</th><th>Size</th><th>Confidence</th><th>Source</th><th>Session</th><th></th></tr></thead>
+          <thead><tr><th>Coin</th><th>Direction</th><th>Entry</th><th>SL</th><th>TP</th><th>Size</th><th>Confidence ${helpIcon("confidence_score")}</th><th>Confluence ${helpIcon("confluence_score")}</th><th>Source</th><th>Session</th><th></th></tr></thead>
           <tbody>${(positionsRes.positions || []).map(p => `
-            <tr>
+            <tr data-confidence="${p.confidence != null ? p.confidence : ""}">
               <td>${esc(p.symbol)}</td>
               <td><span class="pill ${p.direction === "long" ? "pill-bullish" : "pill-bearish"}">${esc(p.direction)}</span></td>
               <td>${p.entry_price}</td>
@@ -2734,10 +2888,11 @@
               <td>${p.take_profit != null ? p.take_profit.toFixed(6) : "-"}</td>
               <td>${p.size.toFixed(4)}</td>
               <td>${p.confidence != null ? p.confidence + "%" : "-"}</td>
+              <td class="pt-confluence-cell" data-position-id="${p.id}">-</td>
               <td>${esc(p.strategy_name || (p.lesson_ids||[]).length + " lesson(s)")}</td>
               <td>${esc(p.session || "-")}</td>
               <td><button class="btn-ghost pt-close-position" data-id="${p.id}">Close</button></td>
-            </tr>`).join("") || '<tr><td colspan="10">No open positions.</td></tr>'}</tbody>
+            </tr>`).join("") || '<tr><td colspan="11">No open positions.</td></tr>'}</tbody>
         </table></div>
 
         <div class="section-title">Closed Trades (most recent 30 of ${allTimeSummary.closed_trades})</div>
@@ -2774,9 +2929,9 @@
 
         <div class="section-title">Strategy Comparison (side-by-side)</div>
         <div class="table-wrap"><table>
-          <thead><tr><th>Strategy</th><th>Balance</th><th>Trades</th><th>Win Rate</th><th>PnL</th><th>Confidence</th><th>Streak</th><th>Alert</th></tr></thead>
+          <thead><tr><th>Strategy</th><th>Balance</th><th>Trades</th><th>Win Rate</th><th>PnL</th><th>Confidence ${helpIcon("confidence_score")}</th><th>Streak</th><th>Alert</th></tr></thead>
           <tbody>${(allTimeAnalytics.per_strategy || []).map(p => `
-            <tr>
+            <tr data-confidence="${p.confidence_score != null ? p.confidence_score : ""}">
               <td>${esc(p.strategy_name || p.strategy_id)}</td>
               <td>$${Number(p.balance).toFixed(2)}</td>
               <td>${p.closed_trades}</td>
@@ -2945,6 +3100,19 @@
             `Mistakes: ${(r.mistakes || []).join(" | ") || "-"}\n\n` +
             `Market State at Entry: ${JSON.stringify(t.market_snapshot || {}, null, 2)}`;
         };
+      });
+
+      wireConfidenceFilter();
+
+      // Confluence Score isn't computed ahead of time for open positions --
+      // fetch it per position (bounded by however many are actually open)
+      // using the existing retroactive-scoring endpoint, same one already
+      // used by Telegram signal messages. Best-effort: a failed fetch just
+      // leaves that cell as "-" rather than breaking the rest of the page.
+      document.querySelectorAll(".pt-confluence-cell").forEach(cell => {
+        apiGet(`/api/paper-trading/confluence/${cell.dataset.positionId}`)
+          .then(res => { cell.textContent = res.total ? `${res.passed}/${res.total}` : "-"; })
+          .catch(() => {});
       });
     };
 
@@ -4026,18 +4194,20 @@
   // uses -- this is a new way to reach existing functionality (a single
   // in-place command center), not a reimplementation of any backend logic.
   const CEO_MODULES = [
-    "home", "market", "data", "strategies", "knowledge", "knowledge_compiler",
+    "home", "feature_control", "market", "data", "strategies", "knowledge", "knowledge_compiler",
     "ai_center", "backtesting", "backtest_history", "pipeline_history", "paper_trading",
     "evolution", "sindhu_strategy", "reports", "settings",
   ];
   const CEO_LABELS = {
-    home: "Dashboard", market: "Market", data: "Data", strategies: "Strategies",
+    home: "Dashboard", feature_control: "Feature Control Center",
+    market: "Market", data: "Data", strategies: "Strategies",
     knowledge: "Knowledge", knowledge_compiler: "Knowledge Compiler", ai_center: "AI Center",
     backtesting: "Backtesting", backtest_history: "Backtest History",
     pipeline_history: "Pipeline History",
     paper_trading: "Paper Trading", evolution: "Evolution", sindhu_strategy: "SINDHU Strategy",
     reports: "Reports", settings: "Settings",
   };
+  const FEATURE_CATEGORY_ORDER = ["Risk & Safety", "Self-Learning", "Signals", "Other"];
 
   function statusDot(level) {
     // level: "active" (green, pulsing) | "attention" (amber) | "idle" (grey)
@@ -4053,7 +4223,7 @@
       const [home, market, data, strategies, knowledgeReport, lessons, kcDocs, aiDash,
              history, paperStatus, paperPositions, paperAnalytics, bestWorst, settings, jobsRes,
              pipelineHistoryRes, evolutionStatus, evolutionChampions, evolutionStrategies,
-             sindhuDailyLog, sindhuCandidates] = await Promise.all([
+             sindhuDailyLog, sindhuCandidates, featureControl] = await Promise.all([
         apiGet("/api/home").catch(() => null),
         apiGet("/api/market").catch(() => ({ coins: [], exchange: "-" })),
         apiGet("/api/data").catch(() => ({ coins: [], total_coins: 0, missing_data: [] })),
@@ -4075,6 +4245,7 @@
         apiGet("/api/evolution/strategies").catch(() => ({ strategies: [] })),
         apiGet("/api/sindhu-strategy/daily-log").catch(() => ({ candidates_generated: 0, ai_calls_used: 0 })),
         apiGet("/api/sindhu-strategy/candidates").catch(() => ({ candidates: [] })),
+        apiGet("/api/feature-control/state").catch(() => ({ master_pause_all: false, features: [] })),
       ]);
       return {
         home, market, data, strategies: strategies.strategies || [],
@@ -4085,6 +4256,7 @@
         evolutionStatus, evolutionChampions: evolutionChampions.champions || [],
         evolutionStrategies: evolutionStrategies.strategies || [],
         sindhuDailyLog, sindhuCandidates: sindhuCandidates.candidates || [],
+        featureControl,
       };
     }
 
@@ -4100,6 +4272,16 @@
             text: d.home
               ? `${fmtNum(d.home.total_coins)} coins, ${fmtNum(d.home.total_candles)} candles -- CPU ${d.home.cpu_percent}%, RAM ${d.home.ram_percent}%`
               : "Could not load.",
+          };
+        }
+        case "feature_control": {
+          const fc = d.featureControl || { master_pause_all: false, features: [] };
+          const onCount = fc.features.filter(f => f.enabled).length;
+          return {
+            level: fc.master_pause_all ? "attention" : "idle",
+            text: fc.master_pause_all
+              ? "All automation PAUSED"
+              : `${onCount}/${fc.features.length} automated feature(s) ON`,
           };
         }
         case "market":
@@ -4296,6 +4478,7 @@
       expandedId = id;
       try {
         if (id === "all_tasks") return await expandAllTasks();
+        if (id === "feature_control") return await expandFeatureControl();
         if (id === "home") return await expandHome();
         if (id === "market") return await expandMarket();
         if (id === "data") return await expandData();
@@ -4345,6 +4528,56 @@
       content.querySelectorAll(".ceo-task-stop").forEach(b => b.onclick = async () => { await apiPost(`/api/jobs/${b.dataset.id}/stop`); expandAllTasks(); });
       const stopPaperBtn = content.querySelector(".ceo-task-stop-paper");
       if (stopPaperBtn) stopPaperBtn.onclick = async () => { await apiPost("/api/paper-trading/stop").catch(() => {}); expandAllTasks(); };
+    }
+
+    // ---- Feature Control Center: every automated background feature in
+    // one place, grouped by category, with a master "Pause All Automation"
+    // switch. Pure visibility/control -- every toggle here just flips a
+    // flag an existing feature already reads before acting; Paper Trading
+    // itself is never stopped and no history is ever touched.
+    async function expandFeatureControl() {
+      const fc = await apiGet("/api/feature-control/state").catch(() => ({ master_pause_all: false, features: [] }));
+      if (isStaleRoute(myToken)) return;
+      const byCategory = {};
+      fc.features.forEach(f => { (byCategory[f.category] = byCategory[f.category] || []).push(f); });
+      expandedShell("Feature Control Center", `
+        <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px;">
+          <div>
+            <b>Pause All Automation</b>
+            <div class="muted" style="font-size:12px;">Safely turns off every automated feature below at once. Paper Trading keeps running and no data is lost -- flip it back on any time.</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="fcMasterPause" ${fc.master_pause_all ? "checked" : ""}>
+            <span class="slider"></span>
+          </label>
+        </div>
+        ${FEATURE_CATEGORY_ORDER.filter(cat => byCategory[cat]).map(cat => `
+          <div class="section-title">${esc(cat)}</div>
+          <div class="card" style="margin-bottom:16px;">
+            ${byCategory[cat].map(f => `
+              <div class="ceo-task-row" data-feature-row="${esc(f.id)}" style="opacity:${fc.master_pause_all ? 0.55 : 1};">
+                <div class="ceo-task-info">
+                  <div class="ceo-task-title">${esc(f.name)}${f.auto_manual ? ` <span class="muted" style="font-size:11px;">(AUTO/MANUAL)</span>` : ""}</div>
+                  <div class="ceo-task-sub">${esc(f.description)}</div>
+                  <div class="muted" style="font-size:11.5px;margin-top:2px;">${esc(f.name)} -- ${f.enabled ? "ON" : "OFF"} -- ${esc(f.status || "")}</div>
+                </div>
+                <label class="switch">
+                  <input type="checkbox" class="fc-toggle" data-feature-id="${esc(f.id)}" ${f.enabled ? "checked" : ""} ${fc.master_pause_all ? "disabled" : ""}>
+                  <span class="slider"></span>
+                </label>
+              </div>`).join("")}
+          </div>`).join("")}
+      `);
+      document.getElementById("fcMasterPause").onchange = async (e) => {
+        await apiPost("/api/feature-control/master-pause", { enabled: e.target.checked });
+        expandFeatureControl();
+      };
+      content.querySelectorAll(".fc-toggle").forEach(el => {
+        el.onchange = async (e) => {
+          await apiPost("/api/feature-control/toggle", { feature_id: el.dataset.featureId, enabled: e.target.checked });
+          expandFeatureControl();
+        };
+      });
     }
 
     // ---- Dashboard
