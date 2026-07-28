@@ -8,7 +8,7 @@ optional: OFF by default (uses AI tokens), toggled in Settings.
 
 from datetime import datetime, timezone
 
-from data_engine import storage, config as base_config
+from data_engine import storage, config as base_config, feature_toggles
 from ai_integration import config as ai_config
 from ai_integration import providers as ai_providers
 from paper_trading import insights
@@ -50,7 +50,7 @@ def review_trade(closed_position):
     duplicate call if this is somehow invoked twice). Returns None if
     disabled, already reviewed, or no AI provider is currently usable --
     never raises, this must never break a real trade close."""
-    if not is_enabled():
+    if not is_enabled() or feature_toggles.is_master_paused():
         return None
     position_id = closed_position["id"]
     if storage.get_trade_review(position_id):

@@ -392,12 +392,43 @@ def run_backtest(req: RunRequest):
             trades_so_far=trades_so_far, eta_seconds=eta_seconds,
         )
 
+    # Running trade stats (total/wins/cumulative pnl/peak/drawdown/equity
+    # curve) used to be tracked ONLY in the browser tab's own JS variables,
+    # rebuilt one WebSocket "last_trade" event at a time -- fine while the
+    # tab stays open, but navigating away and back created a fresh
+    # renderBacktesting() call with those variables reset to zero, even
+    # though the backtest was still running fine server-side. job.progress
+    # already persisted done/total/current_coin/etc, but never the trade
+    # aggregates, so those specific fields looked "reset" on return. Kept
+    # here (not in job_manager) since it's request-scoped, one dict per
+    # running batch, mirroring _progress_cb's own closure just above.
+    trade_stats = {"total_trades": 0, "wins": 0, "cumulative_pnl": 0.0, "peak_pnl": 0.0,
+                   "max_drawdown": 0.0, "equity_curve": []}
+
     def _trade_cb(symbol, timeframe, trade):
-        job_manager.update_progress(job_id, last_trade={
-            "symbol": symbol, "timeframe": timeframe, "side": trade["side"],
-            "pnl": trade["pnl"], "trade_num": trade["trade_num"],
-            "entry_reason": trade.get("entry_reason"), "exit_reason": trade.get("exit_reason"),
-        })
+        trade_stats["total_trades"] += 1
+        if trade["pnl"] > 0:
+            trade_stats["wins"] += 1
+        trade_stats["cumulative_pnl"] += trade["pnl"]
+        trade_stats["peak_pnl"] = max(trade_stats["peak_pnl"], trade_stats["cumulative_pnl"])
+        trade_stats["max_drawdown"] = max(trade_stats["max_drawdown"],
+                                           trade_stats["peak_pnl"] - trade_stats["cumulative_pnl"])
+        trade_stats["equity_curve"].append(round(trade_stats["cumulative_pnl"], 4))
+        if len(trade_stats["equity_curve"]) > 500:  # cap -- this is a live progress sparkline,
+            trade_stats["equity_curve"] = trade_stats["equity_curve"][-500:]  # not the final report
+
+        job_manager.update_progress(
+            job_id,
+            last_trade={
+                "symbol": symbol, "timeframe": timeframe, "side": trade["side"],
+                "pnl": trade["pnl"], "trade_num": trade["trade_num"],
+                "entry_reason": trade.get("entry_reason"), "exit_reason": trade.get("exit_reason"),
+            },
+            total_trades=trade_stats["total_trades"], wins=trade_stats["wins"],
+            cumulative_pnl=round(trade_stats["cumulative_pnl"], 4),
+            max_drawdown=round(trade_stats["max_drawdown"], 4),
+            equity_curve=trade_stats["equity_curve"],
+        )
 
     log_fn = job_manager.make_log_fn(job_id)
 

@@ -9,7 +9,7 @@ day can never exceed either limit.
 import threading
 from datetime import datetime, timezone
 
-from data_engine import storage
+from data_engine import storage, feature_toggles
 from evolution_engine import generation_manager
 from sindhu_strategy import ai_builder, deterministic_builder
 
@@ -99,7 +99,8 @@ _scheduler_stop = threading.Event()
 def _scheduler_loop():
     while not _scheduler_stop.is_set():
         try:
-            generate_daily_candidates()
+            if feature_toggles.is_enabled("sindhu_strategy_autogen_enabled"):
+                generate_daily_candidates()
         except Exception:
             pass  # next hourly check tries again; a transient failure today never blocks any other day
         _scheduler_stop.wait(_SCHEDULER_CHECK_INTERVAL_SECONDS)

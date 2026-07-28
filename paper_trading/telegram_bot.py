@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 import requests
 
-from data_engine import config as base_config, storage
+from data_engine import config as base_config, storage, feature_toggles
 from paper_trading import confluence as confluence_mod, insights
 
 _DEFAULTS = {
@@ -183,6 +183,8 @@ def evaluate_auto_send(position_id):
     settings = load_settings()
     if not settings.get("auto_send_enabled", False):
         return False, "automatic sending is turned off in Settings"
+    if feature_toggles.is_master_paused():
+        return False, "all automation is currently paused (master switch)"
 
     pos = storage.get_paper_position(position_id)
     if not pos:
@@ -220,7 +222,7 @@ def send_close_followup(closed_position):
     earlier (storage.has_telegram_signal_for_position), so the channel
     never gets a "result" message for a trade nobody was told about."""
     settings = load_settings()
-    if not settings.get("send_close_followups", True):
+    if not settings.get("send_close_followups", True) or feature_toggles.is_master_paused():
         return None
     position_id = closed_position["id"]
     if not storage.has_telegram_signal_for_position(position_id):

@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime, timezone
 
 from backtest_engine.engine import _apply_slippage
-from data_engine import storage
+from data_engine import storage, feature_toggles
 from paper_trading import reflection, evolution, auto_avoid, drawdown_guard, telegram_bot, ai_trade_review
 from paper_trading.guards import book_key as _book_key
 # Evolution Core Engine (Phase 7A, A.1): turns this closed trade's outcome,
@@ -177,7 +177,13 @@ def _close(pos, exit_price, exit_reason):
     )
     # Drawdown Protection Engine (item 4): same read-then-audit-write shape,
     # strategy-scoped, never touches the pnl/exit values already computed above.
-    drawdown_guard.evaluate_strategy(pos.get("strategy_id"), pos.get("strategy_name"))
+    # NOTE: only the write (deciding to pause) is gated here -- the READ that
+    # blocks new trades on an already-paused strategy (engine.py's
+    # storage.is_strategy_paused check) is intentionally never gated, so
+    # turning this toggle off mid-pause can't silently resume a strategy
+    # that's mid-drawdown.
+    if feature_toggles.is_enabled("drawdown_protection_enabled"):
+        drawdown_guard.evaluate_strategy(pos.get("strategy_id"), pos.get("strategy_name"))
 
     # A5: two-way Telegram awareness -- only sends if a signal was actually
     # sent for this exact position earlier (checked inside the function).

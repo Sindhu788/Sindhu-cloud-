@@ -18,7 +18,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 
-from data_engine import storage, config as base_config
+from data_engine import storage, config as base_config, feature_toggles
 from data_engine.exchanges.registry import get_exchange_client
 from data_engine.logging_setup import log as default_log
 
@@ -196,14 +196,16 @@ class PaperTradingEngine:
         # bar. Cheap (one indexed group-by query); never touches a trade
         # directly -- only writes rows that confidence.score() later reads.
         try:
-            lesson_auto_apply.promote_candidates()
+            if feature_toggles.is_enabled("lesson_auto_apply_enabled"):
+                lesson_auto_apply.promote_candidates()
         except Exception as e:
             self._log(f"[paper-trading] lesson auto-apply error: {e!r}")
 
         # Capital Allocation Engine (B2): recompute per-strategy multipliers
         # once per tick -- cheap (reuses already-computed risk metrics).
         try:
-            capital_allocation.recompute_all_allocations()
+            if feature_toggles.is_enabled("capital_allocation_enabled"):
+                capital_allocation.recompute_all_allocations()
         except Exception as e:
             self._log(f"[paper-trading] capital allocation error: {e!r}")
 
@@ -294,7 +296,10 @@ class PaperTradingEngine:
                                 f"strategy paused (Drawdown Protection): {pause_reason}", snapshot)
             return 0, 1
 
-        avoid_reason = auto_avoid.is_avoided(book, symbol, snapshot.get("market_state"), snapshot.get("session"))
+        avoid_reason = (
+            auto_avoid.is_avoided(book, symbol, snapshot.get("market_state"), snapshot.get("session"))
+            if feature_toggles.is_enabled("auto_avoid_enabled") else None
+        )
         if avoid_reason:
             self._log_decision(exchange, symbol, pick, "rejected", avoid_reason, snapshot)
             return 0, 1

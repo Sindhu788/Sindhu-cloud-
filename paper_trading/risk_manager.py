@@ -5,7 +5,7 @@ state and the CEO's configured risk limits.
 """
 
 from backtest_engine.engine import _position_size
-from data_engine import storage
+from data_engine import storage, feature_toggles
 from data_engine.logging_setup import log as _log
 from paper_trading import dynamic_risk
 
@@ -43,7 +43,7 @@ def evaluate(book_key, symbol, candidate, settings, exchange=None):
         return False, "account balance depleted", None, None
 
     risk_pct_default = settings.get("risk_pct_default", 1.0)
-    if exchange:
+    if exchange and feature_toggles.is_enabled("dynamic_risk_sizing_enabled"):
         adjusted_pct, note = dynamic_risk.compute_risk_pct(exchange, symbol, risk_pct_default)
         if note:
             _log(f"[paper-trading] Dynamic Risk Sizing: {note}")

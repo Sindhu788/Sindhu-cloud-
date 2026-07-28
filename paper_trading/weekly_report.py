@@ -9,7 +9,7 @@ like "Sharpe Ratio" without explanation, no raw numbers without context.
 
 from datetime import datetime, timezone, timedelta
 
-from data_engine import storage
+from data_engine import storage, feature_toggles
 from backtest_engine import strategy_library as lib
 from paper_trading import insights
 
@@ -129,6 +129,8 @@ def maybe_generate_weekly_report():
     """Called periodically by the scheduler thread -- only actually
     generates a new report if 7+ days have passed since the last one (or
     none exists yet). Safe to call as often as convenient."""
+    if not feature_toggles.is_enabled("weekly_report_enabled"):
+        return None
     last = storage.get_latest_weekly_report()
     if last:
         last_dt = datetime.fromisoformat(last)

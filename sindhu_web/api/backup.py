@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from data_engine import config
+from data_engine import config, feature_toggles
 from data_engine.paths import DATABASE_DIR, DB_PATH
 from data_engine.logging_setup import log
 
@@ -115,15 +115,18 @@ def restore_backup(req: RestoreRequest):
 
 def start_auto_backup_thread():
     """Runs once at server startup; sleeps between backups so it never
-    competes with foreground DB activity."""
-    settings = config.load_or_seed("backup_settings.json", _DEFAULT_BACKUP_SETTINGS)
-    if not settings.get("auto_backup_enabled", True):
-        return
+    competes with foreground DB activity. The thread itself always starts
+    -- whether a backup actually runs each cycle is re-checked fresh every
+    time from both backup_settings.json and the Feature Control Center's
+    master/per-feature toggles, so flipping either OFF takes effect on the
+    very next cycle without needing a server restart."""
 
     def _loop():
         while True:
-            interval = config.load_or_seed("backup_settings.json", _DEFAULT_BACKUP_SETTINGS)["interval_hours"]
-            time.sleep(max(interval, 1) * 3600)
+            settings = config.load_or_seed("backup_settings.json", _DEFAULT_BACKUP_SETTINGS)
+            time.sleep(max(settings["interval_hours"], 1) * 3600)
+            if not settings.get("auto_backup_enabled", True) or not feature_toggles.is_enabled("backup_enabled"):
+                continue
             try:
                 create_backup()
             except Exception as e:
