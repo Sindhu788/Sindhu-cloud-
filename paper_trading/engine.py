@@ -16,7 +16,7 @@ safety net for future concurrency rather than a currently-necessary mutex.
 import threading
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta as _timedelta
 
 from data_engine import storage, config as base_config, feature_toggles
 from data_engine.exchanges.registry import get_exchange_client
@@ -234,6 +234,28 @@ class PaperTradingEngine:
         for symbol in orphaned:
             ticker = tickers.get(symbol)
             if not ticker:
+                # A symbol with an OPEN position that's vanished from the
+                # exchange's own ticker batch (delisted, or the exchange is
+                # otherwise no longer quoting it) used to hit a silent
+                # `continue` here -- the position just sat open forever with
+                # zero visibility that anything was wrong. Logged (like every
+                # other per-symbol failure in this file) AND recorded as a
+                # real alert (throttled to once per hour per symbol, reusing
+                # paper_alerts -- `strategy_id` column repurposed to hold the
+                # symbol here since this is a data/symbol-level issue, not a
+                # strategy-level one) so it's visible on the dashboard, not
+                # only in server logs a person would have to go find.
+                self._log(f"[paper-trading] orphaned position on {symbol} missing from ticker batch "
+                          f"(possibly delisted or no longer quoted) -- position still open, price stale")
+                since = (datetime.now(timezone.utc) - _timedelta(hours=1)).isoformat()
+                if not storage.get_recent_paper_alert("orphaned_position_missing_ticker", symbol, since):
+                    storage.create_paper_alert(
+                        "orphaned_position_missing_ticker", symbol, None,
+                        f"{symbol} has an open position but the exchange stopped returning a price for it "
+                        f"(possibly delisted) -- its stop-loss/take-profit can't be checked until it "
+                        f"reappears. Consider closing it manually.",
+                        "warning", _now_iso(),
+                    )
                 continue
             closed += len(position_manager.monitor_and_close(exchange, symbol, ticker["price"]))
         return closed

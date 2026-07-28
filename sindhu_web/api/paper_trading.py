@@ -370,7 +370,50 @@ def get_streak(strategy_id: str):
 
 @router.get("/api/paper-trading/genealogy/{strategy_id}")
 def get_genealogy(strategy_id: str):
-    return {"versions": lib.version_history(strategy_id)}
+    """Strategy Genealogy used to show ONLY manual config-save versions --
+    a person clicking "History" to understand why a strategy's behavior
+    changed would see nothing about Pattern Auto-Avoid or Lesson
+    Auto-Apply ever kicking in, even though those are exactly the kind of
+    behavioral change genealogy exists to explain. Merges those events
+    into the same chronological timeline (no schema change needed -- the
+    statistical evidence, sample size and Wilson confidence interval, is
+    already embedded in each rule/lesson's own reason/explanation text)."""
+    versions = lib.version_history(strategy_id)
+    events = [{"type": "version_saved", "at": v["modified_at"], "detail": f"Version {v['version']} saved"}
+              for v in versions]
+
+    for rule in storage.list_paper_auto_avoid_rules():
+        if rule["strategy_id"] != strategy_id:
+            continue
+        events.append({
+            "type": "auto_avoid_triggered", "at": rule["triggered_at"],
+            "detail": rule["reason"], "symbol": rule["symbol"],
+        })
+        if rule["deactivated_at"]:
+            events.append({
+                "type": "auto_avoid_cleared", "at": rule["deactivated_at"],
+                "detail": f"Auto-Avoid rule for {rule['symbol']} ({rule['market_state']}/{rule['session']}) "
+                          f"no longer active -- pattern is no longer a statistically confident loser.",
+                "symbol": rule["symbol"],
+            })
+
+    for lesson in storage.list_paper_auto_lessons():
+        if lesson["strategy_id"] != strategy_id:
+            continue
+        events.append({
+            "type": "auto_lesson_applied", "at": lesson["applied_at"],
+            "detail": lesson["explanation"], "symbol": lesson["symbol"],
+        })
+        if lesson["deactivated_at"]:
+            events.append({
+                "type": "auto_lesson_cleared", "at": lesson["deactivated_at"],
+                "detail": f"Auto-Lesson for {lesson['symbol']} ({lesson['market_state']}/{lesson['session']}) "
+                          f"no longer active -- pattern drifted back to inconclusive.",
+                "symbol": lesson["symbol"],
+            })
+
+    events.sort(key=lambda e: e["at"] or "", reverse=True)
+    return {"versions": versions, "timeline": events}
 
 
 # --------------------------------------------------------------- Group 4: paper -> real bridge

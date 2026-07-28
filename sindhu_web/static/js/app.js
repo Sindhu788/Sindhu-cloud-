@@ -1944,7 +1944,20 @@
         res = await apiPost("/api/backtesting/run", { config: currentConfig, all_coins: true });
       } catch (e) {
         let msg = e.message;
-        try { msg = JSON.parse(e.message).detail || msg; } catch (_) {}
+        try {
+          const detail = JSON.parse(e.message).detail;
+          // The pre-flight sanity check's failure detail is an OBJECT
+          // ({errors, diagnosis, sanity_check_failed}), not a plain string --
+          // passing that straight to alert()/a template string silently
+          // printed "[object Object]", swallowing the actual diagnosis text
+          // the backend worked out for exactly this "why did it fail"
+          // moment. Pull the real message out of it instead.
+          if (detail && typeof detail === "object") {
+            msg = detail.diagnosis || (detail.errors || []).join("; ") || JSON.stringify(detail);
+          } else if (detail) {
+            msg = detail;
+          }
+        } catch (_) {}
         appendLog(`Backtest not started: ${msg}`);
         alert(msg);
         return;
@@ -2116,6 +2129,46 @@
     document.getElementById(ids.equityBox).innerHTML = sparklineSvg(equity);
     document.getElementById(ids.drawdownBox).innerHTML = sparklineSvg(drawdown);
 
+    // Trade-by-trade breakdown: the data was already being fetched for the
+    // equity/drawdown sparklines above, then discarded -- surfacing it as a
+    // real table means a person can see exactly why each trade won/lost
+    // without needing devtools or server logs.
+    if (ids.tradeLogBody) {
+      document.getElementById(ids.tradeLogBody).innerHTML = (tr.trades || []).slice(0, 200).map(t => `
+        <tr>
+          <td>${esc(t.symbol)}</td>
+          <td><span class="pill ${t.direction === "long" ? "pill-bullish" : "pill-bearish"}">${esc(t.direction || "-")}</span></td>
+          <td>${t.entry_price != null ? t.entry_price : "-"}</td>
+          <td>${t.exit_price != null ? t.exit_price : "-"}</td>
+          <td class="${(t.pnl_pct || 0) >= 0 ? "pill-up" : "pill-down"}">${t.pnl_pct != null ? t.pnl_pct.toFixed(2) : "-"}%</td>
+          <td>${esc(t.exit_reason || "-")}</td>
+          <td style="font-size:12px;max-width:220px;">${esc(t.entry_reason || "-")}</td>
+        </tr>`).join("") || '<tr><td colspan="7">No trades in this batch.</td></tr>';
+    }
+
+    // Failed coins: a symbol whose run ended in an actual ERROR (not just
+    // "ran fine, 0 trades" -- that's the separate 0-trade diagnosis above)
+    // used to be visible only by fetching this same /api/reports/{id}
+    // response directly and reading its raw `results` array by hand.
+    if (ids.failedSection && ids.failedBody) {
+      const failed = (r.results || []).filter(x => x.status === "error");
+      const failedSection = document.getElementById(ids.failedSection);
+      if (failed.length) {
+        failedSection.style.display = "block";
+        document.getElementById(ids.failedBody).innerHTML = failed.map(x => {
+          const m = x.metrics || {};
+          return `<tr>
+            <td>${esc(x.symbol || "-")}</td>
+            <td>${esc(m.stage || "-")}</td>
+            <td>${esc(m.reason || "-")}</td>
+            <td>${esc(m.suggested_fix || "-")}</td>
+          </tr>`;
+        }).join("");
+      } else {
+        failedSection.style.display = "none";
+      }
+    }
+
     const zeroSection = document.getElementById(ids.zeroSection);
     if (crs.reports && crs.reports.length) {
       zeroSection.style.display = "block";
@@ -2170,6 +2223,13 @@
       <div id="reportDetail" style="display:none;">
         <div id="reportSummary" class="card" style="white-space:pre-wrap;font-family:Consolas,monospace;font-size:12px;"></div>
         <div id="reportZeroDiagnosis"></div>
+        <div id="reportFailedSection" style="display:none;">
+          <div class="section-title">Coins That Failed to Run -- Why</div>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Coin</th><th>Stage</th><th>Reason</th><th>Suggested Fix</th></tr></thead>
+            <tbody id="reportFailedBody"></tbody>
+          </table></div>
+        </div>
         <div class="section-title">Per-Coin Breakdown</div>
         <div class="table-wrap"><table>
           <thead><tr><th>Coin</th><th>Trades</th><th>Win Rate</th><th>Profit %</th><th>Total PnL</th><th>Max Drawdown</th></tr></thead>
@@ -2186,12 +2246,18 @@
             <tbody id="zeroTradeBody"></tbody>
           </table></div>
         </div>
+        <div class="section-title">Trade-by-Trade Log (first 200)</div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Coin</th><th>Direction</th><th>Entry</th><th>Exit</th><th>PnL%</th><th>Exit Reason</th><th>Entry Reason</th></tr></thead>
+          <tbody id="reportTradeLogBody"></tbody>
+        </table></div>
       </div>`;
 
     const reportDetailIds = {
       detail: "reportDetail", summary: "reportSummary", coinBody: "coinBreakdownBody",
       equityBox: "equityChartBox", drawdownBox: "drawdownChartBox",
       zeroSection: "zeroTradeSection", zeroBody: "zeroTradeBody", zeroDiagnosis: "reportZeroDiagnosis",
+      tradeLogBody: "reportTradeLogBody", failedSection: "reportFailedSection", failedBody: "reportFailedBody",
     };
     document.querySelectorAll(".view-report").forEach(btn => {
       btn.onclick = () => renderBatchDetailInto(btn.dataset.id, reportDetailIds);
@@ -2418,6 +2484,7 @@
       detail: "histDetail", summary: "histSummary", coinBody: "histCoinBreakdownBody",
       equityBox: "histEquityChartBox", drawdownBox: "histDrawdownChartBox",
       zeroSection: "histZeroTradeSection", zeroBody: "histZeroTradeBody", zeroDiagnosis: "histZeroDiagnosis",
+      tradeLogBody: "histTradeLogBody", failedSection: "histFailedSection", failedBody: "histFailedBody",
     };
 
     content.innerHTML = `
@@ -2431,6 +2498,13 @@
         <div id="histComparisonBox" class="card" style="display:none;margin-bottom:16px;"></div>
         <div id="histSummary" class="card" style="white-space:pre-wrap;font-family:Consolas,monospace;font-size:12px;"></div>
         <div id="histZeroDiagnosis"></div>
+        <div id="histFailedSection" style="display:none;">
+          <div class="section-title">Coins That Failed to Run -- Why</div>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Coin</th><th>Stage</th><th>Reason</th><th>Suggested Fix</th></tr></thead>
+            <tbody id="histFailedBody"></tbody>
+          </table></div>
+        </div>
 
         <div class="section-title">Monte Carlo Simulation</div>
         <div id="histMonteCarloBox" class="card"></div>
@@ -2456,6 +2530,11 @@
             <tbody id="histZeroTradeBody"></tbody>
           </table></div>
         </div>
+        <div class="section-title">Trade-by-Trade Log (first 200)</div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Coin</th><th>Direction</th><th>Entry</th><th>Exit</th><th>PnL%</th><th>Exit Reason</th><th>Entry Reason</th></tr></thead>
+          <tbody id="histTradeLogBody"></tbody>
+        </table></div>
       </div>`;
 
     await renderList();
@@ -3179,11 +3258,16 @@
           const res = await apiGet(`/api/paper-trading/genealogy/${btn.dataset.id}`);
           const box = document.getElementById("ptStrategyDetail");
           box.style.display = "block";
-          const versions = res.versions || [];
-          box.textContent = `Version History -- ${btn.dataset.name}\n\n` +
-            (versions.length
-              ? versions.map(v => `v${v.version} -- saved ${v.modified_at.slice(0, 19).replace("T", " ")}`).join("\n")
-              : "No saved versions recorded for this strategy yet.");
+          const timeline = res.timeline || [];
+          const labels = {
+            version_saved: "Config Saved", auto_avoid_triggered: "Auto-Avoid TRIGGERED",
+            auto_avoid_cleared: "Auto-Avoid cleared", auto_lesson_applied: "Auto-Lesson APPLIED",
+            auto_lesson_cleared: "Auto-Lesson cleared",
+          };
+          box.textContent = `History -- ${btn.dataset.name}\n(includes manual saves AND automatic self-learning events -- when Pattern Auto-Avoid or Lesson Auto-Apply changed this strategy's behavior)\n\n` +
+            (timeline.length
+              ? timeline.map(e => `[${(e.at || "").slice(0, 19).replace("T", " ")}] ${labels[e.type] || e.type}${e.symbol ? ` (${e.symbol})` : ""}\n    ${e.detail}`).join("\n\n")
+              : "No history recorded for this strategy yet.");
         };
       });
 
