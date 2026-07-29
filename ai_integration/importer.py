@@ -85,18 +85,27 @@ def _maybe_trigger_pipeline(doc_dict):
     upload, YouTube, and the Import Queue worker, which all call
     import_document() directly) triggers the automation pipeline
     identically, without needing a separate hook at each API route. Never
-    lets a pipeline-start failure break the import itself."""
+    lets a pipeline-start failure break the import itself.
+
+    Task 2: submits into automation_pipeline.submission_queue instead of
+    calling trigger_pipeline_for_strategy() directly -- several strategies
+    imported close together (e.g. a batch of pasted documents processed
+    one after another by the Import Queue) used to silently lose every
+    strategy but the first, since a pipeline already running just made the
+    later triggers skip with nothing left to retry them. The queue makes
+    sure every one of them eventually gets its full pipeline run, one at a
+    time, in submission order."""
     if not doc_dict:
         return
     for s in doc_dict.get("strategies", []):
         strategy_id = s.get("saved_strategy_id")
         if strategy_id and s.get("status") == "READY_FOR_BACKTEST":
             try:
-                from automation_pipeline.pipeline import trigger_pipeline_for_strategy
-                trigger_pipeline_for_strategy(strategy_id, s.get("config", {}).get("name"))
+                from automation_pipeline import submission_queue
+                submission_queue.enqueue(strategy_id, s.get("config", {}).get("name"))
             except Exception as exc:
                 from data_engine.logging_setup import log as file_log
-                file_log(f"[automation-pipeline] Failed to auto-trigger for strategy {strategy_id}: {exc!r}")
+                file_log(f"[automation-pipeline] Failed to queue pipeline submission for strategy {strategy_id}: {exc!r}")
 
 
 def _empty_input_result(error_text):

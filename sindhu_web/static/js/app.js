@@ -273,14 +273,41 @@
   let globalListeners = [];
   function onGlobalLive(fn) { globalListeners.push(fn); }
 
+  // Task 2 (single active session): identifies this browser profile so the
+  // server can tell "a new tab/window on the SAME computer" (should close
+  // the old one) apart from "a different device" (e.g. a phone connected
+  // via Connect-from-mobile, which must stay connected at the same time --
+  // see sindhu_web/session_guard.py). localStorage is shared by every tab
+  // in the same browser profile, so this id is stable across tabs on one
+  // device but unique per device.
+  function getDeviceId() {
+    let id = localStorage.getItem("sindhu_device_id");
+    if (!id) {
+      id = (crypto.randomUUID ? crypto.randomUUID() : `dev-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+      localStorage.setItem("sindhu_device_id", id);
+    }
+    return id;
+  }
+
+  const SUPERSEDED_CLOSE_CODE = 4409;
+
   function connectWs() {
     const proto = location.protocol === "https:" ? "wss" : "ws";
-    const ws = new WebSocket(`${proto}://${location.host}/ws/logs`);
+    const ws = new WebSocket(`${proto}://${location.host}/ws/logs?device_id=${encodeURIComponent(getDeviceId())}`);
     ws.onopen = () => {
       connStatus.textContent = "● online"; connStatus.className = "conn-status conn-online";
       flushPending();
     };
-    ws.onclose = () => {
+    ws.onclose = (event) => {
+      if (event.code === SUPERSEDED_CLOSE_CODE) {
+        connStatus.textContent = "● replaced by another tab"; connStatus.className = "conn-status conn-offline";
+        showToast({
+          title: "Dashboard opened elsewhere",
+          body: "This tab was disconnected because the dashboard was opened in another tab or window on this device.",
+          isError: true, timeoutMs: 30000,
+        });
+        return; // do not auto-reconnect -- the newer tab is now the live session
+      }
       connStatus.textContent = "● offline"; connStatus.className = "conn-status conn-offline";
       setTimeout(connectWs, 2000);
     };
@@ -2652,10 +2679,41 @@
       loadPipelineRunDetail(document.getElementById("pphDetailBox"), jobId);
     }
 
+    async function renderQueue() {
+      let q;
+      try {
+        q = await apiGet("/api/automation/submission-queue");
+      } catch (e) {
+        return;
+      }
+      if (isStaleRoute(myToken)) return;
+      const box = document.getElementById("pphQueueBox");
+      if (!box) return;
+      const current = q.current
+        ? `Running now: <b>${esc(q.current.strategy_name || q.current.strategy_id)}</b>`
+        : "Nothing running from the queue right now.";
+      box.innerHTML = `
+        <div class="grid">
+          ${card("Pending in Queue", fmtNum(q.pending_count))}
+          ${card("Currently Running", q.current ? esc(q.current.strategy_name || q.current.strategy_id) : "-")}
+        </div>
+        <p class="muted" style="margin-top:8px;">${current} Strategies submitted together run one at a time, in the order submitted -- the rest wait here.</p>`;
+    }
+
     content.innerHTML = `
       <div class="section-title">Automation Pipeline History</div>
       <p class="muted">Every automation run (import -&gt; backtest -&gt; optimizer -&gt; paper trading), permanently -- the same data tracked for crash-recovery resume, not a separate log.</p>
-      <div class="table-wrap"><table>
+
+      <div class="section-title" style="margin-top:24px;">Submission Queue</div>
+      <p class="muted">Strategies waiting for their turn to run the full pipeline. Only one runs at a time; the rest queue here automatically (e.g. when several strategies are imported close together).</p>
+      <div id="pphQueueBox"></div>
+      <div style="margin-top:12px;">
+        <textarea id="pphBatchInput" class="input" rows="2" placeholder="Paste strategy IDs to submit together, separated by commas or new lines"></textarea>
+        <button class="btn-ghost" id="pphSubmitBatchBtn" style="margin-top:6px;">Submit Batch to Queue</button>
+        <span id="pphBatchResult" class="muted" style="margin-left:8px;"></span>
+      </div>
+
+      <div class="table-wrap" style="margin-top:24px;"><table>
         <thead><tr><th>Started</th><th>Strategy</th><th>Status</th><th>Coins</th><th></th></tr></thead>
         <tbody id="pphTableBody"><tr><td colspan="5">Loading...</td></tr></tbody>
       </table></div>
@@ -2664,16 +2722,37 @@
         <div id="pphDetailBox"></div>
       </div>`;
 
-    await renderList();
+    await Promise.all([renderList(), renderQueue()]);
+
+    document.getElementById("pphSubmitBatchBtn").onclick = async () => {
+      const raw = document.getElementById("pphBatchInput").value || "";
+      const strategy_ids = raw.split(/[\n,]/).map(s => s.trim()).filter(Boolean);
+      const resultEl = document.getElementById("pphBatchResult");
+      if (!strategy_ids.length) {
+        resultEl.textContent = "Paste at least one strategy ID first.";
+        return;
+      }
+      try {
+        const res = await apiPost("/api/automation/submit-batch", { strategy_ids });
+        resultEl.textContent = `Queued ${res.queued.length} strategy(ies).` +
+          (res.skipped_not_found.length ? ` Not found: ${res.skipped_not_found.join(", ")}` : "");
+        document.getElementById("pphBatchInput").value = "";
+        renderQueue().catch(console.error);
+      } catch (e) {
+        resultEl.textContent = `Failed: ${e.message}`;
+      }
+    };
 
     // A run reaching a terminal state (or progressing a stage) should
     // appear here without a manual refresh.
     onLive((msg) => {
       if (msg.channel === "job" && (msg.kind === "pipeline")) {
         renderList().catch(console.error);
+        renderQueue().catch(console.error);
       }
       if (msg.channel === "automation_pipeline") {
         renderList().catch(console.error);
+        renderQueue().catch(console.error);
       }
     });
   }

@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from data_engine import storage
 from backtest_engine import strategy_library as lib
 from automation_pipeline.pipeline import trigger_pipeline_for_strategy
+from automation_pipeline import submission_queue
 
 router = APIRouter()
 
@@ -42,6 +43,38 @@ def trigger_pipeline(req: TriggerPipelineRequest):
     if job_id is None:
         raise HTTPException(409, "Could not start -- another pipeline or backtest is already running.")
     return {"job_id": job_id}
+
+
+class SubmitBatchRequest(BaseModel):
+    strategy_ids: List[str]
+
+
+@router.post("/api/automation/submit-batch")
+def submit_batch(req: SubmitBatchRequest):
+    """Task 2: submit several strategies at once for the full pipeline
+    (backtest -> optimize -> re-test -> paper trading decision). Only one
+    runs at a time -- the rest sit in a visible pending queue, in the same
+    order they were submitted here, and are picked up automatically as
+    each prior one finishes. Unknown strategy_ids are silently skipped
+    (not an error) so one bad id in a pasted batch doesn't block the rest."""
+    items = []
+    skipped = []
+    for strategy_id in req.strategy_ids:
+        try:
+            cfg = lib.load(strategy_id)
+        except FileNotFoundError:
+            skipped.append(strategy_id)
+            continue
+        items.append({"strategy_id": strategy_id, "strategy_name": cfg.name})
+    ids = submission_queue.enqueue_batch(items)
+    return {"queued": ids, "skipped_not_found": skipped}
+
+
+@router.get("/api/automation/submission-queue")
+def get_submission_queue():
+    """Visible queue state for the dashboard -- how many strategies are
+    waiting and which one (if any) is currently running its pipeline."""
+    return submission_queue.queue_status()
 
 
 @router.get("/api/automation/pipeline-history")

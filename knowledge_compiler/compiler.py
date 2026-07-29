@@ -290,15 +290,18 @@ def compile_document(
     # own _maybe_trigger_pipeline for the AI Center / Import Queue side),
     # so this is the matching hook for the Knowledge Compiler side. Same
     # "must be READY_FOR_BACKTEST and actually saved" gate, same
-    # never-let-a-pipeline-failure-break-the-import guarantee.
+    # never-let-a-pipeline-failure-break-the-import guarantee. Task 2:
+    # submits into the submission queue rather than triggering directly,
+    # for the same reason as the importer.py side -- see that module's
+    # _maybe_trigger_pipeline docstring.
     for s in strategies:
         if s.saved_strategy_id and s.status == READY_FOR_BACKTEST:
             try:
-                from automation_pipeline.pipeline import trigger_pipeline_for_strategy
-                trigger_pipeline_for_strategy(s.saved_strategy_id, s.config.name)
+                from automation_pipeline import submission_queue
+                submission_queue.enqueue(s.saved_strategy_id, s.config.name)
             except Exception as exc:
                 from data_engine.logging_setup import log as file_log
-                file_log(f"[automation-pipeline] Failed to auto-trigger for strategy {s.saved_strategy_id}: {exc!r}")
+                file_log(f"[automation-pipeline] Failed to queue pipeline submission for strategy {s.saved_strategy_id}: {exc!r}")
 
     storage.save_compiled_document({
         "id": doc.id, "title": doc.title, "source_type": doc.source_type, "doc_type": doc.doc_type,

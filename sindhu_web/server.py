@@ -95,6 +95,14 @@ async def _lifespan(app: FastAPI):
     # so it runs inline rather than in its own thread like _warm_caches.
     from automation_pipeline.pipeline import resume_pipeline_jobs_on_startup
     resume_pipeline_jobs_on_startup()
+    # Task 2: restarts the strategy submission queue worker so any
+    # 'pending' or interrupted 'processing' rows left over from before a
+    # restart keep draining -- resume_pipeline_jobs_on_startup() above
+    # already reconnected any in-flight pipeline_jobs row to a live job by
+    # this point, so the queue worker's wait-for-job polling picks it up
+    # immediately rather than racing it.
+    from automation_pipeline import submission_queue
+    submission_queue.ensure_worker_running()
     # Phase 7A: Evolution Engine crash recovery -- same "resume only if it
     # was already running" contract as the automation pipeline above; the
     # CEO must still explicitly Start it the first time (see /api/evolution/

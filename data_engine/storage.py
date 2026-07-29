@@ -566,6 +566,28 @@ CREATE TABLE IF NOT EXISTS pipeline_jobs (
     updated_at TEXT NOT NULL
 );
 
+-- Task 2 (Strategy Submission Queue): pipeline_jobs above already gives one
+-- in-flight pipeline a durable checkpoint/resume, but on its own it has no
+-- memory of strategies that tried to start WHILE another was running --
+-- trigger_pipeline_for_strategy() just skips and logs, so a second/third
+-- strategy submitted (or imported) close together was previously lost for
+-- good. This table is the "don't lose the ones that were waiting" piece:
+-- one row per submitted strategy, pending -> processing -> completed/failed,
+-- drained by automation_pipeline/submission_queue.py's single worker one at
+-- a time. job_id links a 'processing' row to its live pipeline_jobs run.
+CREATE TABLE IF NOT EXISTS pipeline_submission_queue (
+    id TEXT PRIMARY KEY,
+    strategy_id TEXT NOT NULL,
+    strategy_name TEXT,
+    symbols_json TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    job_id TEXT,
+    error TEXT,
+    created_at TEXT NOT NULL,
+    started_at TEXT,
+    finished_at TEXT
+);
+
 -- Phase 7A: Evolution Core Engine + SINDHU Strategy Generator. Every table
 -- below is BOT-owned storage, physically separate from strategy_library's
 -- user-owned folder storage and the user-authored `lessons` table -- this
@@ -3232,6 +3254,97 @@ def claim_next_pending_ai_import():
             return None
         item = _row_to_queue_item(row)
         conn.execute("UPDATE ai_import_queue SET status='processing' WHERE id = ? AND status='pending'", (item["id"],))
+    return item
+
+
+_SUBMISSION_QUEUE_COLUMNS = [
+    "id", "strategy_id", "strategy_name", "symbols_json", "status",
+    "job_id", "error", "created_at", "started_at", "finished_at",
+]
+
+
+def _row_to_submission_queue_item(row):
+    d = dict(zip(_SUBMISSION_QUEUE_COLUMNS, row))
+    d["symbols"] = json.loads(d.pop("symbols_json")) if d.get("symbols_json") else None
+    return d
+
+
+def enqueue_pipeline_submission(item_id, strategy_id, strategy_name, symbols, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO pipeline_submission_queue
+               (id, strategy_id, strategy_name, symbols_json, status, created_at)
+               VALUES (?, ?, ?, ?, 'pending', ?)""",
+            (item_id, strategy_id, strategy_name, json.dumps(symbols) if symbols else None, now_iso),
+        )
+
+
+def update_pipeline_submission(item_id, **fields):
+    """fields may include: status, job_id, error, started_at, finished_at."""
+    allowed = {"status", "job_id", "error", "started_at", "finished_at"}
+    set_clauses, params = [], []
+    for key, value in fields.items():
+        if key not in allowed:
+            continue
+        set_clauses.append(f"{key} = ?")
+        params.append(value)
+    if not set_clauses:
+        return
+    params.append(item_id)
+    with get_conn() as conn:
+        conn.execute(f"UPDATE pipeline_submission_queue SET {', '.join(set_clauses)} WHERE id = ?", params)
+
+
+def get_pipeline_submission(item_id):
+    with get_conn() as conn:
+        row = conn.execute(
+            f"SELECT {','.join(_SUBMISSION_QUEUE_COLUMNS)} FROM pipeline_submission_queue WHERE id = ?", (item_id,)
+        ).fetchone()
+    return _row_to_submission_queue_item(row) if row else None
+
+
+def list_pipeline_submission_queue(limit=200, status=None):
+    query = f"SELECT {','.join(_SUBMISSION_QUEUE_COLUMNS)} FROM pipeline_submission_queue"
+    params = []
+    if status:
+        query += " WHERE status = ?"
+        params.append(status)
+    query += " ORDER BY created_at ASC LIMIT ?"
+    params.append(limit)
+    with get_conn() as conn:
+        rows = conn.execute(query, params).fetchall()
+    return [_row_to_submission_queue_item(r) for r in rows]
+
+
+def get_processing_pipeline_submission():
+    """The (at most one, by construction) row currently 'processing' --
+    checked first by the worker loop on every wake so a server restart
+    mid-run resumes waiting on that same row instead of losing track of it."""
+    with get_conn() as conn:
+        row = conn.execute(
+            f"SELECT {','.join(_SUBMISSION_QUEUE_COLUMNS)} FROM pipeline_submission_queue "
+            "WHERE status = 'processing' ORDER BY created_at ASC LIMIT 1"
+        ).fetchone()
+    return _row_to_submission_queue_item(row) if row else None
+
+
+def claim_next_pending_pipeline_submission():
+    """Same atomic SELECT+conditional-UPDATE pattern as
+    claim_next_pending_ai_import() -- claims the oldest pending row by
+    flipping it to 'processing' in one transaction, so it can never be
+    double-claimed."""
+    with get_conn() as conn:
+        row = conn.execute(
+            f"SELECT {','.join(_SUBMISSION_QUEUE_COLUMNS)} FROM pipeline_submission_queue "
+            "WHERE status='pending' ORDER BY created_at ASC LIMIT 1"
+        ).fetchone()
+        if not row:
+            return None
+        item = _row_to_submission_queue_item(row)
+        conn.execute(
+            "UPDATE pipeline_submission_queue SET status='processing' WHERE id = ? AND status='pending'",
+            (item["id"],),
+        )
     return item
 
 
