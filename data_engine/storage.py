@@ -2615,6 +2615,48 @@ def count_telegram_messages_since(since_iso):
     return row[0] if row else 0
 
 
+def list_telegram_signal_outcomes(since_iso=None, until_iso=None):
+    """Task C (Telegram Dashboard page): every real signal actually SENT
+    to Telegram (trigger_type manual/automatic, success=1 -- excludes
+    close-followup result messages and failed send attempts), bucketed by
+    when the SIGNAL fired (sent_at), joined against that position's REAL
+    current outcome straight from paper_positions -- the same status/pnl
+    Paper Trading Analytics already tracks, not a second calculation.
+    A still-open position is reported as outcome='pending', never guessed
+    at; a position that's vanished (deleted) reports 'unknown'."""
+    query = (
+        "SELECT t.id, t.position_id, t.strategy_id, t.strategy_name, t.sent_at, "
+        "p.symbol, p.direction, p.entry_price, p.stop_loss, p.take_profit, "
+        "p.status, p.pnl, p.pnl_pct, p.closed_at "
+        "FROM telegram_message_log t LEFT JOIN paper_positions p ON p.id = t.position_id "
+        "WHERE t.trigger_type IN ('manual','automatic') AND t.success = 1"
+    )
+    params = []
+    if since_iso:
+        query += " AND t.sent_at >= ?"
+        params.append(since_iso)
+    if until_iso:
+        query += " AND t.sent_at < ?"
+        params.append(until_iso)
+    query += " ORDER BY t.sent_at DESC"
+    with get_conn() as conn:
+        rows = conn.execute(query, params).fetchall()
+    cols = ["id", "position_id", "strategy_id", "strategy_name", "sent_at",
+            "symbol", "direction", "entry_price", "stop_loss", "take_profit",
+            "status", "pnl", "pnl_pct", "closed_at"]
+    result = []
+    for r in rows:
+        d = dict(zip(cols, r))
+        if d["status"] == "closed" and d["pnl"] is not None:
+            d["outcome"] = "win" if d["pnl"] > 0 else "loss" if d["pnl"] < 0 else "breakeven"
+        elif d["status"] == "open":
+            d["outcome"] = "pending"
+        else:
+            d["outcome"] = "unknown"
+        result.append(d)
+    return result
+
+
 # --------------------------------------------------------------- Autonomous Strategy Research (rate limiting)
 
 def log_research_run(kind, query_or_url, queued_count, now_iso):

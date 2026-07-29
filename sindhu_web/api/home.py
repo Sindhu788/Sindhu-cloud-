@@ -21,6 +21,7 @@ NAV_ICONS = {
     "ai_center": "ai_center", "backtest_history": "history", "ceo": "ceo",
     "pipeline_history": "history", "sindhu_strategy": "spark",
     "web_sourced_strategies": "news", "control_center": "ceo",
+    "telegram_dashboard": "send",
 }
 
 # Navigation Audit + Reorganization: every page now belongs to exactly one
@@ -64,6 +65,8 @@ NAV_PAGES = [
     # Control: the one place to turn automated features on/off, plus account/app settings
     {"id": "control_center", "label": "Control Center", "enabled": True,
      "icon": NAV_ICONS["control_center"], "group": "Control"},
+    {"id": "telegram_dashboard", "label": "Telegram Signals", "enabled": True,
+     "icon": NAV_ICONS["telegram_dashboard"], "group": "Control"},
     {"id": "settings", "label": "Settings", "enabled": True, "icon": NAV_ICONS["settings"], "group": "Control"},
 
     # Reports: cross-strategy summaries, not raw per-batch results (see Backtesting)

@@ -12,6 +12,7 @@ from data_engine.logging_setup import log as file_log
 from paper_trading import config as pt_config, insights
 from paper_trading import drawdown_guard, regime, correlation, portfolio, strategy_profile, weekly_report
 from paper_trading import confluence, graveyard, telegram_bot, capital_allocation, ai_trade_review
+from paper_trading import telegram_analytics
 from paper_trading import pattern_stats
 from paper_trading.engine import engine
 from data_engine import config as base_config
@@ -737,6 +738,31 @@ def send_telegram_for_position(position_id: str):
     """On-demand real send for any specific position -- used by A6's
     end-to-end verification with real current Paper Trading data."""
     return telegram_bot.send_signal_for_position(position_id, trigger_type="manual")
+
+
+# --------------------------------------------------------------- Task C: Telegram Dashboard page
+
+@router.get("/api/paper-trading/telegram/signals")
+def list_telegram_signals(period: str = "all"):
+    """Every real signal sent to Telegram in this period, with its real
+    outcome joined in (win/loss/breakeven/pending) -- backs the Telegram
+    Dashboard page's signal log table. Same period vocabulary as Paper
+    Trading Analytics (today/yesterday/week/month/all)."""
+    since_iso, until_iso = _period_bounds(period)
+    return {"signals": storage.list_telegram_signal_outcomes(since_iso, until_iso)}
+
+
+@router.get("/api/paper-trading/telegram/analytics")
+def get_telegram_analytics(period: str = "all"):
+    """Period summary + per-strategy breakdown for the Telegram Dashboard
+    page -- reuses the same closed-trade outcome data Paper Trading
+    Analytics already tracks (paper_positions.status/pnl), just filtered
+    to positions that actually had a signal sent to Telegram."""
+    since_iso, until_iso = _period_bounds(period)
+    return {
+        "summary": telegram_analytics.signal_period_summary(since_iso, until_iso),
+        "strategy_breakdown": telegram_analytics.strategy_breakdown(since_iso, until_iso),
+    }
 
 
 @router.get("/api/paper-trading/confluence/{position_id}")

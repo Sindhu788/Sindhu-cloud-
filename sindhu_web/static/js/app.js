@@ -132,6 +132,16 @@
     return `${v.toFixed(1)} ${units[i]}`;
   }
   function fmtNum(n) { return n == null ? "-" : Number(n).toLocaleString(); }
+  // Same tick-style display rounding as the Telegram message itself
+  // (paper_trading.telegram_bot._format_price) -- 3 decimals floor, more
+  // for sub-$1 coins so real precision isn't rounded away. Display-only.
+  function fmtPrice(n) {
+    if (n == null) return "-";
+    const v = Number(n);
+    if (v === 0) return "0.000";
+    const decimals = Math.abs(v) >= 1 ? 3 : Math.max(3, -Math.floor(Math.log10(Math.abs(v))) + 3);
+    return v.toFixed(decimals);
+  }
   function esc(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 
   // ------------------------------------------------------------ "Explain This to Me" popovers
@@ -714,6 +724,7 @@
     evolution: renderEvolution, sindhu_strategy: renderSindhuStrategy,
     web_sourced_strategies: renderWebSourcedStrategies,
     control_center: renderControlCenter,
+    telegram_dashboard: renderTelegramDashboard,
     ceo: renderCEO,
   };
   let refreshTimer = null;
@@ -2774,6 +2785,105 @@
       if (msg.channel === "automation_pipeline") {
         renderList().catch(console.error);
         renderQueue().catch(console.error);
+      }
+    });
+  }
+
+  // ------------------------------------------------------------ TELEGRAM DASHBOARD (Task C)
+  function telegramOutcomePill(outcome) {
+    if (outcome === "win") return `<span class="pill-up">Win</span>`;
+    if (outcome === "loss") return `<span class="pill-down">Loss</span>`;
+    if (outcome === "breakeven") return `<span class="muted">Break-even</span>`;
+    if (outcome === "pending") return `<span class="pill pill-running">Open / Pending</span>`;
+    return `<span class="muted">Unknown</span>`;
+  }
+
+  function telegramWinRateText(summary) {
+    if (summary.win_rate_pct != null) return `${summary.win_rate_pct.toFixed(1)}%`;
+    return `Not enough closed signals yet (need ${summary.min_sample_size}, have ${summary.closed})`;
+  }
+
+  async function renderTelegramDashboard() {
+    const myToken = activeRouteToken;
+
+    async function load(period) {
+      document.getElementById("tgDashBox").innerHTML = `<p class="muted">Loading...</p>`;
+      let analytics, signalsRes;
+      try {
+        [analytics, signalsRes] = await Promise.all([
+          apiGet(`/api/paper-trading/telegram/analytics?period=${period}`),
+          apiGet(`/api/paper-trading/telegram/signals?period=${period}`),
+        ]);
+      } catch (e) {
+        if (isStaleRoute(myToken)) return;
+        document.getElementById("tgDashBox").innerHTML = `<p class="muted">Couldn't load: ${esc(e.message)}</p>`;
+        return;
+      }
+      if (isStaleRoute(myToken)) return;
+      const s = analytics.summary;
+      const signals = signalsRes.signals || [];
+
+      document.getElementById("tgDashBox").innerHTML = `
+        <div class="grid">
+          ${card("Signals Sent", fmtNum(s.total_signals))}
+          ${card("Open / Pending", fmtNum(s.pending))}
+          ${card("Wins", fmtNum(s.wins))}
+          ${card("Losses", fmtNum(s.losses))}
+          ${card("Win Rate", telegramWinRateText(s))}
+        </div>
+
+        <div class="section-title">Per-Strategy Breakdown</div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Strategy</th><th>Signals</th><th>Wins</th><th>Losses</th><th>Open/Pending</th><th>Win Rate</th></tr></thead>
+          <tbody>${analytics.strategy_breakdown.map(b => `
+            <tr>
+              <td>${esc(b.strategy_name)}</td>
+              <td>${fmtNum(b.total_signals)}</td>
+              <td>${fmtNum(b.wins)}</td>
+              <td>${fmtNum(b.losses)}</td>
+              <td>${fmtNum(b.pending)}</td>
+              <td>${b.win_rate_pct != null ? b.win_rate_pct.toFixed(1) + "%" : `Needs ${s.min_sample_size}+ closed`}</td>
+            </tr>`).join("") || `<tr><td colspan="6">No signals sent yet in this period.</td></tr>`}</tbody>
+        </table></div>
+
+        <div class="section-title">Signal Log</div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Sent</th><th>Coin</th><th>Direction</th><th>Entry</th><th>Stop-Loss</th><th>Take-Profit</th><th>Strategy</th><th>Outcome</th></tr></thead>
+          <tbody>${signals.map(sig => `
+            <tr>
+              <td>${esc((sig.sent_at || "").slice(0, 16).replace("T", " "))}</td>
+              <td>${esc(sig.symbol || "-")}</td>
+              <td>${esc((sig.direction || "-").toUpperCase())}</td>
+              <td>${fmtPrice(sig.entry_price)}</td>
+              <td>${fmtPrice(sig.stop_loss)}</td>
+              <td>${fmtPrice(sig.take_profit)}</td>
+              <td>${esc(sig.strategy_name || "-")}</td>
+              <td>${telegramOutcomePill(sig.outcome)}</td>
+            </tr>`).join("") || `<tr><td colspan="8">No signals sent yet in this period.</td></tr>`}</tbody>
+        </table></div>
+      `;
+    }
+
+    content.innerHTML = `
+      <div class="section-title">Telegram Signals</div>
+      <p class="muted">Everything sent to the Telegram channel, in one place -- how many signals went out, how they're doing, and a full log. Win/loss comes straight from each trade's real recorded outcome in Paper Trading; a trade that hasn't closed yet always shows as Open/Pending, never guessed at.</p>
+      ${paperPeriodTabsHtml("tgdash", "today")}
+      <div id="tgDashBox"><p class="muted">Loading...</p></div>
+    `;
+
+    await load("today");
+    content.querySelectorAll('[data-period-tab="tgdash"]').forEach(btn => {
+      btn.onclick = () => {
+        content.querySelectorAll('[data-period-tab="tgdash"]').forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        load(btn.dataset.period).catch(console.error);
+      };
+    });
+
+    onLive((msg) => {
+      if (msg.channel === "job" || msg.channel === "sync") {
+        const active = content.querySelector('[data-period-tab="tgdash"].active');
+        if (active) load(active.dataset.period).catch(console.error);
       }
     });
   }
