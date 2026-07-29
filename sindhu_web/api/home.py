@@ -16,40 +16,64 @@ APP_VERSION = "5.1"
 NAV_ICONS = {
     "home": "dashboard", "market": "market", "data": "database", "strategies": "layers",
     "knowledge": "book", "backtesting": "flask", "paper_trading": "wallet",
-    "reflection": "mirror", "evolution": "dna", "reports": "chart", "news": "news",
-    "telegram": "send", "settings": "gear", "knowledge_compiler": "compiler",
+    "evolution": "dna", "reports": "chart",
+    "settings": "gear", "knowledge_compiler": "compiler",
     "ai_center": "ai_center", "backtest_history": "history", "ceo": "ceo",
     "pipeline_history": "history", "sindhu_strategy": "spark",
-    "web_sourced_strategies": "news",
+    "web_sourced_strategies": "news", "control_center": "ceo",
 }
+
+# Navigation Audit + Reorganization: every page now belongs to exactly one
+# named group, rendered as labeled sections in the sidebar instead of one
+# long flat list. Dead placeholder entries that were never built
+# (Reflection, News, a separate disabled "Telegram" entry -- real
+# Telegram settings live inside Settings) have been removed outright
+# rather than just left disabled.
+NAV_GROUPS = ["Overview", "Strategies", "Backtesting", "Paper Trading", "Intelligence", "Control", "Reports"]
+
 NAV_PAGES = [
-    {"id": "ceo", "label": "SINDHU CEO", "enabled": True, "icon": NAV_ICONS["ceo"]},
-    {"id": "home", "label": "Dashboard", "enabled": True, "icon": NAV_ICONS["home"]},
-    {"id": "market", "label": "Market", "enabled": True, "icon": NAV_ICONS["market"]},
-    {"id": "data", "label": "Data", "enabled": True, "icon": NAV_ICONS["data"]},
-    {"id": "strategies", "label": "Strategies", "enabled": True, "icon": NAV_ICONS["strategies"]},
-    {"id": "knowledge", "label": "Knowledge", "enabled": True, "icon": NAV_ICONS["knowledge"]},
-    {"id": "knowledge_compiler", "label": "Knowledge Compiler", "enabled": True, "icon": NAV_ICONS["knowledge_compiler"]},
-    {"id": "ai_center", "label": "AI Center", "enabled": True, "icon": NAV_ICONS["ai_center"]},
-    {"id": "backtesting", "label": "Backtesting", "enabled": True, "icon": NAV_ICONS["backtesting"]},
-    {"id": "backtest_history", "label": "Backtest History", "enabled": True, "icon": NAV_ICONS["backtest_history"]},
-    {"id": "pipeline_history", "label": "Pipeline History", "enabled": True, "icon": NAV_ICONS["pipeline_history"]},
-    {"id": "paper_trading", "label": "Paper Trading", "enabled": True, "icon": NAV_ICONS["paper_trading"]},
-    {"id": "reflection", "label": "Reflection", "enabled": False, "icon": NAV_ICONS["reflection"]},
-    {"id": "evolution", "label": "Evolution", "enabled": True, "icon": NAV_ICONS["evolution"]},
-    {"id": "sindhu_strategy", "label": "SINDHU Strategy", "enabled": True, "icon": NAV_ICONS["sindhu_strategy"]},
+    # Overview
+    {"id": "ceo", "label": "SINDHU CEO", "enabled": True, "icon": NAV_ICONS["ceo"], "group": "Overview"},
+    {"id": "home", "label": "Dashboard", "enabled": True, "icon": NAV_ICONS["home"], "group": "Overview"},
+
+    # Strategies: everything about building, importing, and understanding a strategy
+    {"id": "strategies", "label": "Strategies", "enabled": True, "icon": NAV_ICONS["strategies"], "group": "Strategies"},
+    {"id": "sindhu_strategy", "label": "SINDHU Strategy", "enabled": True, "icon": NAV_ICONS["sindhu_strategy"], "group": "Strategies"},
     {"id": "web_sourced_strategies", "label": "Web-Sourced Strategies", "enabled": True,
-     "icon": NAV_ICONS["web_sourced_strategies"]},
-    {"id": "reports", "label": "Reports", "enabled": True, "icon": NAV_ICONS["reports"]},
-    {"id": "news", "label": "News", "enabled": False, "icon": NAV_ICONS["news"]},
-    {"id": "telegram", "label": "Telegram", "enabled": False, "icon": NAV_ICONS["telegram"]},
-    {"id": "settings", "label": "Settings", "enabled": True, "icon": NAV_ICONS["settings"]},
+     "icon": NAV_ICONS["web_sourced_strategies"], "group": "Strategies"},
+    {"id": "knowledge", "label": "Knowledge", "enabled": True, "icon": NAV_ICONS["knowledge"], "group": "Strategies"},
+    {"id": "knowledge_compiler", "label": "Knowledge Compiler", "enabled": True,
+     "icon": NAV_ICONS["knowledge_compiler"], "group": "Strategies"},
+    {"id": "ai_center", "label": "AI Center", "enabled": True, "icon": NAV_ICONS["ai_center"], "group": "Strategies"},
+
+    # Backtesting: running backtests and reviewing their raw results
+    {"id": "backtesting", "label": "Backtesting", "enabled": True, "icon": NAV_ICONS["backtesting"], "group": "Backtesting"},
+    {"id": "backtest_history", "label": "Backtest History", "enabled": True,
+     "icon": NAV_ICONS["backtest_history"], "group": "Backtesting"},
+    {"id": "pipeline_history", "label": "Pipeline History", "enabled": True,
+     "icon": NAV_ICONS["pipeline_history"], "group": "Backtesting"},
+
+    # Paper Trading: everything about the live (fake-money) trading loop
+    {"id": "paper_trading", "label": "Paper Trading", "enabled": True, "icon": NAV_ICONS["paper_trading"], "group": "Paper Trading"},
+    {"id": "market", "label": "Market", "enabled": True, "icon": NAV_ICONS["market"], "group": "Paper Trading"},
+    {"id": "data", "label": "Data", "enabled": True, "icon": NAV_ICONS["data"], "group": "Paper Trading"},
+
+    # Intelligence: self-learning / evolutionary systems
+    {"id": "evolution", "label": "Evolution", "enabled": True, "icon": NAV_ICONS["evolution"], "group": "Intelligence"},
+
+    # Control: the one place to turn automated features on/off, plus account/app settings
+    {"id": "control_center", "label": "Control Center", "enabled": True,
+     "icon": NAV_ICONS["control_center"], "group": "Control"},
+    {"id": "settings", "label": "Settings", "enabled": True, "icon": NAV_ICONS["settings"], "group": "Control"},
+
+    # Reports: cross-strategy summaries, not raw per-batch results (see Backtesting)
+    {"id": "reports", "label": "Reports", "enabled": True, "icon": NAV_ICONS["reports"], "group": "Reports"},
 ]
 
 
 @router.get("/api/nav")
 def get_nav():
-    return {"pages": [p for p in NAV_PAGES if p["enabled"]]}
+    return {"pages": [p for p in NAV_PAGES if p["enabled"]], "groups": NAV_GROUPS}
 
 
 @router.get("/api/home")

@@ -599,13 +599,29 @@
   };
 
   async function renderNav() {
-    const { pages } = await apiGet("/api/nav");
+    const { pages, groups } = await apiGet("/api/nav");
     const list = document.getElementById("navList");
-    list.innerHTML = pages.map(p => `
-      <li><a href="#${p.id}" data-id="${p.id}" title="${esc(p.label)}">
-        <svg viewBox="0 0 24 24">${NAV_ICONS[p.icon] || NAV_ICONS.dashboard}</svg>
-        <span class="nav-label">${esc(p.label)}</span>
-      </a></li>`).join("");
+    // Navigation Reorganization: pages now render as labeled groups
+    // (Overview / Strategies / Backtesting / Paper Trading / Intelligence
+    // / Control / Reports) instead of one long flat list -- falls back to
+    // a flat list if an older /api/nav response has no `groups` field.
+    if (groups && groups.length) {
+      const byGroup = {};
+      pages.forEach(p => { (byGroup[p.group] = byGroup[p.group] || []).push(p); });
+      list.innerHTML = groups.filter(g => byGroup[g]).map(g => `
+        <li class="nav-group-label">${esc(g)}</li>
+        ${byGroup[g].map(p => `
+          <li><a href="#${p.id}" data-id="${p.id}" title="${esc(p.label)}">
+            <svg viewBox="0 0 24 24">${NAV_ICONS[p.icon] || NAV_ICONS.dashboard}</svg>
+            <span class="nav-label">${esc(p.label)}</span>
+          </a></li>`).join("")}`).join("");
+    } else {
+      list.innerHTML = pages.map(p => `
+        <li><a href="#${p.id}" data-id="${p.id}" title="${esc(p.label)}">
+          <svg viewBox="0 0 24 24">${NAV_ICONS[p.icon] || NAV_ICONS.dashboard}</svg>
+          <span class="nav-label">${esc(p.label)}</span>
+        </a></li>`).join("");
+    }
 
     const bottom = document.getElementById("bottomNav");
     if (bottom) {
@@ -670,6 +686,7 @@
     pipeline_history: renderPipelineHistory,
     evolution: renderEvolution, sindhu_strategy: renderSindhuStrategy,
     web_sourced_strategies: renderWebSourcedStrategies,
+    control_center: renderControlCenter,
     ceo: renderCEO,
   };
   let refreshTimer = null;
@@ -2249,87 +2266,63 @@
   }
 
   // ------------------------------------------------------------ REPORTS
+  // Navigation Reorganization: this page used to duplicate Backtest
+  // History's own batch list + full per-batch detail almost exactly (both
+  // read the same underlying batch data). Reports now focuses on
+  // cross-strategy/cross-time summaries instead -- Best/Worst Strategy,
+  // Strategy Comparison export, and Weekly Reports (moved here from
+  // Settings, where it didn't really belong). Raw per-batch results
+  // (equity curve, trade log, 0-trade diagnosis, etc.) live in Backtest
+  // History, which already has everything Reports used to show plus more
+  // (Monte Carlo, Trade Audit, Stress Test) -- one clear home instead of two.
   async function renderReports() {
     const myToken = activeRouteToken;
-    const [list, bw] = await Promise.all([
-      apiGet("/api/reports"), apiGet("/api/reports/best-worst/strategies").catch(() => ({})),
+    const [bw, weeklyRes] = await Promise.all([
+      apiGet("/api/reports/best-worst/strategies").catch(() => ({})),
+      apiGet("/api/paper-trading/weekly-reports").catch(() => ({ reports: [] })),
     ]);
     if (isStaleRoute(myToken)) return;
     content.innerHTML = `
       <div class="section-title">Reports</div>
+      <p class="muted" style="margin-top:-10px;">Cross-strategy summaries and exports. For a specific backtest's raw results (trade log, equity curve, coin breakdown), see Backtest History.</p>
       <div class="grid">
         ${card("Best Strategy", esc(bw.best_strategy || "-"))}
         ${card("Worst Strategy", esc(bw.worst_strategy || "-"))}
       </div>
-      <div class="section-title">Latest Reports</div>
-      <div class="table-wrap"><table>
-        <thead><tr><th>Date</th><th>Strategy</th><th>Status</th><th></th></tr></thead>
-        <tbody>${list.batches.map(b => `
-          <tr>
-            <td>${esc(b.created_at.slice(0,19))}</td>
-            <td>${esc(b.strategy_name)}</td>
-            <td><span class="pill pill-${b.status}">${esc(b.status)}</span></td>
-            <td>
-              <button class="btn-ghost view-report" data-id="${b.batch_id}">View</button>
-              <button class="btn-ghost export-report" data-id="${b.batch_id}" data-fmt="csv">CSV</button>
-              <button class="btn-ghost export-report" data-id="${b.batch_id}" data-fmt="excel">Excel</button>
-              <button class="btn-ghost export-report" data-id="${b.batch_id}" data-fmt="pdf">PDF</button>
-            </td>
-          </tr>`).join("")}</tbody>
-      </table></div>
-      <div id="reportDetail" style="display:none;">
-        <div id="reportSummary" class="card" style="white-space:pre-wrap;font-family:Consolas,monospace;font-size:12px;"></div>
-        <div id="reportZeroDiagnosis"></div>
-        <div id="reportFailedSection" style="display:none;">
-          <div class="section-title">Coins That Failed to Run -- Why</div>
-          <div class="table-wrap"><table>
-            <thead><tr><th>Coin</th><th>Stage</th><th>Reason</th><th>Suggested Fix</th></tr></thead>
-            <tbody id="reportFailedBody"></tbody>
-          </table></div>
-        </div>
-        <div class="section-title">Per-Coin Breakdown</div>
-        <div class="table-wrap"><table>
-          <thead><tr><th>Coin</th><th>Trades</th><th>Win Rate</th><th>Profit %</th><th>Total PnL</th><th>Max Drawdown</th></tr></thead>
-          <tbody id="coinBreakdownBody"></tbody>
-        </table></div>
-        <div class="section-title">Equity Curve</div>
-        <div id="equityChartBox" class="chart-box"></div>
-        <div class="section-title">Drawdown</div>
-        <div id="drawdownChartBox" class="chart-box"></div>
-        <div id="zeroTradeSection" style="display:none;">
-          <div class="section-title">0-Trade Coins -- Condition-Hit Breakdown</div>
-          <div class="table-wrap"><table>
-            <thead><tr><th>Coin</th><th>Condition</th><th>True Bars</th><th>Total Bars</th></tr></thead>
-            <tbody id="zeroTradeBody"></tbody>
-          </table></div>
-        </div>
-        <div class="section-title">Trade-by-Trade Log (first 200)</div>
-        <div class="table-wrap"><table>
-          <thead><tr><th>Coin</th><th>Direction</th><th>Entry</th><th>Exit</th><th>PnL%</th><th>Exit Reason</th><th>Entry Reason</th></tr></thead>
-          <tbody id="reportTradeLogBody"></tbody>
-        </table></div>
+
+      <div class="section-title">Strategy Comparison Export</div>
+      <div class="card">
+        <p class="muted" style="font-size:12px;margin-top:0;">Exports the same Strategy Comparison table shown on the Paper Trading page.</p>
+        <div class="btn-row"><button class="btn-ghost" id="btnExportComparisonFromReports">Export to Excel</button></div>
+      </div>
+
+      <div class="section-title">Weekly Reports</div>
+      <div class="card">
+        <div class="btn-row"><button class="btn" id="btnGenerateReport">Generate Report Now</button></div>
+        <div id="weeklyReportList"></div>
       </div>`;
 
-    const reportDetailIds = {
-      detail: "reportDetail", summary: "reportSummary", coinBody: "coinBreakdownBody",
-      equityBox: "equityChartBox", drawdownBox: "drawdownChartBox",
-      zeroSection: "zeroTradeSection", zeroBody: "zeroTradeBody", zeroDiagnosis: "reportZeroDiagnosis",
-      tradeLogBody: "reportTradeLogBody", failedSection: "reportFailedSection", failedBody: "reportFailedBody",
+    document.getElementById("btnExportComparisonFromReports").onclick = () => {
+      window.open("/api/paper-trading/strategy-comparison/export?period=all", "_blank");
     };
-    document.querySelectorAll(".view-report").forEach(btn => {
-      btn.onclick = () => renderBatchDetailInto(btn.dataset.id, reportDetailIds);
-    });
-    document.querySelectorAll(".export-report").forEach(btn => {
-      btn.onclick = () => {
-        // export endpoints are GET (read-only), so they're open by design --
-        // no token needed, safe to just navigate to them directly.
-        window.open(`/api/reports/${btn.dataset.id}/export/${btn.dataset.fmt}`, "_blank");
-      };
-    });
 
-    // A backtest finishing (on this device or another) should show up here
-    // without a manual refresh -- Reports has no in-progress form to lose,
-    // so a full re-render is safe.
+    function renderWeeklyReports(r) {
+      const box = document.getElementById("weeklyReportList");
+      if (!r.reports.length) { box.innerHTML = `<p class="muted">No reports yet -- generate one now, or wait for the automatic weekly cycle.</p>`; return; }
+      box.innerHTML = r.reports.map((rep, i) => `
+        <details ${i === 0 ? "open" : ""} style="margin-bottom:8px;">
+          <summary>${esc((rep.created_at || "").slice(0,10))}</summary>
+          <pre style="white-space:pre-wrap;font-family:inherit;font-size:13px;">${esc(rep.report_text)}</pre>
+        </details>`).join("");
+    }
+    renderWeeklyReports(weeklyRes);
+    document.getElementById("btnGenerateReport").onclick = async () => {
+      await apiPost("/api/paper-trading/weekly-reports/generate-now", {});
+      appendLog("Weekly report generated.");
+      const r = await apiGet("/api/paper-trading/weekly-reports").catch(() => ({ reports: [] }));
+      renderWeeklyReports(r);
+    };
+
     onLive((msg) => {
       if (msg.channel === "job" && msg.event === "finished") renderReports().catch(console.error);
     });
@@ -2373,12 +2366,25 @@
           <td>${b.total_trades}</td>
           <td>${b.win_rate}%</td>
           <td class="${pnlCls}">${b.total_pnl != null ? b.total_pnl : "-"}</td>
-          <td><button class="btn-ghost view-history" data-id="${b.batch_id}">View</button></td>
+          <td>
+            <button class="btn-ghost view-history" data-id="${b.batch_id}">View</button>
+            <button class="btn-ghost hist-export" data-id="${b.batch_id}" data-fmt="csv">CSV</button>
+            <button class="btn-ghost hist-export" data-id="${b.batch_id}" data-fmt="excel">Excel</button>
+            <button class="btn-ghost hist-export" data-id="${b.batch_id}" data-fmt="pdf">PDF</button>
+          </td>
         </tr>`;
       }).join("") || '<tr><td colspan="7">No completed backtests yet -- run one from the Backtesting page.</td></tr>';
 
       document.querySelectorAll(".view-history").forEach(btn => {
         btn.onclick = () => openHistoryDetail(btn.dataset.id);
+      });
+
+      // Navigation Reorganization: the old standalone Reports page's batch
+      // list duplicated this exact list -- its one genuinely unique
+      // capability (CSV/Excel/PDF export per batch) moved here rather than
+      // being lost.
+      document.querySelectorAll(".hist-export").forEach(btn => {
+        btn.onclick = () => window.open(`/api/reports/${btn.dataset.id}/export/${btn.dataset.fmt}`, "_blank");
       });
 
       document.querySelectorAll(".hist-rename-btn").forEach(btn => {
@@ -3461,12 +3467,6 @@
         <div id="backupList" class="table-wrap"></div>
       </div>
 
-      <div class="section-title">Weekly Reports</div>
-      <div class="card">
-        <div class="btn-row"><button class="btn" id="btnGenerateReport">Generate Report Now</button></div>
-        <div id="weeklyReportList"></div>
-      </div>
-
       <div class="section-title">Telegram Integration</div>
       <div class="card" style="max-width:480px;">
         <div class="form-row"><label>Bot Token (write-only -- never shown again after saving)</label>
@@ -3557,23 +3557,6 @@
       loadBackups();
     };
     loadBackups();
-
-    async function loadWeeklyReports() {
-      const r = await apiGet("/api/paper-trading/weekly-reports").catch(() => ({ reports: [] }));
-      const box = document.getElementById("weeklyReportList");
-      if (!r.reports.length) { box.innerHTML = `<p class="muted">No reports yet -- generate one now, or wait for the automatic weekly cycle.</p>`; return; }
-      box.innerHTML = r.reports.map((rep, i) => `
-        <details ${i === 0 ? "open" : ""} style="margin-bottom:8px;">
-          <summary>${esc((rep.created_at || "").slice(0,10))}</summary>
-          <pre style="white-space:pre-wrap;font-family:inherit;font-size:13px;">${esc(rep.report_text)}</pre>
-        </details>`).join("");
-    }
-    document.getElementById("btnGenerateReport").onclick = async () => {
-      await apiPost("/api/paper-trading/weekly-reports/generate-now", {});
-      appendLog("Weekly report generated.");
-      loadWeeklyReports();
-    };
-    loadWeeklyReports();
 
     async function loadTelegramSettings() {
       const s = await apiGet("/api/paper-trading/telegram/settings").catch(() => null);
@@ -4092,7 +4075,7 @@
         as before -- nothing ever stops.</div>
       </div>
 
-      <div class="section-title">CEO Dashboard</div>
+      <div class="section-title">AI Center Overview</div>
       <div id="aiDashboardGrid" class="grid"><div class="muted">Loading...</div></div>
 
       <div class="section-title">Providers</div>
@@ -4170,7 +4153,7 @@
         </table></div>
       </div>
 
-      <div class="section-title">CEO Settings</div>
+      <div class="section-title">AI Center Settings</div>
       <div class="card">
         <div class="btn-row">
           <button class="btn btn-ghost" id="btnAiClearCache">Clear Cache</button>
@@ -4534,18 +4517,91 @@
   const CEO_MODULES = [
     "home", "feature_control", "market", "data", "strategies", "knowledge", "knowledge_compiler",
     "ai_center", "backtesting", "backtest_history", "pipeline_history", "paper_trading",
-    "evolution", "sindhu_strategy", "reports", "settings",
+    "evolution", "sindhu_strategy", "web_sourced_strategies", "reports", "settings",
   ];
   const CEO_LABELS = {
-    home: "Dashboard", feature_control: "Feature Control Center",
+    home: "Dashboard", feature_control: "Control Center",
     market: "Market", data: "Data", strategies: "Strategies",
     knowledge: "Knowledge", knowledge_compiler: "Knowledge Compiler", ai_center: "AI Center",
     backtesting: "Backtesting", backtest_history: "Backtest History",
     pipeline_history: "Pipeline History",
     paper_trading: "Paper Trading", evolution: "Evolution", sindhu_strategy: "SINDHU Strategy",
+    web_sourced_strategies: "Web-Sourced Strategies",
     reports: "Reports", settings: "Settings",
   };
   const FEATURE_CATEGORY_ORDER = ["Risk & Safety", "Self-Learning", "Signals", "Other"];
+
+  // Shared between the standalone "Control Center" page (its real,
+  // dedicated sidebar home -- Navigation Reorganization) and the SINDHU
+  // CEO page's own card (which now just links there instead of keeping a
+  // second, separate implementation) -- one body-renderer + one set of
+  // toggle handlers, reused by both, so there is exactly one place this
+  // logic lives.
+  function featureControlBodyHtml(fc) {
+    const byCategory = {};
+    fc.features.forEach(f => { (byCategory[f.category] = byCategory[f.category] || []).push(f); });
+    return `
+      <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px;">
+        <div>
+          <b>Pause All Automation</b>
+          <div class="muted" style="font-size:12px;">Safely turns off every automated feature below at once. Paper Trading keeps running and no data is lost -- flip it back on any time.</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="fcMasterPause" ${fc.master_pause_all ? "checked" : ""}>
+          <span class="slider"></span>
+        </label>
+      </div>
+      ${FEATURE_CATEGORY_ORDER.filter(cat => byCategory[cat]).map(cat => `
+        <div class="section-title">${esc(cat)}</div>
+        <div class="card" style="margin-bottom:16px;">
+          ${byCategory[cat].map(f => `
+            <div class="ceo-task-row" data-feature-row="${esc(f.id)}" style="opacity:${fc.master_pause_all ? 0.55 : 1};">
+              <div class="ceo-task-info">
+                <div class="ceo-task-title">${esc(f.name)}${f.auto_manual ? ` <span class="muted" style="font-size:11px;">(AUTO/MANUAL)</span>` : ""}</div>
+                <div class="ceo-task-sub">${esc(f.description)}</div>
+                <div class="muted" style="font-size:11.5px;margin-top:2px;">${esc(f.name)} -- ${f.enabled ? "ON" : "OFF"} -- ${esc(f.status || "")}</div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" class="fc-toggle" data-feature-id="${esc(f.id)}" ${f.enabled ? "checked" : ""} ${fc.master_pause_all ? "disabled" : ""}>
+                <span class="slider"></span>
+              </label>
+            </div>`).join("")}
+        </div>`).join("")}
+    `;
+  }
+
+  function wireFeatureControlHandlers(refresh) {
+    document.getElementById("fcMasterPause").onchange = async (e) => {
+      await apiPost("/api/feature-control/master-pause", { enabled: e.target.checked });
+      refresh();
+    };
+    content.querySelectorAll(".fc-toggle").forEach(el => {
+      el.onchange = async (e) => {
+        await apiPost("/api/feature-control/toggle", { feature_id: el.dataset.featureId, enabled: e.target.checked });
+        refresh();
+      };
+    });
+  }
+
+  // ------------------------------------------------------------ CONTROL CENTER (dedicated page)
+  // Previously only reachable as one card inside the SINDHU CEO grid --
+  // Navigation Audit (see conversation) flagged this as the single
+  // clearest "hard to find" item on the whole dashboard, since it's the
+  // one place that controls every automated feature at once. Now a real,
+  // first-class sidebar page.
+  async function renderControlCenter() {
+    const myToken = activeRouteToken;
+    async function render() {
+      const fc = await apiGet("/api/feature-control/state").catch(() => ({ master_pause_all: false, features: [] }));
+      if (isStaleRoute(myToken)) return;
+      content.innerHTML = `
+        <div class="section-title">Control Center</div>
+        <p class="muted" style="margin-top:-10px;">Every automated background feature, in one place -- turn any one off, or pause all of them at once, without touching Paper Trading itself.</p>
+        ${featureControlBodyHtml(fc)}`;
+      wireFeatureControlHandlers(render);
+    }
+    await render();
+  }
 
   function statusDot(level) {
     // level: "active" (green, pulsing) | "attention" (amber) | "idle" (grey)
@@ -4794,8 +4850,13 @@
           ${tasksCardHtml(d)}
           ${CEO_MODULES.map(id => moduleCardHtml(id, d)).join("")}
         </div>`;
+      // Cards for pages that are ALREADY their own real top-level page
+      // (not an in-CEO "expand" panel) just link straight there, instead
+      // of duplicating a second implementation inside this file.
+      const CEO_DIRECT_LINK_CARDS = { feature_control: "control_center", web_sourced_strategies: "web_sourced_strategies" };
       document.querySelectorAll("[data-ceo-card]").forEach(el => {
-        el.onclick = () => showExpanded(el.dataset.ceoCard);
+        const directTarget = CEO_DIRECT_LINK_CARDS[el.dataset.ceoCard];
+        el.onclick = () => directTarget ? (location.hash = `#${directTarget}`) : showExpanded(el.dataset.ceoCard);
       });
     }
 
@@ -4816,7 +4877,6 @@
       expandedId = id;
       try {
         if (id === "all_tasks") return await expandAllTasks();
-        if (id === "feature_control") return await expandFeatureControl();
         if (id === "home") return await expandHome();
         if (id === "market") return await expandMarket();
         if (id === "data") return await expandData();
@@ -4866,56 +4926,6 @@
       content.querySelectorAll(".ceo-task-stop").forEach(b => b.onclick = async () => { await apiPost(`/api/jobs/${b.dataset.id}/stop`); expandAllTasks(); });
       const stopPaperBtn = content.querySelector(".ceo-task-stop-paper");
       if (stopPaperBtn) stopPaperBtn.onclick = async () => { await apiPost("/api/paper-trading/stop").catch(() => {}); expandAllTasks(); };
-    }
-
-    // ---- Feature Control Center: every automated background feature in
-    // one place, grouped by category, with a master "Pause All Automation"
-    // switch. Pure visibility/control -- every toggle here just flips a
-    // flag an existing feature already reads before acting; Paper Trading
-    // itself is never stopped and no history is ever touched.
-    async function expandFeatureControl() {
-      const fc = await apiGet("/api/feature-control/state").catch(() => ({ master_pause_all: false, features: [] }));
-      if (isStaleRoute(myToken)) return;
-      const byCategory = {};
-      fc.features.forEach(f => { (byCategory[f.category] = byCategory[f.category] || []).push(f); });
-      expandedShell("Feature Control Center", `
-        <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px;">
-          <div>
-            <b>Pause All Automation</b>
-            <div class="muted" style="font-size:12px;">Safely turns off every automated feature below at once. Paper Trading keeps running and no data is lost -- flip it back on any time.</div>
-          </div>
-          <label class="switch">
-            <input type="checkbox" id="fcMasterPause" ${fc.master_pause_all ? "checked" : ""}>
-            <span class="slider"></span>
-          </label>
-        </div>
-        ${FEATURE_CATEGORY_ORDER.filter(cat => byCategory[cat]).map(cat => `
-          <div class="section-title">${esc(cat)}</div>
-          <div class="card" style="margin-bottom:16px;">
-            ${byCategory[cat].map(f => `
-              <div class="ceo-task-row" data-feature-row="${esc(f.id)}" style="opacity:${fc.master_pause_all ? 0.55 : 1};">
-                <div class="ceo-task-info">
-                  <div class="ceo-task-title">${esc(f.name)}${f.auto_manual ? ` <span class="muted" style="font-size:11px;">(AUTO/MANUAL)</span>` : ""}</div>
-                  <div class="ceo-task-sub">${esc(f.description)}</div>
-                  <div class="muted" style="font-size:11.5px;margin-top:2px;">${esc(f.name)} -- ${f.enabled ? "ON" : "OFF"} -- ${esc(f.status || "")}</div>
-                </div>
-                <label class="switch">
-                  <input type="checkbox" class="fc-toggle" data-feature-id="${esc(f.id)}" ${f.enabled ? "checked" : ""} ${fc.master_pause_all ? "disabled" : ""}>
-                  <span class="slider"></span>
-                </label>
-              </div>`).join("")}
-          </div>`).join("")}
-      `);
-      document.getElementById("fcMasterPause").onchange = async (e) => {
-        await apiPost("/api/feature-control/master-pause", { enabled: e.target.checked });
-        expandFeatureControl();
-      };
-      content.querySelectorAll(".fc-toggle").forEach(el => {
-        el.onchange = async (e) => {
-          await apiPost("/api/feature-control/toggle", { feature_id: el.dataset.featureId, enabled: e.target.checked });
-          expandFeatureControl();
-        };
-      });
     }
 
     // ---- Dashboard
