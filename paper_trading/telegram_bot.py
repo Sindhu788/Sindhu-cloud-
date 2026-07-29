@@ -23,6 +23,7 @@ understands: "socks5://[user:pass@]host:port" (requires the PySocks
 package, already added to requirements.txt) or "http://[user:pass@]host:port".
 """
 
+import math
 import time
 from datetime import datetime, timezone
 
@@ -197,30 +198,149 @@ def _reason_text(position):
         return position.get("entry_reason") or "No reason recorded."
 
 
+def _format_price(value):
+    """DISPLAY-ONLY rounding for the Telegram message text -- the
+    underlying stored Entry/SL/TP/live-price floats used by the trading
+    and backtest engines are never touched, only what gets rendered here.
+
+    Standard price-tick style rounding: 3 decimal places is the FLOOR
+    (never fewer, even for a $50,000 coin -- "50000.123", not "50000"),
+    but prices below $1 get more decimals as needed to keep roughly 4
+    significant figures, since a flat 3-decimal round would wipe out a
+    low-priced coin's actual price movement (e.g. a $0.0003091 coin would
+    display as "0.000", which is meaningless)."""
+    if value is None:
+        return "-"
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    if v == 0:
+        return "0.000"
+    magnitude = abs(v)
+    if magnitude >= 1:
+        decimals = 3
+    else:
+        exponent = math.floor(math.log10(magnitude))
+        decimals = max(3, -exponent + 3)
+    return f"{v:.{decimals}f}"
+
+
+def _direction_emoji(direction):
+    return "\U0001F7E2" if direction == "long" else "\U0001F534"  # green / red circle
+
+
+def _confidence_icon(label):
+    if not label:
+        return "⚪"  # white circle -- unrated
+    if label.startswith("Strong"):
+        return "\U0001F7E2"
+    if label.startswith("Moderate"):
+        return "\U0001F7E1"
+    if label.startswith("Weak"):
+        return "\U0001F534"
+    return "⚪"
+
+
+def _signal_age_text(entry_time_ms):
+    """How long ago this signal's position was opened, in the plainest
+    possible form -- entry_time is the same epoch-ms timestamp already
+    stored on every paper position, not a new field."""
+    if not entry_time_ms:
+        return None
+    now_ms = datetime.now(timezone.utc).timestamp() * 1000
+    delta_s = max(0, (now_ms - entry_time_ms) / 1000)
+    if delta_s < 60:
+        return "just now"
+    minutes = int(delta_s // 60)
+    if minutes < 60:
+        return f"{minutes}m ago"
+    hours, rem_minutes = divmod(minutes, 60)
+    if hours < 24:
+        return f"{hours}h {rem_minutes}m ago" if rem_minutes else f"{hours}h ago"
+    return f"{hours // 24}d ago"
+
+
+def _fetch_live_price(exchange, symbol):
+    """Best-effort real current price via the same exchange client used
+    everywhere else in the app (data_engine.exchanges.registry) -- never
+    estimated. Returns None (the line is simply omitted from the message)
+    on any failure, since a stale or wrong "live" price would be worse
+    than not showing one at all."""
+    if not exchange:
+        return None
+    try:
+        from data_engine.exchanges.registry import get_exchange_client
+        client = get_exchange_client(exchange)
+        coins_cfg = base_config.load_or_seed("coins.json", base_config.DEFAULTS["coins.json"])
+        tickers = client.get_tickers(coins_cfg["quote_asset"])
+        ticker = tickers.get(symbol)
+        return ticker["price"] if ticker else None
+    except Exception:
+        return None
+
+
 def format_signal_message(position, confluence_result=None, reliability_result=None):
     direction_word = "LONG" if position["direction"] == "long" else "SHORT"
+    symbol = position["symbol"]
+
     lines = [
-        f"<b>{TELEGRAM_BRAND} Signal -- {direction_word}</b>",
+        f"\U0001F4CA <b>{TELEGRAM_BRAND} Signal</b>",
+        "─" * 18,
+        f"{_direction_emoji(position['direction'])} <b>{direction_word} {symbol}</b>",
         f"Strategy: {position.get('strategy_name') or 'Unknown'}",
-        f"Coin: {position['symbol']}",
-        f"Entry: {position['entry_price']}",
-        f"Stop-Loss: {position.get('stop_loss', '-')}",
-        f"Take-Profit: {position.get('take_profit', '-')}",
+        "",
+        "<b>LEVELS</b>",
+        f"Entry: {_format_price(position.get('entry_price'))}",
+        f"⚠️ Stop-Loss: {_format_price(position.get('stop_loss'))}",
+        f"\U0001F3AF Take-Profit: {_format_price(position.get('take_profit'))}",
     ]
-    if confluence_result:
-        lines.append(f"Confluence: {confluence_result['label']}")
+
+    live_price = _fetch_live_price(position.get("exchange"), symbol)
+    if live_price is not None:
+        lines.append(f"Current Price: {_format_price(live_price)}")
+
+    lines.append("")
     # Statistical confidence (Genuine Evolution Engine's Wilson-score gate,
-    # min. 25 trades for this exact strategy+coin+condition) -- only ever
-    # states a real, recorded win rate pulled from this pattern's own
-    # trade history, never a made-up or implied number.
+    # min. 25 trades for this exact strategy+coin+condition) takes
+    # priority when available -- only ever states a real, recorded win
+    # rate pulled from this pattern's own trade history, never a made-up
+    # or implied number. Otherwise falls back to the qualitative
+    # Confluence Score label, which is always safe to show (it's a count
+    # of aligned factors, not a percentage claim).
     if reliability_result and reliability_result.get("reliable"):
+        icon = _confidence_icon(confluence_result.get("label") if confluence_result else None)
         lines.append(
-            f"Statistical Confidence: {reliability_result['win_rate_pct']:.0f}% win rate over "
+            f"{icon} Statistical Confidence: {reliability_result['win_rate_pct']:.0f}% win rate over "
             f"{reliability_result['sample_size']} recorded trades (95% CI "
             f"{reliability_result['ci_lower_pct']:.0f}%-{reliability_result['ci_upper_pct']:.0f}%)"
         )
-    lines.append(f"Reason: {_reason_text(position)}")
+    elif confluence_result:
+        icon = _confidence_icon(confluence_result.get("label"))
+        lines.append(f"{icon} Confidence: {confluence_result['label']}")
+
+    if confluence_result:
+        aligned = [f["name"] for f in confluence_result.get("factors", []) if f.get("result") is True]
+        if aligned:
+            lines.append("")
+            lines.append("<b>Why This Trade</b>")
+            for name in aligned:
+                lines.append(f"• {name}")
+
+    reason = _reason_text(position)
+    if reason:
+        lines.append("")
+        lines.append(f"Reason: {reason}")
+
+    entry_time_ms = position.get("entry_time")
+    if entry_time_ms:
+        ts = datetime.fromtimestamp(entry_time_ms / 1000, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        age = _signal_age_text(entry_time_ms)
+        lines.append("")
+        lines.append(f"\U0001F551 {ts}" + (f" ({age})" if age else ""))
+
     lines.append("")
+    lines.append(f"{TELEGRAM_BRAND} -- Paper Trading")
     lines.append(DISCLAIMER)
     return "\n".join(lines)
 
