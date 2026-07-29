@@ -29,7 +29,7 @@ from datetime import datetime, timezone
 import requests
 
 from data_engine import config as base_config, storage, feature_toggles
-from paper_trading import confluence as confluence_mod, insights
+from paper_trading import confluence as confluence_mod, insights, pattern_stats
 
 _DEFAULTS = {
     "bot_token": "",
@@ -44,6 +44,15 @@ _DEFAULTS = {
 
 DISCLAIMER = ("This is an experimental signal from a system still under development. "
               "Not financial advice. Trade at your own risk.")
+
+# Telegram-facing brand name only -- every message sent to the channel
+# says "Trade Vision" instead of "SINDHU". This is purely cosmetic and
+# purely scoped to this file's message text: the dashboard, database,
+# internal labels, logs, and every other user-facing surface keep the
+# real "SINDHU" name unchanged. Telegram's own bot display name/username
+# (set via @BotFather) is a Telegram-account-level setting outside this
+# codebase and isn't something a code change can alter.
+TELEGRAM_BRAND = "Trade Vision"
 
 _API_CONNECT_TIMEOUT = 15
 _API_READ_TIMEOUT = 30
@@ -175,7 +184,7 @@ def send_test_message():
     """A1: real connection confirmation -- not simulated. Not rate-limited
     or logged to the trade audit trail (it's a connectivity check, not a
     trade signal), but still uses the exact same send path A2/A3 use."""
-    ok, err = _raw_send(f"SINDHU test message -- connection successful.\n\n{DISCLAIMER}")
+    ok, err = _raw_send(f"{TELEGRAM_BRAND} test message -- connection successful.\n\n{DISCLAIMER}")
     return {"ok": ok, "error": err}
 
 
@@ -188,10 +197,10 @@ def _reason_text(position):
         return position.get("entry_reason") or "No reason recorded."
 
 
-def format_signal_message(position, confluence_result=None):
+def format_signal_message(position, confluence_result=None, reliability_result=None):
     direction_word = "LONG" if position["direction"] == "long" else "SHORT"
     lines = [
-        f"<b>SINDHU Signal -- {direction_word}</b>",
+        f"<b>{TELEGRAM_BRAND} Signal -- {direction_word}</b>",
         f"Strategy: {position.get('strategy_name') or 'Unknown'}",
         f"Coin: {position['symbol']}",
         f"Entry: {position['entry_price']}",
@@ -200,10 +209,35 @@ def format_signal_message(position, confluence_result=None):
     ]
     if confluence_result:
         lines.append(f"Confluence: {confluence_result['label']}")
+    # Statistical confidence (Genuine Evolution Engine's Wilson-score gate,
+    # min. 25 trades for this exact strategy+coin+condition) -- only ever
+    # states a real, recorded win rate pulled from this pattern's own
+    # trade history, never a made-up or implied number.
+    if reliability_result and reliability_result.get("reliable"):
+        lines.append(
+            f"Statistical Confidence: {reliability_result['win_rate_pct']:.0f}% win rate over "
+            f"{reliability_result['sample_size']} recorded trades (95% CI "
+            f"{reliability_result['ci_lower_pct']:.0f}%-{reliability_result['ci_upper_pct']:.0f}%)"
+        )
     lines.append(f"Reason: {_reason_text(position)}")
     lines.append("")
     lines.append(DISCLAIMER)
     return "\n".join(lines)
+
+
+def _pattern_reliability_for(strategy_id, symbol, market_state, session):
+    """The exact same statistical gate the Genuine Evolution Engine uses
+    for Pattern Auto-Avoid / Lesson Auto-Apply (paper_trading.pattern_stats
+    -- Wilson score interval, minimum 25 trades), reused here rather than
+    inventing a new confidence threshold for Telegram. Returns
+    pattern_stats.classify()'s full result dict for this EXACT
+    (strategy, coin, market condition, session) combination."""
+    patterns = storage.list_paper_coin_pattern_memory(strategy_id=strategy_id)
+    match = next((p for p in patterns if p["symbol"] == symbol and p["market_state"] == market_state
+                  and p["session"] == session), None)
+    if match is None:
+        return pattern_stats.classify(0, 0)
+    return pattern_stats.classify(match["wins"], match["trades"])
 
 
 def send_signal_for_position(position_id, trigger_type="manual"):
@@ -232,8 +266,14 @@ def send_signal_for_position(position_id, trigger_type="manual"):
         )
     except Exception:
         conf = None
+    try:
+        reliability = _pattern_reliability_for(
+            pos.get("strategy_id"), pos["symbol"], pos.get("market_state"), pos.get("session"),
+        )
+    except Exception:
+        reliability = None
 
-    text = format_signal_message(pos, conf)
+    text = format_signal_message(pos, conf, reliability)
     ok, err = _raw_send(text)
     storage.log_telegram_message(
         position_id, pos.get("strategy_id"), pos.get("strategy_name"), trigger_type, text, ok, err, now,
@@ -251,11 +291,20 @@ def evaluate_auto_send(position_id):
          (default 1.0 -- i.e. every counted factor must be aligned; this is
          deliberately the strictest possible starting point since this is a
          gate for an UNSUPERVISED external message, not just a display label).
-      3. The strategy is NOT currently paused by Drawdown Protection.
-      4. No open position already exists on this same symbol from a
+      3. The EXACT (strategy, coin, market condition, session) pattern is
+         statistically reliable per the Genuine Evolution Engine's own
+         Wilson-score gate (pattern_stats.classify() -- minimum 25 real
+         trades, 95% confidence interval) AND that pattern's true win rate
+         is confidently good, not just "not confidently bad" -- reused
+         as-is, no new threshold invented for Telegram specifically. Below
+         25 trades for this exact pattern, automatic sending is blocked
+         regardless of how strong the confluence looks, since one raw
+         percentage from a handful of trades is not a real edge yet.
+      4. The strategy is NOT currently paused by Drawdown Protection.
+      5. No open position already exists on this same symbol from a
          DIFFERENT strategy in the correlation-flagged set (cheap proxy:
          reuses confluence's own "coin not already crowded" factor).
-      5. The strategy's live realized PnL this session is >= 0 (a "positive
+      6. The strategy's live realized PnL this session is >= 0 (a "positive
          live PnL trend" reading, in the plainest possible form: not
          currently net negative).
     Returns (should_send: bool, reason: str) -- reason is always populated,
@@ -287,11 +336,22 @@ def evaluate_auto_send(position_id):
     if ratio < min_ratio:
         return False, f"confluence {conf['label']} below the required bar"
 
+    reliability = _pattern_reliability_for(strategy_id, pos["symbol"], pos.get("market_state"), pos.get("session"))
+    if reliability["status"] != "reliable_good":
+        return False, (
+            f"this exact pattern isn't statistically confident yet -- {reliability['conclusion']} "
+            f"(needs {pattern_stats.MIN_SAMPLE_SIZE} recorded trades for this strategy+coin+condition)"
+        )
+
     pnl_total = storage.get_paper_realized_pnl_total(strategy_id)
     if pnl_total < 0:
         return False, f"strategy's live PnL this session is currently negative (${pnl_total:.2f})"
 
-    return True, f"passed all automatic-send checks (confluence {conf['label']}, live PnL ${pnl_total:.2f})"
+    return True, (
+        f"passed all automatic-send checks (confluence {conf['label']}, "
+        f"{reliability['win_rate_pct']:.0f}% win rate over {reliability['sample_size']} trades, "
+        f"live PnL ${pnl_total:.2f})"
+    )
 
 
 # --------------------------------------------------------------- A5: two-way awareness (close follow-up)
@@ -311,7 +371,7 @@ def send_close_followup(closed_position):
     pnl = closed_position.get("pnl") or 0.0
     outcome = "WIN" if pnl > 0 else "LOSS" if pnl < 0 else "BREAK-EVEN"
     text = (
-        f"<b>SINDHU Result -- {outcome}</b>\n"
+        f"<b>{TELEGRAM_BRAND} Result -- {outcome}</b>\n"
         f"Strategy: {closed_position.get('strategy_name') or 'Unknown'}\n"
         f"Coin: {closed_position['symbol']}\n"
         f"Exit: {closed_position.get('exit_price', '-')} ({closed_position.get('exit_reason', '-')})\n"
