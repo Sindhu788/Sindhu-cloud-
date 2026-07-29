@@ -719,6 +719,11 @@
   let refreshTimer = null;
   let pendingStrategyLoadId = null;
   let pendingHistoryBatchId = null;
+  // Task 4 (navigation): lets Reports' Per-Strategy Breakdown table deep-link
+  // straight into that strategy's Profile popup on the Strategies page
+  // (Balance History / Coin-Wise Performance / Confluence Score Trend live
+  // there) instead of making the CEO find the same strategy again by hand.
+  let pendingProfileStrategyId = null;
   // Bumped on every navigation. A page's own render()/autoRefresh callback
   // captures the token in effect when it started; if it's stale by the
   // time an awaited fetch resolves (the user already navigated away), it
@@ -977,7 +982,7 @@
         <thead><tr><th>Strategy</th><th>Closed Trades</th><th>Win Rate</th><th>PnL</th><th>Open Positions</th>${isAll ? "<th>Trading Since</th>" : ""}</tr></thead>
         <tbody>${d.per_strategy.map(p => `
           <tr>
-            <td>${esc(p.strategy_name || p.strategy_id)}</td>
+            <td>${esc(p.strategy_name || p.strategy_id)} <button class="btn-ghost strat-view-profile" data-id="${esc(p.strategy_id)}" style="font-size:11px;padding:1px 6px;">View Profile</button></td>
             <td>${fmtNum(p.closed_trades)}</td>
             <td>${p.win_rate.toFixed(1)}%</td>
             <td>${pnlSpan(p.total_pnl)}</td>
@@ -1023,6 +1028,15 @@
     box.innerHTML = paperPeriodTabsHtml(idPrefix, period) + paperAnalyticsSectionHtml(data);
     box.querySelectorAll(`[data-period-tab="${idPrefix}"]`).forEach(btn => {
       btn.onclick = () => loadPaperAnalytics(boxId, idPrefix, btn.dataset.period);
+    });
+    // Deep-links into that strategy's Profile popup (Balance History /
+    // Coin-Wise Performance / Confluence Score Trend) on the Strategies
+    // page, instead of leaving the CEO to find the same strategy again.
+    box.querySelectorAll(".strat-view-profile").forEach(btn => {
+      btn.onclick = () => {
+        pendingProfileStrategyId = btn.dataset.id;
+        location.hash = "#strategies";
+      };
     });
   }
 
@@ -1581,6 +1595,13 @@
       document.querySelectorAll(".strat-clarify").forEach(btn => btn.onclick = () => {
         openClarifyBox(btn.dataset.id, btn.dataset.name, render);
       });
+
+      if (pendingProfileStrategyId) {
+        const id = pendingProfileStrategyId;
+        pendingProfileStrategyId = null;
+        const btn = document.querySelector(`.strat-profile[data-id="${CSS.escape(id)}"]`);
+        if (btn) btn.click();
+      }
     };
     await render();
     onLive((msg) => { if (msg.channel === "sync" && msg.entity === "strategy") render().catch(console.error); });
