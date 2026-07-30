@@ -2821,6 +2821,7 @@
       }
       if (isStaleRoute(myToken)) return;
       const s = analytics.summary;
+      const hp = analytics.hypothetical_pnl;
       const signals = signalsRes.signals || [];
 
       document.getElementById("tgDashBox").innerHTML = `
@@ -2830,6 +2831,14 @@
           ${card("Wins", fmtNum(s.wins))}
           ${card("Losses", fmtNum(s.losses))}
           ${card("Win Rate", telegramWinRateText(s))}
+        </div>
+
+        <div class="section-title">Hypothetical $${hp.hypothetical_capital.toFixed(0)} Account (Simulated)</div>
+        <p class="muted" style="margin-top:-8px;">Not a real account -- this shows what a $${hp.hypothetical_capital.toFixed(0)} balance would look like if every closed Telegram signal in this period had been risked at the platform's real configured risk-per-trade (${hp.risk_pct_used}%), using each trade's REAL recorded result. Trades still open contribute nothing yet.</p>
+        <div class="grid">
+          ${card("Trades Counted", fmtNum(hp.counted_trades))}
+          ${cardClass("Hypothetical PnL", `${hp.hypothetical_pnl >= 0 ? "+" : ""}$${hp.hypothetical_pnl.toFixed(2)}`, hp.hypothetical_pnl > 0 ? "positive" : hp.hypothetical_pnl < 0 ? "negative" : "")}
+          ${card("Hypothetical Balance", `$${hp.hypothetical_balance.toFixed(2)}`)}
         </div>
 
         <div class="section-title">Per-Strategy Breakdown</div>
@@ -2864,12 +2873,37 @@
       `;
     }
 
+    const tgSettings = await apiGet("/api/paper-trading/telegram/settings").catch(() => ({ master_send_enabled: true }));
+    if (isStaleRoute(myToken)) return;
+
     content.innerHTML = `
       <div class="section-title">Telegram Signals</div>
       <p class="muted">Everything sent to the Telegram channel, in one place -- how many signals went out, how they're doing, and a full log. Win/loss comes straight from each trade's real recorded outcome in Paper Trading; a trade that hasn't closed yet always shows as Open/Pending, never guessed at.</p>
+
+      <div class="card" style="max-width:480px;">
+        <label style="display:flex;align-items:center;gap:10px;width:auto;">
+          <input type="checkbox" id="tgMasterSwitch" ${tgSettings.master_send_enabled ? "checked" : ""} style="width:auto;">
+          <span><b>Send Signals to Telegram</b><br><span class="muted" style="font-size:12px;">When off, nothing is sent to Telegram at all -- no manual send, no automatic high-confidence signal -- no matter how confident the system is.</span></span>
+        </label>
+        <span id="tgMasterStatus" class="muted"></span>
+      </div>
+
       ${paperPeriodTabsHtml("tgdash", "today")}
       <div id="tgDashBox"><p class="muted">Loading...</p></div>
     `;
+
+    document.getElementById("tgMasterSwitch").addEventListener("change", async (e) => {
+      const statusEl = document.getElementById("tgMasterStatus");
+      statusEl.textContent = "Saving...";
+      try {
+        await apiPost("/api/paper-trading/telegram/settings", { master_send_enabled: e.target.checked });
+        statusEl.textContent = e.target.checked ? "Telegram sending is ON." : "Telegram sending is OFF -- nothing will be sent.";
+        appendLog(`[Telegram] Sending turned ${e.target.checked ? "ON" : "OFF"}.`);
+      } catch (err) {
+        statusEl.textContent = "Save failed -- try again.";
+        e.target.checked = !e.target.checked;
+      }
+    });
 
     await load("today");
     content.querySelectorAll('[data-period-tab="tgdash"]').forEach(btn => {
@@ -3170,8 +3204,29 @@
   }
 
   // ------------------------------------------------------------ PAPER TRADING
+  // Paper Trading sub-navigation: the page has grown into ~18 distinct
+  // sections (status, alerts, portfolio/risk, analytics, trade history,
+  // engine settings...) that used to all sit on one long scroll. These
+  // panels group them into 5 sub-tabs WITHOUT changing any data fetch,
+  // calculation, or moving anything out of the Paper Trading page --
+  // every panel still renders from the exact same render() call below,
+  // just tagged with data-pt-tab so only the active group is visible at
+  // once (CSS display toggle, not conditional rendering) -- this keeps
+  // every existing element id and event handler wiring completely
+  // unchanged, since all elements still exist in the DOM at all times.
+  const PT_TABS = [
+    ["overview", "Overview"], ["portfolio", "Portfolio & Risk"],
+    ["analytics", "Analytics"], ["history", "Trade History"], ["settings", "Settings"],
+  ];
+  function ptTabBarHtml(active) {
+    return `<div class="period-tabs">${PT_TABS.map(([id, label]) => `
+      <button class="period-tab ${id === active ? "active" : ""}" data-pt-tab-btn="${id}">${label}</button>
+    `).join("")}</div>`;
+  }
+
   async function renderPaperTrading() {
     const myToken = activeRouteToken;
+    let activePtTab = "overview";
     const render = async () => {
       const [status, positionsRes, tradesRes, decisionsRes, stratPerfRes, lessonPerfRes,
              settings, strategiesRes, lessonsRes, allTimeAnalytics, alertsRes, sessionsRes,
@@ -3214,6 +3269,8 @@
 
       content.innerHTML = `
         <div class="section-title">Paper Trading</div>
+        ${ptTabBarHtml(activePtTab)}
+        <div class="pt-tab-panel" data-pt-tab="overview">
         <div class="grid">
           ${cardClass("Engine Status", status.running ? "<span class=\"pill pill-completed\">Running</span>" : "<span class=\"pill pill-muted\">Stopped</span>", "")}
           ${cardClass("Mode", status.dry_run ? "<span class=\"pill pill-pending\">Dry Run</span>" : "<span class=\"pill pill-bullish\">Live Paper Trading</span>", "")}
@@ -3236,7 +3293,9 @@
               <span class="muted" style="float:right;">${esc((a.created_at||"").slice(0,16).replace("T"," "))}</span>
             </div>`).join("")}
         </div>` : ""}
+        </div>
 
+        <div class="pt-tab-panel" data-pt-tab="portfolio">
         <div class="section-title">Portfolio (All Strategies Combined)</div>
         <div class="grid">
           ${portfolioRes ? `
@@ -3272,10 +3331,14 @@
               <td>$${e.total_risk.toFixed(2)}</td>
             </tr>`).join("")}</tbody>
         </table></div>` : ""}
+        </div>
 
+        <div class="pt-tab-panel" data-pt-tab="analytics">
         <div class="section-title">Analytics</div>
         <div id="ptAnalyticsBox"></div>
+        </div>
 
+        <div class="pt-tab-panel" data-pt-tab="overview">
         <div class="section-title">Daily Goal (${goalPct}%)</div>
         <div class="card">
           <div class="progress-bar"><div class="progress-bar-fill" style="width:${goalProgress}%;"></div></div>
@@ -3293,7 +3356,9 @@
           <span id="ptStatusMsg" class="muted"></span>
         </div>
         ${status.running ? `<div class="muted" style="font-size:12px;">Started ${esc((status.started_at||"").slice(0,19))} -- tick #${status.tick_count}, last at ${esc((status.last_tick_at||"-").slice(11,19))}</div>` : ""}
+        </div>
 
+        <div class="pt-tab-panel" data-pt-tab="settings">
         <div class="section-title">Engine Settings</div>
         <div class="card" style="max-width:560px;">
           <div class="two-col">
@@ -3322,7 +3387,9 @@
           ${card("Strategies Available", fmtNum((strategiesRes.strategies || []).length))}
           ${card("Lessons Available (active)", fmtNum(runningLessons.length))}
         </div>
+        </div>
 
+        <div class="pt-tab-panel" data-pt-tab="overview">
         ${confidenceFilterHtml()}
 
         <div class="section-title">Open Positions</div>
@@ -3343,7 +3410,9 @@
               <td><button class="btn-ghost pt-close-position" data-id="${p.id}">Close</button></td>
             </tr>`).join("") || '<tr><td colspan="11">No open positions.</td></tr>'}</tbody>
         </table></div>
+        </div>
 
+        <div class="pt-tab-panel" data-pt-tab="history">
         <div class="section-title">Closed Trades (most recent 30 of ${allTimeSummary.closed_trades})</div>
         <div class="table-wrap"><table>
           <thead><tr><th>Strategy</th><th>Coin</th><th>Direction</th><th>Entry</th><th>Exit</th><th>PnL</th><th>PnL%</th><th>Result</th><th>Why</th><th></th></tr></thead>
@@ -3375,7 +3444,9 @@
               <td>${d.confidence != null ? d.confidence + "%" : "-"}</td>
             </tr>`).join("") || '<tr><td colspan="5">No decisions logged yet.</td></tr>'}</tbody>
         </table></div>
+        </div>
 
+        <div class="pt-tab-panel" data-pt-tab="analytics">
         <div class="section-title">Strategy Comparison (side-by-side)</div>
         <div class="btn-row">
           <button class="btn-ghost" id="ptBulkFlag">Flag Selected for Telegram</button>
@@ -3455,7 +3526,22 @@
               <td><span class="pill ${r.status === "reliable_good" ? "pill-bullish" : r.status === "reliable_bad" ? "pill-bearish" : r.status === "reliable_inconclusive" ? "pill-neutral" : "pill-muted"}">${esc(r.conclusion)}</span></td>
             </tr>`).join("") || '<tr><td colspan="8">No pattern data yet -- needs closed trades.</td></tr>'}</tbody>
         </table></div>
+        </div>
       `;
+
+      function applyPtTab(tabId) {
+        activePtTab = tabId;
+        content.querySelectorAll("[data-pt-tab-btn]").forEach(btn => {
+          btn.classList.toggle("active", btn.dataset.ptTabBtn === tabId);
+        });
+        content.querySelectorAll("[data-pt-tab]").forEach(panel => {
+          panel.style.display = panel.dataset.ptTab === tabId ? "" : "none";
+        });
+      }
+      applyPtTab(activePtTab);
+      content.querySelectorAll("[data-pt-tab-btn]").forEach(btn => {
+        btn.onclick = () => applyPtTab(btn.dataset.ptTabBtn);
+      });
 
       loadPaperAnalytics("ptAnalyticsBox", "pt", "today");
 
