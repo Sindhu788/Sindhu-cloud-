@@ -12,6 +12,12 @@ uses elsewhere) rather than inventing a separate threshold here."""
 
 from data_engine import storage
 from paper_trading import pattern_stats
+from paper_trading import config as pt_config
+
+# The hypothetical base capital the $/month tracker simulates trading
+# with -- purely a display convenience for "what would this have looked
+# like on a small account," not a real balance anywhere in the system.
+HYPOTHETICAL_CAPITAL = 100.0
 
 
 def signal_period_summary(since_iso=None, until_iso=None):
@@ -30,6 +36,42 @@ def signal_period_summary(since_iso=None, until_iso=None):
         "breakeven": breakeven, "pending": pending, "closed": closed,
         "win_rate_pct": win_rate_pct,
         "min_sample_size": pattern_stats.MIN_SAMPLE_SIZE,
+    }
+
+
+def hypothetical_pnl(since_iso=None, until_iso=None):
+    """A clearly-hypothetical "$100 account" tracker for the Telegram
+    Dashboard: takes the REAL R-multiple (pnl / risk_amount) of every
+    closed, telegram-signaled trade in this period -- the exact same
+    ratio storage.get_paper_period_summary's avg_rr already computes from
+    -- and rescales it onto a hypothetical HYPOTHETICAL_CAPITAL account
+    using the actual configured risk-per-trade percentage
+    (paper_trading.config's risk_pct_default, the same number the real
+    position sizer uses). Never invents a win, loss, or R-multiple -- only
+    real recorded outcomes are used; open/pending trades contribute
+    nothing until they actually close."""
+    rows = storage.list_telegram_signal_outcomes(since_iso, until_iso)
+    risk_pct_default = pt_config.load().get("risk_pct_default", 1.0)
+    hypothetical_risk_per_trade = HYPOTHETICAL_CAPITAL * (risk_pct_default / 100.0)
+
+    total_pnl = 0.0
+    counted_trades = 0
+    for r in rows:
+        if r["outcome"] not in ("win", "loss", "breakeven"):
+            continue
+        risk_amount = r.get("risk_amount")
+        if not risk_amount:
+            continue
+        r_multiple = r["pnl"] / risk_amount
+        total_pnl += r_multiple * hypothetical_risk_per_trade
+        counted_trades += 1
+
+    return {
+        "hypothetical_capital": HYPOTHETICAL_CAPITAL,
+        "risk_pct_used": risk_pct_default,
+        "counted_trades": counted_trades,
+        "hypothetical_pnl": round(total_pnl, 2),
+        "hypothetical_balance": round(HYPOTHETICAL_CAPITAL + total_pnl, 2),
     }
 
 

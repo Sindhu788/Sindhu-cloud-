@@ -2627,7 +2627,7 @@ def list_telegram_signal_outcomes(since_iso=None, until_iso=None):
     query = (
         "SELECT t.id, t.position_id, t.strategy_id, t.strategy_name, t.sent_at, "
         "p.symbol, p.direction, p.entry_price, p.stop_loss, p.take_profit, "
-        "p.status, p.pnl, p.pnl_pct, p.closed_at "
+        "p.status, p.pnl, p.pnl_pct, p.closed_at, p.risk_amount "
         "FROM telegram_message_log t LEFT JOIN paper_positions p ON p.id = t.position_id "
         "WHERE t.trigger_type IN ('manual','automatic') AND t.success = 1"
     )
@@ -2643,7 +2643,7 @@ def list_telegram_signal_outcomes(since_iso=None, until_iso=None):
         rows = conn.execute(query, params).fetchall()
     cols = ["id", "position_id", "strategy_id", "strategy_name", "sent_at",
             "symbol", "direction", "entry_price", "stop_loss", "take_profit",
-            "status", "pnl", "pnl_pct", "closed_at"]
+            "status", "pnl", "pnl_pct", "closed_at", "risk_amount"]
     result = []
     for r in rows:
         d = dict(zip(cols, r))

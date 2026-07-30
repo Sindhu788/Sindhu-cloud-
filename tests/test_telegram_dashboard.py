@@ -5,8 +5,16 @@ Confirms win/loss is read straight off paper_positions' own real status/pnl
 win rate is gated behind the same minimum-sample-size rule used elsewhere.
 """
 
-from data_engine import storage
+import pytest
+
+from data_engine import config as base_config, storage
 from paper_trading import telegram_analytics, pattern_stats
+
+
+@pytest.fixture(autouse=True)
+def isolated_config(tmp_path, monkeypatch):
+    monkeypatch.setattr(base_config, "CONFIG_DIR", str(tmp_path))
+    yield
 
 
 def _open_position(**overrides):
@@ -121,3 +129,59 @@ def test_strategy_breakdown_groups_and_sorts_by_signal_count(test_db):
     assert breakdown[0]["total_signals"] == 2
     assert breakdown[1]["strategy_id"] == "stratB"
     assert breakdown[1]["total_signals"] == 1
+
+
+# --------------------------------------------------------------- Hypothetical $100/month PnL tracker
+
+def test_hypothetical_pnl_scales_real_r_multiple_onto_hypothetical_capital(test_db):
+    # risk_amount=5.0 (default), pnl=+10.0 -> R-multiple = 2.0.
+    # Default risk_pct_default=1.0% on $100 hypothetical capital = $1 risked
+    # per trade -> hypothetical pnl for this trade = 2.0 * $1 = $2.00.
+    _open_position(id="posW")
+    _close("posW", 110.0, 10.0, 10.0, "take_profit")
+    _log_signal("posW")
+
+    result = telegram_analytics.hypothetical_pnl()
+    assert result["hypothetical_capital"] == 100.0
+    assert result["risk_pct_used"] == 1.0
+    assert result["counted_trades"] == 1
+    assert result["hypothetical_pnl"] == 2.0
+    assert result["hypothetical_balance"] == 102.0
+
+
+def test_hypothetical_pnl_only_counts_closed_trades(test_db):
+    _open_position(id="posOpen")
+    _log_signal("posOpen")  # still open -- must not contribute
+    result = telegram_analytics.hypothetical_pnl()
+    assert result["counted_trades"] == 0
+    assert result["hypothetical_pnl"] == 0.0
+    assert result["hypothetical_balance"] == 100.0
+
+
+def test_hypothetical_pnl_combines_win_and_loss_r_multiples(test_db):
+    _open_position(id="posW2", risk_amount=5.0)
+    _close("posW2", 110.0, 10.0, 10.0, "take_profit")  # R = +2.0
+    _log_signal("posW2")
+
+    _open_position(id="posL2", risk_amount=5.0)
+    _close("posL2", 95.0, -5.0, -5.0, "stop_loss")  # R = -1.0
+    _log_signal("posL2")
+
+    result = telegram_analytics.hypothetical_pnl()
+    # (2.0 + -1.0) R * $1 hypothetical risk per trade = $1.00
+    assert result["counted_trades"] == 2
+    assert result["hypothetical_pnl"] == 1.0
+
+
+def test_hypothetical_pnl_respects_configured_risk_pct(test_db):
+    from paper_trading import config as pt_config
+    pt_config.save({**pt_config.load(), "risk_pct_default": 2.0})
+
+    _open_position(id="posW3")
+    _close("posW3", 110.0, 10.0, 10.0, "take_profit")  # R = +2.0
+    _log_signal("posW3")
+
+    # 2% of $100 = $2 risked per trade -> 2.0 R * $2 = $4.00
+    result = telegram_analytics.hypothetical_pnl()
+    assert result["risk_pct_used"] == 2.0
+    assert result["hypothetical_pnl"] == 4.0

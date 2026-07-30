@@ -691,6 +691,7 @@ def get_strategy_profile_endpoint(strategy_id: str):
 class TelegramSettingsUpdate(BaseModel):
     bot_token: Optional[str] = None
     channel_id: Optional[str] = None
+    master_send_enabled: Optional[bool] = None
     auto_send_enabled: Optional[bool] = None
     auto_send_min_confluence_ratio: Optional[float] = None
     rate_limit_per_hour: Optional[int] = None
@@ -708,9 +709,12 @@ def get_telegram_settings():
 @router.post("/api/paper-trading/telegram/settings")
 def update_telegram_settings(req: TelegramSettingsUpdate):
     telegram_bot.save_settings(**req.dict(exclude_unset=True))
-    _log_and_broadcast("[paper-trading] Telegram settings updated"
-                        + (" (auto-send " + ("ENABLED" if req.auto_send_enabled else "disabled") + ")"
-                           if req.auto_send_enabled is not None else ""))
+    note = ""
+    if req.master_send_enabled is not None:
+        note += " (Telegram sending turned " + ("ON" if req.master_send_enabled else "OFF") + ")"
+    if req.auto_send_enabled is not None:
+        note += " (auto-send " + ("ENABLED" if req.auto_send_enabled else "disabled") + ")"
+    _log_and_broadcast("[paper-trading] Telegram settings updated" + note)
     return {"ok": True, "settings": telegram_bot.public_settings()}
 
 
@@ -762,6 +766,7 @@ def get_telegram_analytics(period: str = "all"):
     return {
         "summary": telegram_analytics.signal_period_summary(since_iso, until_iso),
         "strategy_breakdown": telegram_analytics.strategy_breakdown(since_iso, until_iso),
+        "hypothetical_pnl": telegram_analytics.hypothetical_pnl(since_iso, until_iso),
     }
 
 

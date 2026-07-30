@@ -35,6 +35,7 @@ from paper_trading import confluence as confluence_mod, insights, pattern_stats
 _DEFAULTS = {
     "bot_token": "",
     "channel_id": "",
+    "master_send_enabled": True,  # Telegram Dashboard's master switch -- see _master_enabled() below
     "auto_send_enabled": False,   # non-negotiable: OFF by default
     "auto_send_min_confluence_ratio": 1.0,  # require ALL counted factors aligned (e.g. 4/4) by default -- conservative
     "rate_limit_per_hour": 10,
@@ -82,6 +83,7 @@ def public_settings():
     return {
         "token_configured": bool(s.get("bot_token")),
         "channel_id": s.get("channel_id", ""),
+        "master_send_enabled": s.get("master_send_enabled", True),
         "auto_send_enabled": s.get("auto_send_enabled", False),
         "auto_send_min_confluence_ratio": s.get("auto_send_min_confluence_ratio", 1.0),
         "rate_limit_per_hour": s.get("rate_limit_per_hour", 10),
@@ -89,6 +91,20 @@ def public_settings():
         "proxy_enabled": s.get("proxy_enabled", False),
         "proxy_configured": bool(s.get("proxy_url")),
     }
+
+
+def _master_enabled():
+    """Telegram Dashboard's master ON/OFF switch: when OFF, NOTHING gets
+    sent -- not a manual override, not the automatic high-confidence rule,
+    not a close-result follow-up -- regardless of how strong the
+    confidence gating looks. Checked first, before any other gate, in
+    both send_signal_for_position() (the single real-send entry point
+    shared by Manual Override and the automatic rule) and
+    send_close_followup(), so there is exactly one place this can be
+    bypassed by accident: nowhere. send_test_message() is intentionally
+    NOT gated by this -- it's a deliberate connectivity check the CEO runs
+    while configuring the bot, not a trade signal."""
+    return load_settings().get("master_send_enabled", True)
 
 
 def _rate_limited():
@@ -370,6 +386,13 @@ def send_signal_for_position(position_id, trigger_type="manual"):
         storage.log_telegram_message(position_id, None, None, trigger_type, "", False, "position not found", now)
         return {"ok": False, "error": "position not found"}
 
+    if not _master_enabled():
+        storage.log_telegram_message(
+            position_id, pos.get("strategy_id"), pos.get("strategy_name"), trigger_type,
+            "", False, "Telegram sending is turned off (master switch)", now,
+        )
+        return {"ok": False, "error": "Telegram sending is turned off (master switch)"}
+
     if _rate_limited():
         storage.log_telegram_message(
             position_id, pos.get("strategy_id"), pos.get("strategy_name"), trigger_type,
@@ -482,6 +505,8 @@ def send_close_followup(closed_position):
     earlier (storage.has_telegram_signal_for_position), so the channel
     never gets a "result" message for a trade nobody was told about."""
     settings = load_settings()
+    if not settings.get("master_send_enabled", True):
+        return None
     if not settings.get("send_close_followups", True) or feature_toggles.is_master_paused():
         return None
     position_id = closed_position["id"]
