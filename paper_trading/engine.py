@@ -375,14 +375,19 @@ class PaperTradingEngine:
         except Exception as e:
             self._log(f"[paper-trading] confluence history logging failed: {e!r}")
 
-        # A3: automatic high-confidence Telegram signal -- OFF by default
-        # (telegram_bot.evaluate_auto_send checks the settings flag first
-        # and short-circuits immediately if it's not explicitly enabled).
+        # A3 + Task 4 (Priority Batch 1): automatic Telegram signal, dual
+        # tier -- OFF by default (telegram_bot.evaluate_auto_send_tier
+        # checks the settings flag first and short-circuits immediately if
+        # it's not explicitly enabled). Tries the HIGH tier (full
+        # confluence + the 25-trade Wilson gate, unchanged) first; if
+        # nothing currently qualifies for that, falls back to the LOW tier
+        # so signal flow doesn't stop entirely -- only a genuine "high"
+        # tier result gets the High Confidence marker on the message.
         try:
-            should_send, reason = telegram_bot.evaluate_auto_send(pos["id"])
-            if should_send:
-                telegram_bot.send_signal_for_position(pos["id"], trigger_type="automatic")
-                self._log(f"[paper-trading] Telegram auto-signal sent for {pos['id']}: {reason}")
+            tier, reason = telegram_bot.evaluate_auto_send_tier(pos["id"])
+            if tier is not None:
+                telegram_bot.send_signal_for_position(pos["id"], trigger_type="automatic", high_confidence=(tier == "high"))
+                self._log(f"[paper-trading] Telegram auto-signal sent for {pos['id']} (tier={tier}): {reason}")
         except Exception as e:
             self._log(f"[paper-trading] Telegram auto-send check failed: {e!r}")
 

@@ -296,11 +296,19 @@ def _fetch_live_price(exchange, symbol):
         return None
 
 
-def format_signal_message(position, confluence_result=None, reliability_result=None):
+def format_signal_message(position, confluence_result=None, reliability_result=None, high_confidence=False):
     direction_word = "LONG" if position["direction"] == "long" else "SHORT"
     symbol = position["symbol"]
 
-    lines = [
+    lines = []
+    if high_confidence:
+        # Task 4 (Priority Batch 1): a distinct, unmissable marker for the
+        # HIGH tier only -- never added for a regular/lower-tier send, so
+        # it always reflects a real tier decision (evaluate_auto_send_tier)
+        # rather than being a cosmetic label anyone could mistake for
+        # inflated confidence.
+        lines.append("⭐ <b>HIGH CONFIDENCE SIGNAL</b> ⭐")
+    lines += [
         f"\U0001F4CA <b>{TELEGRAM_BRAND} Signal</b>",
         "─" * 18,
         f"{_direction_emoji(position['direction'])} <b>{direction_word} {symbol}</b>",
@@ -376,10 +384,17 @@ def _pattern_reliability_for(strategy_id, symbol, market_state, session):
     return pattern_stats.classify(match["wins"], match["trades"])
 
 
-def send_signal_for_position(position_id, trigger_type="manual"):
+def send_signal_for_position(position_id, trigger_type="manual", high_confidence=False):
     """The one real-send entry point both Manual Override (A2) and the
     automatic rule (A3) call. Rate-limited, always logged (success or
-    failure) to telegram_message_log -- a full audit trail, per A4."""
+    failure) to telegram_message_log -- a full audit trail, per A4.
+
+    high_confidence (Task 4, Priority Batch 1): only ever set True by the
+    automatic sender, and only when evaluate_auto_send_tier() genuinely
+    returned "high" for THIS position -- adds the distinct High Confidence
+    marker to the message. Manual sends never pass this (defaults False),
+    so a CEO-triggered send is never mislabeled as an automatic
+    high-confidence call."""
     pos = storage.get_paper_position(position_id)
     now = _now_iso()
     if not pos:
@@ -416,7 +431,7 @@ def send_signal_for_position(position_id, trigger_type="manual"):
     except Exception:
         reliability = None
 
-    text = format_signal_message(pos, conf, reliability)
+    text = format_signal_message(pos, conf, reliability, high_confidence=high_confidence)
     ok, err = _raw_send(text)
     storage.log_telegram_message(
         position_id, pos.get("strategy_id"), pos.get("strategy_name"), trigger_type, text, ok, err, now,
@@ -495,6 +510,79 @@ def evaluate_auto_send(position_id):
         f"{reliability['win_rate_pct']:.0f}% win rate over {reliability['sample_size']} trades, "
         f"live PnL ${pnl_total:.2f})"
     )
+
+
+# --------------------------------------------------------------- Task 4 (Priority Batch 1): dual-tier auto-send
+
+def evaluate_auto_send_low_tier(position_id):
+    """The LOWER of the two auto-send tiers. Same base safety checks as
+    evaluate_auto_send() above (auto_send_enabled, not globally paused,
+    strategy not paused by Drawdown Protection, the same configured
+    confluence floor, live PnL not negative) -- but, unlike
+    evaluate_auto_send() (the HIGH tier, left completely untouched by this
+    change, 25-trade Wilson gate and all), does NOT require the pattern to
+    already be statistically confirmed.
+
+    This is what keeps signal flow going: before this tier existed, a real
+    signal with perfect confluence but not yet enough trade history for
+    this exact (strategy, coin, condition) combo was blocked outright by
+    evaluate_auto_send(). Now it's still sent -- just without the High
+    Confidence marker, since that marker is reserved for signals that have
+    cleared the statistical gate too. Never touches
+    paper_trading.pattern_stats or its 25-trade minimum.
+
+    Returns (should_send: bool, reason: str)."""
+    settings = load_settings()
+    if not settings.get("auto_send_enabled", False):
+        return False, "automatic sending is turned off in Settings"
+    if feature_toggles.is_master_paused():
+        return False, "all automation is currently paused (master switch)"
+
+    pos = storage.get_paper_position(position_id)
+    if not pos:
+        return False, "position not found"
+
+    strategy_id = pos.get("strategy_id")
+    paused, pause_reason, _ = storage.is_strategy_paused(strategy_id)
+    if paused:
+        return False, f"strategy is paused by Drawdown Protection: {pause_reason}"
+
+    exchanges_cfg = base_config.load_or_seed("exchanges.json", base_config.DEFAULTS["exchanges.json"])
+    exchange = exchanges_cfg["default"]
+    conf = confluence_mod.score_confluence(
+        strategy_id, pos["symbol"], exchange, pos.get("market_state"), pos.get("session"), pos["direction"],
+    )
+    if conf["total"] == 0:
+        return False, "not enough data yet to score confluence"
+    ratio = conf["passed"] / conf["total"]
+    min_ratio = settings.get("auto_send_min_confluence_ratio", 1.0)
+    if ratio < min_ratio:
+        return False, f"confluence {conf['label']} below the required bar"
+
+    pnl_total = storage.get_paper_realized_pnl_total(strategy_id)
+    if pnl_total < 0:
+        return False, f"strategy's live PnL this session is currently negative (${pnl_total:.2f})"
+
+    return True, (
+        f"passed the standard auto-send checks (confluence {conf['label']}, live PnL ${pnl_total:.2f}) -- "
+        f"not yet statistically confirmed by the 25-trade gate, sent at the standard tier without the "
+        f"High Confidence marker"
+    )
+
+
+def evaluate_auto_send_tier(position_id):
+    """Tries the HIGH tier first (evaluate_auto_send -- unchanged, real
+    confluence + the real 25-trade Wilson gate), falls back to the LOW
+    tier (evaluate_auto_send_low_tier) only if High doesn't qualify, so
+    signal flow never stops just because nothing currently clears the
+    high bar. Returns (tier: "high" | "low" | None, reason: str)."""
+    should_send_high, reason_high = evaluate_auto_send(position_id)
+    if should_send_high:
+        return "high", reason_high
+    should_send_low, reason_low = evaluate_auto_send_low_tier(position_id)
+    if should_send_low:
+        return "low", reason_low
+    return None, reason_low
 
 
 # --------------------------------------------------------------- A5: two-way awareness (close follow-up)
