@@ -266,6 +266,28 @@ class ConfiguredStrategy(Strategy):
             price = self._array(df, "close")[i]
             sl = self._compute_stop_loss(df, i, price, direction)
             tp = self._compute_take_profit(df, i, price, direction, sl)
+
+            # (Batch 2, Task 2) Pre-trade discard filters -- a signal that
+            # otherwise fires is thrown away entirely (no trade, not a
+            # different SL/TP) when it fails either check. Both no-ops
+            # unless explicitly configured, so every strategy saved before
+            # this feature exists is completely unaffected.
+            if cfg.sl_distance_filter_pct and sl is not None and price:
+                sl_distance_pct = abs(price - sl) / price * 100.0
+                min_pct = cfg.sl_distance_filter_pct.get("min_pct")
+                max_pct = cfg.sl_distance_filter_pct.get("max_pct")
+                if (min_pct is not None and sl_distance_pct < min_pct) or \
+                   (max_pct is not None and sl_distance_pct > max_pct):
+                    return None
+            if cfg.min_risk_reward_filter is not None and cfg.primary_target_lookback_bars and sl is not None:
+                primary_target = self._compute_primary_target(df, i, direction, cfg.primary_target_lookback_bars)
+                risk = abs(price - sl)
+                if primary_target is None or risk == 0:
+                    return None
+                primary_rr = abs(primary_target - price) / risk
+                if primary_rr < cfg.min_risk_reward_filter:
+                    return None
+
             action = "buy" if direction == "bullish" else "sell"
             return Signal(action=action, stop_loss=sl, take_profit=tp, reason=self._describe(matched_conditions))
 
@@ -597,6 +619,26 @@ class ConfiguredStrategy(Strategy):
         if cond.type == "trend":
             return self._get(df, i, "entry_trend_dir") == cond.direction
 
+        if cond.type == "candle_range_pct":
+            # (Batch 2, Task 2) "the signal candle's range must be between
+            # X% and Y%" -- this bar's own (high-low)/low as a percentage,
+            # bounded. role defaults to "entry" like every other condition
+            # here; params: {"min_pct":, "max_pct":} (either may be omitted
+            # to leave that side unbounded).
+            role = cond.role or "entry"
+            high = self._get(df, i, f"{role}_high") if role != "entry" else self._get(df, i, "high")
+            low = self._get(df, i, f"{role}_low") if role != "entry" else self._get(df, i, "low")
+            if high is None or low is None or low <= 0:
+                return False
+            range_pct = (high - low) / low * 100.0
+            min_pct = cond.params.get("min_pct")
+            max_pct = cond.params.get("max_pct")
+            if min_pct is not None and range_pct < min_pct:
+                return False
+            if max_pct is not None and range_pct > max_pct:
+                return False
+            return True
+
         return False
 
     def _compute_stop_loss(self, df, i, price, direction):
@@ -639,6 +681,25 @@ class ConfiguredStrategy(Strategy):
                     if zone is not None and zone > price:
                         return zone
             return None
+        if spec.type == "signal_candle":
+            # (Batch 2, Task 2) "stop-loss = the signal candle's own high
+            # (short) / low (long), buffered by `value` percent" -- e.g.
+            # "signal candle's high * 1.003". Bar `i` here IS the signal
+            # candle: on_bar() only ever calls this at the exact bar a
+            # fresh entry condition became true, so no separate lookup or
+            # extra plumbing is needed to find "the signal candle" -- it's
+            # simply this bar.
+            buffer_pct = (spec.value or 0.0) / 100.0
+            if direction == "bullish":
+                low = self._array(df, "low")
+                if low is None:
+                    return None
+                return float(low[i]) * (1 - buffer_pct)
+            else:
+                high = self._array(df, "high")
+                if high is None:
+                    return None
+                return float(high[i]) * (1 + buffer_pct)
         return None
 
     def _compute_take_profit(self, df, i, price, direction, sl):
@@ -690,6 +751,28 @@ class ConfiguredStrategy(Strategy):
                         return zone
             return None
         return None
+
+    def _compute_primary_target(self, df, i, direction, lookback_bars):
+        """(Batch 2, Task 2) "the lowest low (short) / highest high (long)
+        of the preceding N candles before entry" -- purely a reference
+        price for min_risk_reward_filter's discard check, independent of
+        whatever take_profit is actually configured to be. Causal: only
+        ever reads bars strictly BEFORE i (the signal bar itself is
+        excluded), same convention as every other structural lookup in
+        this file."""
+        start = max(0, i - lookback_bars)
+        if start >= i:
+            return None
+        if direction == "bullish":
+            highs = self._array(df, "high")
+            if highs is None:
+                return None
+            return float(highs[start:i].max())
+        else:
+            lows = self._array(df, "low")
+            if lows is None:
+                return None
+            return float(lows[start:i].min())
 
     def _describe(self, conditions):
         parts = []

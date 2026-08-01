@@ -24,7 +24,7 @@ _KNOWN_INDICATORS = {
     "anchored_vwap", "cvd", "kill_zone",
 }
 
-_KNOWN_CONDITION_TYPES = {"indicator_compare", "price_compare", "indicator_vs_indicator", "concept", "session", "trend"}
+_KNOWN_CONDITION_TYPES = {"indicator_compare", "price_compare", "indicator_vs_indicator", "concept", "session", "trend", "candle_range_pct"}
 
 _KNOWN_ENTRY_TYPES = {
     "market", "current_candle_close", "limit", "stop",

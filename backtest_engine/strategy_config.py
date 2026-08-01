@@ -18,6 +18,9 @@ class Condition:
     - "concept":                name, direction (optional)          (e.g. bullish BOS)
     - "session":                 name                                 (e.g. london)
     - "trend":                   direction                             (e.g. up)
+    - "candle_range_pct":       params={"min_pct":, "max_pct":}     (this bar's (high-low)/low
+                                as a percentage must fall within [min_pct, max_pct] -- e.g. "the
+                                signal candle's range must be between 0.15% and 3.0%")
     - "raw":                     text                                  (unparsed -- needs clarification)
     """
     type: str
@@ -48,7 +51,10 @@ class SLTPSpec:
     type: "fixed_pct" (value = %), "atr_multiple" (value = multiple),
           "structure" (below/above last swing, order block, or FVG), "rr" (TP
           only, value = risk:reward multiple), "level" (TP only, targets a
-          named price level -- see `level`), or "unknown" (couldn't detect)."""
+          named price level -- see `level`), "signal_candle" (SL only, value
+          = buffer %: the signal bar's own high (short) or low (long),
+          buffered by `value` percent -- e.g. "stop-loss = signal candle's
+          high * 1.003"), or "unknown" (couldn't detect)."""
     type: str = "unknown"
     value: Optional[float] = None
     level: Optional[str] = None  # "pdh" | "pdl" -- only used when type == "level"
@@ -93,6 +99,29 @@ class StrategyConfig:
     take_profit: SLTPSpec = field(default_factory=SLTPSpec)
     risk_pct: Optional[float] = None
     risk_reward: Optional[float] = None
+
+    # -------------------------------------------- Pre-trade discard filters
+    # (Batch 2, Task 2) A signal that would otherwise fire is instead
+    # discarded (no trade at all -- distinct from stop_loss/take_profit,
+    # which shape a trade that DOES happen) when these don't hold. Both
+    # None = no filtering, byte-for-byte unchanged behavior for every
+    # strategy saved before this feature existed.
+    #
+    # {"min_pct":, "max_pct":} -- the computed stop-loss distance, as a
+    # percent of entry price, must fall within this range or the trade is
+    # skipped (e.g. "if SL distance is <0.15% or >1.5% of entry, don't
+    # take the trade").
+    sl_distance_filter_pct: Optional[dict] = None
+    # A minimum required risk:reward, checked against a PRIMARY reference
+    # target -- the highest/lowest price of the `primary_target_lookback_bars`
+    # candles immediately before entry (e.g. "the lowest low of the
+    # preceding 200 candles") -- independent of whatever take_profit itself
+    # is configured to be (e.g. take_profit can target a farther level for
+    # a runner position while this filter still judges the trade against
+    # the nearer, primary target). Only applied when
+    # primary_target_lookback_bars is also set.
+    min_risk_reward_filter: Optional[float] = None
+    primary_target_lookback_bars: Optional[int] = None
 
     session_filter: list = field(default_factory=list)        # ["london", "ny"]
     trend_filter: Optional[str] = None                          # "up" / "down" / None

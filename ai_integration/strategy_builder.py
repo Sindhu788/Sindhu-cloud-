@@ -146,6 +146,13 @@ def build_condition(cond_dict):
             return Condition(type="raw", text=_describe_raw(cond_dict))
         return Condition(type="trend", direction=direction)
 
+    if cond_type == "candle_range_pct":
+        params = cond_dict.get("params") or {}
+        min_pct, max_pct = params.get("min_pct"), params.get("max_pct")
+        if min_pct is None and max_pct is None:
+            return Condition(type="raw", text=_describe_raw(cond_dict))
+        return Condition(type="candle_range_pct", params={"min_pct": min_pct, "max_pct": max_pct}, role=cond_dict.get("role"))
+
     return Condition(type="raw", text=_describe_raw(cond_dict))
 
 
@@ -157,7 +164,7 @@ def build_stop_loss_take_profit(sltp_dict):
     sltp_type = sltp_dict.get("type", "unknown")
     value = sltp_dict.get("value")
     level = sltp_dict.get("level")
-    if sltp_type in ("fixed_pct", "atr_multiple", "rr") and value is None:
+    if sltp_type in ("fixed_pct", "atr_multiple", "rr", "signal_candle") and value is None:
         return SLTPSpec(type="unknown")
     if sltp_type == "level" and not level:
         return SLTPSpec(type="unknown")
@@ -219,6 +226,12 @@ def build_strategy_config(ai_strategy, name, raw_text):
         trend_filter=ai_strategy.get("trend_filter"),
         day_filter=list(ai_strategy.get("day_filter") or []),
         breakeven_at_rr=ai_strategy.get("breakeven_at_rr"),
+        entry_type=ai_strategy.get("entry_type") or "market",
+        entry_price_offset_pct=ai_strategy.get("entry_price_offset_pct"),
+        sl_distance_filter_pct=ai_strategy.get("sl_distance_filter_pct"),
+        min_risk_reward_filter=ai_strategy.get("min_risk_reward_filter"),
+        primary_target_lookback_bars=ai_strategy.get("primary_target_lookback_bars"),
+        partial_take_profit=ai_strategy.get("partial_take_profit"),
     )
     sync_concepts_used(config)
     _repair_structural_stop(config)

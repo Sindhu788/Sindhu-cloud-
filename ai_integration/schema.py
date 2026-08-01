@@ -47,11 +47,14 @@ KNOWN_INDICATORS = [
 ]
 KNOWN_SESSIONS = ["asian", "london", "ny"]
 KNOWN_DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
-KNOWN_CONDITION_TYPES = ["indicator_compare", "price_compare", "indicator_vs_indicator", "concept", "session", "trend", "raw"]
+KNOWN_CONDITION_TYPES = ["indicator_compare", "price_compare", "indicator_vs_indicator", "concept", "session", "trend", "raw", "candle_range_pct"]
 KNOWN_TIMEFRAME_ROLES = ["bias", "trend", "analysis", "entry", "confirmation"]
-KNOWN_SLTP_TYPES = ["fixed_pct", "atr_multiple", "structure", "rr", "level", "unknown"]
+KNOWN_SLTP_TYPES = ["fixed_pct", "atr_multiple", "structure", "rr", "level", "signal_candle", "unknown"]
+KNOWN_ENTRY_TYPES = ["market", "current_candle_close", "next_candle_open", "limit", "stop", "signal_candle_high", "signal_candle_low"]
 
-_CONDITION_SCHEMA_NOTE = """Each condition object: {"type": one of indicator_compare|price_compare|indicator_vs_indicator|concept|session|trend|raw, "indicator": indicator name (for indicator_compare/price_compare/indicator_vs_indicator -- for indicator_vs_indicator this is the FIRST indicator), "params": {"period": N} if applicable else {} (for indicator_vs_indicator, this is the first indicator's params), "op": ">" or "<" only, "value": number (REQUIRED for indicator_compare -- compares the indicator to this fixed number; leave null/omit for price_compare and indicator_vs_indicator, which never use it), "indicator2": ONLY for type="indicator_vs_indicator" -- the SECOND indicator's name, "params2": ONLY for type="indicator_vs_indicator" -- the second indicator's params (e.g. {"period": 50}), "name": concept/session name (for concept/session types), "direction": "bullish"|"bearish"|null (for concept/trend types), "text": the original phrase (required when type="raw" -- use raw ONLY when you cannot express the rule with the vocabulary below), "role": for "concept" AND "indicator_vs_indicator" conditions, the timeframe role (one of the declared Timeframe roles below, e.g. "bias"/"trend"/"analysis") that THIS SPECIFIC comparison is actually read from -- for indicator_vs_indicator BOTH indicators come from this SAME role (e.g. "Trend (1H): 20 EMA above 50 EMA" -> role="trend", both EMAs are the 1H versions); set it whenever the text names a timeframe for it (e.g. "a swing low on the 1H or 4H chart" -> role of whichever declared role is 1h or 4h); leave null when the text doesn't say (this defaults to the entry timeframe, which is correct for most entry/confirmation-timeframe rules like a 1-minute candle_break trigger) -- never leave every condition on the entry timeframe just because that's simpler than reading which chart the text actually says it's on, "lookback_bars": null (leave null)."""
+_CONDITION_SCHEMA_NOTE = """Each condition object: {"type": one of indicator_compare|price_compare|indicator_vs_indicator|concept|session|trend|candle_range_pct|raw, "indicator": indicator name (for indicator_compare/price_compare/indicator_vs_indicator -- for indicator_vs_indicator this is the FIRST indicator), "params": {"period": N} if applicable else {} (for indicator_vs_indicator, this is the first indicator's params; for candle_range_pct, {"min_pct": N, "max_pct": N} -- either may be omitted to leave that side unbounded), "op": ">" or "<" only, "value": number (REQUIRED for indicator_compare -- compares the indicator to this fixed number; leave null/omit for price_compare and indicator_vs_indicator, which never use it), "indicator2": ONLY for type="indicator_vs_indicator" -- the SECOND indicator's name, "params2": ONLY for type="indicator_vs_indicator" -- the second indicator's params (e.g. {"period": 50}), "name": concept/session name (for concept/session types), "direction": "bullish"|"bearish"|null (for concept/trend types), "text": the original phrase (required when type="raw" -- use raw ONLY when you cannot express the rule with the vocabulary below), "role": for "concept" AND "indicator_vs_indicator" conditions, the timeframe role (one of the declared Timeframe roles below, e.g. "bias"/"trend"/"analysis") that THIS SPECIFIC comparison is actually read from -- for indicator_vs_indicator BOTH indicators come from this SAME role (e.g. "Trend (1H): 20 EMA above 50 EMA" -> role="trend", both EMAs are the 1H versions); set it whenever the text names a timeframe for it (e.g. "a swing low on the 1H or 4H chart" -> role of whichever declared role is 1h or 4h); leave null when the text doesn't say (this defaults to the entry timeframe, which is correct for most entry/confirmation-timeframe rules like a 1-minute candle_break trigger) -- never leave every condition on the entry timeframe just because that's simpler than reading which chart the text actually says it's on, "lookback_bars": null (leave null).
+
+USE type="candle_range_pct" whenever the document puts a percentage-range requirement on a candle's OWN size/range (e.g. "the signal candle's range must be between 0.15% and 3.0%") -- this is a real, executable filter, not a raw/unparseable rule."""
 
 
 def build_structured_extraction_prompt(source_hint=None, content_type=None):
@@ -294,7 +297,69 @@ def build_structured_extraction_prompt(source_hint=None, content_type=None):
         "breaker_block, or liquidity_sweep). If the stop is really anchored "
         "to the previous day's level, use type \"level\" with \"level\": "
         "\"pdh\"|\"pdl\" instead. If it is a fixed distance, use "
-        "\"fixed_pct\"/\"atr_multiple\" with a value.\n\n"
+        "\"fixed_pct\"/\"atr_multiple\" with a value. If the stop is "
+        "anchored to the SIGNAL CANDLE ITSELF (the specific trigger candle "
+        "the entry rule refers to, e.g. \"stop-loss = the signal candle's "
+        "high * 1.003\"), use stop_loss type \"signal_candle\" with "
+        "\"value\" = the buffer written as an ORDINARY PERCENT NUMBER, the "
+        "exact same convention fixed_pct already uses elsewhere (1.0 means "
+        "1%, NOT 0.01) -- IMPORTANT: a multiplier like \"*1.003\" in the "
+        "source text is a 0.3% buffer, so \"value\" must be 0.3, never the "
+        "raw decimal 0.003 from the multiplier -- do not use \"structure\" "
+        "for this, structure means a swing/OB/FVG zone, not the specific "
+        "candle the entry itself fired on.\n\n"
+        "ENTRY EXECUTION TYPE (top-level \"entry_type\" field, default "
+        "\"market\") -- set this whenever the document describes HOW an "
+        "entry actually fills, not just the condition that identifies it:\n"
+        "  * \"signal_candle_high\" / \"signal_candle_low\": the rule is "
+        "\"wait for a LATER candle to break above/below THIS SPECIFIC "
+        "candle's high/low\" (e.g. \"enter when a later candle's low goes "
+        "below the signal candle's low\") -- use \"signal_candle_low\" for "
+        "that example (a short/bearish break), \"signal_candle_high\" for "
+        "the bullish/long equivalent. This is DIFFERENT from a plain "
+        "candle_break concept condition: entry_type actually fills the "
+        "trade at that exact broken price, one time, off the ONE specific "
+        "candle the entry condition matched -- always set this whenever "
+        "the text's entry mechanism is phrased as \"wait for a later "
+        "candle to break this one\", not just \"a candle_break happened\".\n"
+        "  * \"next_candle_open\": enter at the open of the bar immediately "
+        "after the signal.\n"
+        "  * \"limit\" / \"stop\": enter at a specific offset from the "
+        "signal price (set \"entry_price_offset_pct\" too) -- \"limit\" for "
+        "a pullback entry, \"stop\" for a breakout entry.\n"
+        "  * Leave as \"market\" (or omit) for \"enter immediately when the "
+        "condition is true\", the ordinary case.\n\n"
+        "PRE-TRADE DISCARD FILTERS (top-level fields, all optional, all "
+        "None/omitted = no filtering) -- these THROW AWAY a signal that "
+        "would otherwise fire, rather than shaping the trade that happens. "
+        "Only set these when the document states an explicit numeric "
+        "skip/discard rule, never invent one:\n"
+        "  * \"sl_distance_filter_pct\": {\"min_pct\": N, \"max_pct\": N} -- "
+        "\"if the stop-loss distance is less than X% or more than Y% of "
+        "entry price, do not take the trade\".\n"
+        "  * \"min_risk_reward_filter\": N, together with "
+        "\"primary_target_lookback_bars\": N -- \"if the ratio of "
+        "(distance to a reference target) / (distance to stop-loss) is "
+        "less than N, do not take the trade\", where the reference target "
+        "is described as \"the highest high / lowest low of the preceding "
+        "N candles\". primary_target_lookback_bars is that N (how many "
+        "candles back); min_risk_reward_filter is the minimum required "
+        "ratio.\n"
+        "  * A condition entry with type \"candle_range_pct\" (see the "
+        "condition vocabulary note below) for a percentage-range "
+        "requirement on a candle's own size -- this is a condition, not a "
+        "top-level field.\n\n"
+        "PARTIAL TAKE-PROFIT (top-level \"partial_take_profit\" field, "
+        "{\"trigger_rr\": N, \"close_fraction\": F} or null) -- \"close X% "
+        "of the position once profit reaches N times the original risk, "
+        "let the rest ride to the full take_profit\". close_fraction is "
+        "the fraction closed (e.g. 0.8 for \"close 80%\"). If the document "
+        "describes a partial exit at a specific STRUCTURAL level (e.g. "
+        "\"close 80% at the primary target\") rather than a fixed R "
+        "multiple, use the min_risk_reward_filter threshold above (or the "
+        "strategy's overall stated minimum RR) as trigger_rr -- that is "
+        "the R-multiple that level corresponds to for a trade that passed "
+        "the RR filter.\n\n"
         "THE RAW TEST -- only use type=\"raw\" if BOTH are true: (1) the rule "
         "names a specific indicator, pattern, or mechanism with no equivalent "
         "in the vocabulary above (e.g. a proprietary indicator, a trendline "
@@ -398,7 +463,13 @@ def build_structured_extraction_prompt(source_hint=None, content_type=None):
         '    "session_filter": [],\n'
         '    "trend_filter": null,\n'
         '    "day_filter": [],\n'
-        '    "breakeven_at_rr": null\n'
+        '    "breakeven_at_rr": null,\n'
+        '    "entry_type": "market",\n'
+        '    "entry_price_offset_pct": null,\n'
+        '    "sl_distance_filter_pct": null,\n'
+        '    "min_risk_reward_filter": null,\n'
+        '    "primary_target_lookback_bars": null,\n'
+        '    "partial_take_profit": null\n'
         "  },\n"
         '  "lessons": [{"title": "", "category": "", "description": "", "tags": [], "rule_type": "block_if_true", "direction": null, "condition": null}],\n'
         '  "dictionary_terms": [{"term": "", "definition": "", "category": "structure|indicator|session|trend|risk|psychology|pattern", "aliases": [], "examples": [], "related_concepts": [], "usage": ""}],\n'
@@ -639,6 +710,52 @@ def _clean_strategy(entry):
     except (TypeError, ValueError):
         breakeven_at_rr = None
 
+    entry_type = str(entry.get("entry_type") or "market").strip().lower()
+    if entry_type not in KNOWN_ENTRY_TYPES:
+        entry_type = "market"
+    try:
+        entry_price_offset_pct = float(entry["entry_price_offset_pct"]) if entry.get("entry_price_offset_pct") is not None else None
+    except (TypeError, ValueError):
+        entry_price_offset_pct = None
+
+    def _pct_range_filter(key):
+        raw = entry.get(key)
+        if not isinstance(raw, dict):
+            return None
+        try:
+            min_pct = float(raw["min_pct"]) if raw.get("min_pct") is not None else None
+        except (TypeError, ValueError):
+            min_pct = None
+        try:
+            max_pct = float(raw["max_pct"]) if raw.get("max_pct") is not None else None
+        except (TypeError, ValueError):
+            max_pct = None
+        if min_pct is None and max_pct is None:
+            return None
+        return {"min_pct": min_pct, "max_pct": max_pct}
+
+    try:
+        min_risk_reward_filter = float(entry["min_risk_reward_filter"]) if entry.get("min_risk_reward_filter") is not None else None
+    except (TypeError, ValueError):
+        min_risk_reward_filter = None
+    try:
+        primary_target_lookback_bars = int(entry["primary_target_lookback_bars"]) if entry.get("primary_target_lookback_bars") is not None else None
+        if primary_target_lookback_bars is not None and primary_target_lookback_bars <= 0:
+            primary_target_lookback_bars = None
+    except (TypeError, ValueError):
+        primary_target_lookback_bars = None
+
+    partial_tp = entry.get("partial_take_profit")
+    partial_take_profit = None
+    if isinstance(partial_tp, dict):
+        try:
+            trigger_rr = float(partial_tp["trigger_rr"]) if partial_tp.get("trigger_rr") is not None else None
+            close_fraction = float(partial_tp["close_fraction"]) if partial_tp.get("close_fraction") is not None else None
+        except (TypeError, ValueError):
+            trigger_rr = close_fraction = None
+        if trigger_rr is not None and close_fraction is not None and 0 < close_fraction < 1:
+            partial_take_profit = {"trigger_rr": trigger_rr, "close_fraction": close_fraction}
+
     return {
         "name": str(entry.get("name") or "").strip(),
         "timeframes": timeframes,
@@ -658,6 +775,12 @@ def _clean_strategy(entry):
         "trend_filter": trend_filter,
         "day_filter": [d for d in _clean_str_list(entry.get("day_filter")) if d in KNOWN_DAYS],
         "breakeven_at_rr": breakeven_at_rr,
+        "entry_type": entry_type,
+        "entry_price_offset_pct": entry_price_offset_pct,
+        "sl_distance_filter_pct": _pct_range_filter("sl_distance_filter_pct"),
+        "min_risk_reward_filter": min_risk_reward_filter,
+        "primary_target_lookback_bars": primary_target_lookback_bars,
+        "partial_take_profit": partial_take_profit,
     }
 
 
