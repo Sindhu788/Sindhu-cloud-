@@ -15,5 +15,39 @@
   "updated_at": "2026-07-25T08:57:31.598738+00:00",
   "current_version": 8,
   "safety_status": "ready",
-  "safety_reasons": []
+  "safety_reasons": [],
+  "walk_forward_status": "FAIL",
+  "walk_forward_result": {
+    "status": "FAIL",
+    "reason": "Not profitable even in the training period (-15.58% return) -- there is no real edge here to confirm out-of-sample in the first place.",
+    "symbol": "AAVEUSDT",
+    "exchange": "binance",
+    "train_fraction": 0.7,
+    "optimized_params": "session filter (currently ['london', 'ny']) -> ('asian',)",
+    "train_period": {
+      "start": "2025-07-07T00:08:00+00:00",
+      "end": "2026-04-04T22:53:54+00:00"
+    },
+    "test_period": {
+      "start": "2026-04-04T22:53:54+00:00",
+      "end": "2026-07-30T12:05:00+00:00"
+    },
+    "training_metrics": {
+      "total_trades": 10,
+      "win_rate": 0.0,
+      "profit_pct": -15.58,
+      "net_profit": -155.7716,
+      "profit_factor": 0.0,
+      "max_drawdown_pct": 28.65
+    },
+    "testing_metrics": {
+      "total_trades": 8,
+      "win_rate": 12.5,
+      "profit_pct": -4.67,
+      "net_profit": -46.7497,
+      "profit_factor": 0.0531,
+      "max_drawdown_pct": 13.41
+    },
+    "tested_at": "2026-07-30T12:15:29.257198+00:00"
+  }
 }

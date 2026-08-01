@@ -15,5 +15,39 @@
   "updated_at": "2026-07-25T07:26:50.381712+00:00",
   "current_version": 4,
   "safety_status": "ready",
-  "safety_reasons": []
+  "safety_reasons": [],
+  "walk_forward_status": "INCONCLUSIVE",
+  "walk_forward_result": {
+    "status": "INCONCLUSIVE",
+    "reason": "Too few trades to judge robustness (training: 2, testing: 2; need at least 3 in each).",
+    "symbol": "AAVEUSDT",
+    "exchange": "binance",
+    "train_fraction": 0.7,
+    "optimized_params": null,
+    "train_period": {
+      "start": "2025-07-07T00:08:00+00:00",
+      "end": "2026-04-04T22:53:54+00:00"
+    },
+    "test_period": {
+      "start": "2026-04-04T22:53:54+00:00",
+      "end": "2026-07-30T12:05:00+00:00"
+    },
+    "training_metrics": {
+      "total_trades": 2,
+      "win_rate": 50.0,
+      "profit_pct": 5.5,
+      "net_profit": 54.9963,
+      "profit_factor": 5.6668,
+      "max_drawdown_pct": 4.81
+    },
+    "testing_metrics": {
+      "total_trades": 2,
+      "win_rate": 50.0,
+      "profit_pct": 0.0,
+      "net_profit": 0.0024,
+      "profit_factor": 1.0006,
+      "max_drawdown_pct": 6.28
+    },
+    "tested_at": "2026-07-30T12:09:33.620965+00:00"
+  }
 }

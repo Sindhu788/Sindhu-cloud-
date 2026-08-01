@@ -13,5 +13,39 @@
   "updated_at": "2026-07-25T06:38:35.636454+00:00",
   "current_version": 3,
   "safety_status": "ready",
-  "safety_reasons": []
+  "safety_reasons": [],
+  "walk_forward_status": "FAIL",
+  "walk_forward_result": {
+    "status": "FAIL",
+    "reason": "Profitable in training (45.18% return) but LOST money in testing (-8.85% return) -- the classic overfitting signature: performance did not survive on data the optimizer never saw.",
+    "symbol": "AAVEUSDT",
+    "exchange": "binance",
+    "train_fraction": 0.7,
+    "optimized_params": "session filter (currently none) -> ('ny', 'asian')",
+    "train_period": {
+      "start": "2025-07-07T00:08:00+00:00",
+      "end": "2026-04-04T05:41:24+00:00"
+    },
+    "test_period": {
+      "start": "2026-04-04T05:41:24+00:00",
+      "end": "2026-07-29T11:30:00+00:00"
+    },
+    "training_metrics": {
+      "total_trades": 105,
+      "win_rate": 57.14,
+      "profit_pct": 45.18,
+      "net_profit": 451.7811,
+      "profit_factor": 3.1099,
+      "max_drawdown_pct": 31.0
+    },
+    "testing_metrics": {
+      "total_trades": 47,
+      "win_rate": 53.19,
+      "profit_pct": -8.85,
+      "net_profit": -88.4727,
+      "profit_factor": 0.1859,
+      "max_drawdown_pct": 13.3
+    },
+    "tested_at": "2026-07-29T11:38:31.456821+00:00"
+  }
 }

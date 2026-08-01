@@ -1,0 +1,191 @@
+{
+  "name": "Sniper Headshot Entry",
+  "raw_text": "This analysis provides a developer-ready specification for the **\"Sniper Headshot Entry\"** strategy based on the provided source.\n\n### 1. Extraction of Trading Rules\nThe strategy is centered on **Liquidity Force**, which requires waiting for retail stop losses to be triggered before entering in the direction of the institutional move [1, 2].\n\n*   **Market Context:** Identify a visible support/resistance level (e.g., double bottoms or ascending triangles) where retail traders are likely placing orders [3, 4].\n*   **Liquidity Sweep:** Price must break below support (for longs) or above resistance (for shorts) to trigger retail stop losses (the \"Liquidity Force\") [2, 5].\n*   **Demand/Supply Zone Interaction:** After the sweep, price must reach a pre-identified Demand Zone (for longs) or Supply Zone (for shorts) [6, 7].\n*   **Confirmation:** Entry is only taken upon a strong reversal candle (e.g., a \"Hammer\" or large \"Green Candle\" for longs) [5, 6, 8].\n*   **Pyramiding:** A second entry is added when the market retests the zone or breaks out of the initial range [6, 9, 10].\n\n### 2. Strategy Parameters\n*   **Entry Conditions:**\n    *   **E1:** Immediate entry after a strong reversal candle closes within or just outside the Demand/Supply zone following a liquidity sweep [5, 6].\n    *   **E2 (Pyramiding):** Entered upon a successful retest of the entry level or a breakout of the previous resistance [6, 9, 10].\n*   **Exit Conditions:** Target the \"obvious\" previous high or resistance area where \"the rest of the world\" is just starting to enter [7, 10, 11].\n*   **Stop Loss:** Placed slightly below the 50% mark of the reversal candle's body, or slightly below the low of the demand zone [11, 12].\n*   **Take Profit:** Aims for a Risk-Reward (RR) ratio between **1:2.6 and 1:4** [6, 11].\n*   **Risk Management:** Focuses on high-quality trades with \"heavy patience,\" occurring only 2\u20133 times a day/week rather than frequent low-quality setups [1, 13].\n*   **Timeframes:** Works on **1m, 5m, and 15m**. The source notes that 1m is \"very risky\" due to lower RR, while 5m/15m are preferred [14].\n*   **Indicators:** No specific technical indicators are mentioned; the strategy relies on **Price Action, Support/Resistance levels, and Demand/Supply zones** [15, 16].\n*   **Best Market Conditions:** High-liquidity assets like **Bitcoin, Gold (XAUUSD), Crude Oil, and Forex pairs**. It is less effective in Indian markets due to gap-up/gap-down disruptions [7, 11, 14].\n\n### 3. Step-by-Step Execution Rules\n1.  **Define Bias:** Determine the general market trend (e.g., if the trend is up, only look for long setups) [7, 17].\n2.  **Identify \"Retail\" Level:** Mark a clear horizontal support level or double bottom that has been touched multiple times [3, 16].\n3.  **Identify \"Institutional\" Zone:** Mark a Demand Zone (using both wicks and bodies) located slightly below the retail support level [5, 8, 18].\n4.  **Wait for the Sweep:** Wait for price to aggressively break the retail support [2, 5].\n5.  **Reversal Signal:** Wait for a strong reversal candle (Green for long) to close [5, 8].\n6.  **Execute E1:** Enter at the close of the reversal candle. Set SL below the 50% body mark or zone low [11, 12].\n7.  **Execute E2:** If price returns to retest the entry zone or breaks the swing high, add to the position [9, 10].\n8.  **Target:** Exit at the next major structural resistance [10, 11].\n\n### 4. Missing Information for Backtesting\n*   **Demand Zone Definition:** The source does not provide a mathematical formula for a \"Demand Zone.\" In code, this must be defined (e.g., the last down-candle before a strong up-move).\n*   **Reversal Candle \"Strength\":** What constitutes a \"large\" green candle? This needs a quantitative filter (e.g., candle body > 1.5x the average of the last 10 candles).\n*   **\"Space\" for SL:** The source says \"little space\" below the SL [10]. This must be defined as a fixed percentage or ATR (Average True Range) multiple.\n*   **Trend Bias:** No specific rule is given to determine trend (e.g., 200 EMA or Higher High/Higher Low sequence).\n\n### 5. Vague Rule Interpretations\n*   **Rule:** \"Marking the Demand Zone using wicks and bodies\" [5, 18].\n    *   *Interpretation A:* The zone is the entire range of the last bearish candle before the trend reversed.\n    *   *Interpretation B:* The zone is the lowest wick of the previous structural low.\n*   **Rule:** \"Pyramiding on retest\" [9].\n    *   *Interpretation A:* A limit order placed at the original entry price.\n    *   *Interpretation B:* A second market entry when price touches the top of the Demand Zone again.\n\n### 6. Rule-Based Algorithm (Python Logic)\n1.  **Lookback:** Find local minima (Support) within the last *X* bars.\n2.  **Sweep Check:** If `Current_Low < Support_Low` AND `Current_Close > Support_Low`, a sweep is occurring.\n3.  **Zone Check:** Check if `Current_Low` is within a \"Demand Zone\" defined as `[Structural_Low, Structural_Low - Y%]`.\n4.  **Confirmation:** If `Current_Close > Current_Open` AND `Body_Size > ATR(10)`, trigger Entry.\n\n### 7. Pseudocode\n```python\n# Strategy: Sniper Headshot (Long Setup)\nif market_bias == \"BULLISH\":\n    support_level = find_recent_support(lookback=50)\n    demand_zone = identify_demand_zone(below=support_level)\n    \n    if price.low < support_level and price.low >= demand_zone.bottom:\n        if current_candle.is_green and current_candle.body > average_body * 1.5:\n            # Entry 1\n            entry_price = current_candle.close\n            stop_loss = current_candle.low - (current_candle.body * 0.5)\n            take_profit = find_previous_high()\n            \n            # Entry 2 (Pyramiding)\n            if price.retests(entry_price) or price.breaks(current_candle.high):\n                add_position(entry_2)\n```\n\n### 8. Backtesting Methodology\n*   **Data:** Use 5-minute OHLCV data for Gold or Bitcoin.\n*   **Engine:** Use a vector-based (Pandas) or event-driven (Backtrader/Lean) framework.\n*   **Verification:** Ensure the \"sweep\" candle and \"reversal\" candle are not the same candle to avoid executing on data that hasn't happened yet.\n\n### 9. Common Backtesting Mistakes\n*   **Look-ahead Bias:** Entering at the \"Low\" of the sweep candle before the candle has actually closed green.\n*   **Repainting:** Using a \"Demand Zone\" that only appears after the price has already moved up significantly.\n*   **Execution:** Assuming you can fill a large order at the exact SL hunt price where liquidity is technically \"missing\" for retail.\n\n### 10. Suggested Improvements\n*   **ATR-Based SL:** Instead of \"50% of the body,\" use 1.5x ATR below the zone for consistent risk.\n*   **Volume Filter:** Ensure the \"Liquidity Sweep\" candle has higher-than-average volume to confirm institutional participation.\n\n### 11. Final Backtesting Specification\n| Rule | Quantitative Definition |\n| :--- | :--- |\n| **Trend Filter** | Price > 200 SMA on 15m chart. |\n| **Retail Support** | Lowest low of the last 20 periods, touched at least twice. |\n| **Liquidity Sweep** | Price low must be at least 0.1% below Retail Support. |\n| **Demand Zone** | The price range between the lowest wick and the lowest body of the previous 50 candles. |\n| **Signal Candle** | Close > Open; Body > (High - Low) * 0.6. |\n| **Stop Loss** | (Signal Candle Low) - (0.2 * ATR). |\n| **Take Profit** | Fixed 1:3 RR or nearest 15m Swing High. |",
+  "timeframes": {
+    "entry": "5m"
+  },
+  "indicators": [
+    {
+      "name": "sma",
+      "params": {
+        "period": 200
+      },
+      "role": "trend"
+    },
+    {
+      "name": "atr",
+      "params": {
+        "period": 10
+      },
+      "role": "analysis"
+    }
+  ],
+  "concepts_used": [
+    "candle_break",
+    "demand",
+    "liquidity_sweep",
+    "resistance",
+    "supply",
+    "support"
+  ],
+  "entry_conditions": [],
+  "exit_conditions": [],
+  "confirmation_conditions": [
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "candle_break",
+      "direction": "bullish",
+      "text": null,
+      "role": null,
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {}
+    }
+  ],
+  "long_entry_conditions": [
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "support",
+      "direction": "bullish",
+      "text": null,
+      "role": null,
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {}
+    },
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "liquidity_sweep",
+      "direction": "bullish",
+      "text": null,
+      "role": null,
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {}
+    },
+    {
+      "type": "raw",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": "demand bullish",
+      "role": null,
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {}
+    },
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "candle_break",
+      "direction": "bullish",
+      "text": null,
+      "role": null,
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {}
+    }
+  ],
+  "short_entry_conditions": [
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "resistance",
+      "direction": "bearish",
+      "text": null,
+      "role": null,
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {}
+    },
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "liquidity_sweep",
+      "direction": "bearish",
+      "text": null,
+      "role": null,
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {}
+    },
+    {
+      "type": "raw",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": "supply bearish",
+      "role": null,
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {}
+    },
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "candle_break",
+      "direction": "bearish",
+      "text": null,
+      "role": null,
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {}
+    }
+  ],
+  "entry_rule_groups": [],
+  "stop_loss": {
+    "type": "atr_multiple",
+    "value": 1.5,
+    "level": null
+  },
+  "take_profit": {
+    "type": "rr",
+    "value": 3.0,
+    "level": null
+  },
+  "risk_pct": 1.0,
+  "risk_reward": 3.0,
+  "session_filter": [],
+  "trend_filter": null,
+  "day_filter": [],
+  "breakeven_at_rr": null,
+  "entry_type": "market",
+  "entry_price_offset_pct": null,
+  "partial_take_profit": null,
+  "trailing_stop": null,
+  "time_exit_bars": null,
+  "tags": [],
+  "favourite": false,
+  "missing": [],
+  "warnings": []
+}

@@ -11,42 +11,42 @@
   ],
   "favourite": false,
   "created_at": "2026-07-24T01:14:57.349715+00:00",
-  "updated_at": "2026-07-24T01:14:57.349715+00:00",
-  "current_version": 1,
+  "updated_at": "2026-07-29T11:32:16.787206+00:00",
+  "current_version": 2,
   "safety_status": "ready",
   "safety_reasons": [],
   "walk_forward_status": "FAIL",
   "walk_forward_result": {
     "status": "FAIL",
-    "reason": "Not profitable even in the training period (-24.88% return) -- there is no real edge here to confirm out-of-sample in the first place.",
-    "symbol": "BTCUSDT",
+    "reason": "Not profitable even in the training period (-13.2% return) -- there is no real edge here to confirm out-of-sample in the first place.",
+    "symbol": "AAVEUSDT",
     "exchange": "binance",
     "train_fraction": 0.7,
     "optimized_params": "risk % per trade (currently 1.0) -> 0.25",
     "train_period": {
-      "start": "2025-07-06T19:45:00+00:00",
-      "end": "2026-04-01T05:46:48+00:00"
+      "start": "2025-07-07T00:08:00+00:00",
+      "end": "2026-04-04T05:41:24+00:00"
     },
     "test_period": {
-      "start": "2026-04-01T05:46:48+00:00",
-      "end": "2026-07-25T06:39:00+00:00"
+      "start": "2026-04-04T05:41:24+00:00",
+      "end": "2026-07-29T11:30:00+00:00"
     },
     "training_metrics": {
-      "total_trades": 377,
-      "win_rate": 34.75,
-      "profit_pct": -24.88,
-      "net_profit": -248.8271,
-      "profit_factor": 0.6795,
-      "max_drawdown_pct": 26.5
+      "total_trades": 218,
+      "win_rate": 30.28,
+      "profit_pct": -13.2,
+      "net_profit": -132.0347,
+      "profit_factor": 0.6923,
+      "max_drawdown_pct": 14.85
     },
     "testing_metrics": {
-      "total_trades": 176,
-      "win_rate": 31.25,
-      "profit_pct": -16.14,
-      "net_profit": -161.4299,
-      "profit_factor": 0.5812,
-      "max_drawdown_pct": 16.46
+      "total_trades": 96,
+      "win_rate": 29.17,
+      "profit_pct": -7.15,
+      "net_profit": -71.4739,
+      "profit_factor": 0.6355,
+      "max_drawdown_pct": 8.08
     },
-    "tested_at": "2026-07-25T10:57:37.389479+00:00"
+    "tested_at": "2026-07-29T11:33:13.205453+00:00"
   }
 }

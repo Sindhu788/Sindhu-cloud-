@@ -11,8 +11,8 @@
   ],
   "favourite": false,
   "created_at": "2026-07-17T22:50:12.254480+00:00",
-  "updated_at": "2026-07-25T07:00:13.751132+00:00",
-  "current_version": 2,
+  "updated_at": "2026-07-29T11:22:48.063562+00:00",
+  "current_version": 3,
   "clarification": {
     "notes": [
       "Unclear entry rule, needs clarification: \"Price must move above the previous day's High\"",
@@ -36,5 +36,39 @@
     "updated_at": "2026-07-17T22:50:12.216262+00:00"
   },
   "safety_status": "ready",
-  "safety_reasons": []
+  "safety_reasons": [],
+  "walk_forward_status": "FAIL",
+  "walk_forward_result": {
+    "status": "FAIL",
+    "reason": "Not profitable even in the training period (-7.52% return) -- there is no real edge here to confirm out-of-sample in the first place.",
+    "symbol": "AAVEUSDT",
+    "exchange": "binance",
+    "train_fraction": 0.7,
+    "optimized_params": "risk % per trade (currently 1.0) -> 0.25",
+    "train_period": {
+      "start": "2025-07-07T00:08:00+00:00",
+      "end": "2026-04-04T05:23:12+00:00"
+    },
+    "test_period": {
+      "start": "2026-04-04T05:23:12+00:00",
+      "end": "2026-07-29T11:04:00+00:00"
+    },
+    "training_metrics": {
+      "total_trades": 9,
+      "win_rate": 44.44,
+      "profit_pct": -7.52,
+      "net_profit": -75.1673,
+      "profit_factor": 0.0441,
+      "max_drawdown_pct": 10.04
+    },
+    "testing_metrics": {
+      "total_trades": 30,
+      "win_rate": 13.33,
+      "profit_pct": -5.1,
+      "net_profit": -51.0429,
+      "profit_factor": 0.168,
+      "max_drawdown_pct": 20.29
+    },
+    "tested_at": "2026-07-29T11:26:47.758162+00:00"
+  }
 }

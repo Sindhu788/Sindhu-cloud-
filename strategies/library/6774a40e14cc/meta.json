@@ -1,0 +1,20 @@
+{
+  "id": "6774a40e14cc",
+  "name": "Sniper Headshot Entry",
+  "tags": [
+    "candle_break",
+    "demand",
+    "liquidity_sweep",
+    "resistance",
+    "supply",
+    "support",
+    "strategy",
+    "5m"
+  ],
+  "favourite": false,
+  "created_at": "2026-07-31T11:20:55.623119+00:00",
+  "updated_at": "2026-07-31T11:20:55.623119+00:00",
+  "current_version": 1,
+  "safety_status": "ready",
+  "safety_reasons": []
+}

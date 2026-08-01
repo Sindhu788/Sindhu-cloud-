@@ -1,0 +1,18 @@
+{
+  "id": "2a67f8da8762",
+  "name": "4-Hour Range Scalping Strategy",
+  "tags": [
+    "resistance",
+    "session_open",
+    "support",
+    "strategy",
+    "4h",
+    "5m"
+  ],
+  "favourite": false,
+  "created_at": "2026-07-31T10:50:49.581499+00:00",
+  "updated_at": "2026-07-31T10:50:49.581499+00:00",
+  "current_version": 1,
+  "safety_status": "ready",
+  "safety_reasons": []
+}
