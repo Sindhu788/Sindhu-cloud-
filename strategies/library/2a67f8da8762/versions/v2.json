@@ -1,0 +1,158 @@
+{
+  "name": "4-Hour Range Scalping Strategy",
+  "raw_text": "**1. STRATEGY NAME**\n**4-Hour Range Scalping Strategy** [1, 2].\n\n**2. TIMEFRAMES USED**\n*   **4-Hour (4H):** Used to identify the high and low of the first candle of the trading day to establish the \"4-hour range\" [3].\n*   **5-Minute (5m):** Used as the primary execution timeframe to identify breakouts, re-entries, and candle closes for trade signals [4].\n\n**3. ENTRY CONDITIONS**\n\n**Bullish Setup (Long)**\n1.  **Identify Range:** Mark the high and low of the first fully closed 4H candle of the day (New York Time) [3, 5].\n2.  **External Breakout:** A 5-minute candle must **close** entirely below the 4H range low [6].\n3.  **Re-entry:** Price must subsequently move back up and a 5-minute candle must **close** inside the 4H range [6].\n4.  **Timing:** The breakout and re-entry must occur within the same trading day as the identified 4H candle [4, 6].\n\n**Bearish Setup (Short)**\n1.  **Identify Range:** Mark the high and low of the first fully closed 4H candle of the day (New York Time) [3, 5].\n2.  **External Breakout:** A 5-minute candle must **close** entirely above the 4H range high [4].\n3.  **Re-entry:** Price must subsequently move back down and a 5-minute candle must **close** inside the 4H range [4].\n4.  **Timing:** The breakout and re-entry must occur within the same trading day as the identified 4H candle [4].\n\n**4. CONFIRMATION CONDITIONS**\n*   **Candle Close Requirement:** Wicks alone do not count as a breakout or a re-entry; the 5-minute candle body must fully close outside the range for the breakout and back inside the range for the entry [4, 6].\n*   **Range Maturity:** The initial 4H candle must be fully closed before the high and low lines are drawn [5].\n\n**5. EXIT CONDITIONS**\n*   **Stop-Loss (Standard):** Placed at the exact high (for shorts) or low (for longs) of the breakout move [4, 6, 7].\n*   **Stop-Loss (Alternative):** If the breakout move is \"huge\" or \"too large,\" the stop-loss is placed at the **nearest key level**, such as a resistance level or an **order block** [7-9].\n*   **Take-Profit:** Set at exactly **two times the size of the stop-loss (2:1 Risk-to-Reward ratio)** [4, 6, 10].\n*   **Trailing/Partial Exits:** None mentioned; the strategy uses a fixed 2R target [11].\n\n**6. RISK MANAGEMENT**\n*   **Position Sizing:** Implicitly based on the distance between the entry and the stop-loss to achieve a \"1R\" risk unit [7, 11].\n*   **Trade Frequency:** Multiple trades can be taken in a single day as long as valid setups appear within the range's active window [6, 10].\n*   **Win Rate Note:** The source claims a win rate ranging from 60% to 83% depending on the asset (Crypto, Forex, Gold) when following these rules [2, 8, 11].\n\n**7. SESSIONS / TIME FILTERS**\n*   **Time Zone:** Charts must be set to **New York time (UTC-4/5)** [3, 12].\n*   **Anchor Candle:** Only the **first 4-hour candle** of the New York day is used to set the range [3, 12].\n*   **Execution Window:** Trades are valid only until the **end of the trading day** for the asset being traded [4, 5, 13].\n\n**8. KEY TERMINOLOGY USED**\n*   **4-hour range:** The high and low of the first 4H candle [1].\n*   **5-minute time frame:** The scalping execution chart [4].\n*   **Close outside/inside:** The requirement for the candle body to cross the range boundary [4, 6].\n*   **Breakout move:** The price action that occurs outside the range before re-entry [4, 7].\n*   **2 R profit / 1 R loss:** Units of risk used to describe the 2:1 reward-to-risk ratio [7, 11, 13].\n*   **Key level / Order block:** Discretionary levels used for alternative stop-loss placement [8, 9].\n\n**9. ANY CONTRADICTIONS OR AMBIGUITY**\n*   **Definition of \"Breakout Move High/Low\":** The source is slightly ambiguous on whether the stop-loss should be the absolute high/low of the entire move outside the range or just the high/low of the candle that closed outside. Most examples suggest the **extremity of the breakout swing** [4, 6, 7].\n*   **\"Too Large\" Stop-Loss:** There is no mathematical definition for when a breakout is \"too large.\" This relies on the trader's discretion to switch from the breakout low to a \"nearby key level\" [7, 8].\n*   **End of Day:** The \"end of the day\" is not explicitly defined by a specific hour (e.g., 5 PM EST), though it is noted that setups must occur \"within the same day\" [4, 13].\n\n**10. PSYCHOLOGY / DISCRETIONARY NOTES**\n*   **Toolbox Addition:** The trader suggests this can be used as a standalone system or combined with existing price action trends to boost performance [1, 2].\n*   **Transparency:** The trader emphasizes showing losses as well as wins to illustrate that profitability is based on the 2:1 RR over a series of trades, not a 100% win rate [7, 11].\n*   **Discretionary Stop-Loss:** The use of \"order blocks\" or \"key levels\" for stop-loss placement when the breakout is overextended is presented as a way to maintain a reasonable risk-to-reward ratio [8, 9].",
+  "timeframes": {
+    "entry": "5m",
+    "analysis": "4h"
+  },
+  "indicators": [],
+  "concepts_used": [
+    "resistance",
+    "session_open",
+    "support"
+  ],
+  "entry_conditions": [],
+  "exit_conditions": [],
+  "confirmation_conditions": [
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "session_open",
+      "direction": null,
+      "text": null,
+      "role": "bias",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {}
+    }
+  ],
+  "long_entry_conditions": [
+    {
+      "type": "raw",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": "<",
+      "role": null,
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {}
+    },
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "support",
+      "direction": "bullish",
+      "text": null,
+      "role": null,
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {}
+    },
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "resistance",
+      "direction": "bearish",
+      "text": null,
+      "role": null,
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {}
+    }
+  ],
+  "short_entry_conditions": [
+    {
+      "type": "raw",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": ">",
+      "role": null,
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {}
+    },
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "support",
+      "direction": "bearish",
+      "text": null,
+      "role": null,
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {}
+    },
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "resistance",
+      "direction": "bullish",
+      "text": null,
+      "role": null,
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {}
+    }
+  ],
+  "entry_rule_groups": [],
+  "stop_loss": {
+    "type": "structure",
+    "value": null,
+    "level": null
+  },
+  "take_profit": {
+    "type": "rr",
+    "value": 2,
+    "level": null
+  },
+  "risk_pct": 1,
+  "risk_reward": 2,
+  "sl_distance_filter_pct": null,
+  "min_risk_reward_filter": null,
+  "primary_target_lookback_bars": null,
+  "session_filter": [
+    "ny"
+  ],
+  "trend_filter": null,
+  "day_filter": [],
+  "breakeven_at_rr": null,
+  "entry_type": "market",
+  "entry_price_offset_pct": null,
+  "partial_take_profit": null,
+  "trailing_stop": null,
+  "time_exit_bars": null,
+  "tags": [
+    "resistance",
+    "session_open",
+    "support",
+    "strategy",
+    "4h",
+    "5m"
+  ],
+  "favourite": false,
+  "missing": [],
+  "warnings": []
+}
