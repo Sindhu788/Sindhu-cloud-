@@ -641,6 +641,45 @@ CREATE TABLE IF NOT EXISTS evolution_jobs (
     updated_at TEXT NOT NULL
 );
 
+-- Task 2 (Priority Batch 1): the 100-completed-trades evolution gate is
+-- entirely separate from paper_trading.pattern_stats' 25-trade Wilson score
+-- gate (used for signal confidence elsewhere) -- one row per BOT strategy
+-- lineage (base_id), tracking the highest 100-trade threshold this lineage
+-- has already been evolved at (so crossing from e.g. 140 to 180 trades
+-- doesn't re-trigger evolution, only actually crossing the next 100/200/300
+-- boundary does) and which generation is the one actually "in use" right
+-- now -- normally the newest generation, but pinned back to an earlier
+-- generation's id after a rollback (see evolution_engine/rollback.py).
+CREATE TABLE IF NOT EXISTS evolution_trade_gates (
+    base_id TEXT PRIMARY KEY,
+    last_threshold_evolved INTEGER NOT NULL DEFAULT 0,
+    active_generation_id TEXT,
+    updated_at TEXT NOT NULL
+);
+
+-- One row per evolution event (a mutation that passed the 100-trade gate).
+-- "before" is captured immediately (the parent generation's already-known
+-- backtest numbers); "after" stays NULL until the child generation itself
+-- accumulates enough trades to be judged fairly, at which point
+-- evolution_engine.rollback.try_finalize_comparison fills it in, computes a
+-- verdict, and -- if the child performed worse across the core metrics --
+-- flips rolled_back to 1 and pins evolution_trade_gates.active_generation_id
+-- back to the parent. Never overwritten/deleted after finalization, so this
+-- is also the permanent before/after audit trail Task 2 asks for.
+CREATE TABLE IF NOT EXISTS evolution_comparisons (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    base_id TEXT NOT NULL,
+    parent_id TEXT NOT NULL,
+    child_id TEXT NOT NULL,
+    trade_threshold INTEGER NOT NULL,
+    before_json TEXT NOT NULL,
+    after_json TEXT,
+    verdict TEXT,               -- NULL until finalized, then "improved" | "regressed"
+    rolled_back INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS champion_records (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     category TEXT NOT NULL,   -- strategy | lesson | coin | session | timeframe | market_condition | generation
@@ -3618,6 +3657,102 @@ def list_bot_strategy_base_ids():
     with get_conn() as conn:
         rows = conn.execute("SELECT DISTINCT base_id FROM bot_strategies").fetchall()
     return [r[0] for r in rows]
+
+
+# ---- evolution_trade_gates: 100-trade evolution gate + rollback pin ----
+
+def get_trade_gate(base_id):
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT base_id, last_threshold_evolved, active_generation_id, updated_at "
+            "FROM evolution_trade_gates WHERE base_id=?", (base_id,),
+        ).fetchone()
+    if not row:
+        return None
+    return {"base_id": row[0], "last_threshold_evolved": row[1], "active_generation_id": row[2], "updated_at": row[3]}
+
+
+def set_trade_gate_threshold(base_id, threshold, now_iso):
+    """Records that `base_id` has now been evolved at trade-count threshold
+    `threshold` (a multiple of 100), so the same threshold never re-triggers
+    evolution again."""
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO evolution_trade_gates (base_id, last_threshold_evolved, active_generation_id, updated_at)
+               VALUES (?, ?, NULL, ?)
+               ON CONFLICT(base_id) DO UPDATE SET last_threshold_evolved=excluded.last_threshold_evolved, updated_at=excluded.updated_at""",
+            (base_id, threshold, now_iso),
+        )
+
+
+def set_active_generation_id(base_id, generation_id, now_iso):
+    """Pins which generation of `base_id` is actually in use. Set to the
+    new child right after a successful evolution event, and pinned back to
+    the parent's id on rollback. NULL (the default, no row yet) means "use
+    whatever latest_generation_for_base returns"."""
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO evolution_trade_gates (base_id, last_threshold_evolved, active_generation_id, updated_at)
+               VALUES (?, 0, ?, ?)
+               ON CONFLICT(base_id) DO UPDATE SET active_generation_id=excluded.active_generation_id, updated_at=excluded.updated_at""",
+            (base_id, generation_id, now_iso),
+        )
+
+
+# ---- evolution_comparisons: permanent before/after audit trail ----
+
+def create_evolution_comparison(base_id, parent_id, child_id, trade_threshold, before, now_iso):
+    with get_conn() as conn:
+        cur = conn.execute(
+            """INSERT INTO evolution_comparisons
+               (base_id, parent_id, child_id, trade_threshold, before_json, after_json, verdict, rolled_back, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, NULL, NULL, 0, ?, ?)""",
+            (base_id, parent_id, child_id, trade_threshold, json.dumps(before), now_iso, now_iso),
+        )
+        return cur.lastrowid
+
+
+def get_pending_comparison_for_child(child_id):
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT id, base_id, parent_id, child_id, trade_threshold, before_json, after_json, verdict, rolled_back, created_at, updated_at "
+            "FROM evolution_comparisons WHERE child_id=? AND after_json IS NULL "
+            "ORDER BY id DESC LIMIT 1",
+            (child_id,),
+        ).fetchone()
+    return _row_to_evolution_comparison(row) if row else None
+
+
+def finalize_evolution_comparison(comparison_id, after, verdict, rolled_back, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE evolution_comparisons SET after_json=?, verdict=?, rolled_back=?, updated_at=? WHERE id=?",
+            (json.dumps(after), verdict, 1 if rolled_back else 0, now_iso, comparison_id),
+        )
+
+
+def _row_to_evolution_comparison(row):
+    return {
+        "id": row[0], "base_id": row[1], "parent_id": row[2], "child_id": row[3],
+        "trade_threshold": row[4], "before": json.loads(row[5]),
+        "after": json.loads(row[6]) if row[6] else None,
+        "verdict": row[7], "rolled_back": bool(row[8]),
+        "created_at": row[9], "updated_at": row[10],
+    }
+
+
+def list_evolution_comparisons(base_id=None, limit=200):
+    query = ("SELECT id, base_id, parent_id, child_id, trade_threshold, before_json, after_json, verdict, rolled_back, created_at, updated_at "
+              "FROM evolution_comparisons")
+    params = []
+    if base_id:
+        query += " WHERE base_id=?"
+        params.append(base_id)
+    query += " ORDER BY id DESC LIMIT ?"
+    params.append(limit)
+    with get_conn() as conn:
+        rows = conn.execute(query, params).fetchall()
+    return [_row_to_evolution_comparison(r) for r in rows]
 
 
 _BOT_LESSON_COLUMNS = [

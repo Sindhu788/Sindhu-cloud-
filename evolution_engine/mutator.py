@@ -14,7 +14,7 @@ learned model.
 from itertools import combinations
 
 from data_engine import storage
-from evolution_engine import generation_manager, market_regime, dna
+from evolution_engine import generation_manager, market_regime, dna, rollback
 
 MIN_TRADES_TO_JUDGE = 10        # a bot_strategy needs at least this many backtest trades before Archive can act on its score
 ARCHIVE_SCORE_THRESHOLD = 20.0  # active strategies scoring below this (with enough trades) get archived, never deleted
@@ -86,10 +86,17 @@ def mutate_strategy(base_id, governor, now_iso, exchange=None, symbol=None, time
     weakest last time, and (b) the market regime detected right now (A.8) --
     both fixed rule tables, never random and never AI. Returns the new
     generation's id, or None if there's nothing to mutate (no prior
-    generation) or the Governor's max_generations_per_strategy cap for this
-    lineage has already been reached."""
-    latest = storage.latest_generation_for_base(base_id)
+    generation), the lineage hasn't crossed its next 100-completed-trades
+    evolution gate yet (see evolution_engine.rollback -- independent from
+    and never touches the 25-trade Wilson score gate used elsewhere for
+    signal confidence), or the Governor's max_generations_per_strategy cap
+    for this lineage has already been reached."""
+    latest = rollback.effective_generation(base_id)
     if latest is None:
+        return None
+
+    can_evolve, threshold = rollback.should_evolve(base_id, latest)
+    if not can_evolve:
         return None
 
     config = dict(latest["config"])
@@ -126,8 +133,17 @@ def mutate_strategy(base_id, governor, now_iso, exchange=None, symbol=None, time
         reasons.append("no scored weakness or regime signal yet -- carried forward unchanged as a fresh generation for re-evaluation")
 
     dna_tags = dna.extract_dna(config)
-    new_name = f"{latest['name'].split(' (Gen')[0]} (Gen {latest['generation'] + 1})"
-    return generation_manager.create_next_strategy_generation(
+    # Generation number for the id/label comes from the lineage's true
+    # highest generation ever created (storage.latest_generation_for_base),
+    # not `latest` (the effective/in-use one, which can be an earlier
+    # generation after a rollback) -- generation numbers must always keep
+    # incrementing and never collide with an already-archived generation's.
+    true_latest = storage.latest_generation_for_base(base_id)
+    new_name = f"{latest['name'].split(' (Gen')[0]} (Gen {true_latest['generation'] + 1})"
+    new_id = generation_manager.create_next_strategy_generation(
         base_id, new_name, config, dna_tags, "evolution_mutation", False,
         "; ".join(reasons), now_iso, max_generations=governor.max_generations_per_strategy,
     )
+    if new_id:
+        rollback.record_evolution_event(base_id, latest, new_id, threshold, now_iso)
+    return new_id

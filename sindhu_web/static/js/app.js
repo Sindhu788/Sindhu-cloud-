@@ -2927,13 +2927,14 @@
     const myToken = activeRouteToken;
 
     async function render() {
-      const [status, championsRes, strategiesRes, lessonsRes, versionsRes, correlationsRes] = await Promise.all([
+      const [status, championsRes, strategiesRes, lessonsRes, versionsRes, correlationsRes, comparisonsRes] = await Promise.all([
         apiGet("/api/evolution/status"),
         apiGet("/api/evolution/champions"),
         apiGet("/api/evolution/strategies"),
         apiGet("/api/evolution/lessons"),
         apiGet("/api/evolution/knowledge-versions?limit=1"),
         apiGet("/api/evolution/research/dna-correlations?min_sample=1"),
+        apiGet("/api/evolution/comparisons?limit=50"),
       ]);
       if (isStaleRoute(myToken)) return;
 
@@ -2943,6 +2944,7 @@
       const lessons = lessonsRes.lessons || [];
       const latestVersion = (versionsRes.versions || [])[0];
       const correlations = correlationsRes.correlations || [];
+      const comparisons = comparisonsRes.comparisons || [];
 
       const championRow = (label, cat) => {
         const c = champions.find(x => x.category === cat);
@@ -2997,6 +2999,33 @@
                 <td>${s.evolution_score != null ? Number(s.evolution_score).toFixed(2) : "not backtested"}</td>
                 <td>${esc((s.created_at || "").slice(0, 19))}</td>
               </tr>`).join("") || '<tr><td colspan="5">No BOT strategies yet -- the Evolution Engine mutates existing lineages, and SINDHU Strategy creates new ones.</td></tr>'}
+          </tbody>
+        </table></div>
+
+        <div class="section-title">Evolution Before/After Comparisons (${comparisons.length})</div>
+        <p class="muted">Every time a BOT strategy lineage crosses a 100-completed-trades milestone (100, 200, 300...), it evolves into a new generation. This shows the parent's real numbers ("before") against the new generation's real numbers ("after") once it has 100 trades of its own -- and whether it was automatically rolled back for performing worse.</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Lineage</th><th>Trades Threshold</th><th>Win Rate (before -&gt; after)</th><th>Net PnL (before -&gt; after)</th><th>Profit Factor (before -&gt; after)</th><th>Max Drawdown (before -&gt; after)</th><th>Result</th></tr></thead>
+          <tbody>
+            ${comparisons.map(c => {
+              const fmt = (v, suffix = "") => v == null ? "-" : `${Number(v).toFixed(2)}${suffix}`;
+              const pair = (key, suffix = "") => `${fmt(c.before[key], suffix)} -&gt; ${c.after ? fmt(c.after[key], suffix) : "pending"}`;
+              const resultPill = !c.after
+                ? `<span class="pill pill-muted">Awaiting 100 trades</span>`
+                : c.rolled_back
+                  ? `<span class="pill pill-bearish">Rolled back to parent</span>`
+                  : `<span class="pill pill-bullish">Kept -- improved</span>`;
+              return `
+              <tr>
+                <td>${esc(c.base_id)} <span class="muted">(${esc(c.parent_id)} -&gt; ${esc(c.child_id)})</span></td>
+                <td>${c.trade_threshold}</td>
+                <td>${pair("win_rate", "%")}</td>
+                <td>${pair("total_pnl")}</td>
+                <td>${pair("avg_profit_factor")}</td>
+                <td>${pair("max_drawdown_pct", "%")}</td>
+                <td>${resultPill}</td>
+              </tr>`;
+            }).join("") || '<tr><td colspan="7">No evolution events yet -- a lineage needs 100 completed backtest trades before it evolves.</td></tr>'}
           </tbody>
         </table></div>
 

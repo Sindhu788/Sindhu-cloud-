@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from backtest_engine import validator, runner, reports
 from backtest_engine.strategy_config import StrategyConfig
 from data_engine import storage
-from evolution_engine import scoring
+from evolution_engine import scoring, rollback
 
 
 def _now_iso():
@@ -57,6 +57,11 @@ def validate_and_backtest(bot_strategy_id, exchange, symbols, settings=None, use
         "total_pnl": summary.get("total_pnl"), "max_drawdown_pct": summary.get("max_drawdown_pct"),
         "avg_profit_factor": summary.get("avg_profit_factor"), "avg_risk_reward": summary.get("avg_risk_reward"),
     }
+    now_iso = _now_iso()
     storage.update_bot_strategy_result(bot_strategy_id, evolution_score=score, score_breakdown=breakdown,
-                                        backtest_summary=backtest_summary, now_iso=_now_iso())
+                                        backtest_summary=backtest_summary, now_iso=now_iso)
+    # Task 2: if this generation is the child of a pending evolution
+    # before/after comparison and now has enough of its own trades, judge it
+    # against its parent and roll back automatically if it did worse.
+    rollback.try_finalize_comparison(bot_strategy_id, now_iso)
     return {"validated": True, "errors": [], "batch_id": batch_id, "backtest_summary": backtest_summary, "evolution_score": score}

@@ -84,3 +84,12 @@ def current_champions():
 @router.get("/api/evolution/knowledge-versions")
 def knowledge_versions(limit: int = 50):
     return {"versions": storage.list_knowledge_versions(limit=limit)}
+
+
+@router.get("/api/evolution/comparisons")
+def evolution_comparisons(base_id: str = None, limit: int = 200):
+    """Task 2's before/after audit trail -- every evolution event (a
+    mutation that crossed the 100-completed-trades gate), with the parent's
+    "before" numbers, the child's "after" numbers once it has enough trades
+    of its own to be judged fairly, and whether it was rolled back."""
+    return {"comparisons": storage.list_evolution_comparisons(base_id=base_id, limit=limit)}
