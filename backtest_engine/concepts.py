@@ -250,6 +250,19 @@ def candle_break(df):
     would have been wrong: trend_filter() is an EMA-slope reading, not
     candle colour, so "red candle" and "bearish trend" are different facts.
 
+    Edge-triggered, not level-triggered (Task 3, Priority Batch 1): a break
+    fires True on ONLY the first bar that trades past the reference
+    candle's extreme, not on every subsequent bar that also happens to
+    still be beyond it. Diagnosed live against real data (PDH-PDL Signal
+    Candle Strategy's 119,255-trade / 1.62%-win backtest): the previous
+    version's `bear_break`/`bull_break` stayed True for as long as price
+    kept making fresh lows/highs past a stale reference candle, so a single
+    multi-bar move re-armed a "new" entry signal on every one of those bars
+    once the strategy was flat again, not just once -- inflating trade
+    count well beyond what "wait for a break" actually describes. Each
+    reference candle (tracked via a running count of bullish/bearish
+    candles) may now only ever produce one break event.
+
     Causal by construction: the reference high/low is shifted one bar
     before comparison, so a candle can never trigger a break of itself and
     nothing reads a value that wasn't already closed."""
@@ -258,8 +271,21 @@ def candle_break(df):
     # Most recent bullish/bearish candle's extreme, as known BEFORE this bar.
     last_bull_high = df["high"].where(bullish).ffill().shift(1)
     last_bear_low = df["low"].where(bearish).ffill().shift(1)
-    bull_break = (df["high"] > last_bull_high).fillna(False)
-    bear_break = (df["low"] < last_bear_low).fillna(False)
+    raw_bull_break = (df["high"] > last_bull_high).fillna(False)
+    raw_bear_break = (df["low"] < last_bear_low).fillna(False)
+    # Which reference candle each bar is being tested against -- shift(1)
+    # here matches the shift(1) already baked into last_bull_high/
+    # last_bear_low above, so a bar that is itself bearish (and therefore
+    # becomes tomorrow's reference) is still grouped by the OLDER reference
+    # it's actually being compared against right now, not the new one it's
+    # simultaneously creating. Only the first True within a given reference
+    # candle's group counts as the actual break event; later bars waiting
+    # on that same still-unbroken-again reference are already-fired
+    # duplicates, not new signals.
+    bull_ref_id = bullish.cumsum().shift(1)
+    bear_ref_id = bearish.cumsum().shift(1)
+    bull_break = raw_bull_break & (raw_bull_break.groupby(bull_ref_id).cumsum() == 1)
+    bear_break = raw_bear_break & (raw_bear_break.groupby(bear_ref_id).cumsum() == 1)
     return bull_break, bear_break
 
 
