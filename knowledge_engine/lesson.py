@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from backtest_engine.strategy_parser import parse_conditions
+from knowledge_engine.condition_eval import condition_is_executable
 
 CATEGORIES = [
     "Market Structure", "Trend", "Liquidity", "BOS", "CHoCH", "Order Blocks",
@@ -73,7 +74,14 @@ class Lesson:
         return d
 
     def is_enforceable(self):
-        return len(self.conditions) > 0
+        # A condition must be genuinely evaluable, not just present -- a
+        # "raw" condition or a bare/unrecognized "concept" condition
+        # silently evaluates False on every single bar forever (see
+        # knowledge_engine.condition_eval.condition_is_executable), which
+        # for rule_type="require_if_true" means ALWAYS blocking every
+        # trade it's ever checked against, not "does nothing" as the old
+        # `len(self.conditions) > 0` check assumed.
+        return any(condition_is_executable(c) for c in self.conditions)
 
     def matches_market_type(self, market_type):
         return not self.supported_market_types or market_type in self.supported_market_types

@@ -108,10 +108,35 @@ def best_worst_strategies():
     # avg_profit_pct per batch, so there's no reason to pay generate_report()'s
     # full per-trade session-analysis scan (20-45s on a large batch) once for
     # every completed batch in the list.
+    #
+    # Ranks each strategy by its MOST RECENT completed batch only, not an
+    # average across every batch ever run for it -- real bug fixed here:
+    # averaging in every historical batch let one ancient, since-superseded
+    # batch (run under a long-fixed engine bug that let balance compound
+    # without any realistic cap -- one real batch's stored profit_pct was
+    # 425,679,667,191.65%) permanently poison the displayed "Top Strategies
+    # by Profit" and "Best Strategy" label, even though that batch has
+    # nothing to do with how the strategy performs today. Every OTHER view
+    # of "how is this strategy doing" (Overview's PnL/win-rate cards,
+    # Backtest History's per-row numbers) already means "the latest run" --
+    # this endpoint was the one place still silently blending in stale
+    # history, which is what made it look inconsistent with Backtest
+    # History. Old batches are never deleted (see storage.py's "never
+    # delete, only archive" pattern throughout) -- they simply aren't used
+    # for THIS "how is it doing right now" ranking anymore.
     batches = storage.list_recent_batches(limit=200)
-    by_strategy = {}
+    latest_per_strategy = {}
+    completed_batch_counts = {}
     for b in batches:
         if b["status"] != "completed":
+            continue
+        name = b["strategy_name"]
+        completed_batch_counts[name] = completed_batch_counts.get(name, 0) + 1
+        # list_recent_batches is already newest-first, so the first
+        # completed batch seen per strategy name is its latest one --
+        # everything below is computed from THAT one batch only, never
+        # blended with older ones (see comment above).
+        if name in latest_per_strategy:
             continue
         try:
             summary = quick_batch_summary(b["batch_id"])
@@ -119,12 +144,16 @@ def best_worst_strategies():
             continue
         if not summary:
             continue
-        by_strategy.setdefault(b["strategy_name"], []).append(summary["avg_profit_pct"])
+        latest_per_strategy[name] = summary
 
     ranked = sorted(
         (
-            {"strategy": k, "avg_profit_pct": round(sum(v) / len(v), 2), "batches": len(v)}
-            for k, v in by_strategy.items()
+            {
+                "strategy": name, "avg_profit_pct": summary["avg_profit_pct"],
+                "total_pnl": summary["total_pnl"], "batch_id": summary["batch_id"],
+                "batches": completed_batch_counts.get(name, 1),
+            }
+            for name, summary in latest_per_strategy.items()
         ),
         key=lambda r: r["avg_profit_pct"], reverse=True,
     )

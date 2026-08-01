@@ -9,6 +9,7 @@ from paper_trading import config as paper_config
 from sindhu_web import cache
 from sindhu_web.jobs import job_manager
 from knowledge_engine.scoring import compute_knowledge_score
+from knowledge_engine.engine import get_display_knowledge_report
 
 router = APIRouter()
 
@@ -122,7 +123,7 @@ def get_home():
         "current_task": running_jobs[0] if running_jobs else None,
         "running_jobs": running_jobs,
         "knowledge_score": compute_knowledge_score(
-            cache.cached("knowledge_report", 60, storage.get_knowledge_report)
+            cache.cached("knowledge_report", 60, get_display_knowledge_report)
         ),
         "task_summary": task_summary,
         "module_status": module_status,

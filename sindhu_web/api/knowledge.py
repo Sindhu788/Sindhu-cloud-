@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from data_engine import storage
 from knowledge_engine.lesson import new_lesson, from_storage_dict, CATEGORIES, now_iso
 from knowledge_engine.scoring import compute_knowledge_score, list_lessons_with_stats
+from knowledge_engine.engine import get_display_knowledge_report
 from sindhu_web import sync, cache
 
 router = APIRouter()
@@ -23,7 +24,7 @@ def get_report():
     # that's grown into the millions of rows) only runs once per TTL
     # window no matter which page hits it first, with stale-while-revalidate
     # so neither page ever blocks on a slow recompute after the first one.
-    cached_report = cache.cached("knowledge_report", 60, storage.get_knowledge_report)
+    cached_report = cache.cached("knowledge_report", 60, get_display_knowledge_report)
     report = dict(cached_report)
     report["knowledge_score"] = compute_knowledge_score(report)
     report["recent_lessons"] = storage.list_lessons()[:5]

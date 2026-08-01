@@ -99,3 +99,38 @@ class KnowledgeEngine:
             return
         storage.record_lesson_applications_bulk(self._pending_applications)
         self._pending_applications = []
+
+
+def get_display_knowledge_report():
+    """Same shape as storage.get_knowledge_report(), but
+    lessons_applied/trades_rejected_by_lessons/trades_approved_by_lessons
+    only sum stats for lessons that are CURRENTLY enforceable (Batch 2,
+    Task 1). storage.get_knowledge_report() stays a raw, unfiltered
+    accessor -- this is the one the dashboard (Overview + Knowledge pages)
+    actually reads.
+
+    Real bug this fixes: one lesson ("**Philosophy:** The backtest must
+    account for a high frequency...") was saved with a single bare,
+    unrecognized `concept: sma` condition -- always-False under
+    evaluate_condition(), and with rule_type="require_if_true" that meant
+    it silently vetoed every trade it was ever checked against, 37,968,340
+    times, 0 approvals. Lesson.is_enforceable() no longer counts that kind
+    of condition as real (see knowledge_engine.condition_eval), so it's
+    excluded here too -- its already-recorded history in
+    lesson_stats_summary is never deleted (permanent audit trail, same as
+    everywhere else in this codebase), it just stops being counted as if
+    it reflected current, meaningful system behavior."""
+    report = storage.get_knowledge_report()
+    applied = rejected = approved = 0
+    for lesson_dict in storage.list_lessons():
+        lesson = from_storage_dict(lesson_dict)
+        if not lesson.is_enforceable():
+            continue
+        stats = storage.get_lesson_stats(lesson_dict["id"])
+        applied += stats["times_used"]
+        rejected += stats["trades_rejected"]
+        approved += stats["trades_approved"]
+    report["lessons_applied"] = applied
+    report["trades_rejected_by_lessons"] = rejected
+    report["trades_approved_by_lessons"] = approved
+    return report

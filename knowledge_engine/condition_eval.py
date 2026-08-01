@@ -15,6 +15,38 @@ from backtest_engine import concepts
 
 _DEFAULT_PERIOD = {"ema": 20, "sma": 20, "rsi": 14, "atr": 14}
 
+# Every "concept" condition name this evaluator actually dispatches to a
+# real check below -- anything else (e.g. a bare "sma"/"ema"/"rsi" concept
+# with no comparison, which isn't a pattern this evaluator recognizes at
+# all) silently falls through to the final `return False` at the bottom of
+# the "concept" branch, meaning it evaluates False on EVERY bar, forever.
+# Used by knowledge_engine.lesson.Lesson.is_enforceable() to tell a real,
+# evaluable condition apart from a guaranteed-always-false placeholder --
+# diagnosed live: one lesson ("**Philosophy:** The backtest must account
+# for a high frequency...") was saved with a single bare `concept: sma`
+# condition and rule_type="require_if_true", so it silently vetoed EVERY
+# single trade attempt across the entire system's history (37,968,340
+# rejections, 0 approvals) without ever being flagged as broken.
+_DISPATCHABLE_CONCEPT_NAMES = {
+    "bos", "choch", "fvg", "liquidity_sweep", "pdh_sweep", "pdl_sweep",
+    "order_block", "breaker_block", "volume", "pdh", "pdl",
+}
+
+
+def condition_is_executable(cond):
+    """True if `cond` maps to a real, non-trivially-always-false branch in
+    evaluate_condition() below. A "raw" condition (never executable) or a
+    "concept" condition whose name isn't one of the patterns this evaluator
+    actually recognizes both return False -- see _DISPATCHABLE_CONCEPT_NAMES
+    above for why a bare, unrecognized concept name is the dangerous case."""
+    cond_type = getattr(cond, "type", None) if not isinstance(cond, dict) else cond.get("type")
+    if cond_type == "raw":
+        return False
+    if cond_type == "concept":
+        name = getattr(cond, "name", None) if not isinstance(cond, dict) else cond.get("name")
+        return name in _DISPATCHABLE_CONCEPT_NAMES
+    return cond_type in ("indicator_compare", "price_compare", "session", "trend")
+
 
 def _array(df, col, arr_cache):
     if arr_cache is None:
