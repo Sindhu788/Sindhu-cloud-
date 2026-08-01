@@ -617,3 +617,44 @@ def send_close_followup(closed_position):
         "close_followup", text, ok, err, _now_iso(),
     )
     return {"ok": ok, "error": err}
+
+
+# --------------------------------------------------------------- Task 3 (Batch 2): no-signal alert
+
+NO_SIGNAL_ALERT_HOURS = 24
+
+
+def no_signal_alert_status(now_iso=None):
+    """Dashboard alert (Overview + Telegram Signals page) for an extended
+    signal drought -- 24+ hours with zero signals sent to Telegram, any
+    tier. Nothing to separately "clear": this is computed fresh from the
+    real last-sent timestamp on every call, so it automatically stops
+    firing the instant a new signal actually sends -- there's no separate
+    stored "alert active" flag that could go stale or need resetting.
+
+    now_iso: injectable for tests; defaults to the real current time.
+
+    Returns {"stale": bool, "last_sent_at": iso|None, "hours_since": float|None,
+             "message": str|None} -- message is a plain, non-technical
+    sentence when stale, else None."""
+    now = datetime.fromisoformat(now_iso) if now_iso else datetime.now(timezone.utc)
+    last_sent_iso = storage.get_last_telegram_signal_sent_at()
+
+    if last_sent_iso is None:
+        return {
+            "stale": True, "last_sent_at": None, "hours_since": None,
+            "message": "No signals have been sent to Telegram yet.",
+        }
+
+    last_sent = datetime.fromisoformat(last_sent_iso)
+    if last_sent.tzinfo is None:
+        last_sent = last_sent.replace(tzinfo=timezone.utc)
+    hours_since = (now - last_sent).total_seconds() / 3600.0
+    stale = hours_since >= NO_SIGNAL_ALERT_HOURS
+    return {
+        "stale": stale, "last_sent_at": last_sent_iso, "hours_since": round(hours_since, 1),
+        "message": (
+            f"No signals have been sent to Telegram in the last {int(hours_since)} hours."
+            if stale else None
+        ),
+    }

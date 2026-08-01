@@ -737,6 +737,14 @@ def get_telegram_log(limit: int = 50):
     return {"messages": storage.list_telegram_messages(limit=limit)}
 
 
+@router.get("/api/paper-trading/telegram/alert-status")
+def get_telegram_alert_status():
+    """(Batch 2, Task 3) Whether 24+ hours have passed since the last
+    Telegram signal (any tier) -- backs the dashboard's no-signal alert,
+    shared by the Overview page and the Telegram Signals page."""
+    return telegram_bot.no_signal_alert_status()
+
+
 @router.post("/api/paper-trading/telegram/send/{position_id}")
 def send_telegram_for_position(position_id: str):
     """On-demand real send for any specific position -- used by A6's

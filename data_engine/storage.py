@@ -2654,6 +2654,19 @@ def count_telegram_messages_since(since_iso):
     return row[0] if row else 0
 
 
+def get_last_telegram_signal_sent_at():
+    """(Batch 2, Task 3) Most recent successful real SIGNAL send -- manual
+    or automatic, either confidence tier -- excludes close_followup
+    (result notifications about an already-sent signal, not a new signal)
+    and failed send attempts. None if no signal has ever been sent."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT MAX(sent_at) FROM telegram_message_log "
+            "WHERE success=1 AND trigger_type IN ('manual', 'automatic')"
+        ).fetchone()
+    return row[0] if row and row[0] else None
+
+
 def list_telegram_signal_outcomes(since_iso=None, until_iso=None):
     """Task C (Telegram Dashboard page): every real signal actually SENT
     to Telegram (trigger_type manual/automatic, success=1 -- excludes

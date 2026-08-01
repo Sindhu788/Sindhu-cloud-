@@ -803,12 +803,13 @@
     const myToken = activeRouteToken;
     const settings = await apiGet("/api/settings").catch(() => ({ refresh_speed_seconds: 10 }));
     const render = async () => {
-      const [h, net, act, bw, strats] = await Promise.all([
+      const [h, net, act, bw, strats, tgAlert] = await Promise.all([
         apiGet("/api/home"),
         apiGet("/api/network").catch(() => null),
         apiGet("/api/activity?limit=20").catch(() => ({ activity: [] })),
         apiGet("/api/reports/best-worst/strategies").catch(() => ({ ranking: [] })),
         apiGet("/api/backtesting/strategies").catch(() => ({ strategies: [] })),
+        apiGet("/api/paper-trading/telegram/alert-status").catch(() => ({ stale: false })),
       ]);
       if (isStaleRoute(myToken)) return;
 
@@ -847,9 +848,10 @@
         </div>
         ${lb ? `<div class="muted" style="margin:-12px 0 20px;font-size:12px;">Latest completed backtest: <b>${esc(lb.strategy)}</b> -- there is no live Paper Trading yet, so this reflects the most recent backtest, not a live account.</div>` : ""}
 
-        ${zeroTradeAlerts.length ? `
+        ${(zeroTradeAlerts.length || tgAlert.stale) ? `
         <div class="section-title">System Alerts</div>
         <div class="card" style="border-left:3px solid var(--negative, #e5484d);">
+          ${tgAlert.stale ? `<div>⚠ ${esc(tgAlert.message)} Check the Telegram Signals page or Settings if this is unexpected.</div>` : ""}
           ${zeroTradeAlerts.map(s => `<div>⚠ Strategy <b>${esc(s.name)}</b> produced 0 trades on ${s.last_batch_result.symbols_tested || 0} coins -- check entry conditions (see Backtesting or Reports for the condition-hit breakdown).</div>`).join("")}
         </div>` : ""}
 
@@ -2873,12 +2875,20 @@
       `;
     }
 
-    const tgSettings = await apiGet("/api/paper-trading/telegram/settings").catch(() => ({ master_send_enabled: true }));
+    const [tgSettings, tgAlert] = await Promise.all([
+      apiGet("/api/paper-trading/telegram/settings").catch(() => ({ master_send_enabled: true })),
+      apiGet("/api/paper-trading/telegram/alert-status").catch(() => ({ stale: false })),
+    ]);
     if (isStaleRoute(myToken)) return;
 
     content.innerHTML = `
       <div class="section-title">Telegram Signals</div>
       <p class="muted">Everything sent to the Telegram channel, in one place -- how many signals went out, how they're doing, and a full log. Win/loss comes straight from each trade's real recorded outcome in Paper Trading; a trade that hasn't closed yet always shows as Open/Pending, never guessed at.</p>
+
+      ${tgAlert.stale ? `
+      <div class="card" style="border-left:3px solid var(--negative, #e5484d); max-width:480px;">
+        ⚠ ${esc(tgAlert.message)}
+      </div>` : ""}
 
       <div class="card" style="max-width:480px;">
         <label style="display:flex;align-items:center;gap:10px;width:auto;">
