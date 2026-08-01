@@ -619,6 +619,44 @@ def send_close_followup(closed_position):
     return {"ok": ok, "error": err}
 
 
+# --------------------------------------------------------------- Task 4 (Batch 2): hourly fresh-signal sweep
+
+def sweep_unsent_qualifying_signals():
+    """A recurring (>=hourly, called from paper_trading.engine's own tick
+    loop -- see SWEEP_INTERVAL_SECONDS there) safety-net check: any
+    currently OPEN position that never had a Telegram signal sent for it
+    is re-evaluated through the EXACT SAME dual-tier gating
+    (evaluate_auto_send_tier -- full confluence + the real 25-trade Wilson
+    gate for High, the same minus the Wilson requirement for Low) used at
+    open-time, in case it only started qualifying afterward (e.g. this
+    exact strategy+coin+condition pattern crossed the 25-trade reliability
+    threshold from OTHER trades closing since this position opened). Never
+    a looser or bypassed check than the real-time path -- if a position
+    didn't qualify then and still doesn't now, this sweep is a no-op for
+    it, exactly like the real-time path would have been.
+
+    Naturally never re-sends: a position with any successful signal
+    already logged (storage.has_telegram_signal_for_position) is skipped
+    outright, before gating is even evaluated -- there's no way for this
+    function to fire twice for the same position.
+
+    Returns a list of {"position_id", "tier"} for every signal actually
+    sent this sweep (empty list = nothing qualified, or auto-send is off)."""
+    if not load_settings().get("auto_send_enabled", False):
+        return []
+    sent = []
+    for pos in storage.get_open_paper_positions():
+        if storage.has_telegram_signal_for_position(pos["id"]):
+            continue
+        tier, reason = evaluate_auto_send_tier(pos["id"])
+        if tier is None:
+            continue
+        result = send_signal_for_position(pos["id"], trigger_type="automatic", high_confidence=(tier == "high"))
+        if result.get("ok"):
+            sent.append({"position_id": pos["id"], "tier": tier})
+    return sent
+
+
 # --------------------------------------------------------------- Task 3 (Batch 2): no-signal alert
 
 NO_SIGNAL_ALERT_HOURS = 24

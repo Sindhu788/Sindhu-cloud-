@@ -38,6 +38,15 @@ def _default_exchange():
     return cfg["default"]
 
 
+# Task 4 (Batch 2): the hourly Telegram fresh-signal sweep (see
+# telegram_bot.sweep_unsent_qualifying_signals) is throttled to run at
+# most this often, piggy-backing on this engine's own tick loop (already
+# ticking every tick_interval_seconds, typically 60s) rather than a
+# second background thread -- same pattern evolution_engine and the
+# SINDHU Strategy scheduler already use for their own time-gated work.
+TELEGRAM_SWEEP_INTERVAL_SECONDS = 3600
+
+
 class PaperTradingEngine:
     def __init__(self):
         self._thread = None
@@ -52,6 +61,7 @@ class PaperTradingEngine:
         self._last_summary = {"shortlisted": [], "opened": 0, "closed": 0, "rejected": 0}
         self._tick_count = 0
         self._started_at = None
+        self._last_telegram_sweep_at = None  # Task 4 (Batch 2) -- see TELEGRAM_SWEEP_INTERVAL_SECONDS
 
     # ------------------------------------------------------------ control
     def is_running(self):
@@ -209,6 +219,22 @@ class PaperTradingEngine:
                 capital_allocation.recompute_all_allocations()
         except Exception as e:
             self._log(f"[paper-trading] capital allocation error: {e!r}")
+
+        # Task 4 (Batch 2): hourly Telegram fresh-signal sweep -- throttled
+        # here rather than every tick (tick_interval_seconds is typically
+        # 60s; this must not re-check all open positions' gating that
+        # often). Never bypasses or weakens gating -- see
+        # telegram_bot.sweep_unsent_qualifying_signals's own docstring.
+        now = time.monotonic()
+        if self._last_telegram_sweep_at is None or (now - self._last_telegram_sweep_at) >= TELEGRAM_SWEEP_INTERVAL_SECONDS:
+            self._last_telegram_sweep_at = now
+            try:
+                sent = telegram_bot.sweep_unsent_qualifying_signals()
+                if sent:
+                    self._log(f"[paper-trading] Telegram hourly sweep sent {len(sent)} previously-unsent signal(s): "
+                               f"{[s['position_id'] for s in sent]}")
+            except Exception as e:
+                self._log(f"[paper-trading] Telegram hourly sweep error: {e!r}")
 
         self._tick_count += 1
         self._last_tick_at = _now_iso()
