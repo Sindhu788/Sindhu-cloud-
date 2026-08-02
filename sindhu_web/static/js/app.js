@@ -1482,8 +1482,10 @@
     const render = async () => {
       const searchEl = document.getElementById("stratLibSearch");
       const q = searchEl ? searchEl.value : "";
+      const showArchivedEl = document.getElementById("stratShowArchived");
+      const showArchived = showArchivedEl ? showArchivedEl.checked : false;
       const [res, riskRes] = await Promise.all([
-        apiGet(`/api/backtesting/strategies?q=${encodeURIComponent(q)}`).catch(() => ({ strategies: [] })),
+        apiGet(`/api/backtesting/strategies?q=${encodeURIComponent(q)}&include_archived=${showArchived}`).catch(() => ({ strategies: [] })),
         apiGet("/api/paper-trading/risk-metrics-all").catch(() => ({ metrics: {} })),
       ]);
       if (isStaleRoute(myToken)) return;
@@ -1499,9 +1501,9 @@
         return `Sharpe ${r.sharpe_ratio.toFixed(2)}, Max DD <span class="${ddCls}">${r.max_drawdown_pct.toFixed(1)}%</span>`;
       }
       const rows = res.strategies.map(s => `
-        <tr>
+        <tr${s.archived ? ' style="opacity:0.55;"' : ""}>
           <td>${s.favourite ? "★" : "☆"}</td>
-          <td>${esc(s.name)} ${performanceBadge(s.performance_verdict, s.performance_label, s.performance_failed_factors)}</td>
+          <td>${esc(s.name)} ${s.archived ? '<span class="pill pill-muted">Archived</span>' : ""} ${performanceBadge(s.performance_verdict, s.performance_label, s.performance_failed_factors)}</td>
           <td>${(s.concepts_used || []).join(", ") || "-"}</td>
           <td>${Object.entries(s.timeframes || {}).map(([role, tf]) => `${role}:${tf}`).join(", ") || "-"}</td>
           <td>${conditionRolesCell(s.condition_roles)}</td>
@@ -1510,12 +1512,14 @@
           <td>${riskCell(s.id)}</td>
           <td>V${s.current_version || 1} <button class="btn-ghost strat-versions" data-id="${s.id}" data-name="${esc(s.name)}">History</button></td>
           <td>
+            ${s.archived ? `<button class="btn-ghost strat-unarchive" data-id="${s.id}" data-name="${esc(s.name)}">Restore</button>` : `
             <button class="btn-ghost strat-profile" data-id="${s.id}" data-name="${esc(s.name)}">Profile</button>
             <button class="btn-ghost strat-edit" data-id="${s.id}">Edit</button>
             ${s.status !== "READY_FOR_BACKTEST" ? `<button class="btn-ghost strat-clarify" data-id="${s.id}" data-name="${esc(s.name)}">Clarify</button>` : ""}
             <button class="btn-ghost strat-fav" data-id="${s.id}" data-fav="${s.favourite}">${s.favourite ? "★" : "☆"}</button>
             <button class="btn-ghost strat-dup" data-id="${s.id}">Duplicate</button>
             <button class="btn-ghost strat-del" data-id="${s.id}" data-name="${esc(s.name)}">Delete</button>
+            `}
           </td>
         </tr>`).join("");
 
@@ -1524,6 +1528,9 @@
         <div class="btn-row">
           <input id="stratLibSearch" placeholder="Search strategies..." style="max-width:280px;" value="${esc(q)}">
           <button class="btn" id="btnNewStrategy">New Strategy</button>
+          <label style="display:flex;align-items:center;gap:6px;width:auto;">
+            <input type="checkbox" id="stratShowArchived" ${showArchived ? "checked" : ""} style="width:auto;"> Show Archived
+          </label>
         </div>
         <div class="table-wrap"><table>
           <thead><tr><th></th><th>Name</th><th>Concepts</th><th>Timeframes</th><th>Condition Roles</th><th>Status</th><th>Last Backtest</th><th>Live Risk (Sharpe ${helpIcon("sharpe_ratio")} / Max DD ${helpIcon("max_drawdown")})</th><th>Version</th><th></th></tr></thead>
@@ -1545,6 +1552,9 @@
           <div id="strategyProfileBody"></div>
         </div>
 
+        <div class="section-title">Duplicate Strategies</div>
+        <div id="duplicatesBox" class="card"><span class="muted">Checking for duplicates...</span></div>
+
         <div class="section-title">Strategy Graveyard</div>
         <div id="graveyardBox" class="card"><span class="muted">Loading...</span></div>`;
 
@@ -1559,8 +1569,60 @@
         : `<span class="muted">No strategies retired yet.</span>`;
     })();
 
+    (async () => {
+      // Batch 4, Task 3: same DNA-fingerprint detection already used at
+      // import time (knowledge_compiler.quality.strategy_dna), surfaced
+      // as a grouped, actionable view. Loaded into its own box so it
+      // never blocks the main Strategies table from rendering.
+      const d = await apiGet("/api/backtesting/duplicates").catch(() => ({ groups: [] }));
+      const box = document.getElementById("duplicatesBox");
+      if (!box) return;
+      if (!d.groups.length) {
+        box.innerHTML = `<span class="muted">Koi duplicate strategy nahi mili.</span>`;
+        return;
+      }
+      const backtestSummary = r => !r ? "Kabhi test nahi hua"
+        : r.status !== "completed" ? "Test abhi chal raha hai"
+        : `${r.total_trades || 0} trades, ${r.win_rate != null ? r.win_rate + "%" : "-"} win rate`;
+      box.innerHTML = d.groups.map((g, gi) => `
+        <div style="padding:10px 0;border-bottom:1px solid var(--border,#333);">
+          <div class="muted" style="font-size:12px;margin-bottom:6px;">Duplicate group ${gi + 1} -- yeh ${g.strategies.length} strategies same rules ke saath hain</div>
+          <table><thead><tr><th>Name</th><th>Import Hua</th><th>Rules Capture Hue</th><th>Last Backtest</th><th></th></tr></thead>
+          <tbody>
+          ${g.strategies.map(s => `
+            <tr>
+              <td>${esc(s.name)}</td>
+              <td>${esc((s.imported_at || "").slice(0, 10))}</td>
+              <td>${s.rule_count}</td>
+              <td>${esc(backtestSummary(s.last_batch_result))}</td>
+              <td><button class="btn-ghost dup-archive" data-id="${s.id}" data-name="${esc(s.name)}">Archive Karein</button></td>
+            </tr>`).join("")}
+          </tbody></table>
+        </div>`).join("");
+      document.querySelectorAll(".dup-archive").forEach(btn => btn.onclick = async () => {
+        if (!confirm(
+          `"${btn.dataset.name}" ko archive karna hai?\n\n` +
+          `- Yeh strategy list se hat jayegi, lekin PERMANENTLY delete NAHI hogi -- kabhi bhi wapas la sakte hain.\n` +
+          `- Iski saari backtest history aur data safe rahega.\n` +
+          `- Agar yeh group ki aakhri active copy hai to system yeh archive nahi karne dega.`
+        )) return;
+        try {
+          await apiPost(`/api/backtesting/strategies/${btn.dataset.id}/archive`, { confirm: true });
+          render();
+        } catch (e) {
+          alert(e.message || "Archive nahi ho saka.");
+        }
+      });
+    })();
+
       document.getElementById("stratLibSearch").addEventListener("input", debounce(render, 300));
       document.getElementById("btnNewStrategy").onclick = () => { location.hash = "#backtesting"; };
+      document.getElementById("stratShowArchived").addEventListener("change", render);
+      document.querySelectorAll(".strat-unarchive").forEach(btn => btn.onclick = async () => {
+        await apiPost(`/api/backtesting/strategies/${btn.dataset.id}/unarchive`, {});
+        appendLog(`Restored "${btn.dataset.name}" from archive.`);
+        render();
+      });
 
       document.querySelectorAll(".strat-edit").forEach(btn => btn.onclick = () => {
         pendingStrategyLoadId = btn.dataset.id;

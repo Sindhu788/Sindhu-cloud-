@@ -21,6 +21,7 @@ from backtest_engine import monte_carlo, stress_test
 from automation_pipeline import optimizer as grid_optimizer
 from automation_pipeline import genetic_optimizer
 from ai_integration import extraction_lock, multi_pass_extraction
+from knowledge_compiler import quality as kc_quality
 from data_engine.resample import get_ohlcv
 from sindhu_web.jobs import job_manager
 from sindhu_web.api.data import _default_exchange
@@ -145,8 +146,15 @@ def _condition_roles_summary(cfg):
     return out
 
 
-def _compute_strategies_list(q):
-    strategies = lib.search(q)
+def _compute_strategies_list(q, include_archived=False):
+    # Batch 4, Task 3: an archived strategy (a resolved duplicate) stays in
+    # the library in full -- reversible, never deleted -- but drops out of
+    # the normal browsing list unless explicitly requested (include_archived,
+    # used by the "Show Archived" toggle to make the archive reversible in
+    # practice, not just in the API). lib.list_all()/search() themselves are
+    # untouched so every other subsystem (paper trading, evolution, scripts)
+    # keeps seeing it exactly as before.
+    strategies = lib.search(q) if include_archived else [m for m in lib.search(q) if not m.get("archived")]
     recent_batches = storage.list_recent_batches(limit=100)
     # Batch 3, Task 3: one bulk query for every strategy's lock status
     # instead of one round-trip per strategy in the loop below -- this
@@ -223,9 +231,9 @@ _STRATEGIES_CACHE_TTL = 10
 
 
 @router.get("/api/backtesting/strategies")
-def list_strategies(q: str = ""):
-    if q:
-        return {"strategies": _compute_strategies_list(q)}
+def list_strategies(q: str = "", include_archived: bool = False):
+    if q or include_archived:
+        return {"strategies": _compute_strategies_list(q, include_archived=include_archived)}
     return {"strategies": cache.cached(
         _STRATEGIES_CACHE_KEY, _STRATEGIES_CACHE_TTL, lambda: _compute_strategies_list(""))}
 
@@ -233,6 +241,116 @@ def list_strategies(q: str = ""):
 @router.get("/api/backtesting/strategies/{strategy_id}/versions")
 def get_strategy_versions(strategy_id: str):
     return {"versions": lib.version_history(strategy_id)}
+
+
+# --------------------------------------------------------------- Batch 4, Task 3: Duplicate Strategy Cleanup
+
+def _rule_count_for(strategy_id, cfg, fidelity_reports):
+    """Best available "how many rules this one captured" number: the real
+    AI extraction fidelity count (Batch 3) when this strategy went through
+    that pipeline, otherwise a count of its actual parsed conditions --
+    never a guess."""
+    report = fidelity_reports.get(strategy_id)
+    if report:
+        return report["captured_rule_count"]
+    return (
+        len(cfg.entry_conditions) + len(cfg.long_entry_conditions) + len(cfg.short_entry_conditions)
+        + len(cfg.exit_conditions) + len(cfg.confirmation_conditions)
+    )
+
+
+@router.get("/api/backtesting/duplicates")
+def get_duplicate_strategy_groups():
+    """Surfaces the SAME DNA-fingerprint duplicate detection already used
+    at import time (knowledge_compiler.quality.strategy_dna -- no new
+    detection logic here) as an actionable, grouped view: every strategy
+    currently in the library that shares an identical DNA with at least
+    one other active (non-archived) strategy, with enough plain-language
+    info per copy (when imported, how many rules it captured, its most
+    recent backtest) to choose which to keep."""
+    groups = kc_quality.find_duplicate_strategy_groups(lib.list_all, lib.load)
+    if not groups:
+        return {"groups": []}
+
+    all_ids = [sid for g in groups for sid in g["strategy_ids"]]
+    fidelity_reports = storage.get_latest_extraction_fidelity_reports_for_strategies(all_ids)
+    recent_batches = storage.list_recent_batches(limit=100)
+    batch_results_cache = {}
+    meta_by_id = {m["id"]: m for m in lib.list_all()}
+
+    result_groups = []
+    for g in groups:
+        members = []
+        for sid in g["strategy_ids"]:
+            meta = meta_by_id.get(sid)
+            if meta is None:
+                continue
+            try:
+                cfg = lib.load(sid)
+            except FileNotFoundError:
+                continue
+            members.append({
+                "id": sid,
+                "name": meta["name"],
+                "imported_at": meta.get("created_at"),
+                "rule_count": _rule_count_for(sid, cfg, fidelity_reports),
+                "last_batch_result": _strategy_last_batch_result(
+                    meta["name"], recent_batches, batch_results_cache=batch_results_cache),
+            })
+        if len(members) >= 2:
+            result_groups.append({"dna": g["dna"], "strategies": members})
+    return {"groups": result_groups}
+
+
+class ArchiveRequest(BaseModel):
+    confirm: bool = False
+
+
+@router.post("/api/backtesting/strategies/{strategy_id}/archive")
+def archive_strategy(strategy_id: str, req: ArchiveRequest):
+    """Archives (never deletes) one strategy as a resolved duplicate.
+    Blocks archiving the LAST remaining active copy of a DNA group --
+    this endpoint exists to clean up redundant copies, not to make an
+    idea disappear from the library entirely, and that's exactly what
+    "never remove the copy the CEO chooses to keep" means enforced
+    server-side rather than only trusted to the frontend."""
+    if not req.confirm:
+        raise HTTPException(400, "Confirmation required -- pass confirm: true to archive this strategy.")
+    try:
+        cfg = lib.load(strategy_id)
+    except FileNotFoundError:
+        raise HTTPException(404, "strategy not found")
+    dna = kc_quality.strategy_dna(cfg)
+    active_siblings = [
+        m["id"] for m in lib.list_all()
+        if not m.get("archived") and m["id"] != strategy_id
+        and kc_quality.strategy_dna(lib.load(m["id"])) == dna
+    ]
+    if not active_siblings:
+        raise HTTPException(
+            400,
+            "Yeh is group ki AAKHRI active copy hai -- isay archive nahi kar sakte, "
+            "warna is strategy ka koi record active nahi bachega. Pehle koi doosri copy rakhein.",
+        )
+    lib.set_archived(strategy_id, True)
+    cache.invalidate(_STRATEGIES_CACHE_KEY)
+    sync.notify("strategy", "archived", f"Strategy archived (duplicate cleanup): {cfg.name}", id=strategy_id)
+    return {"ok": True, "id": strategy_id, "archived": True}
+
+
+@router.post("/api/backtesting/strategies/{strategy_id}/unarchive")
+def unarchive_strategy(strategy_id: str):
+    """Always allowed -- restoring an archived strategy back into normal
+    browsing can never make things worse, so it needs no confirmation
+    step beyond the click itself."""
+    try:
+        lib.load(strategy_id)
+    except FileNotFoundError:
+        raise HTTPException(404, "strategy not found")
+    lib.set_archived(strategy_id, False)
+    cache.invalidate(_STRATEGIES_CACHE_KEY)
+    sync.notify("strategy", "unarchived", "Strategy restored from archive", id=strategy_id)
+    return {"ok": True, "id": strategy_id, "archived": False}
 
 
 # --------------------------------------------------------------- Batch 3, Task 3: Verification View + Incomplete Lock

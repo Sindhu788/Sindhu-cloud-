@@ -141,6 +141,33 @@ def find_duplicate_strategy(dna, library_list_all, library_load):
     return None
 
 
+def find_duplicate_strategy_groups(library_list_all, library_load, include_archived=False):
+    """Batch 4, Task 3 -- Duplicate Strategy Cleanup. Groups every strategy
+    currently in the Knowledge Library by the SAME strategy_dna() already
+    used at import time to block exact re-saves (no new/fuzzy detection
+    algorithm here, deliberately -- this only surfaces what that existing
+    logic already considers identical). Returns [{"dna": str, "strategy_ids": [id, ...]}]
+    for every DNA shared by 2 or more strategies; singletons are omitted.
+
+    `include_archived` controls whether already-archived strategies count
+    toward a group -- False (the default) so a group the CEO has already
+    resolved down to one active copy stops showing up as still-a-problem."""
+    by_dna = {}
+    for meta in library_list_all():
+        if not include_archived and meta.get("archived"):
+            continue
+        try:
+            config = library_load(meta["id"])
+        except Exception:
+            continue
+        by_dna.setdefault(strategy_dna(config), []).append(meta["id"])
+    return [
+        {"dna": dna, "strategy_ids": ids}
+        for dna, ids in by_dna.items()
+        if len(ids) >= 2
+    ]
+
+
 def searchable_tags(doc_type, concepts_used, timeframes=None, direction=None, category=None):
     tags = list(dict.fromkeys(concepts_used))
     if doc_type:

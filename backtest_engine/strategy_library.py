@@ -64,6 +64,7 @@ def create(config, tags=None):
         "name": config.name,
         "tags": tags or [],
         "favourite": False,
+        "archived": False,
         "created_at": now,
         "updated_at": now,
         "current_version": 1,
@@ -185,6 +186,22 @@ def set_tags(strategy_id, tags):
 def set_favourite(strategy_id, favourite):
     meta = _read_meta(strategy_id)
     meta["favourite"] = bool(favourite)
+    _write_meta(strategy_id, meta)
+
+
+def set_archived(strategy_id, archived):
+    """Batch 4, Task 3 -- Duplicate Strategy Cleanup. Never deletes
+    anything: an archived strategy's meta.json, every version, and every
+    backtest/paper-trading record tied to it stay exactly where they are
+    and can be restored by calling this again with archived=False.
+    Deliberately does NOT change list_all()/search() -- every other
+    subsystem that iterates the full library (paper trading, evolution,
+    scripts) keeps seeing archived strategies exactly as before; only the
+    Strategies page's default view and the duplicate-cleanup view itself
+    treat "archived" as "hidden from normal browsing"."""
+    meta = _read_meta(strategy_id)
+    meta["archived"] = bool(archived)
+    meta["updated_at"] = _now_iso()
     _write_meta(strategy_id, meta)
 
 
