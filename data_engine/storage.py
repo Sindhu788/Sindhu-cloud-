@@ -56,6 +56,12 @@ CREATE TABLE IF NOT EXISTS backtest_batches (
     updated_at TEXT
 );
 
+-- list_recent_batches() (polled by /api/home and /api/backtesting/strategies
+-- on every dashboard load) does ORDER BY created_at DESC LIMIT N with no
+-- index on created_at -- EXPLAIN QUERY PLAN showed "SCAN backtest_batches" +
+-- "USE TEMP B-TREE FOR ORDER BY" (a full-table sort on every call).
+CREATE INDEX IF NOT EXISTS idx_backtest_batches_created_at ON backtest_batches(created_at DESC);
+
 CREATE TABLE IF NOT EXISTS backtest_results (
     batch_id TEXT NOT NULL,
     symbol TEXT NOT NULL,
@@ -1086,6 +1092,20 @@ def get_conn():
     ensure_folders()
     conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.execute("PRAGMA journal_mode=WAL;")
+    # Batch 4, Task 1: the default synchronous=FULL fsyncs on every commit --
+    # on Windows that measured as the dominant cost of every write (the
+    # background paper trading + evolution engines commit constantly), and
+    # each fsync holds the writer lock for its duration, stalling every
+    # concurrent reader (e.g. the dashboard's list_strategies/home queries,
+    # observed blocking 30-60+ seconds under real load). NORMAL still fsyncs
+    # at WAL checkpoints, so a commit is never lost to an app crash -- the
+    # only risk it accepts is losing the last few commits on an OS crash or
+    # power loss, which is SQLite's own documented recommendation for WAL
+    # mode. busy_timeout=10000 matches the connect(timeout=10) already set,
+    # made explicit so a reader waits out a momentary lock instead of
+    # failing outright.
+    conn.execute("PRAGMA synchronous=NORMAL;")
+    conn.execute("PRAGMA busy_timeout=10000;")
     try:
         yield conn
         conn.commit()

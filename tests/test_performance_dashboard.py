@@ -95,7 +95,8 @@ def test_evaluate_returns_green_when_all_four_factors_pass(monkeypatch):
     monkeypatch.setattr(pd.strategy_library, "_read_meta",
                          lambda sid: {"walk_forward_status": "PASS", "walk_forward_result": {"reason": "held up"}})
     monkeypatch.setattr(pd, "find_last_completed_batch", lambda name, recent_batches=None: {"batch_id": "b1"})
-    monkeypatch.setattr(pd, "_pooled_batch_metrics", lambda batch: _pooled(trades=150, expectancy=2.0, profit_factor=1.8))
+    monkeypatch.setattr(pd, "_pooled_batch_metrics",
+                         lambda batch, batch_results_cache=None: _pooled(trades=150, expectancy=2.0, profit_factor=1.8))
 
     result = pd.evaluate_strategy_performance("fake-id")
     assert result["verdict"] == "GREEN"
@@ -110,7 +111,8 @@ def test_evaluate_returns_red_with_specific_named_failures(monkeypatch):
                          lambda sid: {"walk_forward_status": "FAIL", "walk_forward_result": {"reason": "overfit"}})
     monkeypatch.setattr(pd, "find_last_completed_batch", lambda name, recent_batches=None: {"batch_id": "b1"})
     # Passes trade count and expectancy, but profit factor and walk-forward fail.
-    monkeypatch.setattr(pd, "_pooled_batch_metrics", lambda batch: _pooled(trades=546, expectancy=0.5, profit_factor=0.9))
+    monkeypatch.setattr(pd, "_pooled_batch_metrics",
+                         lambda batch, batch_results_cache=None: _pooled(trades=546, expectancy=0.5, profit_factor=0.9))
 
     result = pd.evaluate_strategy_performance("fake-id")
     assert result["verdict"] == "RED"

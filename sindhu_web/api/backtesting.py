@@ -24,7 +24,7 @@ from ai_integration import extraction_lock, multi_pass_extraction
 from data_engine.resample import get_ohlcv
 from sindhu_web.jobs import job_manager
 from sindhu_web.api.data import _default_exchange
-from sindhu_web import sync
+from sindhu_web import sync, cache
 
 
 def _now_iso():
@@ -65,16 +65,18 @@ def save_strategy(req: SaveRequest):
     if strategy_id:
         try:
             lib.save_version(strategy_id, cfg)
+            cache.invalidate(_STRATEGIES_CACHE_KEY)
             sync.notify("strategy", "updated", f"Strategy updated: {cfg.name}", id=strategy_id)
             return {"id": strategy_id}
         except FileNotFoundError:
             pass
     strategy_id = lib.create(cfg, tags=req.tags)
+    cache.invalidate(_STRATEGIES_CACHE_KEY)
     sync.notify("strategy", "created", f"Strategy added: {cfg.name}", id=strategy_id)
     return {"id": strategy_id}
 
 
-def _strategy_last_batch_result(strategy_name, recent_batches):
+def _strategy_last_batch_result(strategy_name, recent_batches, batch_results_cache=None):
     """Lightweight summary straight from each result's already-computed
     metrics_json -- deliberately NOT generate_report(), which also builds
     full rankings/session analysis and writes report.json/.txt to disk on
@@ -96,7 +98,12 @@ def _strategy_last_batch_result(strategy_name, recent_batches):
             continue
         if batch["status"] != "completed":
             return {"batch_id": batch["batch_id"], "status": batch["status"], "created_at": batch["created_at"]}
-        results = storage.get_batch_results(batch["batch_id"])
+        if batch_results_cache is not None and batch["batch_id"] in batch_results_cache:
+            results = batch_results_cache[batch["batch_id"]]
+        else:
+            results = storage.get_batch_results(batch["batch_id"])
+            if batch_results_cache is not None:
+                batch_results_cache[batch["batch_id"]] = results
         completed = [r for r in results if r["status"] == "completed" and r["metrics"]]
         if not completed:
             return {"batch_id": batch["batch_id"], "status": "completed", "created_at": batch["created_at"], "total_trades": 0}
@@ -138,8 +145,7 @@ def _condition_roles_summary(cfg):
     return out
 
 
-@router.get("/api/backtesting/strategies")
-def list_strategies(q: str = ""):
+def _compute_strategies_list(q):
     strategies = lib.search(q)
     recent_batches = storage.list_recent_batches(limit=100)
     # Batch 3, Task 3: one bulk query for every strategy's lock status
@@ -148,6 +154,12 @@ def list_strategies(q: str = ""):
     # measured 130+ seconds under real DB load (other writers holding the
     # SQLite file busy) versus a single query.
     lock_statuses = extraction_lock.check_strategy_locks_bulk([m["id"] for m in strategies])
+    # Batch 4, Task 1: _strategy_last_batch_result and evaluate_strategy_
+    # performance each independently fetch storage.get_batch_results() for
+    # the SAME batch_id when a strategy has one -- this shared dict lets the
+    # second call reuse the first's result instead of opening a second DB
+    # connection, halving that part of the endpoint's real DB round trips.
+    batch_results_cache = {}
     for meta in strategies:
         try:
             cfg = lib.load(meta["id"])
@@ -174,7 +186,8 @@ def list_strategies(q: str = ""):
             meta["concepts_used"], meta["timeframes"], meta["status"] = [], {}, "NEEDS_CLARIFICATION"
             meta["safety_reasons"] = []
             meta["condition_roles"] = []
-        meta["last_batch_result"] = _strategy_last_batch_result(meta["name"], recent_batches)
+        meta["last_batch_result"] = _strategy_last_batch_result(
+            meta["name"], recent_batches, batch_results_cache=batch_results_cache)
         lock_status = lock_statuses.get(meta["id"], {"locked": False, "overridden": False})
         meta["extraction_locked"] = lock_status["locked"]
         meta["extraction_overridden"] = lock_status["overridden"]
@@ -183,13 +196,38 @@ def list_strategies(q: str = ""):
         # blocks or removes a strategy): a single GREEN/RED verdict combining
         # expectancy, profit factor, trade count, and Walk-Forward status.
         try:
-            performance = evaluate_strategy_performance(meta["id"], recent_batches=recent_batches)
+            performance = evaluate_strategy_performance(
+                meta["id"], recent_batches=recent_batches, batch_results_cache=batch_results_cache)
         except Exception:
             performance = None
         meta["performance_verdict"] = performance["verdict"] if performance else None
         meta["performance_label"] = performance["label"] if performance else None
         meta["performance_failed_factors"] = performance["failed_factors"] if performance else []
-    return {"strategies": strategies}
+    return strategies
+
+
+# Batch 4, Task 1: this endpoint is polled by both the Strategies and Paper
+# Trading pages and was measured taking 30-60+ seconds under real DB write
+# contention -- see get_conn()'s synchronous=NORMAL fix for the underlying
+# cause. A short stale-while-revalidate cache (sindhu_web.cache, the same
+# pattern /api/home already uses) means only the very first cold call per
+# TTL window pays that cost; every poll within the window gets the last
+# computed snapshot instantly. Only the no-search-term case (q="") is
+# cached -- that's the one actually hammered by repeated page polls: the
+# search box is a deliberate one-off user action where a stale result would
+# be actively misleading, so q != "" always computes fresh. save_strategy()
+# below explicitly invalidates this key so a newly created/edited strategy
+# is never hidden behind a stale cache entry.
+_STRATEGIES_CACHE_KEY = "strategies_list:all"
+_STRATEGIES_CACHE_TTL = 10
+
+
+@router.get("/api/backtesting/strategies")
+def list_strategies(q: str = ""):
+    if q:
+        return {"strategies": _compute_strategies_list(q)}
+    return {"strategies": cache.cached(
+        _STRATEGIES_CACHE_KEY, _STRATEGIES_CACHE_TTL, lambda: _compute_strategies_list(""))}
 
 
 @router.get("/api/backtesting/strategies/{strategy_id}/versions")

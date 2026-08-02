@@ -62,11 +62,22 @@ def find_last_completed_batch(strategy_name, recent_batches=None):
     return None
 
 
-def _pooled_batch_metrics(batch):
+def _pooled_batch_metrics(batch, batch_results_cache=None):
     """Trade count, dollar expectancy, and average profit factor pooled
     across every symbol completed in this batch. Returns None if the
-    batch has no completed, metric-bearing results yet."""
-    results = storage.get_batch_results(batch["batch_id"])
+    batch has no completed, metric-bearing results yet.
+
+    `batch_results_cache` (optional {batch_id: results}) lets a caller that
+    already fetched this same batch's results elsewhere in the same request
+    (e.g. sindhu_web.api.backtesting._strategy_last_batch_result, which
+    looks up the identical batch_id) reuse them instead of opening a second
+    DB connection for data already in hand -- Batch 4, Task 1."""
+    if batch_results_cache is not None and batch["batch_id"] in batch_results_cache:
+        results = batch_results_cache[batch["batch_id"]]
+    else:
+        results = storage.get_batch_results(batch["batch_id"])
+        if batch_results_cache is not None:
+            batch_results_cache[batch["batch_id"]] = results
     completed = [r for r in results if r["status"] == "completed" and r["metrics"]]
     if not completed:
         return None
@@ -142,7 +153,7 @@ def _check_walk_forward(meta):
             "value": status, "requirement": "== PASS", "detail": detail}
 
 
-def evaluate_strategy_performance(strategy_id, recent_batches=None):
+def evaluate_strategy_performance(strategy_id, recent_batches=None, batch_results_cache=None):
     """Returns:
     {"verdict": "GREEN"|"RED", "label": "Aage Badhao"|"Abhi Ready Nahi",
      "factors": [each of the 4 checks above, in a fixed order],
@@ -158,7 +169,7 @@ def evaluate_strategy_performance(strategy_id, recent_batches=None):
 
     meta = strategy_library._read_meta(strategy_id)
     batch = find_last_completed_batch(cfg.name, recent_batches=recent_batches)
-    pooled = _pooled_batch_metrics(batch) if batch else None
+    pooled = _pooled_batch_metrics(batch, batch_results_cache=batch_results_cache) if batch else None
 
     checks = {
         "expectancy": _check_expectancy(pooled),
