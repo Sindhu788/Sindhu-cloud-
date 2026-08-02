@@ -23,6 +23,7 @@ from knowledge_compiler.compiler import compile_document, compile_from_ai_extrac
 
 from ai_integration import deep_understanding
 from ai_integration import dictionary_builder
+from ai_integration import multi_pass_extraction
 from ai_integration import self_correction
 from ai_integration import strategy_builder
 from ai_integration import youtube_import
@@ -205,7 +206,30 @@ def import_document(raw_text, title=None, source_hint=None, use_ai=True, input_k
         if cached_result is not None:
             ai_result, provider_name, served_from_cache = cached_result, cached_provider, True
 
-    if not served_from_cache:
+    # Batch 3, Task 1: declared strategy content uses the multi-pass
+    # extraction pipeline (rule inventory + 3 focused passes + a
+    # completeness comparison) instead of one combined call -- found in
+    # Batch 2 to drop most of a document's real rules. Lesson/mixed/
+    # undeclared content keeps the single-pass path: a rule-count
+    # checklist doesn't make sense for non-strategy content, and "mixed"
+    # doesn't yet know whether a strategy is even present. The dedup
+    # cache above still short-circuits BOTH paths identically -- a cache
+    # hit never re-runs either one.
+    fidelity_report = None
+    if not served_from_cache and use_ai and content_type == "strategy":
+        mp = multi_pass_extraction.run_multi_pass_extraction(
+            raw_text, source_hint=resolved_source_hint, content_type=content_type,
+        )
+        ai_result, provider_name, ai_error = mp["result"], mp["provider"], mp["error"]
+        if mp["result"] is not None:
+            fidelity_report = {
+                "expected_rule_count": mp["comparison"]["expected_count"],
+                "captured_rule_count": mp["comparison"]["captured_count"],
+                "call_count": mp["call_count"],
+                "rules": mp["comparison"]["rules"],
+                "provider": mp["provider"],
+            }
+    elif not served_from_cache:
         understanding = deep_understanding.understand_document_structured(
             raw_text, use_ai, source_hint=resolved_source_hint, content_type=content_type,
         )
@@ -275,6 +299,20 @@ def import_document(raw_text, title=None, source_hint=None, use_ai=True, input_k
     doc_dict = doc.to_dict()
     new_dictionary_entries = dictionary_builder.save_discovered_terms(dictionary_entries, doc.id)
     _maybe_trigger_pipeline(doc_dict)
+
+    # Batch 3, Task 1: persist the multi-pass completeness comparison
+    # (Task 3's side-by-side view and Incomplete Lock both read this) and
+    # link it to whichever strategy actually got saved from this import.
+    if fidelity_report is not None:
+        now_iso = _now_iso()
+        storage.save_extraction_fidelity_report(
+            content_hash, fidelity_report["expected_rule_count"], fidelity_report["captured_rule_count"],
+            fidelity_report["call_count"], fidelity_report["rules"], fidelity_report["provider"], now_iso,
+        )
+        saved_strategy_ids = [s["saved_strategy_id"] for s in doc_dict.get("strategies") or [] if s.get("saved_strategy_id")]
+        if saved_strategy_ids:
+            storage.set_extraction_fidelity_strategy_id(content_hash, saved_strategy_ids[0])
+
     return {
         "document": doc_dict,
         "ai_assisted": True,
@@ -287,5 +325,6 @@ def import_document(raw_text, title=None, source_hint=None, use_ai=True, input_k
         "hidden_rules": doc.hidden_rules,
         "psychology_notes": doc.psychology_notes,
         "self_correction": correction,
+        "extraction_fidelity": fidelity_report,
         "error": None,
     }

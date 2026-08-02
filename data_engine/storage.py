@@ -533,6 +533,28 @@ CREATE TABLE IF NOT EXISTS ai_import_cache (
     created_at TEXT NOT NULL
 );
 
+-- Batch 3, Task 1/2: one row per multi-pass extraction attempt for one
+-- document (content_hash matches ai_import_cache's key). Keyed by
+-- content_hash first (extraction can happen before a strategy_id exists);
+-- strategy_id is filled in once the strategy is actually saved, via
+-- set_extraction_fidelity_strategy_id(). rules_json is the full per-rule
+-- breakdown -- {id, text, category, status, captured_as} -- which Task 3's
+-- side-by-side view reads directly. retry_count tracks Task 2's
+-- auto-retry attempts against this same document (0 = first pass only).
+CREATE TABLE IF NOT EXISTS extraction_fidelity_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    content_hash TEXT NOT NULL UNIQUE,
+    strategy_id TEXT,
+    expected_rule_count INTEGER NOT NULL,
+    captured_rule_count INTEGER NOT NULL,
+    call_count INTEGER NOT NULL,
+    retry_count INTEGER NOT NULL DEFAULT 0,
+    provider TEXT,
+    rules_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS strategy_optimizations (
     id TEXT PRIMARY KEY,
     strategy_id TEXT NOT NULL,
@@ -3527,6 +3549,70 @@ def save_ai_import_cache(content_hash, ai_result, provider, now_iso):
                ON CONFLICT(content_hash) DO UPDATE SET
                  ai_result_json=excluded.ai_result_json, provider=excluded.provider, created_at=excluded.created_at""",
             (content_hash, json.dumps(ai_result), provider, now_iso),
+        )
+
+
+def save_extraction_fidelity_report(content_hash, expected_rule_count, captured_rule_count,
+                                     call_count, rules, provider, now_iso, retry_count=0):
+    """One row per content_hash -- a re-extraction (Task 2's retries) or
+    a re-import of the same document UPDATES this row in place (there is
+    exactly one "current" fidelity report per document), never appends a
+    second stale one, matching ai_import_cache's own key-per-document
+    convention."""
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO extraction_fidelity_reports
+               (content_hash, expected_rule_count, captured_rule_count, call_count, retry_count,
+                provider, rules_json, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(content_hash) DO UPDATE SET
+                 expected_rule_count=excluded.expected_rule_count,
+                 captured_rule_count=excluded.captured_rule_count,
+                 call_count=excluded.call_count, retry_count=excluded.retry_count,
+                 provider=excluded.provider, rules_json=excluded.rules_json,
+                 updated_at=excluded.updated_at""",
+            (content_hash, expected_rule_count, captured_rule_count, call_count, retry_count,
+             provider, json.dumps(rules), now_iso, now_iso),
+        )
+
+
+def _row_to_extraction_fidelity_report(row):
+    return {
+        "id": row[0], "content_hash": row[1], "strategy_id": row[2],
+        "expected_rule_count": row[3], "captured_rule_count": row[4],
+        "call_count": row[5], "retry_count": row[6], "provider": row[7],
+        "rules": json.loads(row[8]), "created_at": row[9], "updated_at": row[10],
+    }
+
+
+def get_extraction_fidelity_report(content_hash):
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT id, content_hash, strategy_id, expected_rule_count, captured_rule_count, "
+            "call_count, retry_count, provider, rules_json, created_at, updated_at "
+            "FROM extraction_fidelity_reports WHERE content_hash = ?", (content_hash,),
+        ).fetchone()
+    return _row_to_extraction_fidelity_report(row) if row else None
+
+
+def get_extraction_fidelity_report_for_strategy(strategy_id):
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT id, content_hash, strategy_id, expected_rule_count, captured_rule_count, "
+            "call_count, retry_count, provider, rules_json, created_at, updated_at "
+            "FROM extraction_fidelity_reports WHERE strategy_id = ? ORDER BY updated_at DESC LIMIT 1",
+            (strategy_id,),
+        ).fetchone()
+    return _row_to_extraction_fidelity_report(row) if row else None
+
+
+def set_extraction_fidelity_strategy_id(content_hash, strategy_id):
+    """Links a fidelity report (created before the strategy existed, keyed
+    only by content_hash) to the strategy once it's actually saved."""
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE extraction_fidelity_reports SET strategy_id = ? WHERE content_hash = ?",
+            (strategy_id, content_hash),
         )
 
 

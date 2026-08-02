@@ -27,12 +27,19 @@ def _now_iso():
     return datetime.now(timezone.utc).isoformat()
 
 
-def _call_provider_chain(text, chain, source_hint, content_type=None):
-    """One structured-extraction attempt over a single piece of text (the
-    whole document, or one chunk of it), trying each provider in `chain` in
-    order. Returns (parsed_dict_or_None, provider_name_or_None,
+def call_provider_chain_generic(text, chain, system_prompt, endpoint_label, parse_fn):
+    """(Batch 3, Task 1) The shared provider-fallback-with-logging loop
+    behind every single AI call this module makes -- used directly by
+    _call_provider_chain below (the original single-pass structured
+    extraction) and by ai_integration.multi_pass_extraction's rule-count/
+    scoped-pass/comparison calls, so there is exactly one place that
+    tries providers in order, logs usage, and turns provider text into a
+    parsed result (or a clear error) rather than three slightly different
+    copies of the same loop.
+
+    parse_fn(raw_text) -> parsed_or_None (never raises; return None for
+    "not usable"). Returns (parsed_or_None, provider_name_or_None,
     error_summary_or_None). Never raises."""
-    system_prompt = schema.build_structured_extraction_prompt(source_hint, content_type)
     attempts = []
     for provider_name in chain:
         try:
@@ -40,13 +47,13 @@ def _call_provider_chain(text, chain, source_hint, content_type=None):
             provider = ai_providers.get_provider(provider_name, settings)
             result = provider.chat(text, system=system_prompt)
             storage.save_ai_usage_log(
-                provider_name, settings.get("model"), "/ai/import/structured-extraction",
+                provider_name, settings.get("model"), endpoint_label,
                 "success" if result.ok else "error", _now_iso(),
                 tokens_in=result.tokens_in, tokens_out=result.tokens_out, latency_ms=result.latency_ms,
                 error_message=None if result.ok else result.error,
             )
             if result.ok and result.text.strip():
-                parsed = schema.parse_structured_response(result.text)
+                parsed = parse_fn(result.text)
                 if parsed is not None:
                     return parsed, provider_name, None
                 attempts.append(f"{provider_name}: response was not valid/usable JSON")
@@ -56,11 +63,22 @@ def _call_provider_chain(text, chain, source_hint, content_type=None):
             attempts.append(f"{provider_name}: {exc}")
             try:
                 storage.save_ai_usage_log(
-                    provider_name, None, "/ai/import/structured-extraction", "error", _now_iso(), error_message=str(exc)
+                    provider_name, None, endpoint_label, "error", _now_iso(), error_message=str(exc)
                 )
             except Exception:
                 pass
     return None, None, "; ".join(attempts) if attempts else "no provider attempted"
+
+
+def _call_provider_chain(text, chain, source_hint, content_type=None):
+    """One structured-extraction attempt over a single piece of text (the
+    whole document, or one chunk of it), trying each provider in `chain` in
+    order. Returns (parsed_dict_or_None, provider_name_or_None,
+    error_summary_or_None). Never raises."""
+    system_prompt = schema.build_structured_extraction_prompt(source_hint, content_type)
+    return call_provider_chain_generic(
+        text, chain, system_prompt, "/ai/import/structured-extraction", schema.parse_structured_response,
+    )
 
 
 def _dedupe_str_list(items):

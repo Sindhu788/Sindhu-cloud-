@@ -888,3 +888,208 @@ def parse_structured_response(raw_text):
             result[key] = [str(v).strip() for v in value if str(v).strip()]
 
     return result
+
+
+# ================================================================
+# Batch 3, Task 1: Multi-Pass Extraction with Rule Counting
+# ================================================================
+# Replaces one combined extraction call with: an inventory call (count +
+# list every distinct rule, no extraction), three scope-restricted
+# extraction passes, and a comparison call (which inventory rules ended
+# up captured). Motivation: Batch 2 found that a single combined call
+# regularly drops most of a document's rules (PDH-PDL: 2 conditions
+# captured out of 6+ real rules) -- a narrowly-scoped pass with less to
+# track at once drops far fewer.
+
+RULE_CATEGORIES = ["entry", "exit", "filters"]
+
+
+def build_rule_inventory_prompt():
+    """A deliberately NARROW prompt -- list and count, never extract. The
+    smaller the job, the more reliable the count; this call's only
+    purpose is producing a checklist the rest of the pipeline is graded
+    against, so it must not silently merge/drop/summarize rules the way a
+    combined extraction call has been shown to."""
+    return (
+        "You are building a CHECKLIST, not extracting a strategy. Read the "
+        "document and list EVERY distinct trading rule it states -- every "
+        "entry condition, every exit condition, every stop-loss rule, "
+        "every take-profit rule, every filter/discard condition, every "
+        "risk or position-sizing rule. Do NOT combine multiple rules into "
+        "one list item, and do NOT skip a rule because it looks similar "
+        "to another one already listed -- if the document states it as a "
+        "separate sentence/clause, it is a separate rule.\n\n"
+        "For EACH rule, quote the exact original text (do not paraphrase, "
+        "do not summarize -- copy the words as written, trimmed to just "
+        "that rule's clause/sentence) and classify it into exactly one "
+        "category:\n"
+        "  \"entry\" -- an entry condition or entry trigger\n"
+        "  \"exit\" -- an exit rule, stop-loss rule, or take-profit rule\n"
+        "  \"filters\" -- a filter/discard condition, or a risk/position-"
+        "sizing rule (session/day restrictions, minimum RR, distance "
+        "filters, partial exits, etc.)\n\n"
+        "If the document has no trading strategy at all (pure lesson/"
+        "psychology/notes content), return an empty rules list -- never "
+        "invent a rule that isn't there.\n\n"
+        "Respond with ONLY this JSON shape, no other text:\n"
+        "{\n"
+        '  "rules": [{"text": "<exact original wording>", "category": "entry"|"exit"|"filters"}]\n'
+        "}\n"
+    )
+
+
+def parse_rule_inventory_response(raw_text):
+    """Never raises. Returns {"rules": [{"id", "text", "category"}], "count"}
+    or None if the response had no parseable JSON."""
+    data = _parse_json_object(raw_text)
+    if not isinstance(data, dict):
+        return None
+    raw_rules = data.get("rules")
+    if not isinstance(raw_rules, list):
+        return None
+    rules = []
+    for r in raw_rules:
+        if not isinstance(r, dict):
+            continue
+        text = str(r.get("text") or "").strip()
+        if not text:
+            continue
+        category = str(r.get("category") or "").strip().lower()
+        # An unrecognized category label must never cause a real rule to
+        # be dropped from the checklist -- default it to "entry" rather
+        # than discard, so it still counts towards the expected total.
+        if category not in RULE_CATEGORIES:
+            category = "entry"
+        rules.append({"id": len(rules) + 1, "text": text, "category": category})
+    return {"rules": rules, "count": len(rules)}
+
+
+_SCOPE_INSTRUCTIONS = {
+    "entry": (
+        "FOCUSED PASS -- ENTRY RULES ONLY.\n"
+        "Populate ONLY: entry_conditions, long_entry_conditions, "
+        "short_entry_conditions, entry_rule_groups, indicators needed for "
+        "those conditions, concepts_used needed for those conditions, "
+        "timeframes, entry_type, entry_price_offset_pct, name.\n"
+        "Leave EVERY other field at its safe default exactly as if that "
+        "part of the document didn't exist: exit_conditions=[], "
+        "confirmation_conditions=[], stop_loss={\"type\":\"unknown\"}, "
+        "take_profit={\"type\":\"unknown\"}, risk_pct=null, "
+        "risk_reward=null, session_filter=[], trend_filter=null, "
+        "day_filter=[], breakeven_at_rr=null, "
+        "sl_distance_filter_pct=null, min_risk_reward_filter=null, "
+        "primary_target_lookback_bars=null, partial_take_profit=null. Do "
+        "NOT try to be helpful by also filling those in -- another "
+        "focused pass handles them, and populating them here risks "
+        "double-counting or drift between passes."
+    ),
+    "exit": (
+        "FOCUSED PASS -- EXIT RULES, STOP-LOSS, AND TAKE-PROFIT ONLY.\n"
+        "Populate ONLY: exit_conditions, confirmation_conditions, "
+        "stop_loss, take_profit, breakeven_at_rr, name.\n"
+        "Leave EVERY other field at its safe default exactly as if that "
+        "part of the document didn't exist: entry_conditions=[], "
+        "long_entry_conditions=[], short_entry_conditions=[], "
+        "entry_rule_groups=[], entry_type=\"market\", "
+        "entry_price_offset_pct=null, risk_pct=null, risk_reward=null "
+        "(UNLESS risk_reward is only ever used to compute take_profit "
+        "type \"rr\" -- then it belongs here), session_filter=[], "
+        "trend_filter=null, day_filter=[], sl_distance_filter_pct=null, "
+        "min_risk_reward_filter=null, primary_target_lookback_bars=null, "
+        "partial_take_profit=null. Do NOT try to be helpful by also "
+        "filling those in -- another focused pass handles them."
+    ),
+    "filters": (
+        "FOCUSED PASS -- FILTERS, DISCARD CONDITIONS, AND RISK/POSITION-"
+        "SIZING RULES ONLY.\n"
+        "Populate ONLY: sl_distance_filter_pct, min_risk_reward_filter, "
+        "primary_target_lookback_bars, partial_take_profit, risk_pct, "
+        "session_filter, trend_filter, day_filter, name, and any "
+        "candle_range_pct-type condition (a percent-range requirement on "
+        "a candle's own size) -- put those inside entry_conditions ONLY "
+        "if they are themselves filter/discard conditions, not ordinary "
+        "entry triggers.\n"
+        "Leave EVERY other field at its safe default exactly as if that "
+        "part of the document didn't exist: entry_conditions=[] (except "
+        "the candle_range_pct case above), long_entry_conditions=[], "
+        "short_entry_conditions=[], entry_rule_groups=[], "
+        "exit_conditions=[], confirmation_conditions=[], "
+        "stop_loss={\"type\":\"unknown\"}, take_profit={\"type\":\"unknown\"}, "
+        "risk_reward=null, entry_type=\"market\", "
+        "entry_price_offset_pct=null, breakeven_at_rr=null. Do NOT try to "
+        "be helpful by also filling those in -- another focused pass "
+        "handles them."
+    ),
+}
+
+
+def build_scoped_extraction_prompt(scope, source_hint=None, content_type=None):
+    """scope: one of RULE_CATEGORIES ("entry" | "exit" | "filters"). Reuses
+    the full structured-extraction prompt (same vocabulary, same JSON
+    schema, same self-verification discipline) with a scope restriction
+    prepended -- still returns the FULL JSON shape every time, just with
+    everything outside `scope` left at its default, so a focused pass can
+    be merged with the other two without needing to guess which fields it
+    was even responsible for."""
+    if scope not in _SCOPE_INSTRUCTIONS:
+        raise ValueError(f"unknown extraction scope: {scope!r}")
+    base = build_structured_extraction_prompt(source_hint, content_type)
+    return f"{_SCOPE_INSTRUCTIONS[scope]}\n\n{'=' * 60}\n\n{base}"
+
+
+def build_comparison_prompt(rule_inventory, captured_summary):
+    """rule_inventory: the parsed dict from parse_rule_inventory_response
+    (a numbered checklist). captured_summary: a plain-text/JSON summary of
+    what the three focused passes actually produced (entry/exit/filter
+    conditions, stop_loss/take_profit, etc.) -- built by
+    ai_integration.multi_pass_extraction. Asks the AI to do the fuzzy
+    matching a human would do: read each checklist rule and decide if the
+    captured strategy actually represents it."""
+    rules_text = "\n".join(f"{r['id']}. [{r['category']}] {r['text']}" for r in rule_inventory.get("rules", []))
+    return (
+        "You are auditing a strategy extraction for completeness. Below is "
+        "a numbered CHECKLIST of every rule the original document stated, "
+        "and a summary of what was actually captured into the executable "
+        "strategy.\n\n"
+        f"CHECKLIST:\n{rules_text}\n\n"
+        f"CAPTURED:\n{captured_summary}\n\n"
+        "For EACH checklist item, decide: is this rule genuinely "
+        "represented in what was captured (even if reworded/mapped onto "
+        "different vocabulary), or is it missing? Be strict -- a rule "
+        "that's only PARTLY captured (e.g. the entry condition is there "
+        "but a numeric filter attached to it isn't) counts as missing for "
+        "that filter, not captured just because something related exists.\n\n"
+        "Respond with ONLY this JSON shape, no other text:\n"
+        "{\n"
+        '  "results": [{"rule_id": <number>, "status": "captured"|"missing", '
+        '"captured_as": "<brief plain description of what represents it, or null if missing>"}]\n'
+        "}\n"
+    )
+
+
+def parse_comparison_response(raw_text):
+    """Never raises. Returns {"results": [{"rule_id", "status", "captured_as"}]}
+    or None if the response had no parseable JSON."""
+    data = _parse_json_object(raw_text)
+    if not isinstance(data, dict):
+        return None
+    raw_results = data.get("results")
+    if not isinstance(raw_results, list):
+        return None
+    results = []
+    for r in raw_results:
+        if not isinstance(r, dict):
+            continue
+        try:
+            rule_id = int(r.get("rule_id"))
+        except (TypeError, ValueError):
+            continue
+        status = str(r.get("status") or "").strip().lower()
+        if status not in ("captured", "missing"):
+            status = "missing"  # never silently assume captured on a malformed status
+        captured_as = r.get("captured_as")
+        results.append({
+            "rule_id": rule_id, "status": status,
+            "captured_as": str(captured_as).strip() if captured_as else None,
+        })
+    return {"results": results}
