@@ -30,6 +30,7 @@ from sindhu_web import sync
 
 from automation_pipeline import optimizer
 from automation_pipeline import walk_forward
+from ai_integration import extraction_lock
 
 FAST_SCREEN_WINDOW_DAYS = 30
 
@@ -61,6 +62,18 @@ def trigger_pipeline_for_strategy(strategy_id, strategy_name=None, symbols=None)
     chain quickly against a handful of coins instead of waiting on the
     full universe, without touching the production auto-trigger behavior
     at all."""
+    # Batch 3, Task 3: Incomplete Lock -- a strategy with rules the
+    # system still couldn't understand (after Task 2's retries) never
+    # enters backtesting/optimization/paper-trading via the automatic
+    # pipeline, unless the CEO already explicitly overrode it. Skipped
+    # (not raised) for the same reason the concurrent-job checks below
+    # are skips -- an import request must never fail because of this.
+    lock_status = extraction_lock.check_strategy_lock(strategy_id)
+    if lock_status["locked"]:
+        file_log(f"[automation-pipeline] Skipped auto-pipeline for '{strategy_name or strategy_id}' -- "
+                  f"{extraction_lock.lock_message(lock_status)}")
+        return None
+
     if job_manager.get_running_job_of_kind("pipeline") is not None:
         file_log(f"[automation-pipeline] Skipped auto-pipeline for '{strategy_name or strategy_id}' "
                   f"-- another pipeline is already running.")
@@ -234,6 +247,13 @@ def run_pipeline(job_id, strategy_id, control=None, symbols=None, resume=None):
         storage.update_pipeline_job(job_id, _now_iso(), status="stopped")
         return {"error": "stopped", "stopped_after": after_stage}
 
+    # Batch 3, Task 3: if this strategy was previously locked and the CEO
+    # explicitly overrode it, every batch this pipeline run produces is
+    # permanently tagged -- resume_pipeline_jobs_on_startup() calls this
+    # same function, so a resumed run stays tagged consistently too.
+    lock_status = extraction_lock.check_strategy_lock(strategy_id)
+    extraction_override_warning = lock_status["overridden"] and bool(lock_status["missing_rules"])
+
     try:
         try:
             cfg = lib.load(strategy_id)
@@ -321,6 +341,7 @@ def run_pipeline(job_id, strategy_id, control=None, symbols=None, resume=None):
             original_batch_id = runner.run_mtf_batch(
                 cfg, exchange, symbols, settings, log=log_fn, control=control,
                 progress_cb=_progress_cb, use_multiprocessing=True, batch_id=original_batch_id,
+                extraction_override_warning=extraction_override_warning,
             )
             if control and control.should_stop():
                 return _stopped("backtesting")
@@ -412,6 +433,7 @@ def run_pipeline(job_id, strategy_id, control=None, symbols=None, resume=None):
             optimized_batch_id = runner.run_mtf_batch(
                 best_candidate, exchange, symbols, settings, log=log_fn, control=control,
                 progress_cb=_val_progress_cb, use_multiprocessing=True, batch_id=optimized_batch_id,
+                extraction_override_warning=extraction_override_warning,
             )
             if control and control.should_stop():
                 return _stopped("optimizing")

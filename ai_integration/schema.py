@@ -1059,10 +1059,21 @@ def build_comparison_prompt(rule_inventory, captured_summary):
         "that's only PARTLY captured (e.g. the entry condition is there "
         "but a numeric filter attached to it isn't) counts as missing for "
         "that filter, not captured just because something related exists.\n\n"
+        "IMPORTANT -- the person reading \"captured_as\" has NO trading "
+        "background and will never see this codebase's internal names. "
+        "Write it as one short, plain, everyday ROMAN URDU / HINGLISH "
+        "sentence (the natural spoken mix, not formal/literary Urdu, not "
+        "raw English jargon) describing in simple words what the system "
+        "actually does for this rule -- e.g. \"Jab price PDH se upar "
+        "jaaye to system yeh dekhta hai\" instead of naming a condition "
+        "type, field name, or internal identifier. Never write a raw "
+        "internal term (like a condition type name or field name) in "
+        "this description -- describe the BEHAVIOR in plain words a "
+        "non-trader would understand.\n\n"
         "Respond with ONLY this JSON shape, no other text:\n"
         "{\n"
         '  "results": [{"rule_id": <number>, "status": "captured"|"missing", '
-        '"captured_as": "<brief plain description of what represents it, or null if missing>"}]\n'
+        '"captured_as": "<one short Roman Urdu/Hinglish sentence in plain words, or null if missing>"}]\n'
         "}\n"
     )
 

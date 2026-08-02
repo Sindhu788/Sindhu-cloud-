@@ -1077,6 +1077,63 @@
       <polyline class="${lineCls}" points="${pts.join(" ")}"/>`;
   }
 
+  // Batch 3, Task 3: side-by-side verification view + Incomplete Lock.
+  // Left column = the user's own document text (verbatim). Right column =
+  // a plain Roman Urdu/Hinglish sentence of what SINDHU actually
+  // understood, or a clear "samajh nahi aaya" placeholder. No jargon, no
+  // internal identifiers -- the user's task is just to visually compare
+  // the two columns.
+  function renderExtractionVerificationSection(strategyId, v) {
+    if (!v) {
+      return `<div class="section-title">Strategy Samjhi Gayi? (Verification)</div>
+        <div class="card"><span class="muted">Yeh check load nahi ho saka.</span></div>`;
+    }
+    if (!v.has_report) {
+      return `
+        <div class="section-title">Strategy Samjhi Gayi? (Verification)</div>
+        <div class="card">
+          <div style="margin-bottom:10px;">${esc(v.summary_text)}</div>
+          <button class="btn" id="extractionAuditBtn" data-id="${esc(strategyId)}">Ab Check Karein</button>
+          <div id="extractionAuditMsg" class="muted" style="margin-top:6px;"></div>
+        </div>`;
+    }
+
+    const lockBanner = v.locked
+      ? `<div class="card" style="border-left:3px solid var(--negative, #e5484d); margin-bottom:10px;">
+           🔒 <b>Yeh strategy abhi test nahi ho sakti</b> -- neeche jo rules "Samajh Nahi Aaya" hain, unki wajah se.<br>
+           <button class="btn" id="extractionOverrideBtn" data-id="${esc(strategyId)}" data-value="true" style="margin-top:8px;">Phir Bhi Test Karein (Test Anyway)</button>
+         </div>`
+      : (v.overridden
+          ? `<div class="card" style="border-left:3px solid var(--warning, #e5a944); margin-bottom:10px;">
+               ⚠ <b>Warning:</b> Yeh strategy adhoori samajh ke saath test ho rahi hai (aapne "Test Anyway" dabaya tha) -- iske results poori tarah bharosemand nahi hain.<br>
+               <button class="btn-ghost" id="extractionOverrideBtn" data-id="${esc(strategyId)}" data-value="false" style="margin-top:8px;">Lock Wapas Laga Dein</button>
+             </div>`
+          : "");
+
+    const rows = v.rows.map(r => `
+      <tr>
+        <td style="max-width:320px;">${esc(r.original_text)}</td>
+        <td style="max-width:320px;">${esc(r.understood_as || "-")}</td>
+        <td>${r.captured ? '<span class="pill pill-bullish">✅ Samajh Aaya</span>' : '<span class="pill pill-bearish">❌ Samajh Nahi Aaya</span>'}</td>
+      </tr>`).join("");
+
+    return `
+      <div class="section-title">Strategy Samjhi Gayi? (Verification)</div>
+      <div class="card" style="margin-bottom:10px;">
+        ${esc(v.summary_text)}
+        <div class="muted" style="margin-top:6px;font-size:12px;">${v.captured_count} / ${v.expected_count} rules samajh aaye${v.retry_count ? ` -- ${v.retry_count} dobara koshish ki gayi` : ""}</div>
+      </div>
+      ${lockBanner}
+      <div class="table-wrap"><table>
+        <thead><tr><th>Aapne Jo Likha (Original)</th><th>System Ne Kya Samjha</th><th>Status</th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="3">Is document mein koi rule nahi mila.</td></tr>'}</tbody>
+      </table></div>
+      <div class="btn-row" style="margin-top:10px;">
+        <button class="btn-ghost" id="extractionAuditBtn" data-id="${esc(strategyId)}">Dobara Check Karein</button>
+        <span id="extractionAuditMsg" class="muted"></span>
+      </div>`;
+  }
+
   function sparklineSvg(series) {
     if (series.length < 2) return `<div class="muted">Not enough trades for a chart.</div>`;
     return `<svg viewBox="0 0 400 160" preserveAspectRatio="none">${sparklineInner(series, 400, 160, 6)}</svg>`;
@@ -1379,6 +1436,14 @@
     return `<span class="pill ${cls}">${esc(label)}</span>`;
   }
 
+  // Batch 3, Task 3: at-a-glance Incomplete Lock indicator on the
+  // strategies table, no jargon -- full explanation lives in Profile.
+  function extractionLockBadge(s) {
+    if (s.extraction_locked) return `<br><span class="pill pill-bearish" style="margin-top:4px;">🔒 Locked</span>`;
+    if (s.extraction_overridden) return `<br><span class="pill" style="margin-top:4px;background:var(--warning,#e5a944);">⚠ Adhoori Test</span>`;
+    return "";
+  }
+
   // Strategy Performance Dashboard: a single GREEN/RED read at a glance,
   // combining expectancy/profit-factor/trade-count/Walk-Forward into one
   // verdict (backtest_engine/performance_dashboard.py computes this --
@@ -1440,7 +1505,7 @@
           <td>${(s.concepts_used || []).join(", ") || "-"}</td>
           <td>${Object.entries(s.timeframes || {}).map(([role, tf]) => `${role}:${tf}`).join(", ") || "-"}</td>
           <td>${conditionRolesCell(s.condition_roles)}</td>
-          <td>${strategyStatusPill(s.status)}</td>
+          <td>${strategyStatusPill(s.status)}${extractionLockBadge(s)}</td>
           <td>${lastBacktestCell(s.last_batch_result)}</td>
           <td>${riskCell(s.id)}</td>
           <td>V${s.current_version || 1} <button class="btn-ghost strat-versions" data-id="${s.id}" data-name="${esc(s.name)}">History</button></td>
@@ -1522,17 +1587,20 @@
         box.style.display = "block";
         box.scrollIntoView({ behavior: "smooth", block: "start" });
         try {
-          const [p, balHistRes, coinStatsRes, confHistRes] = await Promise.all([
+          const [p, balHistRes, coinStatsRes, confHistRes, verification] = await Promise.all([
             apiGet(`/api/paper-trading/strategy-profile/${btn.dataset.id}`),
             apiGet(`/api/paper-trading/balance-history/${btn.dataset.id}`).catch(() => ({ points: [] })),
             apiGet(`/api/paper-trading/coin-stats/${btn.dataset.id}`).catch(() => ({ coins: [] })),
             apiGet(`/api/paper-trading/confluence-history/${btn.dataset.id}`).catch(() => ({ history: [] })),
+            apiGet(`/api/backtesting/strategies/${btn.dataset.id}/extraction-verification`).catch(() => null),
           ]);
           const readiness = p.real_trading_readiness;
           const balSeries = (balHistRes.points || []).map(pt => pt.balance);
           const coinRows = coinStatsRes.coins || [];
           const confSeries = (confHistRes.history || []).map(h => h.confluence_ratio * 100);
           body.innerHTML = `
+            ${renderExtractionVerificationSection(btn.dataset.id, verification)}
+
             <div class="grid">
               ${card(`Confidence Score ${helpIcon("confidence_score")}`, p.confidence_score != null ? p.confidence_score : "No data yet")}
               ${card("Current Streak", p.streak ? `${p.streak.count} ${p.streak.type}${p.streak.count !== 1 ? "es" : ""}` : "-")}
@@ -1591,6 +1659,27 @@
 
             <div class="section-title">Version History</div>
             <div class="card">${p.genealogy.map(v => `<div>V${v.version} -- ${esc((v.modified_at || "").slice(0,19))}</div>`).join("") || `<span class="muted">No history.</span>`}</div>`;
+
+          const auditBtn = document.getElementById("extractionAuditBtn");
+          if (auditBtn) auditBtn.onclick = async () => {
+            const msg = document.getElementById("extractionAuditMsg");
+            auditBtn.disabled = true;
+            msg.textContent = "Check ho raha hai... thoda time lagega.";
+            try {
+              await apiPost(`/api/backtesting/strategies/${auditBtn.dataset.id}/extraction-audit`, {});
+              btn.click();  // re-open the profile to show the fresh result
+            } catch (e) {
+              msg.textContent = `Check nahi ho saka: ${e.message}`;
+              auditBtn.disabled = false;
+            }
+          };
+          const overrideBtn = document.getElementById("extractionOverrideBtn");
+          if (overrideBtn) overrideBtn.onclick = async () => {
+            const goingTo = overrideBtn.dataset.value === "true";
+            if (goingTo && !confirm("Aap adhoori samajh ke saath test karna chahte hain? Results par hamesha warning dikhegi.")) return;
+            await apiPost(`/api/backtesting/strategies/${overrideBtn.dataset.id}/extraction-override`, { overridden: goingTo });
+            btn.click();
+          };
         } catch (e) {
           body.innerHTML = `<p class="muted">Could not load profile: ${esc(e.message)}</p>`;
         }

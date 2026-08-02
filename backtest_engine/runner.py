@@ -118,7 +118,8 @@ def run_batch(strategy_class, exchange, symbols, timeframes, settings,
 
 def run_mtf_batch(config, exchange, symbols, settings, start_ms=None, end_ms=None,
                    batch_id=None, log=default_log, control=None, progress_cb=None,
-                   trade_cb=None, use_multiprocessing=True, max_workers=None):
+                   trade_cb=None, use_multiprocessing=True, max_workers=None,
+                   extraction_override_warning=False):
     """Runs a parsed multi-timeframe StrategyConfig across multiple coins.
 
     Unlike run_batch, the timeframes are fixed by the strategy itself
@@ -144,13 +145,15 @@ def run_mtf_batch(config, exchange, symbols, settings, start_ms=None, end_ms=Non
 
     if batch_id is None:
         batch_id = new_batch_id()
-        storage.create_batch(batch_id, strategy_name, exchange, full_settings, _now_iso())
+        storage.create_batch(batch_id, strategy_name, exchange, full_settings, _now_iso(),
+                              extraction_override_warning=extraction_override_warning)
         storage.register_strategy(strategy_name, "backtest_engine.configured_strategy", _now_iso())
         log(f"Backtesting Started... (batch {batch_id})")
     else:
         existing = storage.get_batch(batch_id)
         if existing is None:
-            storage.create_batch(batch_id, strategy_name, exchange, full_settings, _now_iso())
+            storage.create_batch(batch_id, strategy_name, exchange, full_settings, _now_iso(),
+                                  extraction_override_warning=extraction_override_warning)
         log(f"Resuming batch {batch_id}...")
 
     completed = storage.get_completed_result_keys(batch_id)

@@ -841,6 +841,34 @@ def _migrate_backtest_batch_columns(conn):
             conn.execute(f"ALTER TABLE backtest_batches ADD COLUMN {col} {col_type}")
 
 
+def _migrate_extraction_fidelity_override_column(conn):
+    """Batch 3, Task 3: the Incomplete Lock override -- a CEO who
+    explicitly chose to test a strategy anyway despite missing rules.
+    Additive-only, existing rows default to 0 (not overridden, still
+    locked if incomplete)."""
+    existing = {r[0] for r in
+                conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "extraction_fidelity_reports" not in existing:
+        return
+    have_columns = {r[1] for r in conn.execute("PRAGMA table_info(extraction_fidelity_reports)").fetchall()}
+    if "overridden" not in have_columns:
+        conn.execute("ALTER TABLE extraction_fidelity_reports ADD COLUMN overridden INTEGER NOT NULL DEFAULT 0")
+
+
+def _migrate_backtest_batch_extraction_warning_column(conn):
+    """Batch 3, Task 3: every backtest run for a strategy that was locked
+    (missing rules) but explicitly overridden gets permanently tagged, so
+    its numbers are never later mistaken for a fair, complete evaluation.
+    Additive-only, existing rows default to 0."""
+    existing = {r[0] for r in
+                conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "backtest_batches" not in existing:
+        return
+    have_columns = {r[1] for r in conn.execute("PRAGMA table_info(backtest_batches)").fetchall()}
+    if "extraction_override_warning" not in have_columns:
+        conn.execute("ALTER TABLE backtest_batches ADD COLUMN extraction_override_warning INTEGER NOT NULL DEFAULT 0")
+
+
 def _migrate_ai_import_queue_v6_columns(conn):
     """AI Knowledge Learning Engine (v6): a queued item can now be a YouTube
     URL instead of pasted/uploaded text -- additive column only, existing
@@ -1167,6 +1195,8 @@ def init_db():
         _migrate_lesson_stats_summary_backfill(conn)
         _migrate_paper_account_state_per_strategy(conn)
         _migrate_paper_strategy_config_pause_columns(conn)
+        _migrate_extraction_fidelity_override_column(conn)
+        _migrate_backtest_batch_extraction_warning_column(conn)
 
 
 def save_symbols(exchange, symbols, now_iso):
@@ -1319,20 +1349,21 @@ def register_strategy(name, file_path, now_iso):
         )
 
 
-def create_batch(batch_id, strategy_name, exchange, settings, now_iso):
+def create_batch(batch_id, strategy_name, exchange, settings, now_iso, extraction_override_warning=False):
     with get_conn() as conn:
         conn.execute(
-            """INSERT INTO backtest_batches (batch_id, strategy_name, exchange, settings_json, status, created_at, updated_at)
-               VALUES (?, ?, ?, ?, 'running', ?, ?)""",
-            (batch_id, strategy_name, exchange, json.dumps(settings), now_iso, now_iso),
+            """INSERT INTO backtest_batches
+               (batch_id, strategy_name, exchange, settings_json, status, created_at, updated_at, extraction_override_warning)
+               VALUES (?, ?, ?, ?, 'running', ?, ?, ?)""",
+            (batch_id, strategy_name, exchange, json.dumps(settings), now_iso, now_iso, 1 if extraction_override_warning else 0),
         )
 
 
 def get_batch(batch_id):
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT batch_id, strategy_name, exchange, settings_json, status, created_at, updated_at, display_name "
-            "FROM backtest_batches WHERE batch_id = ?",
+            "SELECT batch_id, strategy_name, exchange, settings_json, status, created_at, updated_at, "
+            "display_name, extraction_override_warning FROM backtest_batches WHERE batch_id = ?",
             (batch_id,),
         ).fetchone()
     if not row:
@@ -1341,20 +1372,21 @@ def get_batch(batch_id):
         "batch_id": row[0], "strategy_name": row[1], "exchange": row[2],
         "settings": json.loads(row[3]), "status": row[4],
         "created_at": row[5], "updated_at": row[6], "display_name": row[7],
+        "extraction_override_warning": bool(row[8]) if len(row) > 8 and row[8] is not None else False,
     }
 
 
 def list_recent_batches(limit=30):
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT batch_id, strategy_name, exchange, settings_json, status, created_at, updated_at, display_name "
-            "FROM backtest_batches ORDER BY created_at DESC LIMIT ?",
+            "SELECT batch_id, strategy_name, exchange, settings_json, status, created_at, updated_at, "
+            "display_name, extraction_override_warning FROM backtest_batches ORDER BY created_at DESC LIMIT ?",
             (limit,),
         ).fetchall()
     return [
         {"batch_id": r[0], "strategy_name": r[1], "exchange": r[2],
          "settings": json.loads(r[3]), "status": r[4], "created_at": r[5], "updated_at": r[6],
-         "display_name": r[7]}
+         "display_name": r[7], "extraction_override_warning": bool(r[8]) if len(r) > 8 and r[8] is not None else False}
         for r in rows
     ]
 
@@ -3582,6 +3614,7 @@ def _row_to_extraction_fidelity_report(row):
         "expected_rule_count": row[3], "captured_rule_count": row[4],
         "call_count": row[5], "retry_count": row[6], "provider": row[7],
         "rules": json.loads(row[8]), "created_at": row[9], "updated_at": row[10],
+        "overridden": bool(row[11]) if len(row) > 11 else False,
     }
 
 
@@ -3589,7 +3622,7 @@ def get_extraction_fidelity_report(content_hash):
     with get_conn() as conn:
         row = conn.execute(
             "SELECT id, content_hash, strategy_id, expected_rule_count, captured_rule_count, "
-            "call_count, retry_count, provider, rules_json, created_at, updated_at "
+            "call_count, retry_count, provider, rules_json, created_at, updated_at, overridden "
             "FROM extraction_fidelity_reports WHERE content_hash = ?", (content_hash,),
         ).fetchone()
     return _row_to_extraction_fidelity_report(row) if row else None
@@ -3599,11 +3632,37 @@ def get_extraction_fidelity_report_for_strategy(strategy_id):
     with get_conn() as conn:
         row = conn.execute(
             "SELECT id, content_hash, strategy_id, expected_rule_count, captured_rule_count, "
-            "call_count, retry_count, provider, rules_json, created_at, updated_at "
+            "call_count, retry_count, provider, rules_json, created_at, updated_at, overridden "
             "FROM extraction_fidelity_reports WHERE strategy_id = ? ORDER BY updated_at DESC LIMIT 1",
             (strategy_id,),
         ).fetchone()
     return _row_to_extraction_fidelity_report(row) if row else None
+
+
+def get_latest_extraction_fidelity_reports_for_strategies(strategy_ids):
+    """Bulk version of get_extraction_fidelity_report_for_strategy -- one
+    query instead of one per strategy (used by the Strategies list view,
+    which would otherwise pay N separate round-trips just to show a lock
+    badge). Returns {strategy_id: report}, only for ids that have one."""
+    strategy_ids = [s for s in strategy_ids if s]
+    if not strategy_ids:
+        return {}
+    placeholders = ",".join("?" * len(strategy_ids))
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, content_hash, strategy_id, expected_rule_count, captured_rule_count, "
+            "call_count, retry_count, provider, rules_json, created_at, updated_at, overridden "
+            f"FROM extraction_fidelity_reports WHERE strategy_id IN ({placeholders}) "
+            "ORDER BY updated_at DESC",
+            strategy_ids,
+        ).fetchall()
+    # rows are newest-first; keep only the first (latest) row per strategy_id
+    result = {}
+    for row in rows:
+        report = _row_to_extraction_fidelity_report(row)
+        if report["strategy_id"] not in result:
+            result[report["strategy_id"]] = report
+    return result
 
 
 def set_extraction_fidelity_strategy_id(content_hash, strategy_id):
@@ -3613,6 +3672,18 @@ def set_extraction_fidelity_strategy_id(content_hash, strategy_id):
         conn.execute(
             "UPDATE extraction_fidelity_reports SET strategy_id = ? WHERE content_hash = ?",
             (strategy_id, content_hash),
+        )
+
+
+def set_extraction_fidelity_override(strategy_id, overridden):
+    """(Batch 3, Task 3) The CEO's explicit "test it anyway" override for
+    a locked (incomplete) strategy. Set overridden=False to re-lock it
+    (e.g. after a re-audit still shows missing rules and the CEO wants
+    the safety net back)."""
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE extraction_fidelity_reports SET overridden = ? WHERE strategy_id = ?",
+            (1 if overridden else 0, strategy_id),
         )
 
 

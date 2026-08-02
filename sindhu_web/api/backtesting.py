@@ -1,4 +1,6 @@
+import hashlib
 import uuid
+from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 
 from fastapi import APIRouter, HTTPException
@@ -18,10 +20,15 @@ from backtest_engine.reports import generate_report
 from backtest_engine import monte_carlo, stress_test
 from automation_pipeline import optimizer as grid_optimizer
 from automation_pipeline import genetic_optimizer
+from ai_integration import extraction_lock, multi_pass_extraction
 from data_engine.resample import get_ohlcv
 from sindhu_web.jobs import job_manager
 from sindhu_web.api.data import _default_exchange
 from sindhu_web import sync
+
+
+def _now_iso():
+    return datetime.now(timezone.utc).isoformat()
 
 router = APIRouter()
 
@@ -135,6 +142,12 @@ def _condition_roles_summary(cfg):
 def list_strategies(q: str = ""):
     strategies = lib.search(q)
     recent_batches = storage.list_recent_batches(limit=100)
+    # Batch 3, Task 3: one bulk query for every strategy's lock status
+    # instead of one round-trip per strategy in the loop below -- this
+    # list is polled/loaded frequently, and N separate small queries
+    # measured 130+ seconds under real DB load (other writers holding the
+    # SQLite file busy) versus a single query.
+    lock_statuses = extraction_lock.check_strategy_locks_bulk([m["id"] for m in strategies])
     for meta in strategies:
         try:
             cfg = lib.load(meta["id"])
@@ -162,6 +175,9 @@ def list_strategies(q: str = ""):
             meta["safety_reasons"] = []
             meta["condition_roles"] = []
         meta["last_batch_result"] = _strategy_last_batch_result(meta["name"], recent_batches)
+        lock_status = lock_statuses.get(meta["id"], {"locked": False, "overridden": False})
+        meta["extraction_locked"] = lock_status["locked"]
+        meta["extraction_overridden"] = lock_status["overridden"]
         # Strategy Performance Dashboard (display-only -- reads already-
         # computed backtest/walk-forward results, never runs anything, never
         # blocks or removes a strategy): a single GREEN/RED verdict combining
@@ -179,6 +195,75 @@ def list_strategies(q: str = ""):
 @router.get("/api/backtesting/strategies/{strategy_id}/versions")
 def get_strategy_versions(strategy_id: str):
     return {"versions": lib.version_history(strategy_id)}
+
+
+# --------------------------------------------------------------- Batch 3, Task 3: Verification View + Incomplete Lock
+
+class ExtractionOverrideRequest(BaseModel):
+    overridden: bool
+
+
+@router.get("/api/backtesting/strategies/{strategy_id}/extraction-verification")
+def get_extraction_verification(strategy_id: str):
+    """Side-by-side view data (Task 3): each row is the user's own
+    document text next to a plain Roman Urdu/Hinglish description of what
+    was understood, plus a captured/missing mark and an overall
+    plain-language summary. Also whether this strategy is currently
+    locked out of backtesting/optimization/paper trading."""
+    try:
+        lib.load(strategy_id)
+    except FileNotFoundError:
+        raise HTTPException(404, "strategy not found")
+    return extraction_lock.verification_summary(strategy_id)
+
+
+@router.post("/api/backtesting/strategies/{strategy_id}/extraction-override")
+def set_extraction_override(strategy_id: str, req: ExtractionOverrideRequest):
+    """The explicit "test anyway" override -- persistent, so every
+    backtest/optimize/paper-trading run for this strategy from now on
+    (until un-overridden) is permitted but permanently tagged with a
+    visible warning (extraction_override_warning on the resulting
+    batches)."""
+    try:
+        lib.load(strategy_id)
+    except FileNotFoundError:
+        raise HTTPException(404, "strategy not found")
+    report = storage.get_extraction_fidelity_report_for_strategy(strategy_id)
+    if report is None:
+        raise HTTPException(400, "Is strategy ka koi verification report nahi hai -- override karne ki zaroorat nahi.")
+    extraction_lock.set_override(strategy_id, req.overridden)
+    sync.notify("strategy", "extraction_override_changed",
+                f"{'Override ON' if req.overridden else 'Override OFF'} for {strategy_id}", id=strategy_id)
+    return extraction_lock.verification_summary(strategy_id)
+
+
+@router.post("/api/backtesting/strategies/{strategy_id}/extraction-audit")
+def run_extraction_audit(strategy_id: str):
+    """Retroactive audit (Task 3, requirement 5): runs the SAME multi-pass
+    + auto-retry pipeline (Tasks 1/2) against an already-saved strategy's
+    original document text, for strategies imported before this feature
+    existed (no report yet) or a CEO-requested re-check. Real AI calls --
+    not instant, and subject to the same provider fallback chain/quota as
+    any other extraction."""
+    try:
+        cfg = lib.load(strategy_id)
+    except FileNotFoundError:
+        raise HTTPException(404, "strategy not found")
+    if not cfg.raw_text or not cfg.raw_text.strip():
+        raise HTTPException(400, "Is strategy ka original document text save nahi hai -- audit nahi ho sakta.")
+
+    content_hash = hashlib.sha256(cfg.raw_text.strip().lower().encode("utf-8")).hexdigest()
+    mp = multi_pass_extraction.run_multi_pass_extraction_with_retry(cfg.raw_text, content_type="strategy")
+    now_iso = _now_iso()
+    storage.save_extraction_fidelity_report(
+        content_hash, mp["comparison"]["expected_count"], mp["comparison"]["captured_count"],
+        mp["call_count"], mp["comparison"]["rules"], mp["provider"], now_iso, retry_count=mp["retry_count"],
+    )
+    storage.set_extraction_fidelity_strategy_id(content_hash, strategy_id)
+    sync.notify("strategy", "extraction_audited",
+                f"Verification check done for {cfg.name}: {mp['comparison']['captured_count']}/{mp['comparison']['expected_count']} rules understood",
+                id=strategy_id)
+    return extraction_lock.verification_summary(strategy_id)
 
 
 @router.get("/api/backtesting/strategies/{strategy_id}")
@@ -350,6 +435,18 @@ def run_backtest(req: RunRequest):
     else:
         raise HTTPException(400, "strategy_id or config required")
 
+    # Batch 3, Task 3: Incomplete Lock -- a strategy with rules the
+    # system still couldn't understand (after Task 2's retries) is
+    # blocked here, before any real backtest work starts, unless the CEO
+    # already explicitly overrode it (see /api/strategies/{id}/
+    # extraction-override). Plain Roman Urdu/Hinglish message, no jargon.
+    extraction_override_warning = False
+    if req.strategy_id:
+        lock_status = extraction_lock.check_strategy_lock(req.strategy_id)
+        if lock_status["locked"]:
+            raise HTTPException(423, extraction_lock.lock_message(lock_status))
+        extraction_override_warning = lock_status["overridden"] and bool(lock_status["missing_rules"])
+
     errors = validate(cfg)
     if errors:
         raise HTTPException(400, {"errors": errors})
@@ -438,6 +535,7 @@ def run_backtest(req: RunRequest):
             start_ms=settings["start_ms"], end_ms=settings["end_ms"],
             log=log_fn, control=control, progress_cb=_progress_cb, trade_cb=_trade_cb,
             use_multiprocessing=req.use_multiprocessing,
+            extraction_override_warning=extraction_override_warning,
         )
         generate_report(batch_id)
         return {"batch_id": batch_id}
