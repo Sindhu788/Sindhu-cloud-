@@ -186,6 +186,144 @@ def test_run_multi_pass_extraction_no_provider_chain_returns_empty_without_calli
     assert result["result"] is None
 
 
+# ------------------------------------------------------------ Task 2: auto-retry
+
+def _base_extraction_mocks(inventory_rules, entry=None, exit_=None, filters=None, comparison=None):
+    entry = entry or _fake_extraction({})
+    exit_ = exit_ or _fake_extraction({})
+    filters = filters or _fake_extraction({})
+    comparison = comparison if comparison is not None else {"results": []}
+
+    def fake_call(text, chain, prompt, endpoint_label, parse_fn):
+        if endpoint_label == "/ai/import/rule-inventory":
+            return {"rules": inventory_rules, "count": len(inventory_rules)}, "groq", None
+        if endpoint_label == "/ai/import/scoped-extraction-entry":
+            return entry, "groq", None
+        if endpoint_label == "/ai/import/scoped-extraction-exit":
+            return exit_, "groq", None
+        if endpoint_label == "/ai/import/scoped-extraction-filters":
+            return filters, "groq", None
+        if endpoint_label == "/ai/import/extraction-comparison":
+            return comparison, "groq", None
+        raise AssertionError(f"unexpected first-pass endpoint {endpoint_label}")
+
+    return fake_call
+
+
+def test_retry_does_not_trigger_when_nothing_is_missing():
+    inventory_rules = [{"id": 1, "text": "rule one", "category": "entry"}]
+    first_comparison = {"results": [{"rule_id": 1, "status": "captured", "captured_as": "x"}]}
+    fake_call = _base_extraction_mocks(inventory_rules, comparison=first_comparison)
+
+    with patch.object(mpe, "call_provider_chain_generic", side_effect=fake_call), \
+         patch("ai_integration.config.provider_fallback_chain", return_value=["groq"]):
+        result = mpe.run_multi_pass_extraction_with_retry("text")
+
+    assert result["retry_count"] == 0
+    assert result["call_count"] == 5  # exactly the first-pass count, no retry calls
+    assert result["comparison"]["captured_count"] == 1
+
+
+def test_retry_recovers_a_deliberately_dropped_rule():
+    """The core Task 2 scenario: first pass misses rule 2 entirely, the
+    retry call supplies it, and the re-run comparison marks it captured."""
+    inventory_rules = [
+        {"id": 1, "text": "enter on BOS", "category": "entry"},
+        {"id": 2, "text": "SL at signal candle low", "category": "exit"},
+    ]
+    first_comparison = {"results": [
+        {"rule_id": 1, "status": "captured", "captured_as": "bos condition"},
+        {"rule_id": 2, "status": "missing", "captured_as": None},
+    ]}
+    retry_fragment = _fake_extraction({"stop_loss": {"type": "signal_candle", "value": 0.3, "level": None}})
+    retry_comparison = {"results": [
+        {"rule_id": 1, "status": "captured", "captured_as": "bos condition"},
+        {"rule_id": 2, "status": "captured", "captured_as": "signal_candle stop recovered on retry"},
+    ]}
+
+    first_pass_call = _base_extraction_mocks(
+        inventory_rules,
+        entry=_fake_extraction({"entry_conditions": [{"type": "concept", "name": "bos", "direction": "bullish"}]}),
+        comparison=first_comparison,
+    )
+    retry_calls = []
+
+    def fake_call(text, chain, prompt, endpoint_label, parse_fn):
+        if endpoint_label == "/ai/import/retry-1":
+            retry_calls.append(prompt)
+            return retry_fragment, "groq", None
+        if endpoint_label == "/ai/import/extraction-comparison-retry-1":
+            return retry_comparison, "groq", None
+        return first_pass_call(text, chain, prompt, endpoint_label, parse_fn)
+
+    with patch.object(mpe, "call_provider_chain_generic", side_effect=fake_call), \
+         patch("ai_integration.config.provider_fallback_chain", return_value=["groq"]):
+        result = mpe.run_multi_pass_extraction_with_retry("text")
+
+    assert result["retry_count"] == 1
+    assert result["call_count"] == 7  # 5 first-pass + retry extraction + retry comparison
+    assert result["comparison"]["captured_count"] == 2
+    assert result["result"]["strategy"]["stop_loss"]["type"] == "signal_candle"
+    # the retry prompt named the specific missing rule by its exact text
+    assert "SL at signal candle low" in retry_calls[0]
+    assert "enter on BOS" not in retry_calls[0]  # already-captured rule not re-requested
+
+
+def test_retry_stops_after_three_attempts_when_still_missing():
+    inventory_rules = [{"id": 1, "text": "an unrecoverable rule", "category": "entry"}]
+    still_missing = {"results": [{"rule_id": 1, "status": "missing", "captured_as": None}]}
+    first_call = _base_extraction_mocks(inventory_rules, comparison=still_missing)
+    retry_attempts = {"extraction": 0, "comparison": 0}
+
+    def fake_call(text, chain, prompt, endpoint_label, parse_fn):
+        if endpoint_label.startswith("/ai/import/retry-"):
+            retry_attempts["extraction"] += 1
+            return _fake_extraction({}), "groq", None
+        if endpoint_label.startswith("/ai/import/extraction-comparison-retry-"):
+            retry_attempts["comparison"] += 1
+            return still_missing, "groq", None
+        return first_call(text, chain, prompt, endpoint_label, parse_fn)
+
+    with patch.object(mpe, "call_provider_chain_generic", side_effect=fake_call), \
+         patch("ai_integration.config.provider_fallback_chain", return_value=["groq"]):
+        result = mpe.run_multi_pass_extraction_with_retry("text")
+
+    assert result["retry_count"] == 3
+    assert retry_attempts["extraction"] == 3
+    assert retry_attempts["comparison"] == 3
+    assert result["comparison"]["rules"][0]["status"] == "missing"
+
+
+def test_unresolved_rule_after_retries_keeps_its_original_text_never_fabricated():
+    inventory_rules = [{"id": 1, "text": "a genuinely unrecoverable rule, verbatim", "category": "filters"}]
+    still_missing = {"results": [{"rule_id": 1, "status": "missing", "captured_as": None}]}
+    fake_call = _base_extraction_mocks(inventory_rules, comparison=still_missing)
+
+    def wrapped(text, chain, prompt, endpoint_label, parse_fn):
+        if endpoint_label.startswith("/ai/import/retry-") or endpoint_label.startswith("/ai/import/extraction-comparison-retry-"):
+            if "comparison" in endpoint_label:
+                return still_missing, "groq", None
+            return _fake_extraction({}), "groq", None
+        return fake_call(text, chain, prompt, endpoint_label, parse_fn)
+
+    with patch.object(mpe, "call_provider_chain_generic", side_effect=wrapped), \
+         patch("ai_integration.config.provider_fallback_chain", return_value=["groq"]):
+        result = mpe.run_multi_pass_extraction_with_retry("text")
+
+    unresolved = result["comparison"]["rules"][0]
+    assert unresolved["status"] == "missing"
+    assert unresolved["text"] == "a genuinely unrecoverable rule, verbatim"
+    assert unresolved["captured_as"] is None
+
+
+def test_retry_merge_never_overwrites_an_already_captured_field():
+    existing = {"stop_loss": {"type": "fixed_pct", "value": 1.0, "level": None}, "entry_conditions": [{"type": "concept", "name": "bos"}]}
+    fragment = {"stop_loss": {"type": "signal_candle", "value": 0.5, "level": None}, "entry_conditions": [{"type": "concept", "name": "fvg"}]}
+    merged = mpe._merge_retry_fragment(existing, fragment)
+    assert merged["stop_loss"]["type"] == "fixed_pct"  # not overwritten by the retry's guess
+    assert len(merged["entry_conditions"]) == 2  # new condition added, old one kept
+
+
 # ------------------------------------------------------------ storage
 
 def test_save_and_get_extraction_fidelity_report(test_db):

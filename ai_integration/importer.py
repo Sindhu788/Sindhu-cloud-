@@ -217,7 +217,7 @@ def import_document(raw_text, title=None, source_hint=None, use_ai=True, input_k
     # hit never re-runs either one.
     fidelity_report = None
     if not served_from_cache and use_ai and content_type == "strategy":
-        mp = multi_pass_extraction.run_multi_pass_extraction(
+        mp = multi_pass_extraction.run_multi_pass_extraction_with_retry(
             raw_text, source_hint=resolved_source_hint, content_type=content_type,
         )
         ai_result, provider_name, ai_error = mp["result"], mp["provider"], mp["error"]
@@ -226,6 +226,7 @@ def import_document(raw_text, title=None, source_hint=None, use_ai=True, input_k
                 "expected_rule_count": mp["comparison"]["expected_count"],
                 "captured_rule_count": mp["comparison"]["captured_count"],
                 "call_count": mp["call_count"],
+                "retry_count": mp["retry_count"],
                 "rules": mp["comparison"]["rules"],
                 "provider": mp["provider"],
             }
@@ -308,6 +309,7 @@ def import_document(raw_text, title=None, source_hint=None, use_ai=True, input_k
         storage.save_extraction_fidelity_report(
             content_hash, fidelity_report["expected_rule_count"], fidelity_report["captured_rule_count"],
             fidelity_report["call_count"], fidelity_report["rules"], fidelity_report["provider"], now_iso,
+            retry_count=fidelity_report["retry_count"],
         )
         saved_strategy_ids = [s["saved_strategy_id"] for s in doc_dict.get("strategies") or [] if s.get("saved_strategy_id")]
         if saved_strategy_ids:

@@ -1067,6 +1067,33 @@ def build_comparison_prompt(rule_inventory, captured_summary):
     )
 
 
+def build_retry_prompt(missing_rules, source_hint=None, content_type=None):
+    """(Batch 3, Task 2) A targeted follow-up call naming the SPECIFIC
+    rules a previous pass missed, with their exact original text --
+    never a generic "try again", always scoped to exactly what's still
+    missing. missing_rules: list of {id, text, category} (a subset of a
+    rule_inventory's rules)."""
+    rules_text = "\n".join(f"{r['id']}. [{r['category']}] {r['text']}" for r in missing_rules)
+    base = build_structured_extraction_prompt(source_hint, content_type)
+    return (
+        "TARGETED RETRY -- a previous extraction pass over this same "
+        "document MISSED the following specific rules. Your ONLY job "
+        "this time is to map THESE EXACT rules (and only these) into "
+        "the schema below -- every other rule in the document has "
+        "already been captured by a previous pass; do not re-extract "
+        "anything else, even if you notice something you'd otherwise "
+        "want to capture.\n\n"
+        f"MISSING RULES TO RECOVER:\n{rules_text}\n\n"
+        "Re-read the document specifically looking for these. If, after "
+        "genuinely trying, one of these rules truly has no "
+        "representation in the executable vocabulary below, LEAVE IT "
+        "OUT -- do not force a mapping, do not guess, do not invent a "
+        "condition just to fill the gap. An honestly-empty result for a "
+        "rule you cannot map is correct; a fabricated one is not.\n\n"
+        f"{'=' * 60}\n\n{base}"
+    )
+
+
 def parse_comparison_response(raw_text):
     """Never raises. Returns {"results": [{"rule_id", "status", "captured_as"}]}
     or None if the response had no parseable JSON."""

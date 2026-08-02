@@ -16,6 +16,7 @@ def _fake_multi_pass_result(strategy_dict, expected=3, captured=2):
         "result": {**dict(schema._REQUIRED_KEYS), "confidence": 90, "strategy": strategy_dict},
         "provider": "groq",
         "call_count": 5,
+        "retry_count": 0,
         "rule_inventory": {"rules": [{"id": i, "text": f"rule {i}", "category": "entry"} for i in range(1, expected + 1)], "count": expected},
         "comparison": {
             "expected_count": expected, "captured_count": captured,
@@ -50,7 +51,7 @@ def test_strategy_content_type_uses_multi_pass_and_saves_fidelity_report(test_db
     monkeypatch.setattr(strategy_library_pkg, "_LIBRARY_DIR", str(tmp_path / "library"))
 
     fake_result = _fake_multi_pass_result(_MINIMAL_STRATEGY, expected=3, captured=2)
-    with patch.object(importer.multi_pass_extraction, "run_multi_pass_extraction", return_value=fake_result) as mock_mp, \
+    with patch.object(importer.multi_pass_extraction, "run_multi_pass_extraction_with_retry", return_value=fake_result) as mock_mp, \
          patch.object(importer.deep_understanding, "understand_document_structured") as mock_single, \
          patch.object(importer, "_maybe_trigger_pipeline"):
         result = importer.import_document(
@@ -77,7 +78,7 @@ def test_lesson_content_type_still_uses_single_pass_not_multi_pass(test_db, tmp_
 
     single_pass_result = {"result": None, "provider": None, "error": None}
     with patch.object(importer.deep_understanding, "understand_document_structured", return_value=single_pass_result) as mock_single, \
-         patch.object(importer.multi_pass_extraction, "run_multi_pass_extraction") as mock_mp:
+         patch.object(importer.multi_pass_extraction, "run_multi_pass_extraction_with_retry") as mock_mp:
         importer.import_document("Some lesson text.", title="Test Lesson", content_type="lesson")
 
     mock_single.assert_called_once()
@@ -95,7 +96,7 @@ def test_cache_hit_skips_multi_pass_entirely(test_db, tmp_path, monkeypatch):
     cached_ai_result = {**dict(schema._REQUIRED_KEYS), "confidence": 90, "strategy": _MINIMAL_STRATEGY}
     storage.save_ai_import_cache(content_hash, cached_ai_result, "groq", "2026-01-01T00:00:00+00:00")
 
-    with patch.object(importer.multi_pass_extraction, "run_multi_pass_extraction") as mock_mp, \
+    with patch.object(importer.multi_pass_extraction, "run_multi_pass_extraction_with_retry") as mock_mp, \
          patch.object(importer, "_maybe_trigger_pipeline"):
         result = importer.import_document(raw_text, title="Cached Strategy", content_type="strategy")
 

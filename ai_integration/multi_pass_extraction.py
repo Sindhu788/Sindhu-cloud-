@@ -276,3 +276,154 @@ def run_multi_pass_extraction(raw_text, source_hint=None, content_type=None):
         "result": result, "provider": last_provider, "call_count": call_count,
         "rule_inventory": inventory, "comparison": comparison, "error": error,
     }
+
+
+# ================================================================
+# Batch 3, Task 2: Auto-Retry for Missing Rules
+# ================================================================
+
+MAX_RETRIES = 3
+
+
+def _merge_retry_fragment(existing, fragment):
+    """Merges a targeted retry pass's recovered fields INTO the
+    already-captured strategy -- additive only. A field the earlier
+    passes already resolved is never overwritten by the retry (the retry
+    was told to focus on specific missing rules; if it also guesses at
+    an already-captured field, that guess is discarded rather than
+    risking a worse, second-guessed replacement of something already
+    confirmed). List-shaped fields are unioned (deduped); scalar fields
+    only fill in if the existing value is still the "nothing found"
+    default."""
+    if not fragment:
+        return existing
+    if not existing:
+        return fragment
+    merged = dict(existing)
+    merged["entry_conditions"] = _merge_list(existing.get("entry_conditions"), fragment.get("entry_conditions"))
+    merged["long_entry_conditions"] = _merge_list(existing.get("long_entry_conditions"), fragment.get("long_entry_conditions"))
+    merged["short_entry_conditions"] = _merge_list(existing.get("short_entry_conditions"), fragment.get("short_entry_conditions"))
+    if not existing.get("entry_rule_groups"):
+        merged["entry_rule_groups"] = fragment.get("entry_rule_groups") or existing.get("entry_rule_groups") or []
+    merged["exit_conditions"] = _merge_list(existing.get("exit_conditions"), fragment.get("exit_conditions"))
+    merged["confirmation_conditions"] = _merge_list(existing.get("confirmation_conditions"), fragment.get("confirmation_conditions"))
+
+    if (existing.get("stop_loss") or {}).get("type", "unknown") == "unknown" \
+            and (fragment.get("stop_loss") or {}).get("type", "unknown") != "unknown":
+        merged["stop_loss"] = fragment["stop_loss"]
+    if (existing.get("take_profit") or {}).get("type", "unknown") == "unknown" \
+            and (fragment.get("take_profit") or {}).get("type", "unknown") != "unknown":
+        merged["take_profit"] = fragment["take_profit"]
+    if existing.get("risk_pct") is None and fragment.get("risk_pct") is not None:
+        merged["risk_pct"] = fragment["risk_pct"]
+    if existing.get("risk_reward") is None and fragment.get("risk_reward") is not None:
+        merged["risk_reward"] = fragment["risk_reward"]
+    merged["session_filter"] = _merge_list(existing.get("session_filter"), fragment.get("session_filter"))
+    merged["day_filter"] = _merge_list(existing.get("day_filter"), fragment.get("day_filter"))
+    if existing.get("trend_filter") is None and fragment.get("trend_filter"):
+        merged["trend_filter"] = fragment["trend_filter"]
+    if existing.get("breakeven_at_rr") is None and fragment.get("breakeven_at_rr") is not None:
+        merged["breakeven_at_rr"] = fragment["breakeven_at_rr"]
+    if (existing.get("entry_type") or "market") == "market" and fragment.get("entry_type") not in (None, "market"):
+        merged["entry_type"] = fragment["entry_type"]
+    if existing.get("entry_price_offset_pct") is None and fragment.get("entry_price_offset_pct") is not None:
+        merged["entry_price_offset_pct"] = fragment["entry_price_offset_pct"]
+    if not existing.get("sl_distance_filter_pct") and fragment.get("sl_distance_filter_pct"):
+        merged["sl_distance_filter_pct"] = fragment["sl_distance_filter_pct"]
+    if existing.get("min_risk_reward_filter") is None and fragment.get("min_risk_reward_filter") is not None:
+        merged["min_risk_reward_filter"] = fragment["min_risk_reward_filter"]
+        merged["primary_target_lookback_bars"] = fragment.get("primary_target_lookback_bars")
+    if not existing.get("partial_take_profit") and fragment.get("partial_take_profit"):
+        merged["partial_take_profit"] = fragment["partial_take_profit"]
+
+    merged["timeframes"] = {**(fragment.get("timeframes") or {}), **(existing.get("timeframes") or {})}
+    merged["indicators"] = _merge_list(existing.get("indicators"), fragment.get("indicators"))
+    merged["concepts_used"] = _merge_list(existing.get("concepts_used"), fragment.get("concepts_used"))
+    if not existing.get("name") and fragment.get("name"):
+        merged["name"] = fragment["name"]
+    return merged
+
+
+def run_multi_pass_extraction_with_retry(raw_text, source_hint=None, content_type=None, max_retries=MAX_RETRIES):
+    """Runs run_multi_pass_extraction() once, then -- if the comparison
+    shows any missing/unknown rules -- issues up to `max_retries`
+    targeted follow-up calls, each naming only the rules still missing
+    and their exact original text (schema.build_retry_prompt), re-running
+    the comparison after each attempt. Stops as soon as everything is
+    captured, or after max_retries regardless. Never fabricates: a rule
+    still missing after every retry stays recorded as "missing" with its
+    original text intact (see extraction_fidelity_reports) -- this
+    function only ever adds genuinely-recovered fields, never invents a
+    substitute to make the numbers match.
+
+    Returns the same shape as run_multi_pass_extraction(), plus
+    "retry_count" (int, 0 if nothing was missing after the first pass)."""
+    base = run_multi_pass_extraction(raw_text, source_hint, content_type)
+    total_calls = base["call_count"]
+    provider = base["provider"]
+    strategy = (base["result"] or {}).get("strategy")
+    comparison = base["comparison"]
+    retry_count = 0
+
+    while retry_count < max_retries:
+        missing = [
+            {"id": r["id"], "text": r["text"], "category": r["category"]}
+            for r in comparison["rules"] if r["status"] in ("missing", "unknown")
+        ]
+        if not missing:
+            break
+        chain = ai_config.provider_fallback_chain()
+        if not chain:
+            break
+        retry_count += 1
+
+        retry_prompt = schema.build_retry_prompt(missing, source_hint, content_type)
+        parsed, provider_name, _err = call_provider_chain_generic(
+            raw_text, chain, retry_prompt, f"/ai/import/retry-{retry_count}", schema.parse_structured_response,
+        )
+        total_calls += 1
+        if provider_name:
+            provider = provider_name
+        strategy = _merge_retry_fragment(strategy, (parsed or {}).get("strategy"))
+
+        captured_summary = _describe_captured_strategy(strategy)
+        cmp_content = schema.build_comparison_prompt({"rules": comparison["rules"]}, captured_summary)
+        cmp_parsed, cmp_provider, _cmp_err = call_provider_chain_generic(
+            cmp_content, chain, _COMPARISON_SYSTEM_PROMPT, f"/ai/import/extraction-comparison-retry-{retry_count}",
+            schema.parse_comparison_response,
+        )
+        total_calls += 1
+        if cmp_provider:
+            provider = cmp_provider
+
+        status_by_id = {r["rule_id"]: r for r in (cmp_parsed or {}).get("results", [])} if cmp_parsed else {}
+        new_rules, captured_count = [], 0
+        for rule in comparison["rules"]:
+            if rule["status"] == "captured":
+                new_rules.append(rule)
+                captured_count += 1
+                continue
+            if cmp_parsed is None:
+                # This retry's comparison call itself failed -- keep the
+                # rule's previous status rather than silently downgrading
+                # or upgrading it based on no information.
+                new_rules.append(rule)
+                continue
+            match = status_by_id.get(rule["id"])
+            status, captured_as = (match["status"], match["captured_as"]) if match else ("missing", None)
+            if status == "captured":
+                captured_count += 1
+            new_rules.append({"id": rule["id"], "text": rule["text"], "category": rule["category"],
+                               "status": status, "captured_as": captured_as})
+        comparison = {"expected_count": comparison["expected_count"], "captured_count": captured_count, "rules": new_rules}
+
+    result = None
+    if base["result"] is not None:
+        result = dict(base["result"])
+        result["strategy"] = strategy
+
+    return {
+        "result": result, "provider": provider, "call_count": total_calls,
+        "rule_inventory": base["rule_inventory"], "comparison": comparison,
+        "retry_count": retry_count, "error": base["error"],
+    }
