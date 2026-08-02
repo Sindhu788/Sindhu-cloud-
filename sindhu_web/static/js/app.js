@@ -3481,6 +3481,7 @@
           <label style="display:flex;align-items:center;gap:6px;width:auto;">
             <input type="checkbox" id="ptDryRun" ${settings.dry_run ? "checked" : ""} style="width:auto;"> Dry Run Mode
           </label>
+          <button class="btn-ghost" id="ptResetBalance" style="border-color:var(--negative,#c0392b);color:var(--negative,#c0392b);">Reset Balance</button>
           <span id="ptStatusMsg" class="muted"></span>
         </div>
         ${status.running ? `<div class="muted" style="font-size:12px;">Started ${esc((status.started_at||"").slice(0,19))} -- tick #${status.tick_count}, last at ${esc((status.last_tick_at||"-").slice(11,19))}</div>` : ""}
@@ -3694,6 +3695,24 @@
         await autosave("POST", "/api/paper-trading/settings", { dry_run: e.target.checked });
         appendLog(`Dry Run mode ${e.target.checked ? "enabled" : "disabled"}.`);
       });
+      document.getElementById("ptResetBalance").onclick = async () => {
+        const p = await apiGet("/api/paper-trading/reset-balance/preview");
+        const msg =
+          `Balance Reset karne se yeh hoga:\n\n` +
+          `- Combined balance $${p.current_combined_balance.toFixed(2)} se wapas $${p.reset_combined_balance.toFixed(2)} ho jayega ` +
+          `(${p.strategies_affected} strategy book(s), har ek apne $${p.initial_balance.toFixed(2)} starting balance par wapas).\n` +
+          `- ${p.closed_trades_preserved} band ho chuki trades, lessons, evolution data, aur saari statistics BILKUL SAFE rahengi -- kuch bhi delete nahi hoga.\n` +
+          (p.open_positions_left_running > 0
+            ? `- Abhi ${p.open_positions_left_running} trade(s) chal rahi hain -- yeh CHALTI RAHENGI, band nahi hongi. Jab woh close hongi, unka result naye balance mein add ho jayega.\n`
+            : `- Abhi koi open trade nahi hai.\n`) +
+          `\nConfirm karein?`;
+        if (!confirm(msg)) return;
+        document.getElementById("ptStatusMsg").textContent = "Resetting balance...";
+        const res = await apiPost("/api/paper-trading/reset-balance", { confirm: true });
+        appendLog(`Balance reset: ${res.strategies_reset} strategy book(s), combined balance back to starting amount.`);
+        document.getElementById("ptStatusMsg").textContent = "Balance reset done.";
+        render();
+      };
 
       const saveEngineSettings = debounce(async () => {
         const status = document.getElementById("ptSettingsStatus");

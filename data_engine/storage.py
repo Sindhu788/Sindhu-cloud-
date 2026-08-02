@@ -219,6 +219,21 @@ CREATE TABLE IF NOT EXISTS paper_account_state (
     updated_at TEXT
 );
 
+-- Batch 4, Task 2: the Reset Balance button's audit trail. One row per
+-- strategy per reset -- lets get_balance_history() (below) start each
+-- strategy's balance graph fresh from its most recent reset instead of
+-- replaying pre-reset trades into a running total that no longer matches
+-- the live (reset) balance, without ever deleting the underlying
+-- paper_positions trade rows those trades still live in.
+CREATE TABLE IF NOT EXISTS paper_balance_resets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    strategy_id TEXT NOT NULL,
+    reset_at TEXT NOT NULL,
+    previous_realized_pnl_total REAL NOT NULL,
+    open_positions_left_running INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_paper_balance_resets_strategy ON paper_balance_resets(strategy_id, reset_at DESC);
+
 CREATE TABLE IF NOT EXISTS paper_decision_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     exchange TEXT NOT NULL,
@@ -2096,6 +2111,59 @@ def list_paper_account_states():
         ).fetchall()
     cols = ["strategy_id", "realized_pnl_total", "closed_count", "win_count", "updated_at"]
     return [dict(zip(cols, r)) for r in rows]
+
+
+def reset_paper_balance(now_iso):
+    """Batch 4, Task 2 -- the Reset Balance button's data-layer action.
+    Zeroes ONLY realized_pnl_total (the number that, added to the
+    configured initial_balance, is every "balance" figure in the app) for
+    every strategy's book. Deliberately leaves closed_count and win_count
+    alone -- those drive win-rate/trade-count statistics elsewhere and the
+    CEO's request is to reset the balance, not erase the record of what
+    happened. paper_positions (the actual trade history), lessons,
+    evolution data, and paper_strategy_performance are never touched here.
+    Logs one paper_balance_resets row per book first, so
+    get_balance_history() can start each book's graph from this point
+    instead of replaying pre-reset trades into a total that no longer
+    matches the live balance.
+
+    Never touches open positions -- they keep running and, when they
+    eventually close, their real PnL is added onto the fresh (zeroed)
+    baseline exactly like any trade opened after the reset. Returns a
+    summary dict for the confirmation-time evidence the endpoint returns."""
+    with get_conn() as conn:
+        states = conn.execute(
+            "SELECT strategy_id, realized_pnl_total FROM paper_account_state"
+        ).fetchall()
+        open_counts = dict(conn.execute(
+            "SELECT COALESCE(strategy_id, '__lessons__'), COUNT(*) FROM paper_positions "
+            "WHERE status='open' GROUP BY strategy_id"
+        ).fetchall())
+        for strategy_id, previous_pnl in states:
+            conn.execute(
+                "INSERT INTO paper_balance_resets "
+                "(strategy_id, reset_at, previous_realized_pnl_total, open_positions_left_running) "
+                "VALUES (?, ?, ?, ?)",
+                (strategy_id, now_iso, previous_pnl, open_counts.get(strategy_id, 0)),
+            )
+        conn.execute("UPDATE paper_account_state SET realized_pnl_total = 0, updated_at = ?", (now_iso,))
+    return {
+        "strategies_reset": len(states),
+        "previous_total_realized_pnl": sum(r[1] for r in states),
+        "open_positions_left_running": sum(open_counts.values()),
+        "reset_at": now_iso,
+    }
+
+
+def get_last_balance_reset_at(strategy_id):
+    key = "__lessons__" if strategy_id is None else strategy_id
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT reset_at FROM paper_balance_resets WHERE strategy_id = ? "
+            "ORDER BY reset_at DESC LIMIT 1",
+            (key,),
+        ).fetchone()
+    return row[0] if row else None
 
 
 def get_open_paper_positions(exchange=None, symbol=None, direction=None, strategy_id=None):

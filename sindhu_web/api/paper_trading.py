@@ -90,6 +90,57 @@ def update_settings(req: SettingsUpdate):
     return settings
 
 
+class ResetBalanceRequest(BaseModel):
+    confirm: bool = False
+
+
+@router.get("/api/paper-trading/reset-balance/preview")
+def preview_reset_balance():
+    """What the confirmation dialog shows before the CEO commits -- real
+    numbers, not a generic warning, so the plain-language explanation of
+    "what will and will not be affected" (Batch 4, Task 2) is backed by
+    the actual current state."""
+    settings = pt_config.load()
+    initial_balance = settings.get("initial_balance", 10000.0)
+    states = storage.list_paper_account_states()
+    open_positions = storage.get_open_paper_positions()
+    return {
+        "current_combined_balance": round(initial_balance * len(states) + sum(s["realized_pnl_total"] for s in states), 2),
+        "reset_combined_balance": round(initial_balance * len(states), 2),
+        "initial_balance": initial_balance,
+        "strategies_affected": len(states),
+        "closed_trades_preserved": sum(s["closed_count"] for s in states),
+        "open_positions_left_running": len(open_positions),
+    }
+
+
+@router.post("/api/paper-trading/reset-balance")
+def reset_balance(req: ResetBalanceRequest):
+    """Batch 4, Task 2 -- resets every strategy's working balance back to
+    its configured initial_balance. Deliberately does NOT touch closed
+    trade history, lessons, evolution data, or strategy performance
+    stats (storage.reset_paper_balance only zeroes realized_pnl_total,
+    never closed_count/win_count/paper_positions). Open positions are
+    left running, not force-closed -- they don't factor into the balance
+    figure until they close (see paper_trading.engine.status()), so a
+    reset can never leave the balance inconsistent with what they're
+    holding; once they do close, their real PnL lands on top of the
+    fresh baseline exactly like any trade opened after the reset."""
+    if not req.confirm:
+        raise HTTPException(400, "Confirmation required -- pass confirm: true to reset the balance.")
+    now = datetime.now(timezone.utc).isoformat()
+    summary = storage.reset_paper_balance(now)
+    cache.invalidate("home_account_snapshot")
+    sync.notify("paper_trading", "balance_reset",
+                f"Paper Trading balance reset for {summary['strategies_reset']} strategy book(s)")
+    _log_and_broadcast(
+        f"[paper-trading] Balance reset: {summary['strategies_reset']} strategy book(s) zeroed "
+        f"(previous combined realized PnL {summary['previous_total_realized_pnl']:.2f}), "
+        f"{summary['open_positions_left_running']} open position(s) left running untouched."
+    )
+    return {"ok": True, **summary}
+
+
 @router.get("/api/paper-trading/positions")
 def get_open_positions(strategy_id: Optional[str] = None):
     return {"positions": storage.get_open_paper_positions(strategy_id=strategy_id)}
@@ -374,8 +425,20 @@ def get_balance_history(strategy_id: str, limit: int = 500):
     multiplier, _ = storage.get_strategy_capital_multiplier(strategy_id)
     trades = storage.list_paper_closed_trades_ordered(strategy_id=strategy_id, limit=limit)
 
+    # Batch 4, Task 2: after a Reset Balance, realized_pnl_total is zeroed
+    # but paper_positions (this trade history) is deliberately never
+    # touched -- so without this, the graph would replay every pre-reset
+    # trade into a running total that no longer matches the live (reset)
+    # balance anywhere else in the app. Clip to trades closed after the
+    # most recent reset for this book so the graph starts fresh from the
+    # same point the real balance did, while the trades themselves stay
+    # fully intact in the database for audit.
+    last_reset_at = storage.get_last_balance_reset_at(strategy_id)
+    if last_reset_at:
+        trades = [t for t in trades if t["closed_at"] and t["closed_at"] > last_reset_at]
+
     base = initial_balance * multiplier
-    points = [{"at": None, "balance": round(base, 2)}]
+    points = [{"at": last_reset_at, "balance": round(base, 2)}]
     running = base
     for t in trades:
         running += (t["pnl"] or 0.0)
