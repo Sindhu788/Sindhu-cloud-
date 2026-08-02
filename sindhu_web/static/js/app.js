@@ -1,6 +1,124 @@
 (() => {
   "use strict";
 
+  // ------------------------------------------------------------ Language toggle (Batch 4, Task 4)
+  // Two small lookup tables instead of a separate key namespace, so
+  // existing hardcoded strings can be wrapped in place without renaming
+  // them: T_UR translates an English default (used by most of the app) to
+  // Roman Urdu; T_EN translates a Roman-Urdu default (used by the Batch 3
+  // Incomplete Lock / verification view, which was built Urdu-first) back
+  // to plain English. Missing keys fall through to whatever was already
+  // hardcoded, so an untranslated string is never blank -- only ever in
+  // the "wrong" (but still readable) language. Persisted in localStorage
+  // (this machine/browser), same mechanism already used for the API token.
+  let LANG = localStorage.getItem("sindhu_lang") || "en";
+  function getLang() { return LANG; }
+  function setLang(lang) {
+    LANG = lang;
+    localStorage.setItem("sindhu_lang", lang);
+    route();
+  }
+  // Covers the section titles, card labels, and button text actually
+  // exercised on the Overview, Paper Trading, Telegram Signals, Strategies,
+  // and Strategy Verification pages (Batch 4, Task 4's named priority
+  // pages) -- not literally every string in the app. Other pages fall back
+  // to their existing English/Urdu text unchanged.
+  const T_UR = {
+    "Overview": "Overview",
+    "System Alerts": "System Alerts (Zaroori Baatein)",
+    "Top Strategies by Profit": "Sabse Profitable Strategies",
+    "System Monitor": "System Ki Halat",
+    "Available Timeframes": "Kaunse Timeframes Available Hain",
+    "Control Center": "Control Center",
+    "Task Manager": "Task Manager",
+    "Balance": "Balance",
+    "PnL": "Munafa/Nuksan (PnL)",
+    "Win Rate": "Jeetne Ki Dar",
+    "Total Trades": "Kul Trades",
+    "Knowledge Score": "Knowledge Score",
+    "Evolution Score": "Evolution Score",
+    "Database Status": "Database Ki Halat",
+    "System Health": "System Theek Hai Ya Nahi",
+    "CPU Usage": "CPU Kitna Chal Raha Hai",
+    "RAM Usage": "RAM Kitni Bhari Hai",
+    "Disk Usage": "Disk Space Kitni Use Hui",
+    "Database Size": "Database Ka Size",
+    "API": "API",
+    "Exchange": "Exchange",
+    "Queue": "Line Mein (Queue)",
+    "Background Tasks": "Peeche Chal Rahe Kaam",
+    "Paper Trading": "Paper Trading (Nakli Paise Se Trading)",
+    "Engine Status": "Engine Chal Raha Hai Ya Nahi",
+    "Mode": "Mode",
+    "Combined Balance": "Total Balance (Sab Strategies Milakar)",
+    "Open Positions": "Chal Rahi Trades",
+    "Closed Trades (All-Time)": "Ab Tak Band Hui Trades",
+    "Win Rate (All-Time)": "Ab Tak Ki Jeetne Ki Dar",
+    "Realized PnL (All-Time)": "Ab Tak Ka Asli Munafa/Nuksan",
+    "Queue (shortlisted coins)": "Line Mein Coins",
+    "Start Engine": "Engine Shuru Karein",
+    "Stop Engine": "Engine Band Karein",
+    "Run One Tick Now": "Abhi Ek Chaal Chalao",
+    "Reset Balance": "Balance Reset Karein",
+    "Alerts": "Zaroori Baatein",
+    "Daily Goal": "Aaj Ka Target",
+    "Strategies": "Strategies",
+    "Search strategies...": "Strategy Dhoondein...",
+    "New Strategy": "Nayi Strategy",
+    "Show Archived": "Archived Bhi Dikhayein",
+    "Name": "Naam",
+    "Concepts": "Concepts",
+    "Timeframes": "Timeframes",
+    "Condition Roles": "Sharton Ka Kirdar",
+    "Status": "Halat",
+    "Last Backtest": "Aakhri Backtest",
+    "Version": "Version",
+    "Profile": "Profile",
+    "Edit": "Badlein",
+    "Duplicate": "Copy Banayein",
+    "Delete": "Hatayein",
+    "Restore": "Wapas Lao",
+    "Duplicate Strategies": "Milti-Julti (Duplicate) Strategies",
+    "Strategy Graveyard": "Retire Hui Strategies",
+    "Telegram Signals": "Telegram Signals",
+    "Signals Sent": "Bheje Gaye Signals",
+    "Open / Pending": "Chal Rahe / Baaki",
+    "Wins": "Jeet",
+    "Losses": "Haar",
+    "Trades Counted": "Ginti Ki Gayi Trades",
+    "Hypothetical PnL": "Andaazi Munafa/Nuksan",
+    "Hypothetical Balance": "Andaazi Balance",
+    "Per-Strategy Breakdown": "Har Strategy Ka Alag Hisaab",
+    "Signal Log": "Signals Ki Poori List",
+  };
+  const T_EN = {
+    "Aapne Jo Likha (Original)": "What You Wrote (Original)",
+    "System Ne Kya Samjha": "What The System Understood",
+    "Status": "Status",
+    "Phir Bhi Test Karein": "Test Anyway",
+    "Samajh Aaya": "Understood",
+    "Samajh Nahi Aaya": "Not Understood",
+    "Strategy Samjhi Gayi? (Verification)": "Was The Strategy Understood? (Verification)",
+    "Yeh check load nahi ho saka.": "This check could not be loaded.",
+    "Ab Check Karein": "Check Now",
+    "Dobara Check Karein": "Check Again",
+    "Yeh strategy abhi test nahi ho sakti": "This strategy can't be tested yet",
+    "neeche jo rules \"Samajh Nahi Aaya\" hain, unki wajah se.": "because of the rules below marked \"Not Understood\".",
+    "Warning": "Warning",
+    "Yeh strategy adhoori samajh ke saath test ho rahi hai (aapne \"Test Anyway\" dabaya tha) -- iske results poori tarah bharosemand nahi hain.":
+      "This strategy is being tested with an incomplete understanding (you pressed \"Test Anyway\") -- its results are not fully reliable.",
+    "Lock Wapas Laga Dein": "Re-Enable The Lock",
+    "Is document mein koi rule nahi mila.": "No rules were found in this document.",
+    "rules samajh aaye": "rules understood",
+    "dobara koshish ki gayi": "retries made",
+  };
+  function t(englishDefault) {
+    return LANG === "ur" ? (T_UR[englishDefault] || englishDefault) : englishDefault;
+  }
+  function tu(urduDefault) {
+    return LANG === "en" ? (T_EN[urduDefault] || urduDefault) : urduDefault;
+  }
+
   // ------------------------------------------------------------ API client
   let apiToken = localStorage.getItem("sindhu_token") || "";
 
@@ -480,6 +598,15 @@
   };
   document.documentElement.setAttribute("data-theme", localStorage.getItem("sindhu_theme") || "dark");
 
+  const langToggle = document.getElementById("langToggle");
+  langToggle.textContent = LANG === "ur" ? "UR" : "EN";
+  langToggle.title = LANG === "ur" ? "Switch to English" : "Roman Urdu mein dekhein";
+  langToggle.onclick = () => {
+    setLang(LANG === "ur" ? "en" : "ur");
+    langToggle.textContent = LANG === "ur" ? "UR" : "EN";
+    langToggle.title = LANG === "ur" ? "Switch to English" : "Roman Urdu mein dekhein";
+  };
+
   // Collapsible desktop sidebar rail -- persisted across sessions.
   const appShell = document.querySelector(".app-shell");
   const railToggle = document.getElementById("railToggle");
@@ -835,7 +962,7 @@
       const pnlClass = lb ? (lb.profit_pct > 0 ? "positive" : lb.profit_pct < 0 ? "negative" : "") : "";
 
       content.innerHTML = `
-        <div class="section-title">Overview</div>
+        <div class="section-title">${t("Overview")}</div>
         <div class="grid">
           ${cardClass("Balance", lb ? `$${Number(lb.final_balance).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}` : "No backtests yet", "")}
           ${cardClass("PnL", lb ? `${lb.profit_pct > 0 ? "+" : ""}${lb.profit_pct}%` : "-", pnlClass)}
@@ -849,13 +976,13 @@
         ${lb ? `<div class="muted" style="margin:-12px 0 20px;font-size:12px;">Latest completed backtest: <b>${esc(lb.strategy)}</b> -- there is no live Paper Trading yet, so this reflects the most recent backtest, not a live account.</div>` : ""}
 
         ${(zeroTradeAlerts.length || tgAlert.stale) ? `
-        <div class="section-title">System Alerts</div>
+        <div class="section-title">${t("System Alerts")}</div>
         <div class="card" style="border-left:3px solid var(--negative, #e5484d);">
           ${tgAlert.stale ? `<div>⚠ ${esc(tgAlert.message)} Check the Telegram Signals page or Settings if this is unexpected.</div>` : ""}
           ${zeroTradeAlerts.map(s => `<div>⚠ Strategy <b>${esc(s.name)}</b> produced 0 trades on ${s.last_batch_result.symbols_tested || 0} coins -- check entry conditions (see Backtesting or Reports for the condition-hit breakdown).</div>`).join("")}
         </div>` : ""}
 
-        <div class="section-title">Top Strategies by Profit</div>
+        <div class="section-title">${t("Top Strategies by Profit")}</div>
         <div class="table-wrap"><table>
           <thead><tr><th>Strategy</th><th>Avg Profit %</th><th>Batches</th></tr></thead>
           <tbody>${topStrategies.map(t => `
@@ -863,7 +990,7 @@
           `).join("") || '<tr><td colspan="3">No completed backtests yet</td></tr>'}</tbody>
         </table></div>
 
-        <div class="section-title">System Monitor</div>
+        <div class="section-title">${t("System Monitor")}</div>
         <div class="grid">
           ${card("CPU Usage", `${h.cpu_percent}%`)}
           ${card("RAM Usage", `${h.ram_percent}%`)}
@@ -874,10 +1001,10 @@
           ${card("Queue", fmtNum(ts.running))}
           ${card("Background Tasks", fmtNum(ts.running + ts.completed + ts.failed))}
         </div>
-        <div class="section-title">Available Timeframes</div>
+        <div class="section-title">${t("Available Timeframes")}</div>
         <div class="card">${h.available_timeframes.join(", ")}</div>
 
-        <div class="section-title">Control Center</div>
+        <div class="section-title">${t("Control Center")}</div>
         <div class="two-col">
           <div class="card">
             <div class="label">Connect from mobile (same WiFi)</div>
@@ -885,7 +1012,7 @@
             <div class="qr-box">${net ? net.qr_svg : ""}</div>
           </div>
           <div>
-            <div class="section-title" style="margin-top:0;">Task Manager</div>
+            <div class="section-title" style="margin-top:0;">${t("Task Manager")}</div>
             <div class="grid">
               ${card("Running", fmtNum(ts.running))}
               ${card("Waiting", fmtNum(ts.waiting))}
@@ -929,15 +1056,15 @@
   }
 
   function card(label, value) {
-    return `<div class="card"><div class="label">${label}</div><div class="value">${value}</div></div>`;
+    return `<div class="card"><div class="label">${t(label)}</div><div class="value">${value}</div></div>`;
   }
 
   function cardClass(label, value, valueClass) {
-    return `<div class="card"><div class="label">${label}</div><div class="value ${valueClass || ""}">${value}</div></div>`;
+    return `<div class="card"><div class="label">${t(label)}</div><div class="value ${valueClass || ""}">${value}</div></div>`;
   }
 
   function cardId(id, label, value) {
-    return `<div class="card"><div class="label">${label}</div><div class="value" id="${id}">${value}</div></div>`;
+    return `<div class="card"><div class="label">${t(label)}</div><div class="value" id="${id}">${value}</div></div>`;
   }
 
   // ---- Paper Trading analytics: one shared renderer for the Paper Trading
@@ -1084,29 +1211,39 @@
   // internal identifiers -- the user's task is just to visually compare
   // the two columns.
   function renderExtractionVerificationSection(strategyId, v) {
+    // This view was built Urdu-first (Batch 3) -- tu() supplies the
+    // English side of the Batch 4 toggle for its static chrome (titles,
+    // buttons, table headers, badges). v.summary_text and v.rows'
+    // original_text/understood_as are generated server-side in Roman Urdu
+    // (ai_integration/extraction_lock.py) and are NOT machine-translated
+    // here -- retranslating AI-generated explanatory prose is out of this
+    // task's scope (see the Batch 4 Task 4 coverage note), so in English
+    // mode this section's title/labels switch but that body text stays
+    // Roman Urdu.
+    const title = tu("Strategy Samjhi Gayi? (Verification)");
     if (!v) {
-      return `<div class="section-title">Strategy Samjhi Gayi? (Verification)</div>
-        <div class="card"><span class="muted">Yeh check load nahi ho saka.</span></div>`;
+      return `<div class="section-title">${title}</div>
+        <div class="card"><span class="muted">${tu("Yeh check load nahi ho saka.")}</span></div>`;
     }
     if (!v.has_report) {
       return `
-        <div class="section-title">Strategy Samjhi Gayi? (Verification)</div>
+        <div class="section-title">${title}</div>
         <div class="card">
           <div style="margin-bottom:10px;">${esc(v.summary_text)}</div>
-          <button class="btn" id="extractionAuditBtn" data-id="${esc(strategyId)}">Ab Check Karein</button>
+          <button class="btn" id="extractionAuditBtn" data-id="${esc(strategyId)}">${tu("Ab Check Karein")}</button>
           <div id="extractionAuditMsg" class="muted" style="margin-top:6px;"></div>
         </div>`;
     }
 
     const lockBanner = v.locked
       ? `<div class="card" style="border-left:3px solid var(--negative, #e5484d); margin-bottom:10px;">
-           🔒 <b>Yeh strategy abhi test nahi ho sakti</b> -- neeche jo rules "Samajh Nahi Aaya" hain, unki wajah se.<br>
-           <button class="btn" id="extractionOverrideBtn" data-id="${esc(strategyId)}" data-value="true" style="margin-top:8px;">Phir Bhi Test Karein (Test Anyway)</button>
+           🔒 <b>${tu("Yeh strategy abhi test nahi ho sakti")}</b> -- ${tu("neeche jo rules \"Samajh Nahi Aaya\" hain, unki wajah se.")}<br>
+           <button class="btn" id="extractionOverrideBtn" data-id="${esc(strategyId)}" data-value="true" style="margin-top:8px;">${tu("Phir Bhi Test Karein")}</button>
          </div>`
       : (v.overridden
           ? `<div class="card" style="border-left:3px solid var(--warning, #e5a944); margin-bottom:10px;">
-               ⚠ <b>Warning:</b> Yeh strategy adhoori samajh ke saath test ho rahi hai (aapne "Test Anyway" dabaya tha) -- iske results poori tarah bharosemand nahi hain.<br>
-               <button class="btn-ghost" id="extractionOverrideBtn" data-id="${esc(strategyId)}" data-value="false" style="margin-top:8px;">Lock Wapas Laga Dein</button>
+               ⚠ <b>${tu("Warning")}:</b> ${tu("Yeh strategy adhoori samajh ke saath test ho rahi hai (aapne \"Test Anyway\" dabaya tha) -- iske results poori tarah bharosemand nahi hain.")}<br>
+               <button class="btn-ghost" id="extractionOverrideBtn" data-id="${esc(strategyId)}" data-value="false" style="margin-top:8px;">${tu("Lock Wapas Laga Dein")}</button>
              </div>`
           : "");
 
@@ -1114,22 +1251,22 @@
       <tr>
         <td style="max-width:320px;">${esc(r.original_text)}</td>
         <td style="max-width:320px;">${esc(r.understood_as || "-")}</td>
-        <td>${r.captured ? '<span class="pill pill-bullish">✅ Samajh Aaya</span>' : '<span class="pill pill-bearish">❌ Samajh Nahi Aaya</span>'}</td>
+        <td>${r.captured ? `<span class="pill pill-bullish">✅ ${tu("Samajh Aaya")}</span>` : `<span class="pill pill-bearish">❌ ${tu("Samajh Nahi Aaya")}</span>`}</td>
       </tr>`).join("");
 
     return `
-      <div class="section-title">Strategy Samjhi Gayi? (Verification)</div>
+      <div class="section-title">${title}</div>
       <div class="card" style="margin-bottom:10px;">
         ${esc(v.summary_text)}
-        <div class="muted" style="margin-top:6px;font-size:12px;">${v.captured_count} / ${v.expected_count} rules samajh aaye${v.retry_count ? ` -- ${v.retry_count} dobara koshish ki gayi` : ""}</div>
+        <div class="muted" style="margin-top:6px;font-size:12px;">${v.captured_count} / ${v.expected_count} ${tu("rules samajh aaye")}${v.retry_count ? ` -- ${v.retry_count} ${tu("dobara koshish ki gayi")}` : ""}</div>
       </div>
       ${lockBanner}
       <div class="table-wrap"><table>
-        <thead><tr><th>Aapne Jo Likha (Original)</th><th>System Ne Kya Samjha</th><th>Status</th></tr></thead>
-        <tbody>${rows || '<tr><td colspan="3">Is document mein koi rule nahi mila.</td></tr>'}</tbody>
+        <thead><tr><th>${tu("Aapne Jo Likha (Original)")}</th><th>${tu("System Ne Kya Samjha")}</th><th>${t("Status")}</th></tr></thead>
+        <tbody>${rows || `<tr><td colspan="3">${tu("Is document mein koi rule nahi mila.")}</td></tr>`}</tbody>
       </table></div>
       <div class="btn-row" style="margin-top:10px;">
-        <button class="btn-ghost" id="extractionAuditBtn" data-id="${esc(strategyId)}">Dobara Check Karein</button>
+        <button class="btn-ghost" id="extractionAuditBtn" data-id="${esc(strategyId)}">${tu("Dobara Check Karein")}</button>
         <span id="extractionAuditMsg" class="muted"></span>
       </div>`;
   }
@@ -1512,28 +1649,28 @@
           <td>${riskCell(s.id)}</td>
           <td>V${s.current_version || 1} <button class="btn-ghost strat-versions" data-id="${s.id}" data-name="${esc(s.name)}">History</button></td>
           <td>
-            ${s.archived ? `<button class="btn-ghost strat-unarchive" data-id="${s.id}" data-name="${esc(s.name)}">Restore</button>` : `
-            <button class="btn-ghost strat-profile" data-id="${s.id}" data-name="${esc(s.name)}">Profile</button>
-            <button class="btn-ghost strat-edit" data-id="${s.id}">Edit</button>
+            ${s.archived ? `<button class="btn-ghost strat-unarchive" data-id="${s.id}" data-name="${esc(s.name)}">${t("Restore")}</button>` : `
+            <button class="btn-ghost strat-profile" data-id="${s.id}" data-name="${esc(s.name)}">${t("Profile")}</button>
+            <button class="btn-ghost strat-edit" data-id="${s.id}">${t("Edit")}</button>
             ${s.status !== "READY_FOR_BACKTEST" ? `<button class="btn-ghost strat-clarify" data-id="${s.id}" data-name="${esc(s.name)}">Clarify</button>` : ""}
             <button class="btn-ghost strat-fav" data-id="${s.id}" data-fav="${s.favourite}">${s.favourite ? "★" : "☆"}</button>
-            <button class="btn-ghost strat-dup" data-id="${s.id}">Duplicate</button>
-            <button class="btn-ghost strat-del" data-id="${s.id}" data-name="${esc(s.name)}">Delete</button>
+            <button class="btn-ghost strat-dup" data-id="${s.id}">${t("Duplicate")}</button>
+            <button class="btn-ghost strat-del" data-id="${s.id}" data-name="${esc(s.name)}">${t("Delete")}</button>
             `}
           </td>
         </tr>`).join("");
 
       content.innerHTML = `
-        <div class="section-title">Strategies</div>
+        <div class="section-title">${t("Strategies")}</div>
         <div class="btn-row">
-          <input id="stratLibSearch" placeholder="Search strategies..." style="max-width:280px;" value="${esc(q)}">
-          <button class="btn" id="btnNewStrategy">New Strategy</button>
+          <input id="stratLibSearch" placeholder="${t("Search strategies...")}" style="max-width:280px;" value="${esc(q)}">
+          <button class="btn" id="btnNewStrategy">${t("New Strategy")}</button>
           <label style="display:flex;align-items:center;gap:6px;width:auto;">
-            <input type="checkbox" id="stratShowArchived" ${showArchived ? "checked" : ""} style="width:auto;"> Show Archived
+            <input type="checkbox" id="stratShowArchived" ${showArchived ? "checked" : ""} style="width:auto;"> ${t("Show Archived")}
           </label>
         </div>
         <div class="table-wrap"><table>
-          <thead><tr><th></th><th>Name</th><th>Concepts</th><th>Timeframes</th><th>Condition Roles</th><th>Status</th><th>Last Backtest</th><th>Live Risk (Sharpe ${helpIcon("sharpe_ratio")} / Max DD ${helpIcon("max_drawdown")})</th><th>Version</th><th></th></tr></thead>
+          <thead><tr><th></th><th>${t("Name")}</th><th>${t("Concepts")}</th><th>${t("Timeframes")}</th><th>${t("Condition Roles")}</th><th>${t("Status")}</th><th>${t("Last Backtest")}</th><th>Live Risk (Sharpe ${helpIcon("sharpe_ratio")} / Max DD ${helpIcon("max_drawdown")})</th><th>${t("Version")}</th><th></th></tr></thead>
           <tbody>${rows || '<tr><td colspan="10">No saved strategies yet -- create one on the Backtesting page.</td></tr>'}</tbody>
         </table></div>
         <div id="versionHistoryBox" style="display:none;">
@@ -1548,14 +1685,14 @@
           <div id="clarifyBody"></div>
         </div>
         <div id="strategyProfileBox" style="display:none;">
-          <div class="section-title" id="strategyProfileTitle">Strategy Profile</div>
+          <div class="section-title" id="strategyProfileTitle">${t("Profile")}</div>
           <div id="strategyProfileBody"></div>
         </div>
 
-        <div class="section-title">Duplicate Strategies</div>
+        <div class="section-title">${t("Duplicate Strategies")}</div>
         <div id="duplicatesBox" class="card"><span class="muted">Checking for duplicates...</span></div>
 
-        <div class="section-title">Strategy Graveyard</div>
+        <div class="section-title">${t("Strategy Graveyard")}</div>
         <div id="graveyardBox" class="card"><span class="muted">Loading...</span></div>`;
 
     (async () => {
@@ -1578,16 +1715,19 @@
       const box = document.getElementById("duplicatesBox");
       if (!box) return;
       if (!d.groups.length) {
-        box.innerHTML = `<span class="muted">Koi duplicate strategy nahi mili.</span>`;
+        box.innerHTML = `<span class="muted">${getLang() === "en" ? "No duplicate strategies found." : "Koi duplicate strategy nahi mili."}</span>`;
         return;
       }
-      const backtestSummary = r => !r ? "Kabhi test nahi hua"
-        : r.status !== "completed" ? "Test abhi chal raha hai"
+      const en = getLang() === "en";
+      const backtestSummary = r => !r ? (en ? "Never tested" : "Kabhi test nahi hua")
+        : r.status !== "completed" ? (en ? "Test still running" : "Test abhi chal raha hai")
         : `${r.total_trades || 0} trades, ${r.win_rate != null ? r.win_rate + "%" : "-"} win rate`;
       box.innerHTML = d.groups.map((g, gi) => `
         <div style="padding:10px 0;border-bottom:1px solid var(--border,#333);">
-          <div class="muted" style="font-size:12px;margin-bottom:6px;">Duplicate group ${gi + 1} -- yeh ${g.strategies.length} strategies same rules ke saath hain</div>
-          <table><thead><tr><th>Name</th><th>Import Hua</th><th>Rules Capture Hue</th><th>Last Backtest</th><th></th></tr></thead>
+          <div class="muted" style="font-size:12px;margin-bottom:6px;">${en
+            ? `Duplicate group ${gi + 1} -- these ${g.strategies.length} strategies have the same rules`
+            : `Duplicate group ${gi + 1} -- yeh ${g.strategies.length} strategies same rules ke saath hain`}</div>
+          <table><thead><tr><th>${t("Name")}</th><th>${en ? "Imported" : "Import Hua"}</th><th>${en ? "Rules Captured" : "Rules Capture Hue"}</th><th>${t("Last Backtest")}</th><th></th></tr></thead>
           <tbody>
           ${g.strategies.map(s => `
             <tr>
@@ -1595,22 +1735,26 @@
               <td>${esc((s.imported_at || "").slice(0, 10))}</td>
               <td>${s.rule_count}</td>
               <td>${esc(backtestSummary(s.last_batch_result))}</td>
-              <td><button class="btn-ghost dup-archive" data-id="${s.id}" data-name="${esc(s.name)}">Archive Karein</button></td>
+              <td><button class="btn-ghost dup-archive" data-id="${s.id}" data-name="${esc(s.name)}">${en ? "Archive" : "Archive Karein"}</button></td>
             </tr>`).join("")}
           </tbody></table>
         </div>`).join("");
       document.querySelectorAll(".dup-archive").forEach(btn => btn.onclick = async () => {
-        if (!confirm(
-          `"${btn.dataset.name}" ko archive karna hai?\n\n` +
-          `- Yeh strategy list se hat jayegi, lekin PERMANENTLY delete NAHI hogi -- kabhi bhi wapas la sakte hain.\n` +
-          `- Iski saari backtest history aur data safe rahega.\n` +
-          `- Agar yeh group ki aakhri active copy hai to system yeh archive nahi karne dega.`
-        )) return;
+        const confirmMsg = getLang() === "en"
+          ? `Archive "${btn.dataset.name}"?\n\n` +
+            `- It will disappear from the list, but will NOT be permanently deleted -- it can be restored any time.\n` +
+            `- All its backtest history and data stays safe.\n` +
+            `- If this is the last active copy of its group, the system will not allow archiving it.`
+          : `"${btn.dataset.name}" ko archive karna hai?\n\n` +
+            `- Yeh strategy list se hat jayegi, lekin PERMANENTLY delete NAHI hogi -- kabhi bhi wapas la sakte hain.\n` +
+            `- Iski saari backtest history aur data safe rahega.\n` +
+            `- Agar yeh group ki aakhri active copy hai to system yeh archive nahi karne dega.`;
+        if (!confirm(confirmMsg)) return;
         try {
           await apiPost(`/api/backtesting/strategies/${btn.dataset.id}/archive`, { confirm: true });
           render();
         } catch (e) {
-          alert(e.message || "Archive nahi ho saka.");
+          alert(e.message || (getLang() === "en" ? "Could not archive." : "Archive nahi ho saka."));
         }
       });
     })();
@@ -2986,7 +3130,7 @@
           ${card("Win Rate", telegramWinRateText(s))}
         </div>
 
-        <div class="section-title">Hypothetical $${hp.hypothetical_capital.toFixed(0)} Account (Simulated)</div>
+        <div class="section-title">${getLang() === "en" ? `Hypothetical $${hp.hypothetical_capital.toFixed(0)} Account (Simulated)` : `Andaazi $${hp.hypothetical_capital.toFixed(0)} Account (Nakli)`}</div>
         <p class="muted" style="margin-top:-8px;">Not a real account -- this shows what a $${hp.hypothetical_capital.toFixed(0)} balance would look like if every closed Telegram signal in this period had been risked at the platform's real configured risk-per-trade (${hp.risk_pct_used}%), using each trade's REAL recorded result. Trades still open contribute nothing yet.</p>
         <div class="grid">
           ${card("Trades Counted", fmtNum(hp.counted_trades))}
@@ -2994,9 +3138,9 @@
           ${card("Hypothetical Balance", `$${hp.hypothetical_balance.toFixed(2)}`)}
         </div>
 
-        <div class="section-title">Per-Strategy Breakdown</div>
+        <div class="section-title">${t("Per-Strategy Breakdown")}</div>
         <div class="table-wrap"><table>
-          <thead><tr><th>Strategy</th><th>Signals</th><th>Wins</th><th>Losses</th><th>Open/Pending</th><th>Win Rate</th></tr></thead>
+          <thead><tr><th>Strategy</th><th>Signals</th><th>${t("Wins")}</th><th>${t("Losses")}</th><th>Open/Pending</th><th>${t("Win Rate")}</th></tr></thead>
           <tbody>${analytics.strategy_breakdown.map(b => `
             <tr>
               <td>${esc(b.strategy_name)}</td>
@@ -3008,7 +3152,7 @@
             </tr>`).join("") || `<tr><td colspan="6">No signals sent yet in this period.</td></tr>`}</tbody>
         </table></div>
 
-        <div class="section-title">Signal Log</div>
+        <div class="section-title">${t("Signal Log")}</div>
         <div class="table-wrap"><table>
           <thead><tr><th>Sent</th><th>Coin</th><th>Direction</th><th>Entry</th><th>Stop-Loss</th><th>Take-Profit</th><th>Strategy</th><th>Outcome</th></tr></thead>
           <tbody>${signals.map(sig => `
@@ -3033,7 +3177,7 @@
     if (isStaleRoute(myToken)) return;
 
     content.innerHTML = `
-      <div class="section-title">Telegram Signals</div>
+      <div class="section-title">${t("Telegram Signals")}</div>
       <p class="muted">Everything sent to the Telegram channel, in one place -- how many signals went out, how they're doing, and a full log. Win/loss comes straight from each trade's real recorded outcome in Paper Trading; a trade that hasn't closed yet always shows as Open/Pending, never guessed at.</p>
 
       ${tgAlert.stale ? `
@@ -3458,7 +3602,7 @@
       const runningLessons = (lessonsRes.lessons || []).filter(l => l.apply_paper_trading);
 
       content.innerHTML = `
-        <div class="section-title">Paper Trading</div>
+        <div class="section-title">${t("Paper Trading")}</div>
         ${ptTabBarHtml(activePtTab)}
         <div class="pt-tab-panel" data-pt-tab="overview">
         <div class="grid">
@@ -3474,7 +3618,7 @@
         <div class="muted" style="font-size:12px;">Each strategy runs its own independent book -- balance/PnL/open positions are never merged between strategies. See the breakdown below.</div>
 
         ${(alertsRes.alerts || []).length ? `
-        <div class="section-title">Alerts</div>
+        <div class="section-title">${t("Alerts")}</div>
         <div class="card">
           ${alertsRes.alerts.slice(0, 8).map(a => `
             <div style="padding:4px 0;border-bottom:1px solid var(--border,#333);font-size:13px;">
@@ -3529,21 +3673,21 @@
         </div>
 
         <div class="pt-tab-panel" data-pt-tab="overview">
-        <div class="section-title">Daily Goal (${goalPct}%)</div>
+        <div class="section-title">${t("Daily Goal")} (${goalPct}%)</div>
         <div class="card">
           <div class="progress-bar"><div class="progress-bar-fill" style="width:${goalProgress}%;"></div></div>
           <div class="muted" style="margin-top:6px;font-size:12px;">Today's realized PnL: ${todaysPnlPct.toFixed(2)}% of ${goalPct}% goal (${todaysTrades.length} trades closed today)</div>
         </div>
 
-        <div class="section-title">Control Center</div>
+        <div class="section-title">${t("Control Center")}</div>
         <div class="btn-row">
-          <button class="btn" id="ptStart" ${status.running ? "disabled" : ""}>Start Engine</button>
-          <button class="btn-ghost" id="ptStop" ${status.running ? "" : "disabled"}>Stop Engine</button>
-          <button class="btn-ghost" id="ptRunTick">Run One Tick Now</button>
+          <button class="btn" id="ptStart" ${status.running ? "disabled" : ""}>${t("Start Engine")}</button>
+          <button class="btn-ghost" id="ptStop" ${status.running ? "" : "disabled"}>${t("Stop Engine")}</button>
+          <button class="btn-ghost" id="ptRunTick">${t("Run One Tick Now")}</button>
           <label style="display:flex;align-items:center;gap:6px;width:auto;">
             <input type="checkbox" id="ptDryRun" ${settings.dry_run ? "checked" : ""} style="width:auto;"> Dry Run Mode
           </label>
-          <button class="btn-ghost" id="ptResetBalance" style="border-color:var(--negative,#c0392b);color:var(--negative,#c0392b);">Reset Balance</button>
+          <button class="btn-ghost" id="ptResetBalance" style="border-color:var(--negative,#c0392b);color:var(--negative,#c0392b);">${t("Reset Balance")}</button>
           <span id="ptStatusMsg" class="muted"></span>
         </div>
         ${status.running ? `<div class="muted" style="font-size:12px;">Started ${esc((status.started_at||"").slice(0,19))} -- tick #${status.tick_count}, last at ${esc((status.last_tick_at||"-").slice(11,19))}</div>` : ""}
@@ -3759,15 +3903,23 @@
       });
       document.getElementById("ptResetBalance").onclick = async () => {
         const p = await apiGet("/api/paper-trading/reset-balance/preview");
-        const msg =
-          `Balance Reset karne se yeh hoga:\n\n` +
-          `- Combined balance $${p.current_combined_balance.toFixed(2)} se wapas $${p.reset_combined_balance.toFixed(2)} ho jayega ` +
-          `(${p.strategies_affected} strategy book(s), har ek apne $${p.initial_balance.toFixed(2)} starting balance par wapas).\n` +
-          `- ${p.closed_trades_preserved} band ho chuki trades, lessons, evolution data, aur saari statistics BILKUL SAFE rahengi -- kuch bhi delete nahi hoga.\n` +
-          (p.open_positions_left_running > 0
-            ? `- Abhi ${p.open_positions_left_running} trade(s) chal rahi hain -- yeh CHALTI RAHENGI, band nahi hongi. Jab woh close hongi, unka result naye balance mein add ho jayega.\n`
-            : `- Abhi koi open trade nahi hai.\n`) +
-          `\nConfirm karein?`;
+        const msg = getLang() === "en"
+          ? `Resetting the balance will do this:\n\n` +
+            `- Combined balance will go from $${p.current_combined_balance.toFixed(2)} back to $${p.reset_combined_balance.toFixed(2)} ` +
+            `(${p.strategies_affected} strategy book(s), each back to its $${p.initial_balance.toFixed(2)} starting balance).\n` +
+            `- ${p.closed_trades_preserved} closed trades, lessons, evolution data, and all statistics stay COMPLETELY SAFE -- nothing gets deleted.\n` +
+            (p.open_positions_left_running > 0
+              ? `- ${p.open_positions_left_running} trade(s) are currently open -- they will KEEP RUNNING, not be closed. When they do close, their result will add onto the new balance.\n`
+              : `- There are no open trades right now.\n`) +
+            `\nConfirm?`
+          : `Balance Reset karne se yeh hoga:\n\n` +
+            `- Combined balance $${p.current_combined_balance.toFixed(2)} se wapas $${p.reset_combined_balance.toFixed(2)} ho jayega ` +
+            `(${p.strategies_affected} strategy book(s), har ek apne $${p.initial_balance.toFixed(2)} starting balance par wapas).\n` +
+            `- ${p.closed_trades_preserved} band ho chuki trades, lessons, evolution data, aur saari statistics BILKUL SAFE rahengi -- kuch bhi delete nahi hoga.\n` +
+            (p.open_positions_left_running > 0
+              ? `- Abhi ${p.open_positions_left_running} trade(s) chal rahi hain -- yeh CHALTI RAHENGI, band nahi hongi. Jab woh close hongi, unka result naye balance mein add ho jayega.\n`
+              : `- Abhi koi open trade nahi hai.\n`) +
+            `\nConfirm karein?`;
         if (!confirm(msg)) return;
         document.getElementById("ptStatusMsg").textContent = "Resetting balance...";
         const res = await apiPost("/api/paper-trading/reset-balance", { confirm: true });
