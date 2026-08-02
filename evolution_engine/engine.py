@@ -19,11 +19,25 @@ import threading
 import time
 from datetime import datetime, timezone
 
-from data_engine import storage
+from data_engine import storage, config as base_config
 from evolution_engine.governor import Governor
 from evolution_engine import mutator, champion
+from sindhu_strategy import lifecycle as sindhu_lifecycle
 
 DEFAULT_TICK_INTERVAL_SECONDS = 300  # one evolution tick every 5 minutes
+# Batch 3, Task 4: the real gap that kept the loop idle -- the daily
+# generator (and this engine's own mutation step) both create new BOT
+# strategy generations, but nothing ever gave any of them a first real
+# backtest, so none could ever accumulate the trades needed to reach
+# Batch 1's 100-trade evolution gate. Deliberately modest and separate
+# from the mutation experiment budget below: a full-scale (50-coin) real
+# backtest is real CPU work, and this is meant to be a slow, continuous,
+# low-priority background drain of the candidate backlog on an 8GB
+# machine, not a burst. At 1 candidate/tick and a ~5-minute tick period,
+# the current ~230-candidate backlog drains in a few days, not competing
+# with real user-strategy backtests for resources.
+UNTESTED_CANDIDATES_PER_TICK = 1
+UNTESTED_BACKTEST_COIN_COUNT = 10  # a lighter real sample than the full 50-coin treatment user strategies get
 # +/-15% jitter on every wait between ticks, so a fixed 300s period never
 # stays permanently aligned with Paper Trading's own tick interval (also a
 # fixed period, configured separately in paper_trading/config.py) or the
@@ -157,6 +171,9 @@ class EvolutionEngine:
 
         self._checkpoint("analyzing")
 
+        tested = self._backtest_untested_candidates(_now_iso())
+        self._checkpoint("backtesting_candidates", tested=tested)
+
         # Cleared before re-deriving the candidate list fresh: a tick that
         # errors out partway through the mutation loop below otherwise
         # leaves stale, already-considered items sitting in the queue
@@ -198,6 +215,47 @@ class EvolutionEngine:
         }
         storage.create_knowledge_version("evolution tick", snapshot, _now_iso())
         self._checkpoint("completed", last_tick_at=_now_iso(), clear_error=True)
+
+    def _backtest_untested_candidates(self, now_iso):
+        """(Batch 3, Task 4) Feeds newly-generated BOT candidates into the
+        real backtest pipeline -- see the module-level comment on
+        UNTESTED_CANDIDATES_PER_TICK for why this exists and why it's
+        deliberately small. Uses the SAME Governor resource check as the
+        mutation loop (never runs a real backtest on an already-loaded
+        machine) but its own, separate, always-available budget (not
+        governor.try_start_experiment()'s per-tick experiment counter,
+        which the mutation loop below still governs on its own) -- a
+        first backtest and a mutation are different kinds of work and
+        competing for the same tiny per-tick counter would starve
+        whichever runs second. Never touches the 100-trade evolution gate
+        or the rollback mechanism (evolution_engine.rollback) -- this
+        only ever produces the trade data those already-built mechanisms
+        read; it doesn't decide anything about mutation eligibility
+        itself. Returns a list of {"id", "validated", "trades"} for
+        whatever ran this tick (empty if resources were tight or nothing
+        was untested)."""
+        if not self.governor.resource_ok():
+            return []
+        exchange_cfg = base_config.load_or_seed("exchanges.json", base_config.DEFAULTS["exchanges.json"])
+        exchange = exchange_cfg["default"]
+        symbols = storage.load_symbols(exchange)[:UNTESTED_BACKTEST_COIN_COUNT]
+        if not symbols:
+            self._log("[evolution-engine] no downloaded coins available yet -- skipping candidate backtests this tick")
+            return []
+
+        tested = []
+        for row in storage.list_untested_bot_strategies(limit=UNTESTED_CANDIDATES_PER_TICK):
+            if not self.governor.resource_ok():
+                break
+            try:
+                result = sindhu_lifecycle.validate_and_backtest(row["id"], exchange, symbols, use_multiprocessing=False)
+                trades = (result.get("backtest_summary") or {}).get("trades")
+                tested.append({"id": row["id"], "validated": result["validated"], "trades": trades})
+                self._log(f"[evolution-engine] first backtest done for {row['id']} ({row['name']}): "
+                          f"{'valid, ' + str(trades) + ' trades' if result['validated'] else 'invalid config'}")
+            except Exception as e:
+                self._log(f"[evolution-engine] first backtest failed for {row['id']}: {e!r}")
+        return tested
 
     def status(self):
         job = storage.get_evolution_job(self.job_id) if self.job_id else None

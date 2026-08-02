@@ -42,6 +42,10 @@ _DEFAULTS = {
     "send_close_followups": True,
     "proxy_enabled": False,
     "proxy_url": "",  # e.g. "socks5://user:pass@host:1080" or "http://user:pass@host:8080"
+    # Batch 3, Task 4 (Part B) -- Signal Freshness Gate: a signal is
+    # useless once price has likely moved past the intended entry.
+    "signal_freshness_minutes": 15,   # a signal older than this is withheld, not sent as normal
+    "signal_price_drift_pct": 0.5,    # if live price has moved this % away from entry_price, withheld
 }
 
 DISCLAIMER = ("This is an experimental signal from a system still under development. "
@@ -55,6 +59,8 @@ DISCLAIMER = ("This is an experimental signal from a system still under developm
 # (set via @BotFather) is a Telegram-account-level setting outside this
 # codebase and isn't something a code change can alter.
 TELEGRAM_BRAND = "Trade Vision"
+
+_UNSET = object()  # sentinel: "caller didn't pass live_price, fetch it" vs. explicit None ("already tried, no price")
 
 _API_CONNECT_TIMEOUT = 15
 _API_READ_TIMEOUT = 30
@@ -90,6 +96,8 @@ def public_settings():
         "send_close_followups": s.get("send_close_followups", True),
         "proxy_enabled": s.get("proxy_enabled", False),
         "proxy_configured": bool(s.get("proxy_url")),
+        "signal_freshness_minutes": s.get("signal_freshness_minutes", _DEFAULTS["signal_freshness_minutes"]),
+        "signal_price_drift_pct": s.get("signal_price_drift_pct", _DEFAULTS["signal_price_drift_pct"]),
     }
 
 
@@ -296,7 +304,73 @@ def _fetch_live_price(exchange, symbol):
         return None
 
 
-def format_signal_message(position, confluence_result=None, reliability_result=None, high_confidence=False):
+# --------------------------------------------------------------- Task 4 (Batch 3, Part B): Signal Freshness Gate
+
+def signal_age_minutes(position, now_ms=None):
+    """Real elapsed minutes since this signal's position opened, or None
+    if entry_time isn't recorded (never blocks on missing data -- a
+    position without a timestamp can't be judged stale, it's simply not
+    checked)."""
+    entry_time_ms = position.get("entry_time")
+    if not entry_time_ms:
+        return None
+    now_ms = now_ms if now_ms is not None else datetime.now(timezone.utc).timestamp() * 1000
+    return max(0.0, (now_ms - entry_time_ms) / 60000.0)
+
+
+def is_signal_stale(position, now_ms=None, max_age_minutes=None):
+    """True if this signal is older than the configured freshness window
+    (default 15 minutes) -- by the time it would reach Telegram, price
+    has likely already moved away from the intended entry. A position
+    with no entry_time is never treated as stale (nothing to judge)."""
+    age = signal_age_minutes(position, now_ms=now_ms)
+    if age is None:
+        return False
+    limit = max_age_minutes if max_age_minutes is not None else load_settings().get(
+        "signal_freshness_minutes", _DEFAULTS["signal_freshness_minutes"])
+    return age > limit
+
+
+def price_has_moved_away(position, live_price, max_drift_pct=None):
+    """True if the current live price has moved more than the configured
+    threshold (default 0.5%) away from this signal's entry price, in
+    EITHER direction -- a big enough move either way means the specific
+    entry this signal was built around no longer reflects the market, so
+    the opportunity described in the message would already be gone.
+    Never blocks when either price is unavailable (nothing to compare)."""
+    entry_price = position.get("entry_price")
+    if not entry_price or live_price is None:
+        return False
+    limit = max_drift_pct if max_drift_pct is not None else load_settings().get(
+        "signal_price_drift_pct", _DEFAULTS["signal_price_drift_pct"])
+    drift_pct = abs(live_price - entry_price) / entry_price * 100.0
+    return drift_pct > limit
+
+
+def freshness_check(position, now_ms=None):
+    """The single gate send_signal_for_position() consults -- combines
+    the age check and the price-drift check (which needs a real live
+    price fetch, so this is the one place both live checks happen
+    together). Returns (ok: bool, reason: str|None, live_price: float|None)
+    -- live_price is returned either way so callers/format_signal_message
+    don't have to fetch it twice."""
+    if is_signal_stale(position, now_ms=now_ms):
+        age = signal_age_minutes(position, now_ms=now_ms)
+        limit = load_settings().get("signal_freshness_minutes", _DEFAULTS["signal_freshness_minutes"])
+        return False, f"signal is {age:.0f} minutes old (limit {limit} minutes) -- too stale to send", None
+
+    live_price = _fetch_live_price(position.get("exchange"), position["symbol"])
+    if price_has_moved_away(position, live_price):
+        limit = load_settings().get("signal_price_drift_pct", _DEFAULTS["signal_price_drift_pct"])
+        return False, (
+            f"live price ({live_price}) has moved more than {limit}% away from the entry price "
+            f"({position.get('entry_price')}) -- the opportunity has likely already passed"
+        ), live_price
+    return True, None, live_price
+
+
+def format_signal_message(position, confluence_result=None, reliability_result=None, high_confidence=False,
+                           live_price=_UNSET):
     direction_word = "LONG" if position["direction"] == "long" else "SHORT"
     symbol = position["symbol"]
 
@@ -320,7 +394,8 @@ def format_signal_message(position, confluence_result=None, reliability_result=N
         f"\U0001F3AF Take-Profit: {_format_price(position.get('take_profit'))}",
     ]
 
-    live_price = _fetch_live_price(position.get("exchange"), symbol)
+    if live_price is _UNSET:
+        live_price = _fetch_live_price(position.get("exchange"), symbol)
     if live_price is not None:
         lines.append(f"Current Price: {_format_price(live_price)}")
 
@@ -415,6 +490,21 @@ def send_signal_for_position(position_id, trigger_type="manual", high_confidence
         )
         return {"ok": False, "error": "rate limit reached for this hour"}
 
+    # Task 4 (Batch 3, Part B): Signal Freshness Gate -- applies to every
+    # send through this one shared entry point (manual AND automatic,
+    # including the hourly sweep from Batch 2, which calls this same
+    # function and therefore automatically respects this gate too -- see
+    # sweep_unsent_qualifying_signals's docstring). A stale signal, or one
+    # whose live price has already moved away from the entry, is never
+    # sent as a normal signal.
+    fresh_ok, fresh_reason, live_price = freshness_check(pos)
+    if not fresh_ok:
+        storage.log_telegram_message(
+            position_id, pos.get("strategy_id"), pos.get("strategy_name"), trigger_type,
+            "", False, fresh_reason, now,
+        )
+        return {"ok": False, "error": fresh_reason}
+
     exchanges_cfg = base_config.load_or_seed("exchanges.json", base_config.DEFAULTS["exchanges.json"])
     exchange = exchanges_cfg["default"]
     try:
@@ -431,7 +521,7 @@ def send_signal_for_position(position_id, trigger_type="manual", high_confidence
     except Exception:
         reliability = None
 
-    text = format_signal_message(pos, conf, reliability, high_confidence=high_confidence)
+    text = format_signal_message(pos, conf, reliability, high_confidence=high_confidence, live_price=live_price)
     ok, err = _raw_send(text)
     storage.log_telegram_message(
         position_id, pos.get("strategy_id"), pos.get("strategy_name"), trigger_type, text, ok, err, now,

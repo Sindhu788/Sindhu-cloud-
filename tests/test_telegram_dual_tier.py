@@ -10,6 +10,7 @@ fabricates a label -- both only ever describe real, already-computed
 confluence/statistical data.
 """
 
+from datetime import datetime, timezone
 from unittest.mock import patch
 
 import pytest
@@ -22,6 +23,19 @@ from paper_trading import telegram_bot, pattern_stats
 def isolated_config(tmp_path, monkeypatch):
     monkeypatch.setattr(base_config, "CONFIG_DIR", str(tmp_path))
     yield
+
+
+@pytest.fixture(autouse=True)
+def no_real_live_price(monkeypatch):
+    # These tests use a fictional entry_price (100.0) for a real symbol
+    # (BTCUSDT) -- without this, the Signal Freshness Gate's real
+    # price-drift check (Batch 3, Task 4 Part B) would fetch the REAL
+    # live BTCUSDT price and correctly flag a massive "drift" from the
+    # fictional test price, blocking every send here for a reason
+    # unrelated to what these tests actually check. None = "couldn't
+    # fetch" = the drift check is skipped, matching its documented
+    # fail-open behavior.
+    monkeypatch.setattr(telegram_bot, "_fetch_live_price", lambda *a, **k: None)
 
 
 def _position(**overrides):
@@ -39,7 +53,12 @@ def _open_position(storage_mod, **overrides):
     pos = _position(**overrides)
     pos.update({
         "exchange": "binance", "size": 1.0, "risk_amount": 5.0,
-        "entry_time": 1700000000000, "created_at": "2026-01-01T00:00:00+00:00",
+        # A fresh timestamp -- the Signal Freshness Gate (Batch 3, Task 4
+        # Part B) blocks anything older than signal_freshness_minutes
+        # (default 15), so a hardcoded old timestamp would fail every
+        # send-path test here for a reason unrelated to what they check.
+        "entry_time": int(datetime.now(timezone.utc).timestamp() * 1000),
+        "created_at": "2026-01-01T00:00:00+00:00",
     })
     storage_mod.open_paper_position(pos)
     return pos

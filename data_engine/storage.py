@@ -3829,6 +3829,25 @@ def list_bot_strategy_base_ids():
     return [r[0] for r in rows]
 
 
+def list_untested_bot_strategies(limit=1):
+    """(Batch 3, Task 4) Every active BOT strategy generation that has
+    never been backtested -- backtest_summary_json IS NULL -- oldest
+    first, so the daily generator's backlog drains in the order it was
+    created rather than newest-first forever starving older candidates.
+    This is the real gap diagnosed in Task 4: the daily generator (and
+    Batch 1's mutation loop) both create new generations, but nothing
+    fed any of them into a real first backtest, so none could ever reach
+    the 100-trade evolution gate."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            f"SELECT {','.join(_BOT_STRATEGY_COLUMNS)} FROM bot_strategies "
+            "WHERE status='active' AND backtest_summary_json IS NULL "
+            "ORDER BY created_at ASC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    return [_row_to_bot_strategy(r) for r in rows]
+
+
 # ---- evolution_trade_gates: 100-trade evolution gate + rollback pin ----
 
 def get_trade_gate(base_id):

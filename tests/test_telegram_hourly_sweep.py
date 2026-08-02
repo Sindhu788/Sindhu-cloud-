@@ -5,6 +5,7 @@ same dual-tier gating used at open-time (never a looser/bypassed check),
 and never re-sent for a position that already has one logged.
 """
 
+from datetime import datetime, timezone
 from unittest.mock import patch
 
 import pytest
@@ -19,6 +20,13 @@ def isolated_config(tmp_path, monkeypatch):
     yield
 
 
+@pytest.fixture(autouse=True)
+def no_real_live_price(monkeypatch):
+    # See test_telegram_dual_tier.py's comment -- fictional entry_price
+    # for a real symbol would otherwise trip the real price-drift check.
+    monkeypatch.setattr(telegram_bot, "_fetch_live_price", lambda *a, **k: None)
+
+
 def _position(pos_id="pos1", **overrides):
     base = {
         "id": pos_id, "strategy_id": "strat1", "strategy_name": "Test Strategy",
@@ -26,7 +34,10 @@ def _position(pos_id="pos1", **overrides):
         "stop_loss": 95.0, "take_profit": 110.0, "market_state": "trending_up",
         "session": "london", "entry_reason": "test",
         "exchange": "binance", "size": 1.0, "risk_amount": 5.0,
-        "entry_time": 1700000000000, "created_at": "2026-01-01T00:00:00+00:00",
+        # Fresh timestamp -- see test_telegram_dual_tier.py's comment on
+        # why (Signal Freshness Gate, Batch 3 Task 4 Part B).
+        "entry_time": int(datetime.now(timezone.utc).timestamp() * 1000),
+        "created_at": "2026-01-01T00:00:00+00:00",
     }
     base.update(overrides)
     return base

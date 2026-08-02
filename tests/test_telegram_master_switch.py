@@ -7,6 +7,7 @@ every real-send path: Manual Override / on-demand send
 "automatic") and the close-result follow-up (send_close_followup).
 """
 
+from datetime import datetime, timezone
 from unittest.mock import patch
 
 import pytest
@@ -21,11 +22,21 @@ def isolated_config(tmp_path, monkeypatch):
     yield
 
 
+@pytest.fixture(autouse=True)
+def no_real_live_price(monkeypatch):
+    # See test_telegram_dual_tier.py's comment -- fictional entry_price
+    # for a real symbol would otherwise trip the real price-drift check.
+    monkeypatch.setattr(telegram_bot, "_fetch_live_price", lambda *a, **k: None)
+
+
 def _open_position(**overrides):
     pos = {
         "id": "pos1", "exchange": "binance", "symbol": "BTCUSDT", "direction": "long",
         "entry_price": 100.0, "size": 1.0, "risk_amount": 5.0,
-        "entry_time": 1700000000000, "created_at": "2026-01-01T00:00:00+00:00",
+        # Fresh timestamp -- see test_telegram_dual_tier.py's comment on
+        # why (Signal Freshness Gate, Batch 3 Task 4 Part B).
+        "entry_time": int(datetime.now(timezone.utc).timestamp() * 1000),
+        "created_at": "2026-01-01T00:00:00+00:00",
         "strategy_id": "strat1", "strategy_name": "Test Strategy",
     }
     pos.update(overrides)
