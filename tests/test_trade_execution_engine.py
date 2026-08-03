@@ -16,6 +16,7 @@ import pytest
 
 from backtest_engine.engine import run_backtest, _position_size
 from backtest_engine.strategy_config import StrategyConfig
+from backtest_engine import validator
 from strategies.base import Strategy, Signal
 
 
@@ -180,6 +181,116 @@ def test_signal_candle_low_entry_fills_at_signal_bars_own_low():
     assert trades[0]["entry_price"] == pytest.approx(95.0)
     assert trades[0]["entry_type"] == "signal_candle_low"
     assert trades[0]["side"] == "short"
+
+
+# ------------------------------------- per-direction entry type (Batch 6, Task 4)
+
+def test_per_direction_overrides_default_to_none_and_shared_entry_type_still_applies():
+    """Backward compatibility: a StrategyConfig that never sets
+    long_entry_type/short_entry_type (every strategy saved before this
+    feature existed) must behave byte-for-byte like before -- the shared
+    entry_type alone decides the fill mechanic for both directions."""
+    cfg = StrategyConfig(name="t", entry_type="market")
+    assert cfg.long_entry_type is None
+    assert cfg.short_entry_type is None
+    df = _make_df([(100, 101, 99, 100), (100, 105, 95, 102), (102, 103, 101, 103)])
+    strat = _FixedSignalStrategy(fire_at_bar=1, action="buy", config=cfg)
+    trades, equity, bal = run_backtest(df, strat, _settings())
+    assert len(trades) == 1
+    assert trades[0]["entry_price"] == pytest.approx(102.0)
+    assert trades[0]["entry_type"] == "market"
+
+
+def test_long_entry_type_override_fires_off_signal_candle_high_while_shared_entry_type_stays_market():
+    """The PDH-PDL case: long side needs signal_candle_high while the
+    strategy's shared entry_type remains "market" (e.g. for a short side
+    it hasn't overridden). The override must take effect for a buy
+    signal even though entry_type itself says "market"."""
+    cfg = StrategyConfig(name="t", entry_type="market", long_entry_type="signal_candle_high")
+    df = _make_df([
+        (100, 101, 99, 100),
+        (100, 105, 99, 102),     # signal fires here; signal bar's own HIGH = 105
+        (102, 104, 101, 103),    # high=104 < 105, no fill
+        (103, 106, 102, 105),    # high=106 >= 105 -> fills at exactly 105
+    ])
+    strat = _FixedSignalStrategy(fire_at_bar=1, action="buy", config=cfg)
+    trades, equity, bal = run_backtest(df, strat, _settings())
+    assert len(trades) == 1
+    assert trades[0]["entry_price"] == pytest.approx(105.0)
+    assert trades[0]["entry_type"] == "signal_candle_high"
+    assert trades[0]["side"] == "long"
+
+
+def test_short_entry_type_override_fires_off_signal_candle_low_while_shared_entry_type_stays_market():
+    cfg = StrategyConfig(name="t", entry_type="market", short_entry_type="signal_candle_low")
+    df = _make_df([
+        (100, 101, 99, 100),
+        (100, 102, 95, 99),      # signal fires (sell); signal bar's own LOW = 95
+        (99, 100, 96, 97),       # low=96 > 95, no fill
+        (97, 98, 94, 95),        # low=94 <= 95 -> fills at exactly 95
+    ])
+    strat = _FixedSignalStrategy(fire_at_bar=1, action="sell", config=cfg)
+    trades, equity, bal = run_backtest(df, strat, _settings())
+    assert len(trades) == 1
+    assert trades[0]["entry_price"] == pytest.approx(95.0)
+    assert trades[0]["entry_type"] == "signal_candle_low"
+    assert trades[0]["side"] == "short"
+
+
+def test_pdh_pdl_style_strategy_triggers_correctly_on_both_sides_with_opposite_trigger_prices():
+    """The real-world motivating case: ONE strategy config with BOTH
+    long_entry_type="signal_candle_high" (long entries trigger off a
+    later candle's high breaking the signal candle's own high) AND
+    short_entry_type="signal_candle_low" (short entries trigger off a
+    later candle's low breaking the signal candle's own low) -- opposite
+    trigger sides for opposite directions, previously inexpressible with
+    a single shared entry_type."""
+    cfg = StrategyConfig(
+        name="pdh-pdl", entry_type="market",
+        long_entry_type="signal_candle_high", short_entry_type="signal_candle_low",
+    )
+
+    long_df = _make_df([
+        (100, 101, 99, 100),
+        (100, 105, 99, 102),     # buy signal fires; signal bar's own HIGH = 105
+        (102, 104, 101, 103),    # no fill yet
+        (103, 106, 102, 105),    # fills at exactly 105
+    ])
+    long_strat = _FixedSignalStrategy(fire_at_bar=1, action="buy", config=cfg)
+    long_trades, _, _ = run_backtest(long_df, long_strat, _settings())
+    assert len(long_trades) == 1
+    assert long_trades[0]["side"] == "long"
+    assert long_trades[0]["entry_type"] == "signal_candle_high"
+    assert long_trades[0]["entry_price"] == pytest.approx(105.0)
+
+    short_df = _make_df([
+        (100, 101, 99, 100),
+        (100, 102, 95, 99),      # sell signal fires; signal bar's own LOW = 95
+        (99, 100, 96, 97),       # no fill yet
+        (97, 98, 94, 95),        # fills at exactly 95
+    ])
+    short_strat = _FixedSignalStrategy(fire_at_bar=1, action="sell", config=cfg)
+    short_trades, _, _ = run_backtest(short_df, short_strat, _settings())
+    assert len(short_trades) == 1
+    assert short_trades[0]["side"] == "short"
+    assert short_trades[0]["entry_type"] == "signal_candle_low"
+    assert short_trades[0]["entry_price"] == pytest.approx(95.0)
+
+
+def test_validator_accepts_valid_per_direction_entry_types():
+    cfg = StrategyConfig(
+        name="pdh-pdl", entry_type="market",
+        long_entry_type="signal_candle_high", short_entry_type="signal_candle_low",
+        entry_conditions=[], exit_conditions=[],
+    )
+    errors = validator.validate(cfg)
+    assert not any("long_entry_type" in e or "short_entry_type" in e for e in errors)
+
+
+def test_validator_rejects_unknown_per_direction_entry_type():
+    cfg = StrategyConfig(name="t", entry_type="market", long_entry_type="not_a_real_type")
+    errors = validator.validate(cfg)
+    assert any("long_entry_type" in e and "not_a_real_type" in e for e in errors)
 
 
 def test_next_candle_open_fills_at_the_immediately_following_bars_open():

@@ -246,6 +246,11 @@ def run_backtest(df, strategy, settings, control=None, on_trade=None, knowledge_
 
     config = getattr(strategy, "config", None)
     entry_type = (getattr(config, "entry_type", None) or "market").strip().lower()
+    # Batch 6, Task 4: per-direction override, None (the default) means
+    # "use the shared entry_type" -- resolved per-signal below once `side`
+    # is known, never changing behavior for a strategy that never sets these.
+    long_entry_type_override = getattr(config, "long_entry_type", None)
+    short_entry_type_override = getattr(config, "short_entry_type", None)
     entry_offset_pct = getattr(config, "entry_price_offset_pct", None)
     partial_tp_config = getattr(config, "partial_take_profit", None)
     trailing_config = getattr(config, "trailing_stop", None)
@@ -543,33 +548,43 @@ def run_backtest(df, strategy, settings, control=None, on_trade=None, knowledge_
             )
 
             if signal is not None and not daily_halted:
-                if entry_type in ("market", "current_candle_close"):
+                # Batch 6, Task 4: resolve the EFFECTIVE entry type for
+                # this specific signal's direction -- the per-direction
+                # override if this strategy set one, else the shared
+                # entry_type unchanged. A strategy that never sets
+                # long_entry_type/short_entry_type always gets
+                # effective_entry_type == entry_type, byte-for-byte the
+                # same as before this feature existed.
+                direction_override = long_entry_type_override if side == "long" else short_entry_type_override
+                effective_entry_type = (direction_override or entry_type).strip().lower() if direction_override else entry_type
+
+                if effective_entry_type in ("market", "current_candle_close"):
                     position = _open_position(
                         side, price, signal.stop_loss, signal.take_profit,
-                        signal.reason, entry_type, i,
+                        signal.reason, effective_entry_type, i,
                     )
-                elif entry_type == "next_candle_open":
+                elif effective_entry_type == "next_candle_open":
                     pending = {
                         "side": side, "order_type": "next_candle_open", "trigger_price": None,
                         "stop_loss": signal.stop_loss, "take_profit": signal.take_profit,
                         "reason": signal.reason or "signal", "created_bar": i, "offset_pct": None,
                     }
-                elif entry_type in ("limit", "stop"):
+                elif effective_entry_type in ("limit", "stop"):
                     pending = {
-                        "side": side, "order_type": entry_type, "trigger_price": None,
+                        "side": side, "order_type": effective_entry_type, "trigger_price": None,
                         "offset_pct": entry_offset_pct,
                         "stop_loss": signal.stop_loss, "take_profit": signal.take_profit,
                         "reason": signal.reason or "signal", "created_bar": i,
                     }
                     pending["trigger_price"] = _pending_trigger_price(pending, price)
-                elif entry_type in ("signal_candle_high", "signal_candle_low"):
+                elif effective_entry_type in ("signal_candle_high", "signal_candle_low"):
                     # Trigger is the SIGNAL bar's own high/low, captured
                     # now -- e.g. "wait for a later candle whose high goes
                     # above the signal candle's high" (a real, previously
                     # unrepresentable strategy rule).
-                    trigger_price = high if entry_type == "signal_candle_high" else low
+                    trigger_price = high if effective_entry_type == "signal_candle_high" else low
                     pending = {
-                        "side": side, "order_type": entry_type, "trigger_price": trigger_price,
+                        "side": side, "order_type": effective_entry_type, "trigger_price": trigger_price,
                         "offset_pct": None,
                         "stop_loss": signal.stop_loss, "take_profit": signal.take_profit,
                         "reason": signal.reason or "signal", "created_bar": i,

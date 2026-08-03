@@ -137,6 +137,17 @@ class StrategyConfig:
     # ignored. Default "market" reproduces every strategy's behavior from
     # before this field existed, byte-for-byte.
     entry_type: str = "market"
+    # Batch 6, Task 4 -- per-direction entry type override. A strategy like
+    # PDH-PDL needs OPPOSITE trigger sides for its long vs short rules (long
+    # entries trigger off a later candle's HIGH breaking the signal candle's
+    # high; short entries trigger off a later candle's LOW breaking the
+    # signal candle's low) -- entry_type alone can only express one shared
+    # value for the whole strategy. When set, these override entry_type for
+    # that one direction only; None (the default) falls back to entry_type
+    # unchanged, so every strategy saved before this field existed behaves
+    # byte-for-byte the same.
+    long_entry_type: Optional[str] = None
+    short_entry_type: Optional[str] = None
     # "limit"/"stop" trigger price = signal-bar close offset by this percent
     # (limit: against the trade direction, i.e. a pullback; stop: with the
     # trade direction, i.e. a breakout). None/0 means the trigger equals the

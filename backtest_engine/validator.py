@@ -222,6 +222,14 @@ def validate(config):
         errors.append(
             f"Unknown entry_type '{config.entry_type}'. Must be one of: {', '.join(sorted(_KNOWN_ENTRY_TYPES))}."
         )
+    # Batch 6, Task 4: per-direction overrides -- optional, only validated
+    # when actually set (None means "use entry_type", already validated
+    # above, so a strategy that never sets these is unaffected).
+    for field_name, override in (("long_entry_type", config.long_entry_type), ("short_entry_type", config.short_entry_type)):
+        if override is not None and override.strip().lower() not in _KNOWN_ENTRY_TYPES:
+            errors.append(
+                f"Unknown {field_name} '{override}'. Must be one of: {', '.join(sorted(_KNOWN_ENTRY_TYPES))}."
+            )
     if entry_type in ("limit", "stop") and config.entry_price_offset_pct is not None:
         if config.entry_price_offset_pct < 0:
             errors.append(
