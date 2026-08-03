@@ -38,6 +38,16 @@ _DEFAULTS = {
     "master_send_enabled": True,  # Telegram Dashboard's master switch -- see _master_enabled() below
     "auto_send_enabled": False,   # non-negotiable: OFF by default
     "auto_send_min_confluence_ratio": 1.0,  # require ALL counted factors aligned (e.g. 4/4) by default -- conservative
+    # Batch 6, Task 3: the ratio alone can be satisfied by as few as 1/1
+    # counted factor (the other 3 were "neutral" -- not enough data, so
+    # excluded from the denominator) -- a real signal could clear a
+    # 100% ratio on genuinely thin support. High Confidence now ALSO
+    # requires this many factors to have been counted AND aligned, on
+    # top of the ratio -- tightens the bar using the same already-
+    # computed confluence numbers, no new factors, HIGH tier only (the
+    # Low tier's fallback purpose and the 25-trade Wilson gate are both
+    # untouched).
+    "auto_send_min_confluence_count": 3,
     "rate_limit_per_hour": 10,
     "send_close_followups": True,
     "proxy_enabled": False,
@@ -96,6 +106,7 @@ def public_settings():
         "master_send_enabled": s.get("master_send_enabled", True),
         "auto_send_enabled": s.get("auto_send_enabled", False),
         "auto_send_min_confluence_ratio": s.get("auto_send_min_confluence_ratio", 1.0),
+        "auto_send_min_confluence_count": s.get("auto_send_min_confluence_count", _DEFAULTS["auto_send_min_confluence_count"]),
         "rate_limit_per_hour": s.get("rate_limit_per_hour", 10),
         "send_close_followups": s.get("send_close_followups", True),
         "proxy_enabled": s.get("proxy_enabled", False),
@@ -619,6 +630,18 @@ def evaluate_auto_send(position_id):
     min_ratio = settings.get("auto_send_min_confluence_ratio", 1.0)
     if ratio < min_ratio:
         return False, f"confluence {conf['label']} below the required bar"
+    # Batch 6, Task 3: the ratio alone can be satisfied by a small number
+    # of counted factors (the rest were "neutral" -- not enough data, and
+    # so excluded from the denominator). High Confidence additionally
+    # requires a minimum ABSOLUTE count of aligned factors, tightening
+    # the bar with the same already-computed numbers -- no new factors,
+    # HIGH tier only.
+    min_count = settings.get("auto_send_min_confluence_count", _DEFAULTS["auto_send_min_confluence_count"])
+    if conf["passed"] < min_count:
+        return False, (
+            f"confluence {conf['label']} has too few factors actually counted/aligned "
+            f"(needs at least {min_count}, only {conf['passed']} counted)"
+        )
 
     reliability = _pattern_reliability_for(strategy_id, pos["symbol"], pos.get("market_state"), pos.get("session"))
     if reliability["status"] != "reliable_good":

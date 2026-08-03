@@ -79,9 +79,12 @@ def test_signal_message_omits_statistical_confidence_when_insufficient_data():
 
 
 def test_auto_send_blocked_when_pattern_not_statistically_reliable(test_db):
+    # min_confluence_count=1: this test isolates the Wilson-gate check,
+    # not Batch 6 Task 3's minimum-count tightening (see
+    # tests/test_confluence_min_count.py for that).
     telegram_bot.save_settings(
         bot_token="dummy", channel_id="123", auto_send_enabled=True,
-        auto_send_min_confluence_ratio=0.0,
+        auto_send_min_confluence_ratio=0.0, auto_send_min_confluence_count=1,
     )
     _open_position(storage)
     # No pattern memory recorded at all yet -- 0 trades for this exact pattern.

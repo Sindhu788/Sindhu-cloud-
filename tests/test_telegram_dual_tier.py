@@ -68,9 +68,12 @@ FULL_CONFLUENCE = {"passed": 4, "total": 4, "label": "Strong -- 4/4 factors alig
 
 
 def _enable_auto_send(min_ratio=1.0):
+    # min_confluence_count=1 (this file's tests predate Batch 6, Task 3's
+    # minimum-count tightening and use mocked confluence data not meant to
+    # exercise it -- see tests/test_confluence_min_count.py for that).
     telegram_bot.save_settings(
         bot_token="dummy", channel_id="123", auto_send_enabled=True,
-        auto_send_min_confluence_ratio=min_ratio,
+        auto_send_min_confluence_ratio=min_ratio, auto_send_min_confluence_count=1,
     )
 
 
