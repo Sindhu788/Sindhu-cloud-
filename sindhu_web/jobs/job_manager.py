@@ -13,6 +13,32 @@ from sindhu_web import broadcast
 _jobs = {}
 _lock = threading.Lock()
 
+# Batch 7, Task 1 (memory cleanup): _jobs never had anything removing old
+# entries -- every backtest/download/pipeline job ever started (including
+# its full `result` dict) stayed in memory for the life of the process.
+# A job's real, permanent record already lives in the database (batch_id
+# lookups via backtest_batches/backtest_results) once it finishes, so this
+# in-memory registry only needs to cover "recent enough to still be
+# polled or shown in Recent Activity" -- capped rather than unbounded.
+# Running jobs are NEVER pruned, no matter how many are in flight.
+MAX_RETAINED_JOBS = 200
+
+
+def _prune_finished_locked():
+    """Must be called with _lock already held. Evicts the oldest FINISHED
+    (non-running) jobs once total count exceeds MAX_RETAINED_JOBS -- a
+    job still running is always kept regardless of how far over the cap
+    that pushes the total."""
+    overflow = len(_jobs) - MAX_RETAINED_JOBS
+    if overflow <= 0:
+        return
+    finished = sorted(
+        (j for j in _jobs.values() if j.status != "running"),
+        key=lambda j: j.finished_at or j.started_at,
+    )
+    for j in finished[:overflow]:
+        del _jobs[j.id]
+
 
 def _now_iso():
     return datetime.now(timezone.utc).isoformat()
@@ -52,6 +78,8 @@ def create_job(kind, target, control=None, args=(), kwargs=None, job_id=None):
             job.error = repr(e)
         finally:
             job.finished_at = _now_iso()
+            with _lock:
+                _prune_finished_locked()
             broadcast.publish({
                 "channel": "job", "job_id": job_id, "event": "finished",
                 "status": job.status, "kind": kind,
@@ -60,6 +88,7 @@ def create_job(kind, target, control=None, args=(), kwargs=None, job_id=None):
 
     with _lock:
         _jobs[job_id] = job
+        _prune_finished_locked()
     threading.Thread(target=_runner, daemon=True).start()
     broadcast.publish({"channel": "job", "job_id": job_id, "event": "started", "kind": kind})
     return job_id
