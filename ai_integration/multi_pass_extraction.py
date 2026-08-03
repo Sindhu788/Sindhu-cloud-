@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 from ai_integration import config as ai_config
 from ai_integration import schema
 from ai_integration.deep_understanding import call_provider_chain_generic
+from ai_integration.fragment_merge import merge_fragment_additive
 
 _COMPARISON_SYSTEM_PROMPT = (
     "You are a meticulous QA auditor for trading strategy extraction. "
@@ -287,61 +288,11 @@ MAX_RETRIES = 3
 
 def _merge_retry_fragment(existing, fragment):
     """Merges a targeted retry pass's recovered fields INTO the
-    already-captured strategy -- additive only. A field the earlier
-    passes already resolved is never overwritten by the retry (the retry
-    was told to focus on specific missing rules; if it also guesses at
-    an already-captured field, that guess is discarded rather than
-    risking a worse, second-guessed replacement of something already
-    confirmed). List-shaped fields are unioned (deduped); scalar fields
-    only fill in if the existing value is still the "nothing found"
-    default."""
-    if not fragment:
-        return existing
-    if not existing:
-        return fragment
-    merged = dict(existing)
-    merged["entry_conditions"] = _merge_list(existing.get("entry_conditions"), fragment.get("entry_conditions"))
-    merged["long_entry_conditions"] = _merge_list(existing.get("long_entry_conditions"), fragment.get("long_entry_conditions"))
-    merged["short_entry_conditions"] = _merge_list(existing.get("short_entry_conditions"), fragment.get("short_entry_conditions"))
-    if not existing.get("entry_rule_groups"):
-        merged["entry_rule_groups"] = fragment.get("entry_rule_groups") or existing.get("entry_rule_groups") or []
-    merged["exit_conditions"] = _merge_list(existing.get("exit_conditions"), fragment.get("exit_conditions"))
-    merged["confirmation_conditions"] = _merge_list(existing.get("confirmation_conditions"), fragment.get("confirmation_conditions"))
-
-    if (existing.get("stop_loss") or {}).get("type", "unknown") == "unknown" \
-            and (fragment.get("stop_loss") or {}).get("type", "unknown") != "unknown":
-        merged["stop_loss"] = fragment["stop_loss"]
-    if (existing.get("take_profit") or {}).get("type", "unknown") == "unknown" \
-            and (fragment.get("take_profit") or {}).get("type", "unknown") != "unknown":
-        merged["take_profit"] = fragment["take_profit"]
-    if existing.get("risk_pct") is None and fragment.get("risk_pct") is not None:
-        merged["risk_pct"] = fragment["risk_pct"]
-    if existing.get("risk_reward") is None and fragment.get("risk_reward") is not None:
-        merged["risk_reward"] = fragment["risk_reward"]
-    merged["session_filter"] = _merge_list(existing.get("session_filter"), fragment.get("session_filter"))
-    merged["day_filter"] = _merge_list(existing.get("day_filter"), fragment.get("day_filter"))
-    if existing.get("trend_filter") is None and fragment.get("trend_filter"):
-        merged["trend_filter"] = fragment["trend_filter"]
-    if existing.get("breakeven_at_rr") is None and fragment.get("breakeven_at_rr") is not None:
-        merged["breakeven_at_rr"] = fragment["breakeven_at_rr"]
-    if (existing.get("entry_type") or "market") == "market" and fragment.get("entry_type") not in (None, "market"):
-        merged["entry_type"] = fragment["entry_type"]
-    if existing.get("entry_price_offset_pct") is None and fragment.get("entry_price_offset_pct") is not None:
-        merged["entry_price_offset_pct"] = fragment["entry_price_offset_pct"]
-    if not existing.get("sl_distance_filter_pct") and fragment.get("sl_distance_filter_pct"):
-        merged["sl_distance_filter_pct"] = fragment["sl_distance_filter_pct"]
-    if existing.get("min_risk_reward_filter") is None and fragment.get("min_risk_reward_filter") is not None:
-        merged["min_risk_reward_filter"] = fragment["min_risk_reward_filter"]
-        merged["primary_target_lookback_bars"] = fragment.get("primary_target_lookback_bars")
-    if not existing.get("partial_take_profit") and fragment.get("partial_take_profit"):
-        merged["partial_take_profit"] = fragment["partial_take_profit"]
-
-    merged["timeframes"] = {**(fragment.get("timeframes") or {}), **(existing.get("timeframes") or {})}
-    merged["indicators"] = _merge_list(existing.get("indicators"), fragment.get("indicators"))
-    merged["concepts_used"] = _merge_list(existing.get("concepts_used"), fragment.get("concepts_used"))
-    if not existing.get("name") and fragment.get("name"):
-        merged["name"] = fragment["name"]
-    return merged
+    already-captured strategy -- additive only, never overwrites a field
+    an earlier pass already resolved. Thin wrapper over the shared
+    ai_integration.fragment_merge logic (Batch 5, Task 1 -- also used by
+    sentence_level_extraction to merge one fragment per statement)."""
+    return merge_fragment_additive(existing, fragment)
 
 
 def run_multi_pass_extraction_with_retry(raw_text, source_hint=None, content_type=None, max_retries=MAX_RETRIES):

@@ -24,6 +24,7 @@ from knowledge_compiler.compiler import compile_document, compile_from_ai_extrac
 from ai_integration import deep_understanding
 from ai_integration import dictionary_builder
 from ai_integration import multi_pass_extraction
+from ai_integration import sentence_level_extraction
 from ai_integration import self_correction
 from ai_integration import strategy_builder
 from ai_integration import youtube_import
@@ -206,18 +207,21 @@ def import_document(raw_text, title=None, source_hint=None, use_ai=True, input_k
         if cached_result is not None:
             ai_result, provider_name, served_from_cache = cached_result, cached_provider, True
 
-    # Batch 3, Task 1: declared strategy content uses the multi-pass
-    # extraction pipeline (rule inventory + 3 focused passes + a
-    # completeness comparison) instead of one combined call -- found in
-    # Batch 2 to drop most of a document's real rules. Lesson/mixed/
-    # undeclared content keeps the single-pass path: a rule-count
-    # checklist doesn't make sense for non-strategy content, and "mixed"
-    # doesn't yet know whether a strategy is even present. The dedup
-    # cache above still short-circuits BOTH paths identically -- a cache
-    # hit never re-runs either one.
+    # Batch 5, Task 1: declared strategy content uses sentence-level
+    # extraction (one small AI call per deterministically-identified
+    # candidate statement, judged against a deterministic -- not
+    # AI-generated -- rule checklist) instead of Batch 3's multi-pass
+    # whole-document approach, which measured dropping most of a real
+    # document's rules (PDH-PDL 9/19, Liquidity Sweep & FVG 0/24) and
+    # varying between runs on identical text. Lesson/mixed/undeclared
+    # content keeps the single-pass path: a rule-count checklist doesn't
+    # make sense for non-strategy content, and "mixed" doesn't yet know
+    # whether a strategy is even present. The dedup cache above still
+    # short-circuits BOTH paths identically -- a cache hit never re-runs
+    # either one.
     fidelity_report = None
     if not served_from_cache and use_ai and content_type == "strategy":
-        mp = multi_pass_extraction.run_multi_pass_extraction_with_retry(
+        mp = sentence_level_extraction.run_sentence_level_extraction(
             raw_text, source_hint=resolved_source_hint, content_type=content_type,
         )
         ai_result, provider_name, ai_error = mp["result"], mp["provider"], mp["error"]

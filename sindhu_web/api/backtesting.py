@@ -20,7 +20,7 @@ from backtest_engine.reports import generate_report
 from backtest_engine import monte_carlo, stress_test
 from automation_pipeline import optimizer as grid_optimizer
 from automation_pipeline import genetic_optimizer
-from ai_integration import extraction_lock, multi_pass_extraction
+from ai_integration import extraction_lock, multi_pass_extraction, sentence_level_extraction
 from knowledge_compiler import quality as kc_quality
 from data_engine.resample import get_ohlcv
 from sindhu_web.jobs import job_manager
@@ -360,21 +360,22 @@ class ExtractionOverrideRequest(BaseModel):
 
 
 @router.get("/api/backtesting/strategies/{strategy_id}/extraction-verification")
-def get_extraction_verification(strategy_id: str):
+def get_extraction_verification(strategy_id: str, lang: str = "ur"):
     """Side-by-side view data (Task 3): each row is the user's own
-    document text next to a plain Roman Urdu/Hinglish description of what
-    was understood, plus a captured/missing mark and an overall
-    plain-language summary. Also whether this strategy is currently
-    locked out of backtesting/optimization/paper trading."""
+    document text next to a plain-language description of what was
+    understood (Roman Urdu by default, English when lang="en" -- Batch 5,
+    Task 3), plus a captured/missing mark and an overall plain-language
+    summary. Also whether this strategy is currently locked out of
+    backtesting/optimization/paper trading."""
     try:
         lib.load(strategy_id)
     except FileNotFoundError:
         raise HTTPException(404, "strategy not found")
-    return extraction_lock.verification_summary(strategy_id)
+    return extraction_lock.verification_summary(strategy_id, lang=lang if lang == "en" else "ur")
 
 
 @router.post("/api/backtesting/strategies/{strategy_id}/extraction-override")
-def set_extraction_override(strategy_id: str, req: ExtractionOverrideRequest):
+def set_extraction_override(strategy_id: str, req: ExtractionOverrideRequest, lang: str = "ur"):
     """The explicit "test anyway" override -- persistent, so every
     backtest/optimize/paper-trading run for this strategy from now on
     (until un-overridden) is permitted but permanently tagged with a
@@ -386,15 +387,17 @@ def set_extraction_override(strategy_id: str, req: ExtractionOverrideRequest):
         raise HTTPException(404, "strategy not found")
     report = storage.get_extraction_fidelity_report_for_strategy(strategy_id)
     if report is None:
-        raise HTTPException(400, "Is strategy ka koi verification report nahi hai -- override karne ki zaroorat nahi.")
+        msg = ("This strategy has no verification report -- there's nothing to override." if lang == "en"
+               else "Is strategy ka koi verification report nahi hai -- override karne ki zaroorat nahi.")
+        raise HTTPException(400, msg)
     extraction_lock.set_override(strategy_id, req.overridden)
     sync.notify("strategy", "extraction_override_changed",
                 f"{'Override ON' if req.overridden else 'Override OFF'} for {strategy_id}", id=strategy_id)
-    return extraction_lock.verification_summary(strategy_id)
+    return extraction_lock.verification_summary(strategy_id, lang=lang if lang == "en" else "ur")
 
 
 @router.post("/api/backtesting/strategies/{strategy_id}/extraction-audit")
-def run_extraction_audit(strategy_id: str):
+def run_extraction_audit(strategy_id: str, lang: str = "ur"):
     """Retroactive audit (Task 3, requirement 5): runs the SAME multi-pass
     + auto-retry pipeline (Tasks 1/2) against an already-saved strategy's
     original document text, for strategies imported before this feature
@@ -406,10 +409,12 @@ def run_extraction_audit(strategy_id: str):
     except FileNotFoundError:
         raise HTTPException(404, "strategy not found")
     if not cfg.raw_text or not cfg.raw_text.strip():
-        raise HTTPException(400, "Is strategy ka original document text save nahi hai -- audit nahi ho sakta.")
+        msg = ("This strategy's original document text was not saved -- an audit isn't possible." if lang == "en"
+               else "Is strategy ka original document text save nahi hai -- audit nahi ho sakta.")
+        raise HTTPException(400, msg)
 
     content_hash = hashlib.sha256(cfg.raw_text.strip().lower().encode("utf-8")).hexdigest()
-    mp = multi_pass_extraction.run_multi_pass_extraction_with_retry(cfg.raw_text, content_type="strategy")
+    mp = sentence_level_extraction.run_sentence_level_extraction(cfg.raw_text, content_type="strategy")
     now_iso = _now_iso()
     storage.save_extraction_fidelity_report(
         content_hash, mp["comparison"]["expected_count"], mp["comparison"]["captured_count"],
@@ -419,7 +424,7 @@ def run_extraction_audit(strategy_id: str):
     sync.notify("strategy", "extraction_audited",
                 f"Verification check done for {cfg.name}: {mp['comparison']['captured_count']}/{mp['comparison']['expected_count']} rules understood",
                 id=strategy_id)
-    return extraction_lock.verification_summary(strategy_id)
+    return extraction_lock.verification_summary(strategy_id, lang=lang if lang == "en" else "ur")
 
 
 @router.get("/api/backtesting/strategies/{strategy_id}")
@@ -567,6 +572,7 @@ class RunRequest(BaseModel):
     start_ms: Optional[int] = None
     end_ms: Optional[int] = None
     use_multiprocessing: bool = True
+    lang: str = "ur"
 
 
 @router.post("/api/backtesting/run")
@@ -600,7 +606,7 @@ def run_backtest(req: RunRequest):
     if req.strategy_id:
         lock_status = extraction_lock.check_strategy_lock(req.strategy_id)
         if lock_status["locked"]:
-            raise HTTPException(423, extraction_lock.lock_message(lock_status))
+            raise HTTPException(423, extraction_lock.lock_message(lock_status, lang=req.lang if req.lang == "en" else "ur"))
         extraction_override_warning = lock_status["overridden"] and bool(lock_status["missing_rules"])
 
     errors = validate(cfg)

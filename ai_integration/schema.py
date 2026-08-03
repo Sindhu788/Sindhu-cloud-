@@ -1131,3 +1131,86 @@ def parse_comparison_response(raw_text):
             "captured_as": str(captured_as).strip() if captured_as else None,
         })
     return {"results": results}
+
+
+# ================================================================
+# Batch 5, Task 1: Sentence-Level Extraction
+# ================================================================
+# Replaces the whole-document (or whole-scope) extraction call with one
+# narrow call PER deterministically-identified candidate statement
+# (ai_integration.deterministic_rules.count_candidate_rules) -- Batch 3's
+# multi-pass approach still handed the AI a full document per pass, which
+# measured as where real rules kept getting silently dropped (PDH-PDL 9/19,
+# Liquidity Sweep & FVG 0/24). A single isolated sentence is a far smaller,
+# more answerable question than "find everything in this document."
+
+def build_statement_extraction_prompt(source_hint=None, content_type=None):
+    """A DELIBERATELY CONDENSED schema prompt for sentence-level extraction
+    (Batch 5, Task 1) -- unlike build_scoped_extraction_prompt (which reuses
+    the full ~6,200-token whole-document prompt verbatim per pass), this one
+    is a short-form reference of the same vocabulary/JSON shape, since it is
+    sent on EVERY single-statement call. Measured real cost of reusing the
+    full prompt per statement: it exhausted an entire day's provider token
+    quota partway through extracting ONE 27-statement document. This
+    condensed version keeps the vocabulary, the condition schema, and the
+    "commit, don't hedge into raw" instruction; it drops the full prompt's
+    extensive worked-examples list and 5-point self-verification block,
+    which matter far less when the AI is only ever judging one short,
+    already-isolated statement rather than reasoning over a whole document."""
+    indicators_list = ", ".join(KNOWN_INDICATORS)
+    sessions_list = ", ".join(KNOWN_SESSIONS)
+    return (
+        "SENTENCE-LEVEL EXTRACTION -- you will be given exactly ONE isolated "
+        "statement/line from a larger trading strategy document, not the "
+        "whole document. First decide: does this statement state or imply a "
+        "concrete, executable trading rule (entry, exit, stop-loss/take-"
+        "profit, a numeric filter, a session/day restriction, a risk rule)? "
+        "Or is it a heading, disclaimer, or commentary with no executable "
+        "content?\n\n"
+        "If it IS a rule, map ONLY what this one statement states into the "
+        "schema below -- do not invent context you were not shown. Commit to "
+        "the closest vocabulary match rather than hedging into type=\"raw\" "
+        "(e.g. \"previous day's high\"/\"PDH\" -> concept \"pdh\"; \"green/"
+        "bullish candle\" -> direction \"bullish\"; \"breaks/crosses above\" "
+        "a level -> that level's concept). Use type=\"raw\" with the exact "
+        "\"text\" only when there is genuinely no vocabulary equivalent. "
+        "Never fabricate a number or fact not in this statement or ordinary "
+        "trading logic.\n\n"
+        f"Indicators/concepts: {indicators_list}\n"
+        f"Sessions: {sessions_list}\n"
+        f"Timeframe roles: {', '.join(KNOWN_TIMEFRAME_ROLES)}\n"
+        f"Stop-loss/take-profit types: {', '.join(KNOWN_SLTP_TYPES)}\n\n"
+        f"{_CONDITION_SCHEMA_NOTE}\n\n"
+        "A stop-loss/take-profit rule goes in the stop_loss/take_profit "
+        "fields, never in exit_conditions. A day-of-week rule goes in the "
+        "top-level day_filter list, not a condition. Session filters go in "
+        "session_filter.\n\n"
+        "Respond with ONLY this JSON, no other text:\n"
+        '{"is_rule": true|false, "strategy": {\n'
+        '  "name": "", "timeframes": {}, "indicators": [], "concepts_used": [],\n'
+        '  "entry_conditions": [<condition>], "long_entry_conditions": [<condition>], '
+        '"short_entry_conditions": [<condition>],\n'
+        '  "entry_rule_groups": [], "exit_conditions": [<condition>], "confirmation_conditions": [],\n'
+        '  "stop_loss": {"type": "fixed_pct|atr_multiple|structure|rr|level|signal_candle|unknown", '
+        '"value": null, "level": null},\n'
+        '  "take_profit": {"type": "fixed_pct|atr_multiple|structure|rr|level|signal_candle|unknown", '
+        '"value": null, "level": null},\n'
+        '  "risk_pct": null, "risk_reward": null, "session_filter": [], "trend_filter": null, '
+        '"day_filter": [],\n'
+        '  "breakeven_at_rr": null, "entry_type": "market", "entry_price_offset_pct": null,\n'
+        '  "sl_distance_filter_pct": null, "min_risk_reward_filter": null, '
+        '"primary_target_lookback_bars": null, "partial_take_profit": null\n'
+        "}}\n\n"
+        "If is_rule is false, still return this exact shape with every strategy field left empty/null."
+    )
+
+
+def parse_statement_response(raw_text):
+    """Never raises. Returns {"is_rule": bool, "strategy": dict|None} or
+    None if the response had no parseable JSON at all."""
+    data = _parse_json_object(raw_text)
+    if not isinstance(data, dict):
+        return None
+    is_rule = bool(data.get("is_rule"))
+    strategy = _clean_strategy(data.get("strategy")) if is_rule else None
+    return {"is_rule": is_rule, "strategy": strategy}
