@@ -56,8 +56,14 @@ NAV_PAGES = [
     {"id": "pipeline_history", "label": "Pipeline History", "enabled": True,
      "icon": NAV_ICONS["pipeline_history"], "group": "Backtesting"},
 
-    # Paper Trading: everything about the live (fake-money) trading loop
+    # Paper Trading: everything about the live (fake-money) trading loop --
+    # Telegram Signals lives here too (Batch 6, Task 2): paper trading is
+    # what generates the signals Telegram sends, so the two belong together
+    # rather than Telegram Signals sitting under Control. Nav grouping only
+    # -- id/route/API untouched, so every existing link/bookmark still works.
     {"id": "paper_trading", "label": "Paper Trading", "enabled": True, "icon": NAV_ICONS["paper_trading"], "group": "Paper Trading"},
+    {"id": "telegram_dashboard", "label": "Telegram Signals", "enabled": True,
+     "icon": NAV_ICONS["telegram_dashboard"], "group": "Paper Trading"},
     {"id": "market", "label": "Market", "enabled": True, "icon": NAV_ICONS["market"], "group": "Paper Trading"},
     {"id": "data", "label": "Data", "enabled": True, "icon": NAV_ICONS["data"], "group": "Paper Trading"},
 
@@ -67,8 +73,6 @@ NAV_PAGES = [
     # Control: the one place to turn automated features on/off, plus account/app settings
     {"id": "control_center", "label": "Control Center", "enabled": True,
      "icon": NAV_ICONS["control_center"], "group": "Control"},
-    {"id": "telegram_dashboard", "label": "Telegram Signals", "enabled": True,
-     "icon": NAV_ICONS["telegram_dashboard"], "group": "Control"},
     {"id": "settings", "label": "Settings", "enabled": True, "icon": NAV_ICONS["settings"], "group": "Control"},
 
     # Reports: cross-strategy summaries, not raw per-batch results (see Backtesting)
