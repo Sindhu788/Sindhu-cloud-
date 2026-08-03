@@ -899,6 +899,38 @@ def _migrate_extraction_fidelity_override_column(conn):
         conn.execute("ALTER TABLE extraction_fidelity_reports ADD COLUMN overridden INTEGER NOT NULL DEFAULT 0")
 
 
+def _migrate_telegram_log_explanation_column(conn):
+    """Batch 7, Task 3: "Why This Signal" -- a short Roman Urdu
+    explanation computed at send time (confluence factors + reliability
+    win rate, nothing new), stored so it can be shown again later in the
+    Live Signal Tracker, not just inside the one-time Telegram message
+    text. Additive-only, existing rows default to NULL (no explanation
+    was ever computed for a message sent before this column existed)."""
+    existing = {r[0] for r in
+                conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "telegram_message_log" not in existing:
+        return
+    have_columns = {r[1] for r in conn.execute("PRAGMA table_info(telegram_message_log)").fetchall()}
+    if "explanation_text" not in have_columns:
+        conn.execute("ALTER TABLE telegram_message_log ADD COLUMN explanation_text TEXT")
+
+
+def _migrate_telegram_log_grade_columns(conn):
+    """Batch 7, Task 4: Signal Quality Grade (A+/B/C), computed at send
+    time from the same confluence/reliability data as the explanation --
+    stored so the grade can be shown again later in the Live Signal
+    Tracker. Additive-only, existing rows default to NULL."""
+    existing = {r[0] for r in
+                conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "telegram_message_log" not in existing:
+        return
+    have_columns = {r[1] for r in conn.execute("PRAGMA table_info(telegram_message_log)").fetchall()}
+    if "quality_grade" not in have_columns:
+        conn.execute("ALTER TABLE telegram_message_log ADD COLUMN quality_grade TEXT")
+    if "grade_reason" not in have_columns:
+        conn.execute("ALTER TABLE telegram_message_log ADD COLUMN grade_reason TEXT")
+
+
 def _migrate_backtest_batch_extraction_warning_column(conn):
     """Batch 3, Task 3: every backtest run for a strategy that was locked
     (missing rules) but explicitly overridden gets permanently tagged, so
@@ -1255,6 +1287,8 @@ def init_db():
         _migrate_paper_strategy_config_pause_columns(conn)
         _migrate_extraction_fidelity_override_column(conn)
         _migrate_backtest_batch_extraction_warning_column(conn)
+        _migrate_telegram_log_explanation_column(conn)
+        _migrate_telegram_log_grade_columns(conn)
 
 
 def save_symbols(exchange, symbols, now_iso):
@@ -2808,13 +2842,16 @@ def get_trade_review(position_id):
 # --------------------------------------------------------------- Telegram Integration
 
 def log_telegram_message(position_id, strategy_id, strategy_name, trigger_type,
-                          message_text, success, error, now_iso):
+                          message_text, success, error, now_iso, explanation_text=None,
+                          quality_grade=None, grade_reason=None):
     with get_conn() as conn:
         conn.execute(
             """INSERT INTO telegram_message_log
-               (position_id, strategy_id, strategy_name, trigger_type, message_text, success, error, sent_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (position_id, strategy_id, strategy_name, trigger_type, message_text, int(success), error, now_iso),
+               (position_id, strategy_id, strategy_name, trigger_type, message_text, success, error, sent_at,
+                explanation_text, quality_grade, grade_reason)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (position_id, strategy_id, strategy_name, trigger_type, message_text, int(success), error, now_iso,
+             explanation_text, quality_grade, grade_reason),
         )
 
 
@@ -2940,7 +2977,8 @@ def list_telegram_signal_outcomes(since_iso=None, until_iso=None):
     query = (
         "SELECT t.id, t.position_id, t.strategy_id, t.strategy_name, t.sent_at, "
         "p.symbol, p.direction, p.entry_price, p.stop_loss, p.take_profit, "
-        "p.status, p.pnl, p.pnl_pct, p.closed_at, p.risk_amount "
+        "p.status, p.pnl, p.pnl_pct, p.closed_at, p.risk_amount, t.explanation_text, "
+        "t.quality_grade, t.grade_reason "
         "FROM telegram_message_log t LEFT JOIN paper_positions p ON p.id = t.position_id "
         "WHERE t.trigger_type IN ('manual','automatic') AND t.success = 1"
     )
@@ -2956,7 +2994,8 @@ def list_telegram_signal_outcomes(since_iso=None, until_iso=None):
         rows = conn.execute(query, params).fetchall()
     cols = ["id", "position_id", "strategy_id", "strategy_name", "sent_at",
             "symbol", "direction", "entry_price", "stop_loss", "take_profit",
-            "status", "pnl", "pnl_pct", "closed_at", "risk_amount"]
+            "status", "pnl", "pnl_pct", "closed_at", "risk_amount", "explanation_text",
+            "quality_grade", "grade_reason"]
     result = []
     for r in rows:
         d = dict(zip(cols, r))

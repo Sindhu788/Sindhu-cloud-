@@ -1034,7 +1034,7 @@
           ${h.maturity.next_level ? `<div class="muted" style="font-size:13px;">${getLang() === "en" ? "To reach Level" : "Level"} ${h.maturity.next_level}${getLang() === "en" ? "" : " tak pahunchne ke liye"}: ${esc(h.maturity.next_level_criteria_text)}</div>` : `<div class="muted" style="font-size:13px;">${getLang() === "en" ? "Highest level reached." : "Sabse upar wala level haasil ho chuka hai."}</div>`}
           <div class="muted" style="font-size:12px;margin-top:10px;border-top:1px solid var(--border,#333);padding-top:8px;">
             ${h.maturity.metrics.strategies_with_25plus_trades}/${h.maturity.metrics.total_strategy_books} ${getLang() === "en" ? "strategies with 25+ real trades" : "strategies ne 25+ real trades poori ki hain"} &middot;
-            ${h.maturity.metrics.strategies_statistically_proven_positive} ${getLang() === "en" ? "statistically proven positive" : "statistically proven positive"} &middot;
+            ${h.maturity.metrics.strategies_statistically_proven_positive} ${getLang() === "en" ? "statistically proven positive" : "statistically tor par positive saabit hui hain"} &middot;
             ${h.maturity.metrics.evolution_gate_completions} ${getLang() === "en" ? "strategies completed the 100-trade Evolution gate" : "strategies ne 100-trade Evolution gate poora kiya"} &middot;
             ${h.maturity.metrics.signals_sent_last_7_days} ${getLang() === "en" ? "signals sent in the last 7 days" : "signals pichle 7 dinon mein bheje gaye"}
           </div>
@@ -3619,7 +3619,8 @@
           <thead><tr>
             <th>${en ? "Strategy" : "Strategy"}</th><th>${en ? "Symbol" : "Symbol"}</th>
             <th>${en ? "Direction" : "Direction"}</th><th>${en ? "Sent At" : "Kab Bheja"}</th>
-            <th>${en ? "Outcome" : "Nateeja"}</th>
+            <th>${en ? "Outcome" : "Nateeja"}</th><th>${en ? "Grade" : "Grade"}</th>
+            <th>${en ? "Why This Signal" : "Yeh Signal Kyun"}</th>
           </tr></thead>
           <tbody>
             ${feed.signals.map(s => `<tr>
@@ -3628,7 +3629,11 @@
               <td>${esc(s.direction || "-")}</td>
               <td>${esc((s.sent_at || "").slice(0, 16).replace("T", " "))}</td>
               <td>${outcomePill(s.outcome)}</td>
-            </tr>`).join("") || `<tr><td colspan="5">${en ? "No signals sent yet." : "Abhi tak koi signal nahi bheja gaya."}</td></tr>`}
+              <td>${s.quality_grade
+                ? `<span class="pill ${s.quality_grade === "A+" || s.quality_grade === "A" ? "pill-bullish" : s.quality_grade === "B" ? "pill-muted" : "pill-bearish"}" title="${esc(s.grade_reason || "")}">${esc(s.quality_grade)}</span>`
+                : "-"}</td>
+              <td class="muted" style="font-size:12px;max-width:320px;">${esc(s.explanation_text || (en ? "not recorded" : "record nahi hai"))}</td>
+            </tr>`).join("") || `<tr><td colspan="7">${en ? "No signals sent yet." : "Abhi tak koi signal nahi bheja gaya."}</td></tr>`}
           </tbody>
         </table></div>
 

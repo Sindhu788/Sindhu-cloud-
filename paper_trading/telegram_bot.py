@@ -30,7 +30,7 @@ from datetime import datetime, timezone
 import requests
 
 from data_engine import config as base_config, storage, feature_toggles
-from paper_trading import confluence as confluence_mod, insights, pattern_stats
+from paper_trading import confluence as confluence_mod, insights, pattern_stats, signal_explainer
 
 _DEFAULTS = {
     "bot_token": "",
@@ -393,6 +393,7 @@ _LABELS = {
         "statistical_confidence": "Statistical Confidence", "confidence": "Confidence",
         "win_rate_over": "win rate, pichli {n} trades mein",
         "why_this_trade": "Yeh Trade Kyun", "reason": "Wajah",
+        "why_this_signal_heading": "Yeh Signal Kyun", "quality_grade": "Signal Grade",
         "footer_brand": f"{TELEGRAM_BRAND} -- Paper Trading (Nakli Paise)",
         "unknown_strategy": "Pata Nahi",
     },
@@ -403,6 +404,7 @@ _LABELS = {
         "statistical_confidence": "Statistical Confidence", "confidence": "Confidence",
         "win_rate_over": "win rate over {n} recorded trades",
         "why_this_trade": "Why This Trade", "reason": "Reason",
+        "why_this_signal_heading": "Yeh Signal Kyun", "quality_grade": "Signal Grade",
         "footer_brand": f"{TELEGRAM_BRAND} -- Paper Trading",
         "unknown_strategy": "Unknown",
     },
@@ -410,7 +412,7 @@ _LABELS = {
 
 
 def format_signal_message(position, confluence_result=None, reliability_result=None, high_confidence=False,
-                           live_price=_UNSET, lang=None):
+                           live_price=_UNSET, lang=None, explanation_text=None, grade_result=None):
     """lang: "ur" (default, the CEO's everyday register) or "en" -- Batch
     5, Task 3. Deterministic template choice, never an AI translation
     call. Defaults to the stored Telegram setting when not passed
@@ -434,6 +436,10 @@ def format_signal_message(position, confluence_result=None, reliability_result=N
         "─" * 18,
         f"{_direction_emoji(position['direction'])} <b>{direction_word} {symbol}</b>",
         f"{L['strategy']}: {position.get('strategy_name') or L['unknown_strategy']}",
+    ]
+    if grade_result:
+        lines.append(f"\U0001F3C5 {L['quality_grade']}: <b>{grade_result['grade']}</b> -- {grade_result['reason']}")
+    lines += [
         "",
         f"<b>{L['levels']}</b>",
         f"{L['entry']}: {_format_price(position.get('entry_price'))}",
@@ -472,6 +478,11 @@ def format_signal_message(position, confluence_result=None, reliability_result=N
             lines.append(f"<b>{L['why_this_trade']}</b>")
             for name in aligned:
                 lines.append(f"• {name}")
+
+    if explanation_text:
+        lines.append("")
+        lines.append(f"<b>{L['why_this_signal_heading']}</b>")
+        lines.append(explanation_text)
 
     reason = _reason_text(position)
     if reason:
@@ -568,10 +579,14 @@ def send_signal_for_position(position_id, trigger_type="manual", high_confidence
     except Exception:
         reliability = None
 
-    text = format_signal_message(pos, conf, reliability, high_confidence=high_confidence, live_price=live_price)
+    explanation_text = signal_explainer.explain_signal(conf, reliability)
+    grade_result = signal_explainer.grade_signal(conf, reliability)
+    text = format_signal_message(pos, conf, reliability, high_confidence=high_confidence, live_price=live_price,
+                                  explanation_text=explanation_text, grade_result=grade_result)
     ok, err = _raw_send(text)
     storage.log_telegram_message(
         position_id, pos.get("strategy_id"), pos.get("strategy_name"), trigger_type, text, ok, err, now,
+        explanation_text=explanation_text, quality_grade=grade_result["grade"], grade_reason=grade_result["reason"],
     )
     return {"ok": ok, "error": err, "message": text}
 
