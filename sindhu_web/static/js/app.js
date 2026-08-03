@@ -25,6 +25,7 @@
   // to their existing English/Urdu text unchanged.
   const T_UR = {
     "Overview": "Overview",
+    "System Maturity Level": "System Kitna Mature Hai (Level)",
     "System Alerts": "System Alerts (Zaroori Baatein)",
     "Top Strategies by Profit": "Sabse Profitable Strategies",
     "System Monitor": "System Ki Halat",
@@ -974,6 +975,19 @@
           ${cardClass("System Health", esc(h.system_health), "")}
         </div>
         ${lb ? `<div class="muted" style="margin:-12px 0 20px;font-size:12px;">Latest completed backtest: <b>${esc(lb.strategy)}</b> -- there is no live Paper Trading yet, so this reflects the most recent backtest, not a live account.</div>` : ""}
+
+        <div class="section-title">${t("System Maturity Level")}</div>
+        <div class="card">
+          <div style="font-size:28px;font-weight:700;">Level ${h.maturity.level} / 5 -- ${esc(h.maturity.level_name)}</div>
+          <div style="margin:8px 0;">${esc(h.maturity.criteria_text)}</div>
+          ${h.maturity.next_level ? `<div class="muted" style="font-size:13px;">${getLang() === "en" ? "To reach Level" : "Level"} ${h.maturity.next_level}${getLang() === "en" ? "" : " tak pahunchne ke liye"}: ${esc(h.maturity.next_level_criteria_text)}</div>` : `<div class="muted" style="font-size:13px;">${getLang() === "en" ? "Highest level reached." : "Sabse upar wala level haasil ho chuka hai."}</div>`}
+          <div class="muted" style="font-size:12px;margin-top:10px;border-top:1px solid var(--border,#333);padding-top:8px;">
+            ${h.maturity.metrics.strategies_with_25plus_trades}/${h.maturity.metrics.total_strategy_books} ${getLang() === "en" ? "strategies with 25+ real trades" : "strategies ne 25+ real trades poori ki hain"} &middot;
+            ${h.maturity.metrics.strategies_statistically_proven_positive} ${getLang() === "en" ? "statistically proven positive" : "statistically proven positive"} &middot;
+            ${h.maturity.metrics.evolution_gate_completions} ${getLang() === "en" ? "strategies completed the 100-trade Evolution gate" : "strategies ne 100-trade Evolution gate poora kiya"} &middot;
+            ${h.maturity.metrics.signals_sent_last_7_days} ${getLang() === "en" ? "signals sent in the last 7 days" : "signals pichle 7 dinon mein bheje gaye"}
+          </div>
+        </div>
 
         ${(zeroTradeAlerts.length || tgAlert.stale) ? `
         <div class="section-title">${t("System Alerts")}</div>

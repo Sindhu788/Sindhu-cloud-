@@ -10,6 +10,7 @@ from sindhu_web import cache
 from sindhu_web.jobs import job_manager
 from knowledge_engine.scoring import compute_knowledge_score
 from knowledge_engine.engine import get_display_knowledge_report
+from knowledge_engine.maturity import compute_maturity_level
 
 router = APIRouter()
 
@@ -136,6 +137,11 @@ def get_home():
         "exchange": exchanges_cfg["default"],
         "latest_batch": account,
         "evolution_score": None,
+        # Batch 4, Task 5: real, honest Level 1-5 maturity indicator --
+        # cached briefly since /api/home is polled by every page's topbar
+        # and this recomputes several real queries, not because the
+        # numbers themselves change fast.
+        "maturity": cache.cached("system_maturity", 30, compute_maturity_level),
     }
 
 
