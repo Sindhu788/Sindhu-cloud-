@@ -25,6 +25,7 @@
   // to their existing English/Urdu text unchanged.
   const T_UR = {
     "Overview": "Overview",
+    "Manager Chat": "Manager Chat",
     "System Maturity Level": "System Kitna Mature Hai (Level)",
     "System Alerts": "System Alerts (Zaroori Baatein)",
     "Top Strategies by Profit": "Sabse Profitable Strategies",
@@ -588,6 +589,49 @@
   const logsPanel = document.getElementById("logsPanel");
   document.getElementById("logsToggle").onclick = () => logsPanel.classList.toggle("open");
   document.getElementById("logsClose").onclick = () => logsPanel.classList.remove("open");
+
+  // Manager Chat (Batch 4, Task 6): deterministic, read-only keyword Q&A --
+  // no AI, no state changes. Reuses the Live Logs panel's slide-in styling.
+  const chatPanel = document.getElementById("chatPanel");
+  const chatMessages = document.getElementById("chatMessages");
+  const chatInput = document.getElementById("chatInput");
+  function chatAppend(text, who) {
+    const div = document.createElement("div");
+    div.style.margin = "6px 0";
+    div.style.padding = "6px 8px";
+    div.style.borderRadius = "6px";
+    div.style.fontSize = "13px";
+    div.style.background = who === "user" ? "var(--accent-bg, #2a2a35)" : "var(--card-bg, #1c1c24)";
+    div.textContent = text;
+    chatMessages.appendChild(div);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  }
+  async function chatSend() {
+    const question = chatInput.value.trim();
+    if (!question) return;
+    chatAppend(question, "user");
+    chatInput.value = "";
+    try {
+      const res = await apiPost("/api/manager-chat/ask", { question, lang: getLang() === "en" ? "en" : "ur" });
+      chatAppend(res.answer, "bot");
+    } catch (e) {
+      chatAppend(getLang() === "en" ? "Could not get an answer right now." : "Abhi jawab nahi mil saka.", "bot");
+    }
+  }
+  document.getElementById("chatToggle").onclick = () => {
+    chatPanel.classList.toggle("open");
+    document.getElementById("chatPanelTitle").textContent = t("Manager Chat");
+    chatInput.placeholder = getLang() === "en" ? "Ask anything..." : "Kuch bhi poochein...";
+    if (chatPanel.classList.contains("open") && !chatMessages.dataset.greeted) {
+      chatMessages.dataset.greeted = "1";
+      chatAppend(getLang() === "en"
+        ? "Hi! Ask me about strategy performance, today's activity, signals, balance, locked strategies, or the system's maturity level."
+        : "Salaam! Mujhse strategy performance, aaj ki activity, signals, balance, locked strategies, ya system ka maturity level poochh sakte hain.", "bot");
+    }
+  };
+  document.getElementById("chatClose").onclick = () => chatPanel.classList.remove("open");
+  document.getElementById("chatSend").onclick = chatSend;
+  chatInput.addEventListener("keydown", (e) => { if (e.key === "Enter") chatSend(); });
 
   const themeToggle = document.getElementById("themeToggle");
   themeToggle.onclick = () => {

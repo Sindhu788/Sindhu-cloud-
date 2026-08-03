@@ -21,7 +21,7 @@ from sindhu_web.api import (
     system as system_api, paper_trading as paper_trading_api, knowledge_compiler as knowledge_compiler_api,
     ai_integration as ai_integration_api, automation_pipeline as automation_pipeline_api,
     clarification as clarification_api, evolution as evolution_api, sindhu_strategy as sindhu_strategy_api,
-    research as research_api, feature_control as feature_control_api,
+    research as research_api, feature_control as feature_control_api, manager_chat as manager_chat_api,
 )
 
 _STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -150,7 +150,7 @@ def create_app():
                    system_api.router, paper_trading_api.router, knowledge_compiler_api.router,
                    ai_integration_api.router, automation_pipeline_api.router, clarification_api.router,
                    evolution_api.router, sindhu_strategy_api.router, research_api.router,
-                   feature_control_api.router):
+                   feature_control_api.router, manager_chat_api.router):
         app.include_router(router)
 
     @app.get("/api/token")

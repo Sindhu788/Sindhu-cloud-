@@ -53,6 +53,9 @@
         <button id="logsToggle" class="icon-btn" aria-label="Logs">
           <svg viewBox="0 0 24 24"><path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h8M8 17h4"/></svg>
         </button>
+        <button id="chatToggle" class="icon-btn" aria-label="Manager Chat">
+          <svg viewBox="0 0 24 24"><path d="M4 4h16v12H8l-4 4z"/></svg>
+        </button>
         <button id="themeToggle" class="icon-btn" aria-label="Toggle theme">
           <svg viewBox="0 0 24 24"><path d="M12 3v2M12 19v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M3 12h2M19 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"/><circle cx="12" cy="12" r="4"/></svg>
         </button>
@@ -76,6 +79,20 @@
         <button id="logsClose" class="btn-ghost">&times;</button>
       </div>
       <div id="logsBody" class="logs-body"></div>
+    </aside>
+
+    <aside id="chatPanel" class="logs-panel">
+      <div class="logs-header">
+        <span id="chatPanelTitle">Manager Chat</span>
+        <button id="chatClose" class="btn-ghost">&times;</button>
+      </div>
+      <div id="chatBody" class="logs-body" style="display:flex;flex-direction:column;height:calc(100% - 90px);">
+        <div id="chatMessages" style="flex:1;overflow-y:auto;padding-bottom:8px;"></div>
+        <div style="display:flex;gap:6px;border-top:1px solid var(--border,#333);padding-top:8px;">
+          <input id="chatInput" type="text" placeholder="Kuch bhi poochein..." style="flex:1;">
+          <button id="chatSend" class="btn">Send</button>
+        </div>
+      </div>
     </aside>
 
     <div id="overlay" class="overlay"></div>
