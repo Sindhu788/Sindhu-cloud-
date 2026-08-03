@@ -27,6 +27,21 @@ from backtest_engine.strategy_config import StrategyConfig
 
 MIN_TRADES_FOR_SCORE = 5  # fewer trades than this on the fast subset -> not trusted, scored as -inf
 
+# Batch 6, Task 6 (efficiency): for a NUMERIC/orderable dimension (period,
+# RR, stop-loss %, risk %, lookback bars -- NOT session_filter, whose
+# discrete option sets have no meaningful "distance from baseline"),
+# candidates are walked outward from the baseline in each direction
+# (below, then above) instead of in a fixed list order. Once a direction
+# has produced this many candidates IN A ROW that are no better than the
+# one before it, the rest of that direction is skipped rather than fully
+# backtested -- a real, deterministic, pure-math early-elimination /
+# coarse-to-fine narrowing (no scoring change: _score() itself is
+# untouched, this only decides which candidates get scored at all).
+# Every skipped candidate is still logged (skipped=True) so the evidence
+# trail is honest about what wasn't tried, exactly like every candidate
+# that WAS tried.
+_EARLY_STOP_WORSENING_STREAK = 2
+
 # Part 4 (reliability): a single fast-subset candidate is normally a few
 # seconds (one symbol, ~30 days). If one candidate's data/computation ever
 # stalls (corrupt candle gap, pathological indicator params), this bounds
@@ -239,6 +254,24 @@ def tunable_dimensions(config):
     return dims
 
 
+def _numeric_ordered_directions(dim):
+    """Splits a dimension's non-baseline candidates into two sequences,
+    each walked OUTWARD from the baseline (nearest first): "below"
+    (descending) and "above" (ascending). Returns None for a dimension
+    whose candidates aren't plain numbers (e.g. session_filter's tuples
+    of session names) -- "distance from baseline" is meaningless there,
+    so those stay fully exhaustive, exactly as before this change."""
+    baseline = dim["baseline"]
+    candidates = [v for v in dim["candidates"] if v != baseline]
+    if not candidates:
+        return None
+    if not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in candidates + [baseline]):
+        return None
+    below = sorted((v for v in candidates if v < baseline), reverse=True)
+    above = sorted(v for v in candidates if v > baseline)
+    return [seq for seq in (below, above) if seq]
+
+
 def _plain_score(score, trades):
     if score == float("-inf"):
         return f"not enough trades yet ({trades}) to judge this one"
@@ -296,35 +329,66 @@ def optimize(config, exchange, screen_symbol, settings, start_ms, end_ms, log_fn
 
     best_candidate, best_score, best_desc = None, baseline_score, None
     stopped_early = False
+    skipped_total = 0
     for dim in dims:
         if control and control.should_stop():
             stopped_early = True
             break
-        for value in dim["candidates"]:
-            if value == dim["baseline"]:
-                continue
+        directions = _numeric_ordered_directions(dim)
+        eligible_for_early_stop = directions is not None
+        if directions is None:
+            directions = [[v for v in dim["candidates"] if v != dim["baseline"]]]
+
+        for direction_values in directions:
             if control and control.should_stop():
                 stopped_early = True
                 break
-            candidate_config = _clone_config(config)
-            dim["apply"](candidate_config, value)
-            metrics = _run_in_memory_bounded(candidate_config, exchange, screen_symbol, settings, start_ms, end_ms, log)
-            score = _score(metrics)
-            tried.append({
-                "dimension": dim["id"], "description": dim["description"], "value": value,
-                "score": score if score != float("-inf") else None,
-                "trades": metrics["total_trades"] if metrics else 0,
-            })
-            tried_so_far += 1
-            _report_progress()
-            trades_n = metrics["total_trades"] if metrics else 0
-            beat_note = " -- new best so far!" if score > best_score else ""
-            log(f"[{tried_so_far}/{total_candidates}] Tried {dim['description']} -> {value}: "
-                f"{_plain_score(score, trades_n)}{beat_note}")
-            if score > best_score:
-                best_score, best_candidate, best_desc = score, candidate_config, f"{dim['description']} -> {value}"
+            prev_score = None
+            worsening_streak = 0
+            for value in direction_values:
+                if control and control.should_stop():
+                    stopped_early = True
+                    break
+                if eligible_for_early_stop and worsening_streak >= _EARLY_STOP_WORSENING_STREAK:
+                    tried.append({
+                        "dimension": dim["id"], "description": dim["description"], "value": value,
+                        "score": None, "trades": 0, "skipped": True,
+                    })
+                    skipped_total += 1
+                    tried_so_far += 1
+                    _report_progress()
+                    log(f"[{tried_so_far}/{total_candidates}] Skipped {dim['description']} -> {value} "
+                        f"(early elimination -- {_EARLY_STOP_WORSENING_STREAK} candidates in a row got no "
+                        f"better moving further in this direction, so the rest weren't fully backtested).")
+                    continue
+                candidate_config = _clone_config(config)
+                dim["apply"](candidate_config, value)
+                metrics = _run_in_memory_bounded(candidate_config, exchange, screen_symbol, settings, start_ms, end_ms, log)
+                score = _score(metrics)
+                tried.append({
+                    "dimension": dim["id"], "description": dim["description"], "value": value,
+                    "score": score if score != float("-inf") else None,
+                    "trades": metrics["total_trades"] if metrics else 0,
+                })
+                tried_so_far += 1
+                _report_progress()
+                trades_n = metrics["total_trades"] if metrics else 0
+                beat_note = " -- new best so far!" if score > best_score else ""
+                log(f"[{tried_so_far}/{total_candidates}] Tried {dim['description']} -> {value}: "
+                    f"{_plain_score(score, trades_n)}{beat_note}")
+                if score > best_score:
+                    best_score, best_candidate, best_desc = score, candidate_config, f"{dim['description']} -> {value}"
+                if eligible_for_early_stop:
+                    worsening_streak = worsening_streak + 1 if prev_score is not None and score <= prev_score else 0
+                    prev_score = score
+            if stopped_early:
+                break
         if stopped_early:
             break
+
+    if skipped_total:
+        log(f"Early elimination skipped {skipped_total} candidate(s) that were very unlikely to beat "
+            f"the best found so far -- see the tried log for exactly which ones.")
 
     if stopped_early:
         log(f"Stopped early by request after {tried_so_far}/{total_candidates} combinations -- "
