@@ -119,6 +119,8 @@ async def _lifespan(app: FastAPI):
     backup.start_auto_backup_thread()
     from paper_trading.weekly_report import start_weekly_report_scheduler_thread
     start_weekly_report_scheduler_thread()
+    from paper_trading.daily_report import start_daily_report_scheduler_thread
+    start_daily_report_scheduler_thread()
     threading.Thread(target=_warm_caches, daemon=True).start()
     task = asyncio.create_task(_broadcast_loop())
     yield

@@ -2874,6 +2874,33 @@ def count_telegram_messages_since(since_iso):
     return row[0] if row else 0
 
 
+def get_last_daily_report_sent_at():
+    """Batch 7, Task 5: most recent successfully-sent Daily Honest Report
+    -- reuses telegram_message_log (trigger_type='daily_report') as the
+    one audit trail every Telegram send already goes through, rather than
+    a new table. None if a daily report has never been sent."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT MAX(sent_at) FROM telegram_message_log WHERE success=1 AND trigger_type='daily_report'"
+        ).fetchone()
+    return row[0] if row and row[0] else None
+
+
+def list_telegram_send_texts_since(since_iso, trigger_types=("manual", "automatic")):
+    """Batch 7, Task 5: every successfully-sent message's raw text since
+    since_iso, restricted to real trade SIGNALS (manual/automatic) by
+    default -- used to count today's sends by tier (HIGH CONFIDENCE
+    marker text vs not), the same message_text every send already logs."""
+    placeholders = ",".join("?" for _ in trigger_types)
+    with get_conn() as conn:
+        rows = conn.execute(
+            f"SELECT message_text FROM telegram_message_log "
+            f"WHERE success=1 AND sent_at >= ? AND trigger_type IN ({placeholders})",
+            (since_iso, *trigger_types),
+        ).fetchall()
+    return [r[0] for r in rows]
+
+
 def get_last_telegram_signal_sent_at():
     """(Batch 2, Task 3) Most recent successful real SIGNAL send -- manual
     or automatic, either confidence tier -- excludes close_followup
