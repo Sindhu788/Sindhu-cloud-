@@ -801,11 +801,11 @@ def get_telegram_log(limit: int = 50):
 
 
 @router.get("/api/paper-trading/telegram/alert-status")
-def get_telegram_alert_status():
+def get_telegram_alert_status(lang: str = "ur"):
     """(Batch 2, Task 3) Whether 24+ hours have passed since the last
     Telegram signal (any tier) -- backs the dashboard's no-signal alert,
     shared by the Overview page and the Telegram Signals page."""
-    return telegram_bot.no_signal_alert_status()
+    return telegram_bot.no_signal_alert_status(lang=lang if lang == "en" else "ur")
 
 
 @router.post("/api/paper-trading/telegram/send/{position_id}")

@@ -46,6 +46,10 @@ _DEFAULTS = {
     # useless once price has likely moved past the intended entry.
     "signal_freshness_minutes": 15,   # a signal older than this is withheld, not sent as normal
     "signal_price_drift_pct": 0.5,    # if live price has moved this % away from entry_price, withheld
+    # Batch 5, Task 3: which language new signal messages are written in --
+    # "ur" (Roman Urdu, the CEO's everyday register) or "en". Deterministic
+    # template choice, not an AI translation call.
+    "language": "ur",
 }
 
 DISCLAIMER = ("This is an experimental signal from a system still under development. "
@@ -98,6 +102,7 @@ def public_settings():
         "proxy_configured": bool(s.get("proxy_url")),
         "signal_freshness_minutes": s.get("signal_freshness_minutes", _DEFAULTS["signal_freshness_minutes"]),
         "signal_price_drift_pct": s.get("signal_price_drift_pct", _DEFAULTS["signal_price_drift_pct"]),
+        "language": s.get("language", _DEFAULTS["language"]),
     }
 
 
@@ -369,8 +374,39 @@ def freshness_check(position, now_ms=None):
     return True, None, live_price
 
 
+_LABELS = {
+    "ur": {
+        "high_confidence": "⭐ <b>HIGH CONFIDENCE SIGNAL</b> ⭐",
+        "strategy": "Strategy", "levels": "LEVELS", "entry": "Entry",
+        "stop_loss": "Stop-Loss", "take_profit": "Take-Profit", "current_price": "Abhi Ka Price",
+        "statistical_confidence": "Statistical Confidence", "confidence": "Confidence",
+        "win_rate_over": "win rate, pichli {n} trades mein",
+        "why_this_trade": "Yeh Trade Kyun", "reason": "Wajah",
+        "footer_brand": f"{TELEGRAM_BRAND} -- Paper Trading (Nakli Paise)",
+        "unknown_strategy": "Pata Nahi",
+    },
+    "en": {
+        "high_confidence": "⭐ <b>HIGH CONFIDENCE SIGNAL</b> ⭐",
+        "strategy": "Strategy", "levels": "LEVELS", "entry": "Entry",
+        "stop_loss": "Stop-Loss", "take_profit": "Take-Profit", "current_price": "Current Price",
+        "statistical_confidence": "Statistical Confidence", "confidence": "Confidence",
+        "win_rate_over": "win rate over {n} recorded trades",
+        "why_this_trade": "Why This Trade", "reason": "Reason",
+        "footer_brand": f"{TELEGRAM_BRAND} -- Paper Trading",
+        "unknown_strategy": "Unknown",
+    },
+}
+
+
 def format_signal_message(position, confluence_result=None, reliability_result=None, high_confidence=False,
-                           live_price=_UNSET):
+                           live_price=_UNSET, lang=None):
+    """lang: "ur" (default, the CEO's everyday register) or "en" -- Batch
+    5, Task 3. Deterministic template choice, never an AI translation
+    call. Defaults to the stored Telegram setting when not passed
+    explicitly (see _DEFAULTS["language"])."""
+    if lang not in ("ur", "en"):
+        lang = load_settings().get("language", "ur")
+    L = _LABELS[lang]
     direction_word = "LONG" if position["direction"] == "long" else "SHORT"
     symbol = position["symbol"]
 
@@ -381,23 +417,23 @@ def format_signal_message(position, confluence_result=None, reliability_result=N
         # it always reflects a real tier decision (evaluate_auto_send_tier)
         # rather than being a cosmetic label anyone could mistake for
         # inflated confidence.
-        lines.append("⭐ <b>HIGH CONFIDENCE SIGNAL</b> ⭐")
+        lines.append(L["high_confidence"])
     lines += [
         f"\U0001F4CA <b>{TELEGRAM_BRAND} Signal</b>",
         "─" * 18,
         f"{_direction_emoji(position['direction'])} <b>{direction_word} {symbol}</b>",
-        f"Strategy: {position.get('strategy_name') or 'Unknown'}",
+        f"{L['strategy']}: {position.get('strategy_name') or L['unknown_strategy']}",
         "",
-        "<b>LEVELS</b>",
-        f"Entry: {_format_price(position.get('entry_price'))}",
-        f"⚠️ Stop-Loss: {_format_price(position.get('stop_loss'))}",
-        f"\U0001F3AF Take-Profit: {_format_price(position.get('take_profit'))}",
+        f"<b>{L['levels']}</b>",
+        f"{L['entry']}: {_format_price(position.get('entry_price'))}",
+        f"⚠️ {L['stop_loss']}: {_format_price(position.get('stop_loss'))}",
+        f"\U0001F3AF {L['take_profit']}: {_format_price(position.get('take_profit'))}",
     ]
 
     if live_price is _UNSET:
         live_price = _fetch_live_price(position.get("exchange"), symbol)
     if live_price is not None:
-        lines.append(f"Current Price: {_format_price(live_price)}")
+        lines.append(f"{L['current_price']}: {_format_price(live_price)}")
 
     lines.append("")
     # Statistical confidence (Genuine Evolution Engine's Wilson-score gate,
@@ -410,26 +446,26 @@ def format_signal_message(position, confluence_result=None, reliability_result=N
     if reliability_result and reliability_result.get("reliable"):
         icon = _confidence_icon(confluence_result.get("label") if confluence_result else None)
         lines.append(
-            f"{icon} Statistical Confidence: {reliability_result['win_rate_pct']:.0f}% win rate over "
-            f"{reliability_result['sample_size']} recorded trades (95% CI "
-            f"{reliability_result['ci_lower_pct']:.0f}%-{reliability_result['ci_upper_pct']:.0f}%)"
+            f"{icon} {L['statistical_confidence']}: {reliability_result['win_rate_pct']:.0f}% "
+            + L["win_rate_over"].format(n=reliability_result["sample_size"])
+            + f" (95% CI {reliability_result['ci_lower_pct']:.0f}%-{reliability_result['ci_upper_pct']:.0f}%)"
         )
     elif confluence_result:
         icon = _confidence_icon(confluence_result.get("label"))
-        lines.append(f"{icon} Confidence: {confluence_result['label']}")
+        lines.append(f"{icon} {L['confidence']}: {confluence_result['label']}")
 
     if confluence_result:
         aligned = [f["name"] for f in confluence_result.get("factors", []) if f.get("result") is True]
         if aligned:
             lines.append("")
-            lines.append("<b>Why This Trade</b>")
+            lines.append(f"<b>{L['why_this_trade']}</b>")
             for name in aligned:
                 lines.append(f"• {name}")
 
     reason = _reason_text(position)
     if reason:
         lines.append("")
-        lines.append(f"Reason: {reason}")
+        lines.append(f"{L['reason']}: {reason}")
 
     entry_time_ms = position.get("entry_time")
     if entry_time_ms:
@@ -439,7 +475,7 @@ def format_signal_message(position, confluence_result=None, reliability_result=N
         lines.append(f"\U0001F551 {ts}" + (f" ({age})" if age else ""))
 
     lines.append("")
-    lines.append(f"{TELEGRAM_BRAND} -- Paper Trading")
+    lines.append(L["footer_brand"])
     lines.append(DISCLAIMER)
     return "\n".join(lines)
 
@@ -691,14 +727,21 @@ def send_close_followup(closed_position):
     if not storage.has_telegram_signal_for_position(position_id):
         return None
 
+    lang = settings.get("language", "ur")
+    en = lang == "en"
+    L = _LABELS[lang if lang in _LABELS else "ur"]
     pnl = closed_position.get("pnl") or 0.0
     outcome = "WIN" if pnl > 0 else "LOSS" if pnl < 0 else "BREAK-EVEN"
+    strategy_label = "Strategy" if en else L["strategy"]
+    coin_label = "Coin" if en else "Coin"
+    exit_label = "Exit" if en else "Exit (Bahar)"
+    result_label = "Result" if en else "Result (Nateeja)"
     text = (
         f"<b>{TELEGRAM_BRAND} Result -- {outcome}</b>\n"
-        f"Strategy: {closed_position.get('strategy_name') or 'Unknown'}\n"
-        f"Coin: {closed_position['symbol']}\n"
-        f"Exit: {closed_position.get('exit_price', '-')} ({closed_position.get('exit_reason', '-')})\n"
-        f"Result: {'+' if pnl >= 0 else ''}{pnl:.2f} ({closed_position.get('pnl_pct', 0):.2f}%)\n\n"
+        f"{strategy_label}: {closed_position.get('strategy_name') or L['unknown_strategy']}\n"
+        f"{coin_label}: {closed_position['symbol']}\n"
+        f"{exit_label}: {closed_position.get('exit_price', '-')} ({closed_position.get('exit_reason', '-')})\n"
+        f"{result_label}: {'+' if pnl >= 0 else ''}{pnl:.2f} ({closed_position.get('pnl_pct', 0):.2f}%)\n\n"
         f"{DISCLAIMER}"
     )
     ok, err = _raw_send(text)
@@ -752,7 +795,7 @@ def sweep_unsent_qualifying_signals():
 NO_SIGNAL_ALERT_HOURS = 24
 
 
-def no_signal_alert_status(now_iso=None):
+def no_signal_alert_status(now_iso=None, lang="ur"):
     """Dashboard alert (Overview + Telegram Signals page) for an extended
     signal drought -- 24+ hours with zero signals sent to Telegram, any
     tier. Nothing to separately "clear": this is computed fresh from the
@@ -761,17 +804,21 @@ def no_signal_alert_status(now_iso=None):
     stored "alert active" flag that could go stale or need resetting.
 
     now_iso: injectable for tests; defaults to the real current time.
+    lang: "ur" (default) or "en" -- Batch 5, Task 3, plain deterministic
+    template choice, no AI translation call.
 
     Returns {"stale": bool, "last_sent_at": iso|None, "hours_since": float|None,
              "message": str|None} -- message is a plain, non-technical
     sentence when stale, else None."""
+    en = lang == "en"
     now = datetime.fromisoformat(now_iso) if now_iso else datetime.now(timezone.utc)
     last_sent_iso = storage.get_last_telegram_signal_sent_at()
 
     if last_sent_iso is None:
         return {
             "stale": True, "last_sent_at": None, "hours_since": None,
-            "message": "No signals have been sent to Telegram yet.",
+            "message": ("No signals have been sent to Telegram yet." if en
+                        else "Abhi tak Telegram par koi signal nahi bheja gaya."),
         }
 
     last_sent = datetime.fromisoformat(last_sent_iso)
@@ -782,7 +829,8 @@ def no_signal_alert_status(now_iso=None):
     return {
         "stale": stale, "last_sent_at": last_sent_iso, "hours_since": round(hours_since, 1),
         "message": (
-            f"No signals have been sent to Telegram in the last {int(hours_since)} hours."
+            (f"No signals have been sent to Telegram in the last {int(hours_since)} hours." if en
+             else f"Pichle {int(hours_since)} ghanton mein Telegram par koi signal nahi bheja gaya.")
             if stale else None
         ),
     }

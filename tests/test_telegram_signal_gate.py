@@ -41,7 +41,7 @@ def _open_position(storage_mod, **overrides):
 
 
 def test_signal_message_uses_trade_vision_branding_not_sindhu():
-    text = telegram_bot.format_signal_message(_position())
+    text = telegram_bot.format_signal_message(_position(), lang="en")
     assert "Trade Vision Signal" in text
     assert "SINDHU" not in text
 
@@ -66,7 +66,7 @@ def test_test_message_uses_trade_vision_branding():
 
 def test_signal_message_includes_real_statistical_confidence_when_reliable():
     reliability = pattern_stats.classify(wins=20, n=25)
-    text = telegram_bot.format_signal_message(_position(), confluence_result=None, reliability_result=reliability)
+    text = telegram_bot.format_signal_message(_position(), confluence_result=None, reliability_result=reliability, lang="en")
     assert "Statistical Confidence" in text
     assert "80%" in text
     assert "25 recorded trades" in text

@@ -981,7 +981,7 @@
         apiGet("/api/activity?limit=20").catch(() => ({ activity: [] })),
         apiGet("/api/reports/best-worst/strategies").catch(() => ({ ranking: [] })),
         apiGet("/api/backtesting/strategies").catch(() => ({ strategies: [] })),
-        apiGet("/api/paper-trading/telegram/alert-status").catch(() => ({ stale: false })),
+        apiGet(`/api/paper-trading/telegram/alert-status?lang=${getLang()}`).catch(() => ({ stale: false })),
       ]);
       if (isStaleRoute(myToken)) return;
 
@@ -1036,8 +1036,10 @@
         ${(zeroTradeAlerts.length || tgAlert.stale) ? `
         <div class="section-title">${t("System Alerts")}</div>
         <div class="card" style="border-left:3px solid var(--negative, #e5484d);">
-          ${tgAlert.stale ? `<div>⚠ ${esc(tgAlert.message)} Check the Telegram Signals page or Settings if this is unexpected.</div>` : ""}
-          ${zeroTradeAlerts.map(s => `<div>⚠ Strategy <b>${esc(s.name)}</b> produced 0 trades on ${s.last_batch_result.symbols_tested || 0} coins -- check entry conditions (see Backtesting or Reports for the condition-hit breakdown).</div>`).join("")}
+          ${tgAlert.stale ? `<div>⚠ ${esc(tgAlert.message)} ${getLang() === "en" ? "Check the Telegram Signals page or Settings if this is unexpected." : "Agar yeh ummeed se zyada hai to Telegram Signals page ya Settings check karein."}</div>` : ""}
+          ${zeroTradeAlerts.map(s => `<div>⚠ ${getLang() === "en"
+            ? `Strategy <b>${esc(s.name)}</b> produced 0 trades on ${s.last_batch_result.symbols_tested || 0} coins -- check entry conditions (see Backtesting or Reports for the condition-hit breakdown).`
+            : `Strategy <b>${esc(s.name)}</b> ne ${s.last_batch_result.symbols_tested || 0} coins par 0 trades diye -- entry conditions check karein (Backtesting ya Reports mein condition-hit breakdown dekhein).`}</div>`).join("")}
         </div>` : ""}
 
         <div class="section-title">${t("Top Strategies by Profit")}</div>
@@ -1326,6 +1328,40 @@
       <div class="btn-row" style="margin-top:10px;">
         <button class="btn-ghost" id="extractionAuditBtn" data-id="${esc(strategyId)}">${tu("Dobara Check Karein")}</button>
         <span id="extractionAuditMsg" class="muted"></span>
+      </div>`;
+  }
+
+  // Batch 5, Task 2: warns wherever a strategy's paper trading history
+  // includes trades from BEFORE a re-extraction fixed its config --
+  // those numbers were generated under an incomplete understanding of
+  // the rules and must never be silently trusted or blended with the
+  // corrected version's own accumulating stats.
+  function renderSupersessionWarning(s) {
+    if (!s) return "";
+    const en = getLang() === "en";
+    const pnl = s.corrected_stats.realized_pnl_total;
+    return `
+      <div class="card" style="border-left:3px solid var(--warning, #e5a944); margin-bottom:16px;">
+        <div style="font-weight:600;margin-bottom:6px;">⚠️ ${en ? "Old Data From Before A Correction" : "Purani Data -- Correction Se Pehle Ki"}</div>
+        <div>${en
+          ? `This strategy's understanding was corrected on ${esc((s.corrected_at || "").slice(0, 10))} `
+            + `(before: ${s.previous_captured_count}/${s.previous_expected_count} rules understood; `
+            + `after: ${s.new_captured_count}/${s.new_expected_count}). `
+            + `${s.superseded_trade_count} paper trade(s)${s.superseded_signals_sent ? ` and ${s.superseded_signals_sent} Telegram signal(s)` : ""} `
+            + `from before this fix were generated under the OLD, incomplete rules -- their results should NOT be trusted.`
+          : `Is strategy ki samajh ${esc((s.corrected_at || "").slice(0, 10))} ko theek ki gayi thi `
+            + `(pehle: ${s.previous_captured_count}/${s.previous_expected_count} rules samajh aaye the; `
+            + `ab: ${s.new_captured_count}/${s.new_expected_count}). `
+            + `${s.superseded_trade_count} paper trade(s)${s.superseded_signals_sent ? ` aur ${s.superseded_signals_sent} Telegram signal(s)` : ""} `
+            + `is fix se pehle ki, PURANI adhoori samajh se bani thi -- inpar bharosa NA karein.`}
+        </div>
+        <div class="muted" style="margin-top:8px;font-size:12px;">
+          ${en
+            ? `Corrected-version stats only (V${s.corrected_at_version} onward): ${s.corrected_stats.closed_count} trades, `
+              + `${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)} realized PnL. Nothing was deleted -- the older trades stay in Trade History for audit.`
+            : `Sirf corrected version ki stats (V${s.corrected_at_version} se aage): ${s.corrected_stats.closed_count} trades, `
+              + `${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)} asli PnL. Kuch delete nahi hua -- purani trades Trade History mein audit ke liye maujood hain.`}
+        </div>
       </div>`;
   }
 
@@ -1856,7 +1892,7 @@
             apiGet(`/api/paper-trading/balance-history/${btn.dataset.id}`).catch(() => ({ points: [] })),
             apiGet(`/api/paper-trading/coin-stats/${btn.dataset.id}`).catch(() => ({ coins: [] })),
             apiGet(`/api/paper-trading/confluence-history/${btn.dataset.id}`).catch(() => ({ history: [] })),
-            apiGet(`/api/backtesting/strategies/${btn.dataset.id}/extraction-verification`).catch(() => null),
+            apiGet(`/api/backtesting/strategies/${btn.dataset.id}/extraction-verification?lang=${getLang()}`).catch(() => null),
           ]);
           const readiness = p.real_trading_readiness;
           const balSeries = (balHistRes.points || []).map(pt => pt.balance);
@@ -1864,6 +1900,7 @@
           const confSeries = (confHistRes.history || []).map(h => h.confluence_ratio * 100);
           body.innerHTML = `
             ${renderExtractionVerificationSection(btn.dataset.id, verification)}
+            ${renderSupersessionWarning(p.supersession)}
 
             <div class="grid">
               ${card(`Confidence Score ${helpIcon("confidence_score")}`, p.confidence_score != null ? p.confidence_score : "No data yet")}
@@ -1928,20 +1965,23 @@
           if (auditBtn) auditBtn.onclick = async () => {
             const msg = document.getElementById("extractionAuditMsg");
             auditBtn.disabled = true;
-            msg.textContent = "Check ho raha hai... thoda time lagega.";
+            msg.textContent = getLang() === "en" ? "Checking... this will take a moment." : "Check ho raha hai... thoda time lagega.";
             try {
-              await apiPost(`/api/backtesting/strategies/${auditBtn.dataset.id}/extraction-audit`, {});
+              await apiPost(`/api/backtesting/strategies/${auditBtn.dataset.id}/extraction-audit?lang=${getLang()}`, {});
               btn.click();  // re-open the profile to show the fresh result
             } catch (e) {
-              msg.textContent = `Check nahi ho saka: ${e.message}`;
+              msg.textContent = (getLang() === "en" ? "Check failed: " : "Check nahi ho saka: ") + e.message;
               auditBtn.disabled = false;
             }
           };
           const overrideBtn = document.getElementById("extractionOverrideBtn");
           if (overrideBtn) overrideBtn.onclick = async () => {
             const goingTo = overrideBtn.dataset.value === "true";
-            if (goingTo && !confirm("Aap adhoori samajh ke saath test karna chahte hain? Results par hamesha warning dikhegi.")) return;
-            await apiPost(`/api/backtesting/strategies/${overrideBtn.dataset.id}/extraction-override`, { overridden: goingTo });
+            const confirmMsg = getLang() === "en"
+              ? "Do you want to test with an incomplete understanding? Results will always show a warning."
+              : "Aap adhoori samajh ke saath test karna chahte hain? Results par hamesha warning dikhegi.";
+            if (goingTo && !confirm(confirmMsg)) return;
+            await apiPost(`/api/backtesting/strategies/${overrideBtn.dataset.id}/extraction-override?lang=${getLang()}`, { overridden: goingTo });
             btn.click();
           };
         } catch (e) {
@@ -2429,7 +2469,7 @@
       runBtn.textContent = "Checking strategy...";
       appendLog("Running pre-flight sanity check (2 coins, recent data) before the full backtest...");
       try {
-        res = await apiPost("/api/backtesting/run", { config: currentConfig, all_coins: true });
+        res = await apiPost("/api/backtesting/run", { config: currentConfig, all_coins: true, lang: getLang() });
       } catch (e) {
         let msg = e.message;
         try {
@@ -3230,7 +3270,7 @@
 
     const [tgSettings, tgAlert] = await Promise.all([
       apiGet("/api/paper-trading/telegram/settings").catch(() => ({ master_send_enabled: true })),
-      apiGet("/api/paper-trading/telegram/alert-status").catch(() => ({ stale: false })),
+      apiGet(`/api/paper-trading/telegram/alert-status?lang=${getLang()}`).catch(() => ({ stale: false })),
     ]);
     if (isStaleRoute(myToken)) return;
 
@@ -5783,7 +5823,7 @@
       content.querySelectorAll(".ceo-strat-run").forEach(btn => btn.onclick = async () => {
         if (!confirm(`Run a full backtest for "${btn.dataset.name}" across all coins now?`)) return;
         try {
-          await apiPost("/api/backtesting/run", { strategy_id: btn.dataset.id, all_coins: true });
+          await apiPost("/api/backtesting/run", { strategy_id: btn.dataset.id, all_coins: true, lang: getLang() });
           ceoPendingRunStrategyId = btn.dataset.id;
           showExpanded("backtesting");
         } catch (e) { alert(`Could not start: ${e.message}`); }
@@ -5979,7 +6019,7 @@
       if (readyToRun && !job) {
         document.getElementById("ceoRunNow").onclick = async () => {
           try {
-            await apiPost("/api/backtesting/run", { strategy_id: readyToRun.id, all_coins: true });
+            await apiPost("/api/backtesting/run", { strategy_id: readyToRun.id, all_coins: true, lang: getLang() });
             expandBacktesting(focusId);
           } catch (e) { alert(`Could not start: ${e.message}`); }
         };

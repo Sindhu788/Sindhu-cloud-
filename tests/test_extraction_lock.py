@@ -146,3 +146,64 @@ def test_verification_summary_all_captured_says_so_in_plain_language(test_db):
     ])
     summary = extraction_lock.verification_summary("strat10")
     assert "Achi khabar" in summary["summary_text"]
+
+
+# ------------------------------------------------------------ Batch 5, Task 3: bilingual coverage
+
+def test_lock_message_in_english(test_db):
+    status = {"locked": True, "missing_rules": [{"text": "Risk 1% per trade"}]}
+    msg = extraction_lock.lock_message(status, lang="en")
+    assert "can't be tested yet" in msg
+    assert "Risk 1% per trade" in msg
+    assert "Test Anyway" in msg
+
+
+def test_lock_message_default_is_roman_urdu(test_db):
+    status = {"locked": True, "missing_rules": [{"text": "Risk 1% per trade"}]}
+    msg = extraction_lock.lock_message(status)
+    assert "abhi test nahi ho sakti" in msg
+    assert "Risk 1% per trade" in msg  # the exact original rule text interpolates cleanly either way
+
+
+def test_verification_summary_unaudited_in_english(test_db):
+    summary = extraction_lock.verification_summary("strat_new", lang="en")
+    assert summary["has_report"] is False
+    assert "hasn't been checked yet" in summary["summary_text"]
+
+
+def test_verification_summary_missing_rules_in_english_interpolates_numbers_cleanly(test_db):
+    _save_report("hash11", "strat11", [
+        {"id": 1, "text": "Buy when price crosses above resistance", "category": "entry",
+         "status": "captured", "captured_as": "x"},
+        {"id": 2, "text": "Risk only 1% per trade", "category": "filters", "status": "missing", "captured_as": None},
+    ])
+    summary = extraction_lock.verification_summary("strat11", lang="en")
+    assert "2 rules" in summary["summary_text"]
+    assert "1 the system understood correctly" in summary["summary_text"]
+    assert summary["rows"][1]["understood_as"] == "This wasn't understood by the system yet."
+
+
+def test_verification_summary_all_captured_in_english(test_db):
+    _save_report("hash12", "strat12", [
+        {"id": 1, "text": "rule one", "category": "entry", "status": "captured", "captured_as": "x"},
+    ])
+    summary = extraction_lock.verification_summary("strat12", lang="en")
+    assert "Good news" in summary["summary_text"]
+
+
+def test_verification_summary_no_rules_found_in_both_languages(test_db):
+    _save_report("hash13", "strat13", [])
+    ur = extraction_lock.verification_summary("strat13")
+    en = extraction_lock.verification_summary("strat13", lang="en")
+    assert "koi trading rule nahi mila" in ur["summary_text"]
+    assert "No trading rule was found" in en["summary_text"]
+
+
+def test_raise_if_locked_uses_requested_language(test_db):
+    import pytest
+    _save_report("hash14", "strat14", [
+        {"id": 1, "text": "Risk only 1% per trade", "category": "filters", "status": "missing", "captured_as": None},
+    ])
+    with pytest.raises(ValueError) as exc_info:
+        extraction_lock.raise_if_locked("strat14", lang="en")
+    assert "can't be tested yet" in str(exc_info.value)

@@ -19,7 +19,7 @@ def _log(trigger_type, success, sent_at, position_id="pos1"):
 
 
 def test_never_sent_any_signal_is_stale(test_db):
-    status = telegram_bot.no_signal_alert_status()
+    status = telegram_bot.no_signal_alert_status(lang="en")
     assert status["stale"] is True
     assert status["last_sent_at"] is None
     assert "yet" in status["message"]
@@ -37,7 +37,7 @@ def test_exactly_at_the_24_hour_mark_triggers(test_db):
     """The boundary itself counts as stale (>=), not just strictly past it."""
     now = datetime.now(timezone.utc)
     _log("manual", 1, _iso(now - timedelta(hours=24)))
-    status = telegram_bot.no_signal_alert_status(now_iso=_iso(now))
+    status = telegram_bot.no_signal_alert_status(now_iso=_iso(now), lang="en")
     assert status["stale"] is True
     assert status["hours_since"] == 24.0
     assert "24 hours" in status["message"]

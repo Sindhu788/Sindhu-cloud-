@@ -4,6 +4,13 @@ these tests confirm the message text is cleanly rounded while the
 underlying position dict's raw values stay untouched. Task B tests the
 new message structure: header, direction, LEVELS section, confidence
 section, Why This Trade factors, timestamp/age, footer.
+
+All calls here pass lang="en" explicitly -- Batch 5, Task 3 made
+format_signal_message() bilingual and changed the default to "ur" (the
+CEO's everyday register, matching every other page's default), so this
+file deliberately locks itself to the English variant it was written to
+test. See test_telegram_message_format_bilingual.py for the Roman Urdu
+variant and the language-selection behavior itself.
 """
 
 from unittest.mock import patch
@@ -37,7 +44,7 @@ def _confluence(passed=3, total=3, factor_names=None):
 
 def test_long_decimal_tail_is_rounded_for_high_priced_coin():
     pos = _position(entry_price=4.0917436867418004, stop_loss=4.0917436867418004, take_profit=1.5215126265163987)
-    text = telegram_bot.format_signal_message(pos)
+    text = telegram_bot.format_signal_message(pos, lang="en")
     assert "4.0917436867418004" not in text
     assert "1.5215126265163987" not in text
     assert "4.092" in text
@@ -46,20 +53,22 @@ def test_long_decimal_tail_is_rounded_for_high_priced_coin():
 
 def test_formatting_does_not_mutate_stored_position_values():
     pos = _position(entry_price=4.0917436867418004)
-    telegram_bot.format_signal_message(pos)
+    telegram_bot.format_signal_message(pos, lang="en")
     assert pos["entry_price"] == 4.0917436867418004  # untouched -- display-only
 
 
 def test_low_priced_coin_keeps_meaningful_precision():
     # A flat 3-decimal round would display this as "0.000", losing all
     # real information for a genuinely sub-cent coin.
-    text = telegram_bot.format_signal_message(_position(entry_price=0.00030912345, stop_loss=0.00029, take_profit=0.00033))
+    pos = _position(entry_price=0.00030912345, stop_loss=0.00029, take_profit=0.00033)
+    text = telegram_bot.format_signal_message(pos, lang="en")
     assert "Entry: 0.000\n" not in text  # not rounded away to a meaningless flat zero
     assert "0.0003091" in text
 
 
 def test_price_at_least_three_decimals_even_for_expensive_coin():
-    text = telegram_bot.format_signal_message(_position(entry_price=50000.1, stop_loss=49000.0, take_profit=52000.0))
+    pos = _position(entry_price=50000.1, stop_loss=49000.0, take_profit=52000.0)
+    text = telegram_bot.format_signal_message(pos, lang="en")
     assert "50000.100" in text
 
 
@@ -71,20 +80,20 @@ def test_format_price_handles_none_and_zero():
 # --------------------------------------------------------------- Task B: message redesign
 
 def test_message_has_branded_header_and_divider():
-    text = telegram_bot.format_signal_message(_position())
+    text = telegram_bot.format_signal_message(_position(), lang="en")
     assert "Trade Vision Signal" in text
     assert "─" in text
 
 
 def test_message_shows_direction_emoji_and_symbol():
-    long_text = telegram_bot.format_signal_message(_position(direction="long", symbol="ETHUSDT"))
-    short_text = telegram_bot.format_signal_message(_position(direction="short", symbol="ETHUSDT"))
+    long_text = telegram_bot.format_signal_message(_position(direction="long", symbol="ETHUSDT"), lang="en")
+    short_text = telegram_bot.format_signal_message(_position(direction="short", symbol="ETHUSDT"), lang="en")
     assert "\U0001F7E2" in long_text and "LONG ETHUSDT" in long_text
     assert "\U0001F534" in short_text and "SHORT ETHUSDT" in short_text
 
 
 def test_message_has_levels_section_with_warning_and_target_icons():
-    text = telegram_bot.format_signal_message(_position())
+    text = telegram_bot.format_signal_message(_position(), lang="en")
     assert "LEVELS" in text
     assert "⚠️ Stop-Loss:" in text
     assert "\U0001F3AF Take-Profit:" in text
@@ -92,19 +101,19 @@ def test_message_has_levels_section_with_warning_and_target_icons():
 
 def test_message_omits_live_price_when_fetch_fails():
     with patch.object(telegram_bot, "_fetch_live_price", return_value=None):
-        text = telegram_bot.format_signal_message(_position())
+        text = telegram_bot.format_signal_message(_position(), lang="en")
     assert "Current Price" not in text
 
 
 def test_message_includes_live_price_when_available():
     with patch.object(telegram_bot, "_fetch_live_price", return_value=101.234567):
-        text = telegram_bot.format_signal_message(_position())
+        text = telegram_bot.format_signal_message(_position(), lang="en")
     assert "Current Price: 101.235" in text
 
 
 def test_message_shows_qualitative_confidence_with_icon_when_not_statistically_reliable():
     conf = _confluence(passed=3, total=3)
-    text = telegram_bot.format_signal_message(_position(), confluence_result=conf)
+    text = telegram_bot.format_signal_message(_position(), confluence_result=conf, lang="en")
     assert "\U0001F7E2 Confidence: Strong -- 3/3 factors aligned" in text
     assert "Statistical Confidence" not in text
 
@@ -112,14 +121,14 @@ def test_message_shows_qualitative_confidence_with_icon_when_not_statistically_r
 def test_message_prefers_statistical_confidence_when_reliable():
     conf = _confluence(passed=3, total=3)
     reliability = pattern_stats.classify(wins=20, n=25)
-    text = telegram_bot.format_signal_message(_position(), confluence_result=conf, reliability_result=reliability)
+    text = telegram_bot.format_signal_message(_position(), confluence_result=conf, reliability_result=reliability, lang="en")
     assert "Statistical Confidence: 80% win rate over 25 recorded trades" in text
     assert "\U0001F7E2 Confidence: Strong" not in text  # qualitative line not duplicated
 
 
 def test_message_lists_why_this_trade_factors_from_real_confluence_data():
     conf = _confluence(passed=2, total=3, factor_names=["Market condition supports this signal", "Strategy not paused for safety", "No existing position already crowding this coin"])
-    text = telegram_bot.format_signal_message(_position(), confluence_result=conf)
+    text = telegram_bot.format_signal_message(_position(), confluence_result=conf, lang="en")
     assert "Why This Trade" in text
     assert "• Market condition supports this signal" in text
     assert "• Strategy not paused for safety" in text
@@ -128,20 +137,20 @@ def test_message_lists_why_this_trade_factors_from_real_confluence_data():
 
 def test_message_omits_why_this_trade_when_no_factors_aligned():
     conf = _confluence(passed=0, total=3)
-    text = telegram_bot.format_signal_message(_position(), confluence_result=conf)
+    text = telegram_bot.format_signal_message(_position(), confluence_result=conf, lang="en")
     assert "Why This Trade" not in text
 
 
 def test_message_shows_timestamp_and_age():
     import time
     entry_ms = int(time.time() * 1000) - (5 * 60 * 1000)  # 5 minutes ago
-    text = telegram_bot.format_signal_message(_position(entry_time=entry_ms))
+    text = telegram_bot.format_signal_message(_position(entry_time=entry_ms), lang="en")
     assert "UTC" in text
     assert "5m ago" in text
 
 
 def test_message_footer_has_strategy_source_and_disclaimer():
-    text = telegram_bot.format_signal_message(_position())
+    text = telegram_bot.format_signal_message(_position(), lang="en")
     assert "Trade Vision -- Paper Trading" in text
     assert telegram_bot.DISCLAIMER in text
 
