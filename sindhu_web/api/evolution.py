@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException
 
 from data_engine import storage
 from evolution_engine.engine import engine
-from evolution_engine import champion, generation_manager, mutator
+from evolution_engine import champion, generation_manager, mutator, history
 
 router = APIRouter()
 
@@ -93,3 +93,24 @@ def evolution_comparisons(base_id: str = None, limit: int = 200):
     "before" numbers, the child's "after" numbers once it has enough trades
     of its own to be judged fairly, and whether it was rolled back."""
     return {"comparisons": storage.list_evolution_comparisons(base_id=base_id, limit=limit)}
+
+
+@router.get("/api/evolution/history")
+def evolution_history(window: str = "week"):
+    """Batch 6, Task 1 -- Evolution History Timeline. Read-only aggregation
+    over evolution_comparisons for one time window (week/15d/month/longer):
+    how many strategies evolved, how many rollbacks, and averaged before/
+    after core metrics. Never triggers evolution or writes anything."""
+    if window not in history.WINDOWS:
+        raise HTTPException(400, f"unknown window: {window!r} -- expected one of {list(history.WINDOWS)}")
+    return history.compute_evolution_history(window)
+
+
+@router.get("/api/evolution/history/compare")
+def evolution_history_compare(window: str = "week"):
+    """This window vs the immediately preceding window of the same length
+    (e.g. this month vs last month) -- period-over-period comparison,
+    real stored data only."""
+    if window not in history.WINDOWS:
+        raise HTTPException(400, f"unknown window: {window!r} -- expected one of {list(history.WINDOWS)}")
+    return history.compare_periods(window)

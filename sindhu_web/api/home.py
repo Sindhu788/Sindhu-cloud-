@@ -23,7 +23,7 @@ NAV_ICONS = {
     "ai_center": "ai_center", "backtest_history": "history", "ceo": "ceo",
     "pipeline_history": "history", "sindhu_strategy": "spark",
     "web_sourced_strategies": "news", "control_center": "ceo",
-    "telegram_dashboard": "send",
+    "telegram_dashboard": "send", "evolution_history": "history",
 }
 
 # Navigation Audit + Reorganization: every page now belongs to exactly one
@@ -69,6 +69,8 @@ NAV_PAGES = [
 
     # Intelligence: self-learning / evolutionary systems
     {"id": "evolution", "label": "Evolution", "enabled": True, "icon": NAV_ICONS["evolution"], "group": "Intelligence"},
+    {"id": "evolution_history", "label": "Evolution History", "enabled": True,
+     "icon": NAV_ICONS["evolution_history"], "group": "Intelligence"},
 
     # Control: the one place to turn automated features on/off, plus account/app settings
     {"id": "control_center", "label": "Control Center", "enabled": True,

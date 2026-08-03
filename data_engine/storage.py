@@ -4133,6 +4133,23 @@ def list_evolution_comparisons(base_id=None, limit=200):
     return [_row_to_evolution_comparison(r) for r in rows]
 
 
+def list_evolution_comparisons_between(since_iso, until_iso=None):
+    """Batch 6, Task 1 -- every evolution event (a mutation that reached
+    the 100-trade gate) created in [since_iso, until_iso), no LIMIT cap,
+    for the Evolution History Timeline's time-window aggregation. Read-
+    only, same as list_evolution_comparisons -- never writes."""
+    query = ("SELECT id, base_id, parent_id, child_id, trade_threshold, before_json, after_json, verdict, rolled_back, created_at, updated_at "
+             "FROM evolution_comparisons WHERE created_at >= ?")
+    params = [since_iso]
+    if until_iso:
+        query += " AND created_at < ?"
+        params.append(until_iso)
+    query += " ORDER BY created_at ASC"
+    with get_conn() as conn:
+        rows = conn.execute(query, params).fetchall()
+    return [_row_to_evolution_comparison(r) for r in rows]
+
+
 _BOT_LESSON_COLUMNS = [
     "id", "base_id", "generation", "parent_id", "title", "category", "description",
     "derived_from_json", "conditions_json", "status", "confidence", "created_at", "updated_at",

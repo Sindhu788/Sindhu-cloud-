@@ -26,6 +26,11 @@
   const T_UR = {
     "Overview": "Overview",
     "Manager Chat": "Manager Chat",
+    "Strategies Evolved": "Kitni Strategies Evolve Hui",
+    "New Generations Created": "Naye Generations Bane",
+    "Rollbacks": "Wapas Ki Gayi Tabdeeliyan",
+    "Improved (Kept)": "Behtar Hui (Rakhi Gayi)",
+    "Still Awaiting 100 Trades": "Abhi 100 Trades Ka Intezaar",
     "System Maturity Level": "System Kitna Mature Hai (Level)",
     "System Alerts": "System Alerts (Zaroori Baatein)",
     "Top Strategies by Profit": "Sabse Profitable Strategies",
@@ -893,7 +898,7 @@
     paper_trading: renderPaperTrading, knowledge_compiler: renderKnowledgeCompiler,
     ai_center: renderAiCenter, backtest_history: renderBacktestHistory,
     pipeline_history: renderPipelineHistory,
-    evolution: renderEvolution, sindhu_strategy: renderSindhuStrategy,
+    evolution: renderEvolution, evolution_history: renderEvolutionHistory, sindhu_strategy: renderSindhuStrategy,
     web_sourced_strategies: renderWebSourcedStrategies,
     control_center: renderControlCenter,
     telegram_dashboard: renderTelegramDashboard,
@@ -3468,6 +3473,98 @@
         try { await apiPost("/api/evolution/run-tick"); document.getElementById("evoStatusMsg").textContent = "Done."; await render(); }
         catch (e) { document.getElementById("evoStatusMsg").textContent = `Failed: ${e.message}`; }
       };
+    }
+
+    await render();
+  }
+
+  // ------------------------------------------------------------ Evolution History Timeline (Batch 6, Task 1)
+  const EVOLUTION_HISTORY_WINDOWS = [
+    ["week", "This Week"], ["15d", "Last 15 Days"], ["month", "This Month"], ["longer", "Longer (120 Days)"],
+  ];
+
+  async function renderEvolutionHistory() {
+    const myToken = activeRouteToken;
+    let activeWindow = "week";
+
+    async function render() {
+      const result = await apiGet(`/api/evolution/history/compare?window=${activeWindow}`);
+      if (isStaleRoute(myToken)) return;
+      const cur = result.current;
+      const prev = result.previous;
+
+      const fmt = (v, suffix = "") => v == null ? "-" : `${Number(v).toFixed(2)}${suffix}`;
+      const pair = (block, key, suffix = "") => `${fmt(block.before[key], suffix)} → ${block.after[key] == null ? (getLang() === "en" ? "pending" : "abhi tak nahi") : fmt(block.after[key], suffix)}`;
+      const delta = (curVal, prevVal) => {
+        if (curVal == null || prevVal == null) return "";
+        const diff = curVal - prevVal;
+        if (Math.abs(diff) < 0.001) return "";
+        const cls = diff > 0 ? "positive" : "negative";
+        return ` <span class="${cls}">(${diff > 0 ? "+" : ""}${diff.toFixed(0)} ${getLang() === "en" ? "vs last period" : "pichle period se"})</span>`;
+      };
+
+      content.innerHTML = `
+        <div class="section-title">${getLang() === "en" ? "Evolution History" : "Evolution Ki Tareekh"}</div>
+        <p class="muted">${getLang() === "en"
+          ? "Real self-learning activity over time, straight from the same 100-trade gate records the Evolution page already tracks -- this view never starts, stops, or changes anything, it only reports."
+          : "Waqt ke saath asli self-learning activity, wahi 100-trade gate records se jo Evolution page pehle se track karta hai -- yeh sirf report karta hai, kuch shuru ya band nahi karta."}</p>
+
+        <div class="btn-row">
+          ${EVOLUTION_HISTORY_WINDOWS.map(([key, label]) =>
+            `<button class="btn${activeWindow === key ? "" : "-ghost"}" data-window="${key}">${label}</button>`).join("")}
+        </div>
+
+        <div class="grid">
+          ${cardClass("Strategies Evolved", `${fmtNum(cur.strategies_evolved)}${delta(cur.strategies_evolved, prev.strategies_evolved)}`, "")}
+          ${card("New Generations Created", fmtNum(cur.generations_created))}
+          ${cardClass("Rollbacks", `${fmtNum(cur.rollbacks)}${delta(cur.rollbacks, prev.rollbacks)}`, cur.rollbacks > 0 ? "negative" : "")}
+          ${card("Improved (Kept)", fmtNum(cur.improved))}
+          ${card("Still Awaiting 100 Trades", fmtNum(cur.pending))}
+        </div>
+        <div class="muted" style="font-size:12px;margin-top:-8px;">
+          ${getLang() === "en" ? "Previous period (for comparison)" : "Pichla period (comparison ke liye)"}:
+          ${prev.strategies_evolved} ${getLang() === "en" ? "strategies evolved" : "strategies evolve hui"},
+          ${prev.rollbacks} rollbacks.
+        </div>
+
+        <div class="section-title">${getLang() === "en" ? "Average Before → After (this period)" : "औसत Before → After (is period mein)"}</div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>${getLang() === "en" ? "Metric" : "Metric"}</th><th>${getLang() === "en" ? "Before → After" : "Pehle → Baad"}</th></tr></thead>
+          <tbody>
+            <tr><td>${getLang() === "en" ? "Win Rate" : "Jeetne Ki Dar"}</td><td>${pair(cur, "win_rate", "%")}</td></tr>
+            <tr><td>${getLang() === "en" ? "Net PnL" : "Asli Munafa/Nuksan"}</td><td>${pair(cur, "total_pnl")}</td></tr>
+            <tr><td>Profit Factor</td><td>${pair(cur, "avg_profit_factor")}</td></tr>
+            <tr><td>${getLang() === "en" ? "Max Drawdown" : "Sabse Zyada Drawdown"}</td><td>${pair(cur, "max_drawdown_pct", "%")}</td></tr>
+          </tbody>
+        </table></div>
+        ${cur.finalized === 0 ? `<div class="muted" style="font-size:12px;">${getLang() === "en"
+          ? "No evolution events in this window have finished being judged yet (each needs 100 real trades on the new generation) -- averages will appear once at least one has."
+          : "Is period mein abhi tak koi evolution event poori tarah judge nahi hua (har ek ko naye generation par 100 real trades chahiye) -- averages tab dikhenge jab kam se kam ek poora ho jaye."}</div>` : ""}
+
+        <div class="section-title">${getLang() === "en" ? "Events In This Window" : "Is Period Ke Events"} (${cur.comparisons.length})</div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Lineage</th><th>${getLang() === "en" ? "Trades Threshold" : "Trades Ki Had"}</th><th>${getLang() === "en" ? "Result" : "Nateeja"}</th><th>${getLang() === "en" ? "When" : "Kab"}</th></tr></thead>
+          <tbody>
+            ${cur.comparisons.map(c => {
+              const resultPill = !c.after
+                ? `<span class="pill pill-muted">${getLang() === "en" ? "Awaiting 100 trades" : "100 trades ka intezaar"}</span>`
+                : c.rolled_back
+                  ? `<span class="pill pill-bearish">${getLang() === "en" ? "Rolled back" : "Wapas kar diya gaya"}</span>`
+                  : `<span class="pill pill-bullish">${getLang() === "en" ? "Kept -- improved" : "Rakha gaya -- behtar hua"}</span>`;
+              return `<tr>
+                <td>${esc(c.base_id)} <span class="muted">(${esc(c.parent_id)} → ${esc(c.child_id)})</span></td>
+                <td>${c.trade_threshold}</td>
+                <td>${resultPill}</td>
+                <td>${esc((c.created_at || "").slice(0, 10))}</td>
+              </tr>`;
+            }).join("") || `<tr><td colspan="4">${getLang() === "en" ? "No evolution events in this window." : "Is period mein koi evolution event nahi hua."}</td></tr>`}
+          </tbody>
+        </table></div>`;
+
+      document.querySelectorAll("[data-window]").forEach(btn => btn.onclick = () => {
+        activeWindow = btn.dataset.window;
+        render();
+      });
     }
 
     await render();
