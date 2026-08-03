@@ -1449,6 +1449,24 @@ def list_recent_batches(limit=30):
     ]
 
 
+def latest_completed_batch_for_strategy_name(strategy_name):
+    """Batch 6, Task 5: the most recent completed backtest for a given
+    strategy NAME -- there is no foreign key from a paper-trading
+    strategy_id to a backtest_batches row anywhere in this system (the
+    same name-based matching strategy_library.find_by_name() already
+    relies on), so this is a real but honest best-effort link: it can
+    miss a batch if the strategy was renamed since it last ran, and it
+    can't tell two different strategies with the same display name
+    apart. Returns None if no completed batch matches."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT batch_id FROM backtest_batches WHERE strategy_name = ? AND status = 'completed' "
+            "ORDER BY created_at DESC LIMIT 1",
+            (strategy_name,),
+        ).fetchone()
+    return row[0] if row else None
+
+
 def update_batch_status(batch_id, status, now_iso):
     with get_conn() as conn:
         conn.execute(

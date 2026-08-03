@@ -13,6 +13,7 @@ from paper_trading import config as pt_config, insights
 from paper_trading import drawdown_guard, regime, correlation, portfolio, strategy_profile, weekly_report
 from paper_trading import confluence, graveyard, telegram_bot, capital_allocation, ai_trade_review
 from paper_trading import telegram_analytics
+from paper_trading import signal_tracker
 from paper_trading import pattern_stats
 from paper_trading.engine import engine
 from data_engine import config as base_config
@@ -839,6 +840,23 @@ def get_telegram_analytics(period: str = "all"):
         "strategy_breakdown": telegram_analytics.strategy_breakdown(since_iso, until_iso),
         "hypothetical_pnl": telegram_analytics.hypothetical_pnl(since_iso, until_iso),
     }
+
+
+@router.get("/api/paper-trading/signal-tracker/feed")
+def get_live_signal_feed(limit: int = 50):
+    """Batch 6, Task 5: Live Signal Tracker -- every real Telegram signal
+    sent, newest first, with its real send-to-outcome status. Read-only;
+    never sends, opens, or closes anything."""
+    return signal_tracker.live_signal_feed(limit=limit)
+
+
+@router.get("/api/paper-trading/signal-tracker/match-table")
+def get_signal_match_table():
+    """Batch 6, Task 5: per-strategy backtest vs paper vs Telegram-sent
+    win rate, side by side, flagging real divergence once both sides have
+    enough closed trades to trust. Read-only; never re-runs a backtest or
+    changes anything about which strategies get signaled."""
+    return signal_tracker.strategy_match_table()
 
 
 @router.get("/api/paper-trading/confluence/{position_id}")

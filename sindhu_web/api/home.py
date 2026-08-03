@@ -24,6 +24,7 @@ NAV_ICONS = {
     "pipeline_history": "history", "sindhu_strategy": "spark",
     "web_sourced_strategies": "news", "control_center": "ceo",
     "telegram_dashboard": "send", "evolution_history": "history",
+    "signal_tracker": "target",
 }
 
 # Navigation Audit + Reorganization: every page now belongs to exactly one
@@ -64,6 +65,8 @@ NAV_PAGES = [
     {"id": "paper_trading", "label": "Paper Trading", "enabled": True, "icon": NAV_ICONS["paper_trading"], "group": "Paper Trading"},
     {"id": "telegram_dashboard", "label": "Telegram Signals", "enabled": True,
      "icon": NAV_ICONS["telegram_dashboard"], "group": "Paper Trading"},
+    {"id": "signal_tracker", "label": "Signal Tracker", "enabled": True,
+     "icon": NAV_ICONS["signal_tracker"], "group": "Paper Trading"},
     {"id": "market", "label": "Market", "enabled": True, "icon": NAV_ICONS["market"], "group": "Paper Trading"},
     {"id": "data", "label": "Data", "enabled": True, "icon": NAV_ICONS["data"], "group": "Paper Trading"},
 

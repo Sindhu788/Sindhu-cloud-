@@ -131,6 +131,23 @@ def test_strategy_breakdown_groups_and_sorts_by_signal_count(test_db):
     assert breakdown[1]["total_signals"] == 1
 
 
+def test_strategy_breakdown_counts_losses_correctly(test_db):
+    """Regression test (Batch 6, Task 5): entry[r["outcome"]] used to index
+    the per-strategy dict with the outcome string directly ("win"/"loss"),
+    but the dict's keys are "wins"/"losses" (plural) -- "breakeven" and
+    "pending" happen to match their own outcome string, which is why this
+    went unnoticed until a real loss was ever counted, at which point it
+    raised a KeyError instead of incrementing anything."""
+    _open_position(id="l1", strategy_id="stratC", strategy_name="Strategy C")
+    _close("l1", 90.0, -10.0, -10.0, "stop_loss")
+    _log_signal("l1", strategy_id="stratC", strategy_name="Strategy C")
+
+    breakdown = telegram_analytics.strategy_breakdown()
+    row = next(e for e in breakdown if e["strategy_id"] == "stratC")
+    assert row["losses"] == 1
+    assert row["closed"] == 1
+
+
 # --------------------------------------------------------------- Hypothetical $100/month PnL tracker
 
 def test_hypothetical_pnl_scales_real_r_multiple_onto_hypothetical_capital(test_db):

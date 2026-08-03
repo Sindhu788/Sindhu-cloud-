@@ -88,8 +88,9 @@ def strategy_breakdown(since_iso=None, until_iso=None):
             "total_signals": 0, "wins": 0, "losses": 0, "breakeven": 0, "pending": 0,
         })
         entry["total_signals"] += 1
-        if r["outcome"] in ("win", "loss", "breakeven", "pending"):
-            entry[r["outcome"]] += 1
+        outcome_key = {"win": "wins", "loss": "losses", "breakeven": "breakeven", "pending": "pending"}.get(r["outcome"])
+        if outcome_key:
+            entry[outcome_key] += 1
 
     result = []
     for entry in by_strategy.values():

@@ -800,6 +800,7 @@
     history: '<path d="M3 12a9 9 0 109-9 9 9 0 00-6.4 2.6"/><path d="M3 3v6h6"/><path d="M12 7v5l4 2"/>',
     ceo: '<path d="M12 2l2.5 5 5.5.8-4 3.9.9 5.5-4.9-2.6L6.6 17.2l.9-5.5-4-3.9 5.5-.8z"/>',
     spark: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4"/><path d="M12 8l1.8 2.2L16 12l-2.2 1.8L12 16l-1.8-2.2L8 12l2.2-1.8z"/>',
+    target: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>',
   };
 
   // Mobile bottom tab bar: the most-used pages, one tap away without the
@@ -899,6 +900,7 @@
     ai_center: renderAiCenter, backtest_history: renderBacktestHistory,
     pipeline_history: renderPipelineHistory,
     evolution: renderEvolution, evolution_history: renderEvolutionHistory, sindhu_strategy: renderSindhuStrategy,
+    signal_tracker: renderSignalTracker,
     web_sourced_strategies: renderWebSourcedStrategies,
     control_center: renderControlCenter,
     telegram_dashboard: renderTelegramDashboard,
@@ -3565,6 +3567,95 @@
         activeWindow = btn.dataset.window;
         render();
       });
+    }
+
+    await render();
+  }
+
+  // ------------------------------------------------------------ SIGNAL TRACKER (Batch 6, Task 5)
+  async function renderSignalTracker() {
+    const myToken = activeRouteToken;
+
+    async function render() {
+      const [feed, table] = await Promise.all([
+        apiGet("/api/paper-trading/signal-tracker/feed"),
+        apiGet("/api/paper-trading/signal-tracker/match-table"),
+      ]);
+      if (isStaleRoute(myToken)) return;
+
+      const en = getLang() === "en";
+      const outcomeLabel = (o) => ({
+        win: en ? "Win" : "Jeet", loss: en ? "Loss" : "Haar",
+        breakeven: en ? "Breakeven" : "Barabar", pending: en ? "Pending" : "Chal Raha Hai",
+        unknown: en ? "Unknown" : "Pata Nahi",
+      }[o] || o);
+      const outcomePill = (o) => {
+        const cls = o === "win" ? "pill-bullish" : o === "loss" ? "pill-bearish" : "pill-muted";
+        return `<span class="pill ${cls}">${outcomeLabel(o)}</span>`;
+      };
+      const fmtRate = (v) => v == null
+        ? (en ? `not enough trades yet` : `abhi kaafi trades nahi huay`)
+        : `${v.toFixed(1)}%`;
+
+      const summaryLine = feed.win_rate_pct == null
+        ? (en
+          ? `${feed.total_signals} signals sent so far, ${feed.closed} closed, ${feed.pending} still open -- win rate needs ${feed.min_sample_size} closed signals before it's shown (only ${feed.closed} so far).`
+          : `Ab tak ${feed.total_signals} signals bheje gaye, ${feed.closed} band ho chuke, ${feed.pending} abhi khule hain -- win rate dikhane ke liye ${feed.min_sample_size} band signals chahiye (abhi sirf ${feed.closed}).`)
+        : (en
+          ? `${feed.total_signals} signals sent, ${feed.closed} closed at a real ${feed.win_rate_pct}% win rate, ${feed.pending} still open.`
+          : `${feed.total_signals} signals bheje gaye, ${feed.closed} band hue jinka asli win rate ${feed.win_rate_pct}% hai, ${feed.pending} abhi khule hain.`);
+
+      content.innerHTML = `
+        <div class="section-title">${en ? "Signal Tracker" : "Signal Tracker"}</div>
+        <p class="muted">${en
+          ? "Every real signal sent to Telegram, tracked from send to real outcome, plus a side-by-side check of whether backtest, paper trading, and Telegram-sent results still agree with each other. Read-only -- never sends a signal or changes anything."
+          : "Telegram par bheja gaya har asli signal, send se le kar asli outcome tak track kiya gaya, saath hi yeh check ke backtest, paper trading, aur Telegram-sent results abhi bhi aapas mein match karte hain ya nahi. Sirf report karta hai -- na koi signal bhejta hai na kuch badalta hai."}</p>
+
+        <div class="section-title">${en ? "Running Summary" : "Chalta Hua Khulasa"}</div>
+        <p>${summaryLine}</p>
+
+        <div class="section-title">${en ? "Recent Signals" : "Haal Ke Signals"}</div>
+        <div class="table-wrap"><table>
+          <thead><tr>
+            <th>${en ? "Strategy" : "Strategy"}</th><th>${en ? "Symbol" : "Symbol"}</th>
+            <th>${en ? "Direction" : "Direction"}</th><th>${en ? "Sent At" : "Kab Bheja"}</th>
+            <th>${en ? "Outcome" : "Nateeja"}</th>
+          </tr></thead>
+          <tbody>
+            ${feed.signals.map(s => `<tr>
+              <td>${esc(s.strategy_name || s.strategy_id || "-")}</td>
+              <td>${esc(s.symbol || "-")}</td>
+              <td>${esc(s.direction || "-")}</td>
+              <td>${esc((s.sent_at || "").slice(0, 16).replace("T", " "))}</td>
+              <td>${outcomePill(s.outcome)}</td>
+            </tr>`).join("") || `<tr><td colspan="5">${en ? "No signals sent yet." : "Abhi tak koi signal nahi bheja gaya."}</td></tr>`}
+          </tbody>
+        </table></div>
+
+        <div class="section-title">${en ? "Backtest vs Paper vs Telegram -- Per Strategy" : "Backtest vs Paper vs Telegram -- Har Strategy Ke Liye"}</div>
+        <p class="muted" style="font-size:12px;">${en
+          ? `A win rate only appears once at least ${table.min_sample_size} closed trades back it -- and a divergence is only flagged once BOTH the paper and Telegram-sent sides clear that same floor and disagree by ${table.divergence_threshold_pct} percentage points or more.`
+          : `Win rate tabhi dikhega jab kam se kam ${table.min_sample_size} band trades uske peeche hon -- aur divergence tabhi flag hoga jab paper aur Telegram-sent dono sides yeh had paar karein aur ${table.divergence_threshold_pct} percentage points ya zyada se alag ho.`}</p>
+        <div class="table-wrap"><table>
+          <thead><tr>
+            <th>${en ? "Strategy" : "Strategy"}</th>
+            <th>${en ? "Backtest Win Rate" : "Backtest Win Rate"}</th>
+            <th>${en ? "Paper Win Rate" : "Paper Win Rate"}</th>
+            <th>${en ? "Telegram-Sent Win Rate" : "Telegram-Sent Win Rate"}</th>
+            <th>${en ? "Status" : "Status"}</th>
+          </tr></thead>
+          <tbody>
+            ${table.strategies.map(s => `<tr>
+              <td>${esc(s.strategy_name)}</td>
+              <td>${fmtRate(s.backtest_win_rate)}</td>
+              <td>${fmtRate(s.paper_win_rate)} <span class="muted">(${s.paper_closed_trades})</span></td>
+              <td>${fmtRate(s.telegram_win_rate)} <span class="muted">(${s.telegram_closed_trades})</span></td>
+              <td>${s.diverges
+                ? `<span class="pill pill-bearish">${en ? "Diverges" : "Farq Hai"}</span>`
+                : `<span class="pill pill-bullish">${en ? "In line" : "Theek Match"}</span>`}</td>
+            </tr>`).join("") || `<tr><td colspan="5">${en ? "No strategies with closed trades yet." : "Abhi tak koi strategy ka trade band nahi hua."}</td></tr>`}
+          </tbody>
+        </table></div>`;
     }
 
     await render();
