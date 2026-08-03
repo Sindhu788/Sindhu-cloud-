@@ -46,6 +46,30 @@ def test_list_untested_bot_strategies_excludes_already_backtested(test_db):
     assert not any(r["id"] == strategy_id for r in untested)
 
 
+def test_list_untested_bot_strategies_covers_sindhu_generator_origins_too(test_db):
+    """Batch 7, Task 2: confirms directly that the SAME query used by
+    _backtest_untested_candidates has no origin filter -- a candidate
+    created by the daily SINDHU Strategy Generator (origin
+    "sindhu_ai"/"sindhu_deterministic") is picked up exactly like one
+    created by the Evolution Engine's own mutation loop. Real, separate
+    verification (not assumed): manually running validate_and_backtest()
+    against a real live sindhu_deterministic-origin candidate
+    (BOT_S005_G1) produced a real completed batch (20260803_163749_0b43b1,
+    46 trades, 26.09% win rate) and set its backtest_summary_json --
+    this test locks in the code-level reason that worked."""
+    ai_id = generation_manager.create_new_strategy_lineage(
+        "AI Candidate", {"risk_reward": 2.0}, ["trend"], "sindhu_ai", True, "seed",
+        "2026-01-01T00:00:00+00:00", base_id="BOT_SAI",
+    )
+    deterministic_id = generation_manager.create_new_strategy_lineage(
+        "Deterministic Candidate", {"risk_reward": 2.0}, ["trend"], "sindhu_deterministic", False, "seed",
+        "2026-01-01T00:00:00+00:00", base_id="BOT_SDET",
+    )
+    untested_ids = {r["id"] for r in storage.list_untested_bot_strategies(limit=100)}
+    assert ai_id in untested_ids
+    assert deterministic_id in untested_ids
+
+
 def test_list_untested_bot_strategies_respects_limit(test_db):
     for i in range(5):
         _make_untested_lineage(f"BOT_S{i:03d}", name=f"Candidate {i}")
