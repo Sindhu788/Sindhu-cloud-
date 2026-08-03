@@ -302,6 +302,29 @@ CREATE TABLE IF NOT EXISTS telegram_message_log (
 );
 CREATE INDEX IF NOT EXISTS idx_telegram_log_sent_at ON telegram_message_log(sent_at DESC);
 
+-- Batch 5, Task 2: one row per time a strategy's re-extraction produced a
+-- genuinely different configuration (Batch 5, Task 1's sentence-level
+-- pipeline vs whatever produced the version before it). corrected_at_version
+-- is the NEW version number -- every paper_positions row for this
+-- strategy_id with strategy_version < corrected_at_version was traded
+-- under the OLD, less-complete understanding and is flagged superseded.
+-- Never deleted; a strategy can have more than one correction over time
+-- (each one just moves the boundary forward), and every prior boundary
+-- stays in this table for audit.
+CREATE TABLE IF NOT EXISTS strategy_extraction_corrections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    strategy_id TEXT NOT NULL,
+    corrected_at_version INTEGER NOT NULL,
+    previous_expected_count INTEGER,
+    previous_captured_count INTEGER,
+    new_expected_count INTEGER,
+    new_captured_count INTEGER,
+    reason TEXT,
+    corrected_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_strategy_extraction_corrections_strategy
+    ON strategy_extraction_corrections(strategy_id, corrected_at DESC);
+
 -- Autonomous Strategy Research: one row per research RUN (a "search"
 -- click, or a single-URL queue), so a daily/weekly rate limit setting
 -- has something real to count against -- separate from ai_import_queue,
@@ -2807,6 +2830,84 @@ def get_last_telegram_signal_sent_at():
             "WHERE success=1 AND trigger_type IN ('manual', 'automatic')"
         ).fetchone()
     return row[0] if row and row[0] else None
+
+
+# --------------------------------------------------------------- Batch 5, Task 2: extraction supersession
+
+def save_strategy_extraction_correction(strategy_id, corrected_at_version, previous_expected_count,
+                                         previous_captured_count, new_expected_count, new_captured_count,
+                                         reason, now_iso):
+    """Records that re-extraction (Batch 5, Task 1) produced a genuinely
+    different config for this strategy -- every existing paper_positions
+    row with strategy_version < corrected_at_version is now considered
+    superseded. Never deletes or touches paper_positions/paper_account_state
+    themselves; this is purely a marker other code reads to decide what to
+    warn about and what to exclude from "corrected" statistics."""
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO strategy_extraction_corrections
+               (strategy_id, corrected_at_version, previous_expected_count, previous_captured_count,
+                new_expected_count, new_captured_count, reason, corrected_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (strategy_id, corrected_at_version, previous_expected_count, previous_captured_count,
+             new_expected_count, new_captured_count, reason, now_iso),
+        )
+
+
+def get_latest_extraction_correction(strategy_id):
+    """The most recent correction boundary for this strategy, or None if
+    it has never been re-extracted with a materially different result."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT strategy_id, corrected_at_version, previous_expected_count, previous_captured_count, "
+            "new_expected_count, new_captured_count, reason, corrected_at "
+            "FROM strategy_extraction_corrections WHERE strategy_id = ? "
+            "ORDER BY corrected_at DESC LIMIT 1",
+            (strategy_id,),
+        ).fetchone()
+    if not row:
+        return None
+    cols = ["strategy_id", "corrected_at_version", "previous_expected_count", "previous_captured_count",
+            "new_expected_count", "new_captured_count", "reason", "corrected_at"]
+    return dict(zip(cols, row))
+
+
+def get_versioned_paper_stats(strategy_id, min_version=None):
+    """Closed-trade stats computed DIRECTLY from paper_positions, optionally
+    filtered to strategy_version >= min_version -- deliberately independent
+    of paper_account_state's running totals (which blend every version
+    together and are never touched here; see close_paper_position). Used
+    to show "corrected version only" statistics without mixing in
+    superseded pre-correction trades, and without modifying the core
+    accumulation logic those running totals depend on."""
+    query = ("SELECT COUNT(*), SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END), SUM(pnl) "
+             "FROM paper_positions WHERE strategy_id = ? AND status = 'closed' AND pnl IS NOT NULL")
+    params = [strategy_id]
+    if min_version is not None:
+        query += " AND strategy_version >= ?"
+        params.append(min_version)
+    with get_conn() as conn:
+        row = conn.execute(query, params).fetchone()
+    closed_count = row[0] or 0
+    win_count = row[1] or 0
+    realized_pnl_total = row[2] or 0.0
+    return {"closed_count": closed_count, "win_count": win_count, "realized_pnl_total": realized_pnl_total}
+
+
+def count_telegram_signals_for_superseded_positions(strategy_id, corrected_at_version):
+    """How many Telegram signals were sent for a position opened under a
+    superseded (pre-correction) strategy version -- joins telegram_message_log
+    to paper_positions via position_id, the only link between the two.
+    Read-only; never modifies telegram_message_log."""
+    with get_conn() as conn:
+        row = conn.execute(
+            """SELECT COUNT(*) FROM telegram_message_log t
+               JOIN paper_positions p ON p.id = t.position_id
+               WHERE t.strategy_id = ? AND t.success = 1
+                 AND p.strategy_version IS NOT NULL AND p.strategy_version < ?""",
+            (strategy_id, corrected_at_version),
+        ).fetchone()
+    return row[0] or 0
 
 
 def list_telegram_signal_outcomes(since_iso=None, until_iso=None):

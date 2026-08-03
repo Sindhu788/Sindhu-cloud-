@@ -74,6 +74,31 @@ def get_strategy_profile(strategy_id, exchange, correlation_warnings=None):
         safety_passed, meta.get("walk_forward_status"),
     )
 
+    # Batch 5, Task 2: if this strategy was re-extracted with a materially
+    # different result, everything traded before that correction was
+    # generated under an incomplete understanding of the rules and its
+    # accumulated performance numbers cannot be trusted. Never hidden,
+    # never deleted -- surfaced explicitly with the real old-vs-new counts
+    # so the CEO can see exactly what changed and why.
+    supersession = None
+    correction = storage.get_latest_extraction_correction(strategy_id)
+    if correction:
+        superseded_stats = storage.get_versioned_paper_stats(strategy_id)
+        corrected_stats = storage.get_versioned_paper_stats(strategy_id, min_version=correction["corrected_at_version"])
+        superseded_only_count = superseded_stats["closed_count"] - corrected_stats["closed_count"]
+        supersession = {
+            "corrected_at_version": correction["corrected_at_version"],
+            "corrected_at": correction["corrected_at"],
+            "previous_expected_count": correction["previous_expected_count"],
+            "previous_captured_count": correction["previous_captured_count"],
+            "new_expected_count": correction["new_expected_count"],
+            "new_captured_count": correction["new_captured_count"],
+            "superseded_trade_count": max(superseded_only_count, 0),
+            "superseded_signals_sent": storage.count_telegram_signals_for_superseded_positions(
+                strategy_id, correction["corrected_at_version"]),
+            "corrected_stats": corrected_stats,
+        }
+
     return {
         "id": strategy_id, "name": meta["name"], "status": meta.get("status"),
         "walk_forward_status": meta.get("walk_forward_status"),
@@ -90,4 +115,5 @@ def get_strategy_profile(strategy_id, exchange, correlation_warnings=None):
         "auto_avoid_rules": avoid_rules,
         "genealogy": lib.version_history(strategy_id),
         "real_trading_readiness": readiness,
+        "supersession": supersession,
     }
