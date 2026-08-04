@@ -41,6 +41,10 @@ def start_engine():
     started = engine.start(log=_log_and_broadcast, on_event=_on_engine_event)
     if not started:
         raise HTTPException(400, "engine already running")
+    # Batch 9, Task 3: persist this explicit choice immediately (not just
+    # on a clean shutdown) so a restart -- including an ungraceful one --
+    # restores the engine to ON.
+    pt_config.update(engine_enabled=True)
     sync.notify("paper_trading", "started", "Paper Trading engine started")
     return {"ok": True}
 
@@ -50,6 +54,7 @@ def stop_engine():
     stopped = engine.stop()
     if not stopped:
         raise HTTPException(400, "engine already stopped")
+    pt_config.update(engine_enabled=False)
     sync.notify("paper_trading", "stopped", "Paper Trading engine stopped")
     return {"ok": True}
 

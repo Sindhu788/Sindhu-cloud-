@@ -9,6 +9,15 @@ from data_engine import config as base_config
 
 _DEFAULTS = {
     "dry_run": True,
+    # Batch 9, Task 3: the CEO's last EXPLICIT start/stop choice for the
+    # Paper Trading Engine, persisted so a server restart (including an
+    # ungraceful one -- power loss, crash) restores the engine to
+    # whatever it actually was, never silently defaulting to off just
+    # because the in-memory PaperTradingEngine._running flag always
+    # starts False on a fresh process. Written the instant start/stop is
+    # called (see sindhu_web/api/paper_trading.py), same as every other
+    # setting in this file -- never only on a clean shutdown.
+    "engine_enabled": False,
     "initial_balance": 10000.0,
     "risk_pct_default": 1.0,
     # Per STRATEGY, not a total shared across every strategy running --

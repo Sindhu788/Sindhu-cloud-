@@ -432,3 +432,22 @@ class PaperTradingEngine:
 
 
 engine = PaperTradingEngine()
+
+
+def resume_engine_on_startup():
+    """Batch 9, Task 3: restores the Paper Trading Engine to the CEO's
+    last EXPLICIT start/stop choice (pt_config's "engine_enabled",
+    written the instant /api/paper-trading/start or /stop is called --
+    see sindhu_web/api/paper_trading.py) rather than always defaulting
+    to off just because PaperTradingEngine._running starts False on
+    every fresh process. Never forces it on: if it was deliberately
+    stopped, engine_enabled is False and this is a no-op. Same
+    "resume only if it was already running" contract as
+    evolution_engine.engine.resume_evolution_jobs_on_startup, called
+    once from sindhu_web/server.py's lifespan."""
+    enabled = pt_config.load().get("engine_enabled", False)
+    if enabled:
+        default_log("[paper-trading] Restoring to ON -- it was running when the server last stopped.")
+        engine.start(log=default_log)
+    else:
+        default_log("[paper-trading] Staying OFF -- it was off when the server last stopped.")

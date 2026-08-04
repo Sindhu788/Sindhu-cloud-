@@ -121,6 +121,20 @@ async def _lifespan(app: FastAPI):
     start_weekly_report_scheduler_thread()
     from paper_trading.daily_report import start_daily_report_scheduler_thread
     start_daily_report_scheduler_thread()
+    # Batch 9, Task 3: restore Paper Trading + report Telegram's current
+    # state, so a restart (including an ungraceful one -- power loss,
+    # laptop shutdown) never silently leaves either off just because
+    # nobody was there to flip the switch back on. Telegram's own
+    # master_send_enabled already persists to disk on every toggle and is
+    # read fresh on every send -- nothing to restart there, only logged
+    # here for visibility. Paper Trading's in-memory running flag does
+    # NOT survive a restart on its own, so it needs an explicit resume.
+    from paper_trading.engine import resume_engine_on_startup
+    resume_engine_on_startup()
+    from paper_trading import telegram_bot as _telegram_bot
+    _tg_enabled = _telegram_bot.load_settings().get("master_send_enabled", True)
+    log(f"[telegram] Sending is currently {'ON' if _tg_enabled else 'OFF'} "
+        f"(restored from the last saved setting).")
     threading.Thread(target=_warm_caches, daemon=True).start()
     task = asyncio.create_task(_broadcast_loop())
     yield
