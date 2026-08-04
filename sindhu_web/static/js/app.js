@@ -268,6 +268,14 @@
     return v.toFixed(decimals);
   }
   function esc(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+  // Batch 9, Task 2: renders a stored telegram_message_log.message_text --
+  // escapes EVERYTHING first (so any injected content, e.g. a strategy
+  // name, can never break out as live HTML), then restores only the
+  // literal <b>/</b> tags OUR OWN templates put there, so bold formatting
+  // shows exactly as it appeared in the real delivered Telegram message.
+  function renderTelegramMessageHtml(text) {
+    return esc(text).replace(/&lt;b&gt;/g, "<b>").replace(/&lt;\/b&gt;/g, "</b>");
+  }
 
   // ------------------------------------------------------------ "Explain This to Me" popovers
   // Pre-written, static plain-language text -- no AI call, just a tooltip.
@@ -3210,11 +3218,12 @@
 
     async function load(period) {
       document.getElementById("tgDashBox").innerHTML = `<p class="muted">Loading...</p>`;
-      let analytics, signalsRes;
+      let analytics, signalsRes, mirrorRes;
       try {
-        [analytics, signalsRes] = await Promise.all([
+        [analytics, signalsRes, mirrorRes] = await Promise.all([
           apiGet(`/api/paper-trading/telegram/analytics?period=${period}`),
           apiGet(`/api/paper-trading/telegram/signals?period=${period}`),
+          apiGet(`/api/paper-trading/telegram/log?limit=30`).catch(() => ({ messages: [] })),
         ]);
       } catch (e) {
         if (isStaleRoute(myToken)) return;
@@ -3225,6 +3234,8 @@
       const s = analytics.summary;
       const hp = analytics.hypothetical_pnl;
       const signals = signalsRes.signals || [];
+      const mirror = mirrorRes.messages || [];
+      const en = getLang() === "en";
 
       document.getElementById("tgDashBox").innerHTML = `
         <div class="grid">
@@ -3272,6 +3283,30 @@
               <td>${telegramOutcomePill(sig.outcome)}</td>
             </tr>`).join("") || `<tr><td colspan="8">No signals sent yet in this period.</td></tr>`}</tbody>
         </table></div>
+
+        <div class="section-title">${en ? "Signal Mirror -- Exactly What Was Sent" : "Signal Mirror -- Bilkul Wahi Jo Bheja Gaya"}</div>
+        <p class="muted" style="font-size:12px;margin-top:-8px;">${en
+          ? "The real message text stored at the moment each was sent -- not a re-generated preview, so this always matches Telegram exactly."
+          : "Yeh asli message text hai jo har send ke waqt store hua tha -- dobara banaya hua andaza nahi, isliye yeh hamesha Telegram se bilkul match karta hai."}</p>
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          ${mirror.map(m => `
+            <div class="card">
+              <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px;">
+                <div>
+                  <b>${esc(m.strategy_name || (en ? "Unknown Strategy" : "Pata Nahi Strategy"))}</b>
+                  <span class="muted" style="font-size:12px;"> -- ${esc(m.trigger_type)} -- ${esc((m.sent_at || "").slice(0, 16).replace("T", " "))}</span>
+                </div>
+                ${m.success
+                  ? `<span class="pill pill-bullish">${en ? "Sent" : "Bhej Diya"}</span>`
+                  : `<span class="pill pill-bearish" title="${esc(m.error || "")}">${(m.error || "").includes("too stale")
+                      ? (en ? "Withheld -- Freshness Gate" : "Roka Gaya -- Freshness Gate")
+                      : (en ? "Failed" : "Nakaam")}</span>`}
+              </div>
+              ${m.message_text
+                ? `<div style="white-space:pre-wrap;font-size:13px;line-height:1.5;background:var(--card-2,rgba(127,127,127,0.08));padding:10px;border-radius:6px;">${renderTelegramMessageHtml(m.message_text)}</div>`
+                : `<div class="muted" style="font-size:12px;">${en ? "No message text (blocked before formatting, e.g. master switch off)." : "Koi message text nahi (formatting se pehle hi ruk gaya, jaise master switch off)."} ${esc(m.error || "")}</div>`}
+            </div>`).join("") || `<p class="muted">${en ? "No Telegram send attempts yet." : "Abhi tak koi Telegram send attempt nahi hua."}</p>`}
+        </div>
       `;
     }
 
