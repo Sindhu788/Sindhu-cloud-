@@ -1212,25 +1212,26 @@
   // View Profile deep-link, just presented so each strategy reads as its
   // own thing instead of one more row in a wall of numbers.
   function strategyBreakdownCardsHtml(list, isAll) {
-    if (!list.length) return `<div class="muted">No strategies active in this period.</div>`;
+    const en = getLang() === "en";
+    if (!list.length) return `<div class="muted">${en ? "No strategies active in this period." : "Is period mein koi strategy active nahi hai."}</div>`;
     const maxAbsPnl = Math.max(1, ...list.map(p => Math.abs(p.total_pnl)));
     return `<div class="strategy-card-grid">${list.map(p => `
       <div class="card strategy-card">
         <div class="strategy-card-header">
           <b>${esc(p.strategy_name || p.strategy_id)}</b>
-          <button class="btn-ghost strat-view-profile" data-id="${esc(p.strategy_id)}">View Profile</button>
+          <button class="btn-ghost strat-view-profile" data-id="${esc(p.strategy_id)}">${en ? "View Profile" : "Profile Dekhein"}</button>
         </div>
         <div class="strategy-card-stats">
-          <div><span class="muted">Closed Trades</span><div class="value" style="font-size:17px;">${fmtNum(p.closed_trades)}</div></div>
-          <div><span class="muted">Win Rate</span><div class="value" style="font-size:17px;">${p.win_rate.toFixed(1)}%</div></div>
-          <div><span class="muted">Open</span><div class="value" style="font-size:17px;">${fmtNum(p.open_positions)}</div></div>
+          <div><span class="muted">${en ? "Closed Trades" : "Band Trades"}</span><div class="value" style="font-size:17px;">${fmtNum(p.closed_trades)}</div></div>
+          <div><span class="muted">${en ? "Win Rate" : "Jeetne Ki Dar"}</span><div class="value" style="font-size:17px;">${p.win_rate.toFixed(1)}%</div></div>
+          <div><span class="muted">${en ? "Open" : "Khuli"}</span><div class="value" style="font-size:17px;">${fmtNum(p.open_positions)}</div></div>
         </div>
         <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;">
-          <span class="muted" style="font-size:11px;">PnL</span>
+          <span class="muted" style="font-size:11px;">${en ? "PnL" : "Munafa/Nuksan"}</span>
           ${pnlSpan(p.total_pnl)}
         </div>
         <div class="progress-bar"><div class="progress-bar-fill" style="width:${Math.abs(p.total_pnl) / maxAbsPnl * 100}%;background:${p.total_pnl >= 0 ? "var(--green)" : "var(--red)"};"></div></div>
-        ${isAll ? `<div class="muted" style="font-size:11px;margin-top:8px;">Trading since ${esc((p.trading_since || "-").slice(0, 10))}</div>` : ""}
+        ${isAll ? `<div class="muted" style="font-size:11px;margin-top:8px;">${en ? "Trading since" : "Kab Se Trading"} ${esc((p.trading_since || "-").slice(0, 10))}</div>` : ""}
       </div>`).join("")}</div>`;
   }
 
