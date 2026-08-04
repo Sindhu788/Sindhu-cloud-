@@ -1193,21 +1193,7 @@
       </div>
 
       <div class="section-title">Per-Strategy Breakdown${isAll ? " -- Permanent Record" : ""}</div>
-      <div class="table-wrap"><table>
-        <thead><tr><th>Strategy</th><th>Closed Trades</th><th>Win Rate</th><th>PnL</th><th>Open Positions</th>${isAll ? "<th>Trading Since</th>" : ""}</tr></thead>
-        <tbody>${d.per_strategy.map(p => `
-          <tr>
-            <td>${esc(p.strategy_name || p.strategy_id)} <button class="btn-ghost strat-view-profile" data-id="${esc(p.strategy_id)}" style="font-size:11px;padding:1px 6px;">View Profile</button></td>
-            <td>${fmtNum(p.closed_trades)}</td>
-            <td>${p.win_rate.toFixed(1)}%</td>
-            <td>${pnlSpan(p.total_pnl)}</td>
-            <td>${fmtNum(p.open_positions)}</td>
-            ${isAll ? `<td>${esc((p.trading_since || "-").slice(0, 10))}</td>` : ""}
-          </tr>`).join("") || `<tr><td colspan="${isAll ? 6 : 5}">No strategies active in this period.</td></tr>`}</tbody>
-      </table></div>
-
-      <div class="section-title">Strategy Comparison</div>
-      ${paperStrategyComparisonHtml(d.per_strategy)}
+      ${strategyBreakdownCardsHtml(d.per_strategy, isAll)}
 
       <div class="section-title">Per-Coin Breakdown${isAll ? " (All-Time)" : ""}</div>
       <div class="table-wrap"><table>
@@ -1219,20 +1205,33 @@
     `;
   }
 
-  function paperStrategyComparisonHtml(list) {
-    if (!list.length) return `<div class="muted">No strategies to compare yet.</div>`;
+  // Batch 9, Task 5 (dashboard redesign): replaces the old back-to-back
+  // "Per-Strategy Breakdown" table + separate "Strategy Comparison" table
+  // (same per-strategy numbers shown twice, in two dense tables) with ONE
+  // clearly separated card per strategy -- same underlying data, same
+  // View Profile deep-link, just presented so each strategy reads as its
+  // own thing instead of one more row in a wall of numbers.
+  function strategyBreakdownCardsHtml(list, isAll) {
+    if (!list.length) return `<div class="muted">No strategies active in this period.</div>`;
     const maxAbsPnl = Math.max(1, ...list.map(p => Math.abs(p.total_pnl)));
-    return `<div class="table-wrap"><table>
-      <thead><tr><th>Strategy</th><th>Trades</th><th>Win Rate</th><th>PnL</th><th style="min-width:140px;"></th></tr></thead>
-      <tbody>${list.map(p => `
-        <tr>
-          <td>${esc(p.strategy_name || p.strategy_id)}</td>
-          <td>${fmtNum(p.closed_trades)}</td>
-          <td>${p.win_rate.toFixed(1)}%</td>
-          <td>${pnlSpan(p.total_pnl)}</td>
-          <td><div class="progress-bar"><div class="progress-bar-fill" style="width:${Math.abs(p.total_pnl) / maxAbsPnl * 100}%;background:${p.total_pnl >= 0 ? "var(--green)" : "var(--red)"};"></div></div></td>
-        </tr>`).join("")}</tbody>
-    </table></div>`;
+    return `<div class="strategy-card-grid">${list.map(p => `
+      <div class="card strategy-card">
+        <div class="strategy-card-header">
+          <b>${esc(p.strategy_name || p.strategy_id)}</b>
+          <button class="btn-ghost strat-view-profile" data-id="${esc(p.strategy_id)}">View Profile</button>
+        </div>
+        <div class="strategy-card-stats">
+          <div><span class="muted">Closed Trades</span><div class="value" style="font-size:17px;">${fmtNum(p.closed_trades)}</div></div>
+          <div><span class="muted">Win Rate</span><div class="value" style="font-size:17px;">${p.win_rate.toFixed(1)}%</div></div>
+          <div><span class="muted">Open</span><div class="value" style="font-size:17px;">${fmtNum(p.open_positions)}</div></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;">
+          <span class="muted" style="font-size:11px;">PnL</span>
+          ${pnlSpan(p.total_pnl)}
+        </div>
+        <div class="progress-bar"><div class="progress-bar-fill" style="width:${Math.abs(p.total_pnl) / maxAbsPnl * 100}%;background:${p.total_pnl >= 0 ? "var(--green)" : "var(--red)"};"></div></div>
+        ${isAll ? `<div class="muted" style="font-size:11px;margin-top:8px;">Trading since ${esc((p.trading_since || "-").slice(0, 10))}</div>` : ""}
+      </div>`).join("")}</div>`;
   }
 
   async function loadPaperAnalytics(boxId, idPrefix, period) {

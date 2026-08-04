@@ -433,6 +433,33 @@ textarea { font-family: Consolas, monospace; min-height: 160px; }
 }
 .progress-bar-fill { height: 100%; background: var(--accent); transition: width .3s; }
 
+/* Batch 9, Task 5: per-strategy info as clearly separated cards instead
+   of a dense combined table -- reused everywhere strategyBreakdownCardsHtml()
+   is called (Paper Trading, Reports, Telegram Signals analytics). */
+.strategy-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 14px;
+  margin-bottom: 24px;
+}
+.strategy-card { padding: 16px 18px; }
+.strategy-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-size: 14px;
+}
+.strategy-card-header b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.strategy-card-header .btn-ghost { font-size: 11px; padding: 3px 8px; flex: none; }
+.strategy-card-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.strategy-card-stats .muted { font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; }
+
 .muted { color: var(--text-dim); }
 
 .qr-box { background: #fff; border-radius: 10px; padding: 12px; display: inline-block; margin-top: 8px; }
