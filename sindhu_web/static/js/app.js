@@ -3880,6 +3880,45 @@
     await render();
   }
 
+  // Batch 10, Task 3: Live Market Scan indicator -- presentation only,
+  // reflects the engine's REAL last-tick shortlist (paper_trading.engine.
+  // PaperTradingEngine._tick's `shortlisted_symbols`, already returned as
+  // status.last_summary.shortlisted -- no new backend logic, no change to
+  // scanning timing/order/triggers). A CSS pulse + a plain text cycle
+  // through the real coin list, refreshed automatically because the page
+  // already re-renders on every real "paper" channel tick event.
+  let _scanCycleTimer = null;
+  function scanIndicatorHtml(status) {
+    if (!status.running) return "";
+    const coins = (status.last_summary && status.last_summary.shortlisted) || [];
+    const en = getLang() === "en";
+    return `
+      <div class="card scan-indicator" style="margin-bottom:16px;">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <span class="scan-pulse"></span>
+          <div>
+            <div style="font-weight:600;font-size:13px;">${en ? "Live Market Scan" : "Live Market Scan"}</div>
+            <div class="muted" style="font-size:12px;" id="scanCycleText">
+              ${coins.length
+                ? `${en ? "Scanning" : "Scan Ho Raha Hai"}: <span id="scanCycleCoin">${esc(coins[0])}</span> (${coins.length} ${en ? "coins this tick" : "coins is tick mein"})`
+                : (en ? "No coins shortlisted yet -- waiting for the next tick." : "Abhi tak koi coin shortlist nahi hui -- agle tick ka intezaar.")}
+            </div>
+          </div>
+        </div>
+      </div>`;
+  }
+  function startScanCycle(coins) {
+    clearInterval(_scanCycleTimer);
+    if (!coins || !coins.length) return;
+    let i = 0;
+    _scanCycleTimer = setInterval(() => {
+      const el = document.getElementById("scanCycleCoin");
+      if (!el) { clearInterval(_scanCycleTimer); return; }
+      i = (i + 1) % coins.length;
+      el.textContent = coins[i];
+    }, 1400);
+  }
+
   // ------------------------------------------------------------ PAPER TRADING
   // Paper Trading sub-navigation: the page has grown into ~18 distinct
   // sections (status, alerts, portfolio/risk, analytics, trade history,
@@ -3959,6 +3998,9 @@
           ${card("Queue (shortlisted coins)", fmtNum(status.queue))}
         </div>
         <div class="muted" style="font-size:12px;">Each strategy runs its own independent book -- balance/PnL/open positions are never merged between strategies. See the breakdown below.</div>
+
+        ${scanIndicatorHtml(status)}
+        <div id="ptSignalMatchDetail" class="card" style="display:none;margin-bottom:16px;"></div>
 
         ${(alertsRes.alerts || []).length ? `
         <div class="section-title">${t("Alerts")}</div>
@@ -4209,6 +4251,8 @@
         </table></div>
         </div>
       `;
+
+      startScanCycle((status.last_summary && status.last_summary.shortlisted) || []);
 
       function applyPtTab(tabId) {
         activePtTab = tabId;
@@ -4514,8 +4558,53 @@
 
     await render();
     onLive((msg) => {
-      if (msg.channel === "paper") render().catch(console.error);
+      if (msg.channel !== "paper") return;
+      // Batch 10, Task 3: a real "position_opened" event (paper_trading.
+      // engine's own _emit, unchanged) pauses the scan cycle and surfaces
+      // a "Match Found" toast with a real explanation/grade/freshness
+      // detail view -- presentation only, never influences which
+      // position actually opened or when.
+      if (msg.type === "position_opened" && msg.position) {
+        clearInterval(_scanCycleTimer);
+        const pos = msg.position;
+        const en = getLang() === "en";
+        showToast({
+          title: en ? `Match Found -- ${pos.symbol}` : `Match Mil Gaya -- ${pos.symbol}`,
+          body: `${(pos.direction || "").toUpperCase()} -- ${pos.strategy_name || pos.strategy_id || "-"}`,
+          actionLabel: en ? "Why This Signal?" : "Yeh Signal Kyun?",
+          onAction: () => showSignalMatchDetail(pos.id),
+          timeoutMs: 20000,
+        });
+        showSignalMatchDetail(pos.id);
+      }
+      render().catch(console.error);
     });
+
+    async function showSignalMatchDetail(positionId) {
+      const box = document.getElementById("ptSignalMatchDetail");
+      if (!box) return;
+      const en = getLang() === "en";
+      box.style.display = "block";
+      box.innerHTML = `<p class="muted">${en ? "Loading..." : "Load ho raha hai..."}</p>`;
+      let d;
+      try {
+        d = await apiGet(`/api/paper-trading/signal-detail/${positionId}`);
+      } catch (e) {
+        box.innerHTML = `<p class="muted">${en ? "Couldn't load" : "Load nahi hua"}: ${esc(e.message)}</p>`;
+        return;
+      }
+      const pos = d.position;
+      box.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <div><b>${esc(pos.symbol)}</b> ${(pos.direction || "").toUpperCase()} -- ${esc(pos.strategy_name || pos.strategy_id || "-")}</div>
+          <span class="pill ${d.grade.grade === "A+" || d.grade.grade === "A" ? "pill-bullish" : d.grade.grade === "B" ? "pill-muted" : "pill-bearish"}">${esc(d.grade.grade)}</span>
+        </div>
+        <p style="font-size:13px;">${esc(d.explanation_text)}</p>
+        <p class="muted" style="font-size:12px;">${esc(d.grade.reason)}</p>
+        <p class="muted" style="font-size:12px;">${en ? "Freshness" : "Taazgi"}: ${d.freshness.fresh
+          ? (en ? "Fresh" : "Taaza")
+          : esc(d.freshness.reason || (en ? "Not fresh" : "Taaza Nahi"))}</p>`;
+    }
   }
 
   // ------------------------------------------------------------ SETTINGS

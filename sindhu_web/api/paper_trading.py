@@ -16,6 +16,7 @@ from paper_trading import telegram_analytics
 from paper_trading import signal_tracker
 from paper_trading import pattern_stats
 from paper_trading import challenge_mode
+from paper_trading import signal_explainer
 from paper_trading.engine import engine
 from data_engine import config as base_config
 from sindhu_web import broadcast, cache, sync
@@ -918,6 +919,44 @@ def get_confluence_for_position(position_id: str):
         pos.get("strategy_id"), pos["symbol"], exchange,
         pos.get("market_state"), pos.get("session"), pos["direction"],
     )
+
+
+@router.get("/api/paper-trading/signal-detail/{position_id}")
+def get_signal_detail(position_id: str):
+    """Batch 10, Task 3: "Match Found" detail view for the Live Market
+    Scan animation -- the same real confluence + Wilson-gate reliability
+    data telegram_bot.send_signal_for_position already computes, and the
+    same signal_explainer (Batch 7) that turns it into a plain Roman
+    Urdu explanation and A+/A/B/C grade, plus the real Signal Freshness
+    Gate check (Batch 5) -- but WITHOUT sending anything to Telegram.
+    Read-only; works for any real position, sent or not."""
+    pos = storage.get_paper_position(position_id)
+    if not pos:
+        raise HTTPException(404, "position not found")
+    exchanges_cfg = base_config.load_or_seed("exchanges.json", base_config.DEFAULTS["exchanges.json"])
+    exchange = exchanges_cfg["default"]
+    try:
+        conf = confluence.score_confluence(
+            pos.get("strategy_id"), pos["symbol"], exchange,
+            pos.get("market_state"), pos.get("session"), pos["direction"],
+        )
+    except Exception:
+        conf = None
+    try:
+        reliability = telegram_bot._pattern_reliability_for(
+            pos.get("strategy_id"), pos["symbol"], pos.get("market_state"), pos.get("session"),
+        )
+    except Exception:
+        reliability = None
+    fresh_ok, fresh_reason, live_price = telegram_bot.freshness_check(pos)
+    return {
+        "position": pos,
+        "confluence": conf,
+        "reliability": reliability,
+        "explanation_text": signal_explainer.explain_signal(conf, reliability),
+        "grade": signal_explainer.grade_signal(conf, reliability),
+        "freshness": {"fresh": fresh_ok, "reason": fresh_reason, "live_price": live_price},
+    }
 
 
 @router.get("/api/paper-trading/graveyard")
