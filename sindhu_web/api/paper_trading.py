@@ -15,6 +15,7 @@ from paper_trading import confluence, graveyard, telegram_bot, capital_allocatio
 from paper_trading import telegram_analytics
 from paper_trading import signal_tracker
 from paper_trading import pattern_stats
+from paper_trading import challenge_mode
 from paper_trading.engine import engine
 from data_engine import config as base_config
 from sindhu_web import broadcast, cache, sync
@@ -862,6 +863,45 @@ def get_signal_match_table():
     enough closed trades to trust. Read-only; never re-runs a backtest or
     changes anything about which strategies get signaled."""
     return signal_tracker.strategy_match_table()
+
+
+class ChallengeRequest(BaseModel):
+    start_amount: float
+    target_amount: float
+    days: int
+    telegram_report_enabled: bool = False
+
+
+@router.get("/api/paper-trading/challenge")
+def get_challenge():
+    """Batch 9, Task 4: current Challenge Mode progress, or
+    {"configured": False} if the CEO hasn't set one up. Read-only --
+    tracking/reporting only, never touches risk_pct or any trading
+    behavior."""
+    progress = challenge_mode.compute_progress()
+    if progress is None:
+        return {"configured": False}
+    return {"configured": True, **progress}
+
+
+@router.post("/api/paper-trading/challenge")
+def set_challenge(req: ChallengeRequest):
+    """Every number here is chosen by the CEO themselves -- nothing
+    hardcoded server-side."""
+    try:
+        challenge_mode.set_challenge(
+            req.start_amount, req.target_amount, req.days,
+            telegram_report_enabled=req.telegram_report_enabled,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, **challenge_mode.compute_progress()}
+
+
+@router.post("/api/paper-trading/challenge/clear")
+def clear_challenge():
+    challenge_mode.clear_challenge()
+    return {"ok": True}
 
 
 @router.get("/api/paper-trading/confluence/{position_id}")

@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 from backtest_engine import strategy_library as lib
 from data_engine import storage
-from paper_trading import insights, telegram_bot
+from paper_trading import insights, telegram_bot, challenge_mode
 
 # A strategy needs at least this many CONSECUTIVE losses right now before
 # it's called out by name -- a 1-2 loss blip is normal noise, not a
@@ -119,6 +119,25 @@ def generate_daily_report(now=None):
     else:
         lines.append("Is waqt koi strategy losing streak par nahi hai.")
 
+    # Batch 9, Task 4: only ever added when the CEO has explicitly opted
+    # this specific challenge into the daily report -- reuses
+    # challenge_mode.compute_progress()'s already-computed numbers
+    # verbatim, never a second calculation.
+    challenge_progress = challenge_mode.compute_progress(now_iso=now.isoformat())
+    if challenge_progress and challenge_progress.get("telegram_report_enabled"):
+        lines.append("")
+        lines.append(
+            f"Challenge: ${challenge_progress['start_amount']:.2f} -> "
+            f"${challenge_progress['target_amount']:.2f} mein {challenge_progress['days']} din."
+        )
+        lines.append(
+            f"Abhi tak: ${challenge_progress['current_amount']:.2f} "
+            f"({challenge_progress['progress_pct']:.1f}% raasta tay), "
+            f"{challenge_progress['remaining_days']:.1f} din baaki, "
+            f"{'pace se aage' if challenge_progress['ahead_of_pace'] else 'pace se peeche'} hain."
+        )
+        lines.append(challenge_progress["honest_note"])
+
     report_text = "\n".join(lines)
     return {
         "report_text": report_text,
@@ -129,6 +148,7 @@ def generate_daily_report(now=None):
         "month_to_date_closed_trades": month_summary["closed_trades"],
         "best_strategy_today": best_today,
         "losing_streaks": losing_streaks,
+        "challenge_progress": challenge_progress,
     }
 
 

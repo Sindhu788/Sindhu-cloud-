@@ -3953,6 +3953,9 @@
               <span class="muted" style="float:right;">${esc((a.created_at||"").slice(0,16).replace("T"," "))}</span>
             </div>`).join("")}
         </div>` : ""}
+
+        <div class="section-title">${getLang() === "en" ? "Challenge Mode" : "Challenge Mode"}</div>
+        <div id="challengeBox"><p class="muted">Loading...</p></div>
         </div>
 
         <div class="pt-tab-panel" data-pt-tab="portfolio">
@@ -4205,6 +4208,7 @@
       });
 
       loadPaperAnalytics("ptAnalyticsBox", "pt", "today");
+      loadChallenge();
 
       document.getElementById("ptStart").onclick = async () => {
         await apiPost("/api/paper-trading/start");
@@ -4410,6 +4414,86 @@
           .catch(() => {});
       });
     };
+
+    // Batch 9, Task 4: Challenge Mode. Deliberately loaded independently
+    // of the big Promise.all above -- it's a small, self-contained
+    // tracking/reporting feature (never touches trading behavior), so it
+    // shouldn't slow down or risk breaking the main page load.
+    async function loadChallenge() {
+      const box = document.getElementById("challengeBox");
+      if (!box) return;
+      const en = getLang() === "en";
+      const c = await apiGet("/api/paper-trading/challenge").catch(() => ({ configured: false }));
+
+      if (!c.configured) {
+        box.innerHTML = `
+          <div class="card" style="max-width:480px;">
+            <p class="muted">${en
+              ? "No challenge set. Enter your own starting amount, target amount, and days -- the system will track real progress and tell you honestly whether the pace is realistic."
+              : "Abhi koi challenge set nahi hai. Apna starting amount, target amount, aur din khud daaliye -- system real progress track karega aur sach batayega ke pace realistic hai ya nahi."}</p>
+            <label>${en ? "Starting Amount ($)" : "Shuru Ka Amount ($)"}<input type="number" id="chStart" step="0.01" min="0.01"></label>
+            <label>${en ? "Target Amount ($)" : "Target Amount ($)"}<input type="number" id="chTarget" step="0.01" min="0.01"></label>
+            <label>${en ? "Time Period (days)" : "Time Period (din)"}<input type="number" id="chDays" step="1" min="1"></label>
+            <label style="display:flex;align-items:center;gap:8px;width:auto;">
+              <input type="checkbox" id="chTelegram" style="width:auto;">
+              <span>${en ? "Include in Daily Telegram Report" : "Daily Telegram Report Mein Shamil Karein"}</span>
+            </label>
+            <button class="btn" id="chSave">${en ? "Start Challenge" : "Challenge Shuru Karein"}</button>
+            <span id="chMsg" class="muted"></span>
+          </div>`;
+        document.getElementById("chSave").onclick = async () => {
+          const msgEl = document.getElementById("chMsg");
+          const start_amount = parseFloat(document.getElementById("chStart").value);
+          const target_amount = parseFloat(document.getElementById("chTarget").value);
+          const days = parseInt(document.getElementById("chDays").value, 10);
+          const telegram_report_enabled = document.getElementById("chTelegram").checked;
+          if (!start_amount || !target_amount || !days) {
+            msgEl.textContent = en ? "All three fields are required." : "Teeno fields zaroori hain.";
+            return;
+          }
+          try {
+            await apiPost("/api/paper-trading/challenge", { start_amount, target_amount, days, telegram_report_enabled });
+            loadChallenge();
+          } catch (e) {
+            msgEl.textContent = e.message || (en ? "Failed to save." : "Save nahi hua.");
+          }
+        };
+        return;
+      }
+
+      const realisticPill = c.realistic === null
+        ? `<span class="pill pill-muted">${en ? "Not Enough History Yet" : "Abhi Kaafi History Nahi"}</span>`
+        : c.realistic
+          ? `<span class="pill pill-bullish">${en ? "Realistic" : "Realistic"}</span>`
+          : `<span class="pill pill-bearish">${en ? "NOT Realistic" : "REALISTIC NAHI"}</span>`;
+      const pacePill = c.ahead_of_pace
+        ? `<span class="pill pill-bullish">${en ? "Ahead of Pace" : "Pace Se Aage"}</span>`
+        : `<span class="pill pill-bearish">${en ? "Behind Pace" : "Pace Se Peeche"}</span>`;
+
+      box.innerHTML = `
+        <div class="grid">
+          ${card(en ? "Starting Amount" : "Shuru Ka Amount", `$${c.start_amount.toFixed(2)}`)}
+          ${card(en ? "Target Amount" : "Target Amount", `$${c.target_amount.toFixed(2)}`)}
+          ${card(en ? "Current Amount (Real Trades)" : "Abhi Ka Amount (Real Trades)", `$${c.current_amount.toFixed(2)}`)}
+          ${card(en ? "Progress" : "Progress", `${c.progress_pct.toFixed(1)}%`)}
+          ${card(en ? "Days Elapsed / Remaining" : "Din Guzre / Baaki", `${c.elapsed_days.toFixed(1)} / ${c.remaining_days.toFixed(1)}`)}
+          ${cardClass(en ? "Pace" : "Pace", pacePill, "")}
+          ${cardClass(en ? "Realistic?" : "Realistic?", realisticPill, "")}
+        </div>
+        <div class="card" style="max-width:640px;">
+          <p><b>${en ? "Required pace" : "Zaroori Pace"}:</b> ${c.required_daily_rate_pct.toFixed(2)}%/${en ? "day" : "din"}
+          ${c.real_demonstrated_daily_rate_pct != null
+            ? ` -- <b>${en ? "system's real demonstrated pace" : "system ki real pace"}:</b> ${c.real_demonstrated_daily_rate_pct.toFixed(2)}%/${en ? "day" : "din"} (${c.closed_trades_used_for_baseline} ${en ? "real closed trades" : "real closed trades"})`
+            : ""}</p>
+          <p>${esc(c.honest_note)}</p>
+        </div>
+        <button class="btn-ghost" id="chClear">${en ? "Clear Challenge" : "Challenge Hataayein"}</button>
+      `;
+      document.getElementById("chClear").onclick = async () => {
+        await apiPost("/api/paper-trading/challenge/clear");
+        loadChallenge();
+      };
+    }
 
     await render();
     onLive((msg) => {

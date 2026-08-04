@@ -2377,6 +2377,32 @@ def get_paper_period_summary(since_iso=None, until_iso=None):
     }
 
 
+def earliest_paper_trading_activity():
+    """The earliest created_at across every paper_positions row ever
+    recorded (open or closed) -- how far back real trading history goes,
+    for Batch 9, Task 4's Challenge Mode to judge a real demonstrated
+    pace against. None if paper trading has never opened a single
+    position."""
+    with get_conn() as conn:
+        row = conn.execute("SELECT MIN(created_at) FROM paper_positions").fetchone()
+    return row[0] if row else None
+
+
+def list_closed_paper_trades_since(since_iso):
+    """Every CLOSED trade's real pnl/risk_amount, system-wide across every
+    strategy, closed at or after since_iso -- Batch 9, Task 4's Challenge
+    Mode reuses this the same way paper_trading.telegram_analytics.
+    hypothetical_pnl already reuses real R-multiples for its own
+    hypothetical account, just system-wide instead of Telegram-sent-only."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT pnl, risk_amount FROM paper_positions "
+            "WHERE status='closed' AND pnl IS NOT NULL AND closed_at >= ?",
+            (since_iso,),
+        ).fetchall()
+    return [{"pnl": r[0], "risk_amount": r[1]} for r in rows]
+
+
 def list_paper_coin_stats(since_iso=None, until_iso=None):
     """Every coin that has ever closed a trade, ranked by total pnl --
     best-performing coin is the first entry, worst is the last, independent
