@@ -1238,7 +1238,24 @@
     const box = document.getElementById(boxId);
     if (!box) return;
     box.innerHTML = `<p class="muted">Loading...</p>`;
-    const data = await apiGet(`/api/paper-trading/analytics?period=${period}`);
+    // Batch 10, Task 1: both real call sites (Paper Trading, SINDHU CEO)
+    // invoke this WITHOUT awaiting it -- a rejected promise here (a real
+    // apiGet timeout under load, not hypothetical: reproduced live during
+    // Batch 9) used to become an unhandled rejection with nothing left to
+    // catch it, so the box stayed on "Loading..." forever with no way to
+    // recover short of a full page reload. Caught here, at the source, so
+    // it's fixed regardless of how a caller invokes this function.
+    let data;
+    try {
+      data = await apiGet(`/api/paper-trading/analytics?period=${period}`);
+    } catch (e) {
+      const en = getLang() === "en";
+      box.innerHTML = `<p class="muted">${en ? "Couldn't load" : "Load nahi hua"}: ${esc(e.message)}. ` +
+        `<button class="btn-ghost" id="${boxId}RetryBtn">${en ? "Retry" : "Dobara Koshish"}</button></p>`;
+      const retryBtn = document.getElementById(`${boxId}RetryBtn`);
+      if (retryBtn) retryBtn.onclick = () => loadPaperAnalytics(boxId, idPrefix, period);
+      return;
+    }
     box.innerHTML = paperPeriodTabsHtml(idPrefix, period) + paperAnalyticsSectionHtml(data);
     box.querySelectorAll(`[data-period-tab="${idPrefix}"]`).forEach(btn => {
       btn.onclick = () => loadPaperAnalytics(boxId, idPrefix, btn.dataset.period);
