@@ -40,6 +40,20 @@ class Condition:
     # behavior). Ignored entirely for every other condition type.
     indicator2: Optional[str] = None   # only for type="indicator_vs_indicator"
     params2: dict = field(default_factory=dict)  # only for type="indicator_vs_indicator"
+    # Strategy Wizard: True when this condition came from a user's free-text
+    # "Other / Not Listed" description that could NOT be confidently matched
+    # to a known concept (the user picked "bilkul naya" / genuinely new, or
+    # no AI provider was available to even ask). `raw_source` keeps the
+    # user's own words verbatim for the review UI. A manual_review condition
+    # is never guessed into a structured type -- see
+    # backtest_engine.wizard.has_manual_review() and its enforcement in
+    # sindhu_web/api/backtesting.py's run endpoint, which blocks a strategy
+    # from backtesting/live execution while any remain unresolved, exactly
+    # like the existing Incomplete Lock (Batch 3) blocks a strategy with
+    # unclear parsed rules -- one consistent "don't run unverified logic"
+    # enforcement point, not two divergent ones.
+    manual_review: bool = False
+    raw_source: Optional[str] = None
 
     def is_unclear(self):
         return self.type == "raw"

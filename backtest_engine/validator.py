@@ -24,7 +24,32 @@ _KNOWN_INDICATORS = {
     "anchored_vwap", "cvd", "kill_zone",
 }
 
+# Of _KNOWN_INDICATORS above, these are numeric-parameter indicators (take a
+# period, can be compared with a threshold via indicator_compare/
+# indicator_vs_indicator/price_compare) rather than structural/ICT concepts
+# (take a direction/role, used via a "concept" Condition). Used by the
+# Strategy Wizard (backtest_engine.wizard.known_concept_catalog()) to decide
+# which parameter fields to show for a selected condition type -- kept next
+# to _KNOWN_INDICATORS so the two can never silently drift apart.
+_PARAMETERIZED_INDICATORS = {"ema", "sma", "vwap", "rsi", "macd", "atr", "volume"}
+
 _KNOWN_CONDITION_TYPES = {"indicator_compare", "price_compare", "indicator_vs_indicator", "concept", "session", "trend", "candle_range_pct"}
+
+
+def known_indicator_names():
+    """The engine's real, current vocabulary of indicator/concept names
+    (backtest_engine.concepts's computable columns) -- a public read-only
+    view of _KNOWN_INDICATORS so callers outside this module (the Strategy
+    Wizard's dynamic condition-type dropdown) never need to reach into a
+    private module attribute or maintain their own separate copy that could
+    drift out of sync as concepts are added here."""
+    return sorted(_KNOWN_INDICATORS)
+
+
+def parameterized_indicator_names():
+    """The subset of known_indicator_names() that take a numeric period
+    parameter (EMA, RSI, ...) rather than a direction/role (BOS, FVG, ...)."""
+    return sorted(_PARAMETERIZED_INDICATORS)
 
 _KNOWN_ENTRY_TYPES = {
     "market", "current_candle_close", "limit", "stop",

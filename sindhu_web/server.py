@@ -22,6 +22,7 @@ from sindhu_web.api import (
     ai_integration as ai_integration_api, automation_pipeline as automation_pipeline_api,
     clarification as clarification_api, evolution as evolution_api, sindhu_strategy as sindhu_strategy_api,
     research as research_api, feature_control as feature_control_api, manager_chat as manager_chat_api,
+    strategy_lab as strategy_lab_api, wizard as wizard_api,
 )
 
 _STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -119,6 +120,8 @@ async def _lifespan(app: FastAPI):
     backup.start_auto_backup_thread()
     from paper_trading.weekly_report import start_weekly_report_scheduler_thread
     start_weekly_report_scheduler_thread()
+    from paper_trading.strategy_lab import start_strategy_lab_scheduler_thread
+    start_strategy_lab_scheduler_thread()
     from paper_trading.daily_report import start_daily_report_scheduler_thread
     start_daily_report_scheduler_thread()
     # Batch 9, Task 3: restore Paper Trading + report Telegram's current
@@ -166,7 +169,8 @@ def create_app():
                    system_api.router, paper_trading_api.router, knowledge_compiler_api.router,
                    ai_integration_api.router, automation_pipeline_api.router, clarification_api.router,
                    evolution_api.router, sindhu_strategy_api.router, research_api.router,
-                   feature_control_api.router, manager_chat_api.router):
+                   feature_control_api.router, manager_chat_api.router, strategy_lab_api.router,
+                   wizard_api.router):
         app.include_router(router)
 
     @app.get("/api/token")

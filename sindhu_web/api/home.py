@@ -24,7 +24,7 @@ NAV_ICONS = {
     "pipeline_history": "history", "sindhu_strategy": "spark",
     "web_sourced_strategies": "news", "control_center": "ceo",
     "telegram_dashboard": "send", "evolution_history": "history",
-    "signal_tracker": "target",
+    "signal_tracker": "target", "strategy_lab": "flask",
 }
 
 # Navigation Audit + Reorganization: every page now belongs to exactly one
@@ -33,7 +33,7 @@ NAV_ICONS = {
 # (Reflection, News, a separate disabled "Telegram" entry -- real
 # Telegram settings live inside Settings) have been removed outright
 # rather than just left disabled.
-NAV_GROUPS = ["Overview", "Strategies", "Backtesting", "Paper Trading", "Intelligence", "Control", "Reports"]
+NAV_GROUPS = ["Overview", "Strategies", "Backtesting", "Paper Trading", "Intelligence", "Strategy Lab", "Control", "Reports"]
 
 NAV_PAGES = [
     # Overview
@@ -74,6 +74,14 @@ NAV_PAGES = [
     {"id": "evolution", "label": "Evolution", "enabled": True, "icon": NAV_ICONS["evolution"], "group": "Intelligence"},
     {"id": "evolution_history", "label": "Evolution History", "enabled": True,
      "icon": NAV_ICONS["evolution_history"], "group": "Intelligence"},
+
+    # Strategy Lab: a weekly, honest check for a genuinely profitable
+    # strategy -- real, after-cost results only, never a losing strategy
+    # dressed up as "best." Its own top-level section since it's a
+    # standing verdict the CEO should be able to find at a glance, not
+    # buried inside another page.
+    {"id": "strategy_lab", "label": "Strategy Lab", "enabled": True,
+     "icon": NAV_ICONS["strategy_lab"], "group": "Strategy Lab"},
 
     # Control: the one place to turn automated features on/off, plus account/app settings
     {"id": "control_center", "label": "Control Center", "enabled": True,

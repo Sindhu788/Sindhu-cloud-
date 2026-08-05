@@ -14,6 +14,7 @@ from backtest_engine.validator import validate
 from backtest_engine.strategy_safety_check import run_safety_check
 from backtest_engine.performance_dashboard import evaluate_strategy_performance
 from backtest_engine import strategy_library as lib
+from backtest_engine import wizard
 from backtest_engine import runner
 from backtest_engine import sanity_check
 from backtest_engine.reports import generate_report
@@ -608,6 +609,21 @@ def run_backtest(req: RunRequest):
         if lock_status["locked"]:
             raise HTTPException(423, extraction_lock.lock_message(lock_status, lang=req.lang if req.lang == "en" else "ur"))
         extraction_override_warning = lock_status["overridden"] and bool(lock_status["missing_rules"])
+
+    # Strategy Wizard: a condition the user marked "bilkul naya" (couldn't be
+    # matched to any known concept) is saved verbatim but must never
+    # silently execute unverified logic -- same "don't run until resolved"
+    # rule as the Incomplete Lock above, just for a Wizard-built condition
+    # instead of an unclear parsed rule.
+    if wizard.has_manual_review(cfg):
+        items = wizard.list_manual_review_conditions(cfg)
+        names = "; ".join(c.raw_source or c.text or "?" for c in items[:5])
+        raise HTTPException(
+            423,
+            f"Is strategy mein {len(items)} condition(s) abhi tak Manual Review mein hain "
+            f"(koi bhi maloom concept se match nahi hui): {names}. Backtest chalane se pehle "
+            f"in conditions ko Strategy Wizard mein resolve karein.",
+        )
 
     errors = validate(cfg)
     if errors:

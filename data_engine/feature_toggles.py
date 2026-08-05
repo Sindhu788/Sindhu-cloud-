@@ -23,6 +23,7 @@ DEFAULTS = {
     "capital_allocation_enabled": True,
     "backup_enabled": True,
     "weekly_report_enabled": True,
+    "strategy_lab_enabled": True,
     "sindhu_strategy_autogen_enabled": True,
 }
 

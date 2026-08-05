@@ -364,6 +364,26 @@ CREATE TABLE IF NOT EXISTS paper_weekly_reports (
     created_at TEXT NOT NULL
 );
 
+-- Strategy Lab: one row per scheduled scan for a genuinely profitable
+-- strategy (real, after-cost, meaningful trade count). qualifying_* stays
+-- NULL when no strategy cleared the bar that scan -- an honest "nothing
+-- found yet" is a normal, expected row here, not an error. approved is
+-- only ever flipped by an explicit CEO click (see approve_strategy_lab_scan
+-- below); nothing in this table ever changes live paper trading or
+-- Telegram on its own.
+CREATE TABLE IF NOT EXISTS strategy_lab_scans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    scanned_at TEXT NOT NULL,
+    strategies_checked INTEGER NOT NULL,
+    qualifying_strategy_id TEXT,
+    qualifying_strategy_name TEXT,
+    qualifying_win_rate REAL,
+    qualifying_pnl REAL,
+    qualifying_trade_count INTEGER,
+    approved INTEGER NOT NULL DEFAULT 0,
+    approved_at TEXT
+);
+
 -- Strategy Graveyard (Confidence & Signal Quality Group, item 9): a
 -- permanent, never-deleted record of why a strategy was effectively
 -- abandoned, so a similar future import can be warned it resembles
@@ -3150,6 +3170,61 @@ def get_latest_weekly_report():
             "SELECT created_at FROM paper_weekly_reports ORDER BY created_at DESC LIMIT 1"
         ).fetchone()
     return row[0] if row else None
+
+
+# --------------------------------------------------------------- Strategy Lab
+
+def save_strategy_lab_scan(
+    scanned_at, strategies_checked, qualifying_strategy_id=None, qualifying_strategy_name=None,
+    qualifying_win_rate=None, qualifying_pnl=None, qualifying_trade_count=None,
+):
+    with get_conn() as conn:
+        cur = conn.execute(
+            """INSERT INTO strategy_lab_scans
+               (scanned_at, strategies_checked, qualifying_strategy_id, qualifying_strategy_name,
+                qualifying_win_rate, qualifying_pnl, qualifying_trade_count, approved, approved_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 0, NULL)""",
+            (scanned_at, strategies_checked, qualifying_strategy_id, qualifying_strategy_name,
+             qualifying_win_rate, qualifying_pnl, qualifying_trade_count),
+        )
+        return cur.lastrowid
+
+
+def _strategy_lab_scan_row(r):
+    return {
+        "id": r[0], "scanned_at": r[1], "strategies_checked": r[2],
+        "qualifying_strategy_id": r[3], "qualifying_strategy_name": r[4],
+        "qualifying_win_rate": r[5], "qualifying_pnl": r[6], "qualifying_trade_count": r[7],
+        "approved": bool(r[8]), "approved_at": r[9],
+    }
+
+
+def get_latest_strategy_lab_scan():
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT id, scanned_at, strategies_checked, qualifying_strategy_id, qualifying_strategy_name, "
+            "qualifying_win_rate, qualifying_pnl, qualifying_trade_count, approved, approved_at "
+            "FROM strategy_lab_scans ORDER BY scanned_at DESC LIMIT 1"
+        ).fetchone()
+    return _strategy_lab_scan_row(row) if row else None
+
+
+def list_strategy_lab_scans(limit=20):
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, scanned_at, strategies_checked, qualifying_strategy_id, qualifying_strategy_name, "
+            "qualifying_win_rate, qualifying_pnl, qualifying_trade_count, approved, approved_at "
+            "FROM strategy_lab_scans ORDER BY scanned_at DESC LIMIT ?", (limit,),
+        ).fetchall()
+    return [_strategy_lab_scan_row(r) for r in rows]
+
+
+def approve_strategy_lab_scan(scan_id, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE strategy_lab_scans SET approved=1, approved_at=? WHERE id=?",
+            (now_iso, scan_id),
+        )
 
 
 # --------------------------------------------------------------- Strategy Graveyard

@@ -908,7 +908,8 @@
     ai_center: renderAiCenter, backtest_history: renderBacktestHistory,
     pipeline_history: renderPipelineHistory,
     evolution: renderEvolution, evolution_history: renderEvolutionHistory, sindhu_strategy: renderSindhuStrategy,
-    signal_tracker: renderSignalTracker,
+    signal_tracker: renderSignalTracker, strategy_lab: renderStrategyLab,
+    strategy_wizard: renderStrategyWizard,
     web_sourced_strategies: renderWebSourcedStrategies,
     control_center: renderControlCenter,
     telegram_dashboard: renderTelegramDashboard,
@@ -1140,6 +1141,38 @@
 
   function cardId(id, label, value) {
     return `<div class="card"><div class="label">${t(label)}</div><div class="value" id="${id}">${value}</div></div>`;
+  }
+
+  // ------------------------------------------------------------ STRATEGY IMPORT CHOICE
+  function showImportChoiceModal() {
+    const en = getLang() === "en";
+    const overlay = document.createElement("div");
+    overlay.id = "importChoiceOverlay";
+    overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;display:flex;align-items:center;justify-content:center;";
+    overlay.innerHTML = `
+      <div style="background:var(--panel-bg,#1a1f2b);color:inherit;border-radius:12px;padding:28px;max-width:460px;width:92%;box-shadow:0 20px 60px rgba(0,0,0,.4);">
+        <div class="section-title" style="margin-top:0;">${en ? "Nayi Strategy Kaise Banayein?" : "Nayi Strategy Kaise Banayein?"}</div>
+        <p class="muted">${en
+          ? "Both ways end up in the same place -- pick whichever suits this strategy."
+          : "Dono raaste same jagah pohanchte hain -- jo is strategy ke liye theek lage woh choose karein."}</p>
+        <button class="btn" id="choicePasteBtn" style="width:100%;margin-bottom:10px;text-align:left;">
+          ${en ? "Strategy paste karo (AI se samjhega)" : "Strategy paste karo (AI se samjhega)"}<br>
+          <span class="muted" style="font-size:12px;font-weight:normal;">${en ? "Fastest -- paste your notes, the system extracts the rules." : "Sabse tez -- apne notes paste karein, system rules nikaal lega."}</span>
+        </button>
+        <button class="btn-ghost" id="choiceWizardBtn" style="width:100%;text-align:left;">
+          ${en ? "Step-by-step khud banao (Wizard)" : "Step-by-step khud banao (Wizard)"}<br>
+          <span class="muted" style="font-size:12px;font-weight:normal;">${en ? "Guaranteed exact -- every field you pick or type yourself, nothing guessed." : "Bilkul exact -- har field aap khud choose ya type karte hain, kuch guess nahi hota."}</span>
+        </button>
+        <div class="btn-row" style="margin-top:16px;justify-content:flex-end;">
+          <button class="btn-ghost" id="choiceCancelBtn">${en ? "Cancel" : "Cancel"}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.onclick = (e) => { if (e.target === overlay) close(); };
+    document.getElementById("choiceCancelBtn").onclick = close;
+    document.getElementById("choicePasteBtn").onclick = () => { close(); location.hash = "#backtesting"; };
+    document.getElementById("choiceWizardBtn").onclick = () => { close(); location.hash = "#strategy_wizard"; };
   }
 
   // ---- Paper Trading analytics: one shared renderer for the Paper Trading
@@ -1886,7 +1919,7 @@
     })();
 
       document.getElementById("stratLibSearch").addEventListener("input", debounce(render, 300));
-      document.getElementById("btnNewStrategy").onclick = () => { location.hash = "#backtesting"; };
+      document.getElementById("btnNewStrategy").onclick = () => { showImportChoiceModal(); };
       document.getElementById("stratShowArchived").addEventListener("change", render);
       document.querySelectorAll(".strat-unarchive").forEach(btn => btn.onclick = async () => {
         await apiPost(`/api/backtesting/strategies/${btn.dataset.id}/unarchive`, {});
@@ -3622,6 +3655,608 @@
     }
 
     await render();
+  }
+
+  // ------------------------------------------------------------ STRATEGY LAB
+  async function renderStrategyLab() {
+    const myToken = activeRouteToken;
+
+    async function render() {
+      const result = await apiGet("/api/strategy-lab/latest");
+      if (isStaleRoute(myToken)) return;
+      const en = getLang() === "en";
+      const scan = result.scan;
+      const q = scan.qualifying_strategy_id ? scan : null;
+
+      content.innerHTML = `
+        <div class="section-title">${en ? "Strategy Lab" : "Strategy Lab"}</div>
+        <p class="muted">${en
+          ? `On a weekly schedule, checks every real strategy's actual paper trading record for one that's genuinely profitable -- real, after-cost results, with at least ${result.min_closed_trades} closed trades and a real win rate of ${result.min_win_rate}% or better. Never presents a losing or weak strategy as "best" just to have something to show.`
+          : `Har hafte, har asli strategy ka asli paper trading record check karta hai kisi genuinely profitable strategy ke liye -- asli, cost ke baad results, kam se kam ${result.min_closed_trades} band trades aur ${result.min_win_rate}% ya usse behtar asli win rate ke saath. Kabhi bhi haarti hui ya kamzor strategy ko "best" bana kar nahi dikhata.`}</p>
+
+        <div class="btn-row">
+          <button class="btn-ghost" id="slScanNow">${en ? "Scan Now" : "Abhi Scan Karein"}</button>
+        </div>
+
+        ${q ? `
+          <div class="section-title">${en ? "Genuinely Profitable Strategy Found" : "Genuinely Profitable Strategy Mil Gayi"}</div>
+          <div class="grid">
+            ${card("Strategy", esc(q.qualifying_strategy_name || q.qualifying_strategy_id))}
+            ${cardClass("Win Rate", `${q.qualifying_win_rate.toFixed(1)}%`, "positive")}
+            ${cardClass("PnL", `${q.qualifying_pnl >= 0 ? "+" : ""}$${q.qualifying_pnl.toFixed(2)}`, q.qualifying_pnl >= 0 ? "positive" : "negative")}
+            ${card("Trade Count", fmtNum(q.qualifying_trade_count))}
+          </div>
+          ${q.approved
+            ? `<p class="muted">${en
+                ? `Approved ${esc((q.approved_at || "").slice(0, 16).replace("T", " "))} -- now enabled in live Paper Trading and flagged for Telegram alerts.`
+                : `${esc((q.approved_at || "").slice(0, 16).replace("T", " "))} ko approve ki gayi -- ab live Paper Trading mein enabled hai aur Telegram alerts ke liye flag ki gayi hai.`}</p>`
+            : `<p>${en
+                ? "This strategy has cleared the real profitability bar, but nothing has been enabled automatically. Approving below turns it on in live Paper Trading and flags it for Telegram alerts -- nothing else changes."
+                : "Yeh strategy asli profitability ki had paar kar chuki hai, lekin kuch bhi khud ba khud enable nahi hua. Neeche approve karne se yeh live Paper Trading mein on ho jayegi aur Telegram alerts ke liye flag ho jayegi -- aur kuch nahi badlega."}</p>
+               <button class="btn" id="slApprove">${en ? "Approve -- Enable in Live Paper Trading + Telegram" : "Approve Karein -- Live Paper Trading + Telegram Mein Enable Karein"}</button>`}
+        ` : `
+          <div class="section-title">${en ? "No Profitable Strategy Yet" : "Abhi Tak Koi Profitable Strategy Nahi Mili"}</div>
+          <p>${en
+            ? `Abhi tak koi profitable strategy nahi mili. Checked ${scan.strategies_checked} strategies' real paper trading records -- none has both a real edge (positive PnL after cost) and a reliable win rate (${result.min_win_rate}%+) over at least ${result.min_closed_trades} closed trades yet.`
+            : `Abhi tak koi profitable strategy nahi mili. ${scan.strategies_checked} strategies ke asli paper trading records check kiye -- abhi tak kisi ne bhi asli edge (cost ke baad positive PnL) aur bharosemand win rate (${result.min_win_rate}%+) kam se kam ${result.min_closed_trades} band trades par nahi dikhaya.`}</p>
+        `}
+
+        <p class="muted" style="font-size:12px;">${en ? "Last scanned" : "Aakhri scan"}: ${esc((scan.scanned_at || "").slice(0, 16).replace("T", " "))} (${scan.strategies_checked} ${en ? "strategies checked" : "strategies check kiye"})</p>
+      `;
+
+      document.getElementById("slScanNow").onclick = async () => {
+        await apiSend("POST", "/api/strategy-lab/scan-now", {});
+        render();
+      };
+      const approveBtn = document.getElementById("slApprove");
+      if (approveBtn) {
+        approveBtn.onclick = async () => {
+          approveBtn.disabled = true;
+          try {
+            await apiSend("POST", "/api/strategy-lab/approve", { scan_id: scan.id, strategy_id: q.qualifying_strategy_id });
+            render();
+          } catch (e) {
+            alert(e.message || String(e));
+            approveBtn.disabled = false;
+          }
+        };
+      }
+    }
+
+    await render();
+  }
+
+  // ------------------------------------------------------------ STRATEGY WIZARD
+  // A second, independent path into the exact same StrategyConfig the
+  // paste-and-parse flow builds -- guided, form-based, zero interpretation.
+  // Two rules: NEVER GUESS (every stored value traces to an explicit user
+  // selection/typed text) and NEVER REJECT (an unmatched "Other" condition
+  // always saves, tagged for manual review, instead of blocking the user).
+  let wizState = null;
+
+  function _wizEmptyCondition() {
+    return { input_mode: "known", concept: "", direction: "", role: "", lookback_bars: "", period: "", op: "", value: "", raw_text: "", matched_concept: null };
+  }
+
+  function _wizReadConditionRows(containerId) {
+    const rows = [...document.querySelectorAll(`#${containerId} .wiz-cond-row`)];
+    return rows.map(row => {
+      const mode = row.querySelector(".wiz-cond-mode").value;
+      if (mode === "other") {
+        // The mode <select>'s value can flip to "other" via a live onchange
+        // BEFORE the row's own HTML has been rebuilt into the "other"
+        // layout (the textarea doesn't exist yet at that exact instant) --
+        // read whatever's there defensively instead of throwing, so a mode
+        // switch never loses the rest of the row's/list's state.
+        const rawEl = row.querySelector(".wiz-cond-rawtext");
+        return {
+          input_mode: "other",
+          raw_text: rawEl ? rawEl.value.trim() : "",
+          matched_concept: row.dataset.matchedConcept || null,
+        };
+      }
+      const val = (sel) => { const el = row.querySelector(sel); return el ? el.value : ""; };
+      const numOrNull = (v) => (v === "" || v === null ? null : parseFloat(v));
+      return {
+        input_mode: "known",
+        concept: val(".wiz-cond-concept"),
+        direction: val(".wiz-cond-direction") || null,
+        role: val(".wiz-cond-role") || null,
+        lookback_bars: val(".wiz-cond-lookback") === "" ? null : parseInt(val(".wiz-cond-lookback"), 10),
+        period: val(".wiz-cond-period") === "" ? null : parseInt(val(".wiz-cond-period"), 10),
+        op: val(".wiz-cond-op") || null,
+        value: numOrNull(val(".wiz-cond-value")),
+      };
+    });
+  }
+
+  function _wizConditionRowHtml(cond, idx, en) {
+    const catalog = wizState.catalog || { concepts: [], indicators: [] };
+    const mode = cond.input_mode || "known";
+    return `
+      <div class="wiz-cond-row" data-idx="${idx}" data-matched-concept="${esc(cond.matched_concept || "")}" style="border:1px solid var(--border,#333);padding:10px;border-radius:8px;margin-bottom:8px;">
+        <div class="btn-row" style="align-items:center;">
+          <select class="wiz-cond-mode" data-idx="${idx}" style="max-width:220px;">
+            <option value="known" ${mode === "known" ? "selected" : ""}>${en ? "Known Concept" : "Jaana Pehchana Concept"}</option>
+            <option value="other" ${mode === "other" ? "selected" : ""}>${en ? "Other / Not Listed" : "Other / List Mein Nahi"}</option>
+          </select>
+          <button class="btn-ghost wiz-cond-remove" data-idx="${idx}" style="margin-left:auto;">${en ? "Remove" : "Hatayein"}</button>
+        </div>
+        ${mode === "known" ? `
+          <div class="btn-row" style="margin-top:8px;flex-wrap:wrap;">
+            <select class="wiz-cond-concept" style="max-width:220px;">
+              <option value="">-- ${en ? "select concept" : "concept chunein"} --</option>
+              <optgroup label="${en ? "Concepts" : "Concepts"}">
+                ${catalog.concepts.map(c => `<option value="${c}" ${c === cond.concept ? "selected" : ""}>${c}</option>`).join("")}
+              </optgroup>
+              <optgroup label="${en ? "Indicators (period-based)" : "Indicators (period wale)"}">
+                ${catalog.indicators.map(c => `<option value="${c}" ${c === cond.concept ? "selected" : ""}>${c}</option>`).join("")}
+              </optgroup>
+            </select>
+            <select class="wiz-cond-direction" style="max-width:140px;">
+              <option value="">${en ? "Direction (any)" : "Direction (koi bhi)"}</option>
+              <option value="bullish" ${cond.direction === "bullish" ? "selected" : ""}>Bullish</option>
+              <option value="bearish" ${cond.direction === "bearish" ? "selected" : ""}>Bearish</option>
+            </select>
+            <select class="wiz-cond-role" style="max-width:150px;">
+              <option value="">${en ? "Timeframe role (any)" : "Timeframe role (koi bhi)"}</option>
+              ${["bias", "trend", "analysis", "entry", "confirmation"].map(r => `<option value="${r}" ${cond.role === r ? "selected" : ""}>${r}</option>`).join("")}
+            </select>
+            <input class="wiz-cond-lookback" type="number" min="1" placeholder="${en ? "Lookback bars" : "Pichle kitne bars"}" value="${esc(cond.lookback_bars ?? "")}" style="max-width:130px;">
+          </div>
+          <div class="btn-row" style="margin-top:6px;flex-wrap:wrap;">
+            <input class="wiz-cond-period" type="number" min="1" placeholder="${en ? "Period (indicators only)" : "Period (sirf indicators)"}" value="${esc(cond.period ?? "")}" style="max-width:170px;">
+            <select class="wiz-cond-op" style="max-width:90px;">
+              <option value="">${en ? "op" : "op"}</option>
+              <option value=">" ${cond.op === ">" ? "selected" : ""}>&gt;</option>
+              <option value="<" ${cond.op === "<" ? "selected" : ""}>&lt;</option>
+            </select>
+            <input class="wiz-cond-value" type="number" step="any" placeholder="${en ? "Threshold value" : "Threshold value"}" value="${esc(cond.value ?? "")}" style="max-width:140px;">
+          </div>
+        ` : `
+          <div style="margin-top:8px;">
+            <textarea class="wiz-cond-rawtext" placeholder="${en ? "Describe this condition in your own words" : "Yeh condition apne alfaaz mein likhein"}" style="width:100%;min-height:60px;">${esc(cond.raw_text || "")}</textarea>
+            <div class="btn-row" style="margin-top:6px;">
+              <button class="btn-ghost wiz-cond-classify" data-idx="${idx}">${en ? "Check with AI (optional)" : "AI se check karein (optional)"}</button>
+              <span class="wiz-cond-classify-result muted" style="font-size:12px;">${cond.matched_concept ? `✅ ${en ? "Matched to" : "Match hua"}: ${esc(cond.matched_concept)}` : ""}</span>
+            </div>
+          </div>
+        `}
+      </div>`;
+  }
+
+  function _wizConditionListHtml(listKey, label, en) {
+    const items = wizState[listKey];
+    return `
+      <div class="section-title" style="font-size:15px;">${label}</div>
+      <div id="wizList_${listKey}">
+        ${items.map((c, i) => _wizConditionRowHtml(c, i, en)).join("") || `<p class="muted">${en ? "No conditions added yet." : "Abhi tak koi condition add nahi hui."}</p>`}
+      </div>
+      <button class="btn-ghost" data-addlist="${listKey}">+ ${en ? "Add Condition" : "Condition Add Karein"}</button>`;
+  }
+
+  function _wizWireConditionList(listKey) {
+    const container = document.getElementById(`wizList_${listKey}`);
+    if (!container) return;
+    container.querySelectorAll(".wiz-cond-remove").forEach(btn => {
+      btn.onclick = () => {
+        wizState[listKey] = _wizReadConditionRows(`wizList_${listKey}`);
+        wizState[listKey].splice(parseInt(btn.dataset.idx, 10), 1);
+        renderWizardStep();
+      };
+    });
+    container.querySelectorAll(".wiz-cond-mode").forEach(sel => {
+      sel.onchange = () => {
+        wizState[listKey] = _wizReadConditionRows(`wizList_${listKey}`);
+        wizState[listKey][parseInt(sel.dataset.idx, 10)].input_mode = sel.value;
+        renderWizardStep();
+      };
+    });
+    container.querySelectorAll(".wiz-cond-classify").forEach(btn => {
+      btn.onclick = async () => {
+        const row = btn.closest(".wiz-cond-row");
+        const rawText = row.querySelector(".wiz-cond-rawtext").value.trim();
+        if (!rawText) return;
+        const resultEl = row.querySelector(".wiz-cond-classify-result");
+        const en = getLang() === "en";
+        resultEl.textContent = en ? "Checking..." : "Check ho raha hai...";
+        try {
+          const res = await apiPost("/api/wizard/classify-other", { raw_text: rawText });
+          if (!res.ai_available) {
+            resultEl.textContent = en
+              ? "No AI available right now -- saved as Manual Review, which is safe."
+              : "Abhi AI available nahi -- Manual Review mein save hoga, yeh safe hai.";
+            return;
+          }
+          if (!res.matched_concept) {
+            resultEl.textContent = en
+              ? "Bilkul naya -- no close match found. Saved as Manual Review."
+              : "Bilkul naya -- koi milta julta concept nahi mila. Manual Review mein save hoga.";
+            return;
+          }
+          resultEl.innerHTML = `${en ? "Yeh sab se milta julta hai" : "Yeh sab se milta julta hai"}: <b>${esc(res.matched_concept)}</b>
+            <button class="btn-ghost wiz-confirm-match" data-idx="${row.dataset.idx}" data-concept="${esc(res.matched_concept)}" style="margin-left:6px;">${en ? "Haan, yehi hai" : "Haan, yehi hai"}</button>
+            <button class="btn-ghost wiz-reject-match" data-idx="${row.dataset.idx}" style="margin-left:4px;">${en ? "Nahi, bilkul naya" : "Nahi, bilkul naya"}</button>`;
+          resultEl.querySelector(".wiz-confirm-match").onclick = () => {
+            row.dataset.matchedConcept = res.matched_concept;
+            wizState[listKey] = _wizReadConditionRows(`wizList_${listKey}`);
+            const idx = parseInt(row.dataset.idx, 10);
+            wizState[listKey][idx].input_mode = "known";
+            wizState[listKey][idx].concept = res.matched_concept;
+            wizState[listKey][idx].matched_concept = res.matched_concept;
+            renderWizardStep();
+          };
+          resultEl.querySelector(".wiz-reject-match").onclick = () => {
+            resultEl.textContent = en ? "OK -- saved as Manual Review." : "Theek hai -- Manual Review mein save hoga.";
+          };
+        } catch (e) {
+          resultEl.textContent = en ? "Check failed -- saved as Manual Review, which is safe." : "Check fail hua -- Manual Review mein save hoga, yeh safe hai.";
+        }
+      };
+    });
+    const addBtn = document.querySelector(`[data-addlist="${listKey}"]`);
+    if (addBtn) addBtn.onclick = () => {
+      wizState[listKey] = _wizReadConditionRows(`wizList_${listKey}`);
+      wizState[listKey].push(_wizEmptyCondition());
+      renderWizardStep();
+    };
+  }
+
+  const WIZ_STEP_LABELS_EN = ["Basic Setup", "Entry Conditions", "Exit Conditions", "Stop Loss", "Take Profit", "Risk & Position Sizing", "Filters / Discards", "Review & Save"];
+  const WIZ_STEP_LABELS_UR = ["Basic Setup", "Entry Conditions", "Exit Conditions", "Stop Loss", "Take Profit", "Risk & Position Sizing", "Filters / Discards", "Review & Save"];
+
+  function _wizCollectStep1() {
+    wizState.name = document.getElementById("wizName").value.trim();
+    wizState.entry_timeframe = document.getElementById("wizEntryTf").value;
+    wizState.bias_timeframe = document.getElementById("wizBiasTf").value || null;
+    wizState.session = document.getElementById("wizSession").value || null;
+    wizState.session_start = document.getElementById("wizSessionStart").value || null;
+    wizState.session_end = document.getElementById("wizSessionEnd").value || null;
+    wizState.direction_mode = document.getElementById("wizDirection").value;
+  }
+
+  function _wizRenderStep1(en) {
+    const tfOptions = (wizState.timeframeOptions || []).map(tf => `<option value="${tf}" ${wizState.entry_timeframe === tf ? "selected" : ""}>${tf}</option>`).join("");
+    const tfOptionsBias = (wizState.timeframeOptions || []).map(tf => `<option value="${tf}" ${wizState.bias_timeframe === tf ? "selected" : ""}>${tf}</option>`).join("");
+    return `
+      <label>${en ? "Strategy Name" : "Strategy Ka Naam"}</label>
+      <input id="wizName" value="${esc(wizState.name)}" placeholder="${en ? "e.g. HTF FVG Reversal" : "misaal: HTF FVG Reversal"}">
+
+      <label style="margin-top:10px;">${en ? "Entry Timeframe" : "Entry Timeframe"}</label>
+      <select id="wizEntryTf"><option value="">--</option>${tfOptions}</select>
+
+      <label style="margin-top:10px;">${en ? "Bias / Analysis Timeframe (optional)" : "Bias / Analysis Timeframe (optional)"}</label>
+      <select id="wizBiasTf"><option value="">${en ? "-- none --" : "-- koi nahi --"}</option>${tfOptionsBias}</select>
+
+      <label style="margin-top:10px;">${en ? "Trading Session (optional)" : "Trading Session (optional)"}</label>
+      <select id="wizSession">
+        <option value="any">${en ? "Any" : "Koi Bhi"}</option>
+        <option value="new_york" ${wizState.session === "new_york" ? "selected" : ""}>New York</option>
+        <option value="london" ${wizState.session === "london" ? "selected" : ""}>London</option>
+        <option value="asian" ${wizState.session === "asian" ? "selected" : ""}>Asian</option>
+      </select>
+
+      <div class="btn-row" style="margin-top:10px;">
+        <div style="flex:1;">
+          <label>${en ? "Session Start (optional)" : "Session Start (optional)"}</label>
+          <input id="wizSessionStart" placeholder="09:30" value="${esc(wizState.session_start || "")}">
+        </div>
+        <div style="flex:1;">
+          <label>${en ? "Session End (optional)" : "Session End (optional)"}</label>
+          <input id="wizSessionEnd" placeholder="11:00" value="${esc(wizState.session_end || "")}">
+        </div>
+      </div>
+
+      <label style="margin-top:10px;">${en ? "Direction" : "Direction"}</label>
+      <select id="wizDirection">
+        <option value="long_only" ${wizState.direction_mode === "long_only" ? "selected" : ""}>${en ? "Long only" : "Sirf Long"}</option>
+        <option value="short_only" ${wizState.direction_mode === "short_only" ? "selected" : ""}>${en ? "Short only" : "Sirf Short"}</option>
+        <option value="both_mirror" ${wizState.direction_mode === "both_mirror" ? "selected" : ""}>${en ? "Both (mirror rules)" : "Dono (mirror rules)"}</option>
+        <option value="both_independent" ${wizState.direction_mode === "both_independent" ? "selected" : ""}>${en ? "Both (independent rules)" : "Dono (independent rules)"}</option>
+      </select>
+      <p class="muted" style="font-size:12px;">${en
+        ? "\"Both (mirror rules)\": fill entry/exit/SL/TP ONCE, the opposite direction is generated automatically. \"Both (independent rules)\": fill long and short separately, no assumption they mirror."
+        : "\"Both (mirror rules)\": entry/exit/SL/TP SIRF EK BAAR bharein, opposite direction khud ban jayegi. \"Both (independent rules)\": long aur short alag alag bharein, koi assumption nahi ke woh mirror karte hain."}</p>`;
+  }
+
+  function _wizRenderStep2(en) {
+    if (wizState.direction_mode === "both_independent") {
+      return `
+        ${_wizConditionListHtml("long_entry_conditions", en ? "Long Entry Conditions" : "Long Entry Conditions", en)}
+        <div style="height:14px;"></div>
+        ${_wizConditionListHtml("short_entry_conditions", en ? "Short Entry Conditions" : "Short Entry Conditions", en)}`;
+    }
+    return _wizConditionListHtml("entry_conditions", en ? "Entry Conditions" : "Entry Conditions", en);
+  }
+
+  function _wizWireStep2() {
+    if (wizState.direction_mode === "both_independent") {
+      _wizWireConditionList("long_entry_conditions");
+      _wizWireConditionList("short_entry_conditions");
+    } else {
+      _wizWireConditionList("entry_conditions");
+    }
+  }
+
+  function _wizRenderStep3(en) {
+    return _wizConditionListHtml("exit_conditions", en ? "Exit Conditions" : "Exit Conditions", en);
+  }
+
+  function _wizCollectSlTp(prefix, stateObj) {
+    stateObj.type = document.getElementById(`${prefix}Type`).value;
+    const val = document.getElementById(`${prefix}Value`).value;
+    stateObj.value = val === "" ? null : parseFloat(val);
+    const level = document.getElementById(`${prefix}Level`);
+    stateObj.level = level && level.value ? level.value : null;
+    const raw = document.getElementById(`${prefix}Raw`);
+    stateObj.raw_source = raw ? raw.value.trim() : null;
+  }
+
+  function _wizRenderStep4(en) {
+    const sl = wizState.stop_loss;
+    return `
+      <label>${en ? "Stop Loss Type" : "Stop Loss Ka Type"}</label>
+      <select id="wizSlType">
+        <option value="">--</option>
+        <option value="fixed_pct" ${sl.type === "fixed_pct" ? "selected" : ""}>${en ? "Fixed Percentage" : "Fixed Percentage"}</option>
+        <option value="fixed_points" ${sl.type === "fixed_points" ? "selected" : ""}>${en ? "Fixed Points" : "Fixed Points"}</option>
+        <option value="atr_multiple" ${sl.type === "atr_multiple" ? "selected" : ""}>${en ? "ATR Multiple" : "ATR Multiple"}</option>
+        <option value="structure" ${sl.type === "structure" ? "selected" : ""}>${en ? "Structure-based" : "Structure-based"}</option>
+        <option value="signal_candle" ${sl.type === "signal_candle" ? "selected" : ""}>${en ? "Signal Candle High/Low" : "Signal Candle High/Low"}</option>
+        <option value="other" ${sl.type === "other" ? "selected" : ""}>${en ? "Other" : "Other"}</option>
+      </select>
+      <p class="muted" style="font-size:12px;">${en
+        ? "\"Fixed Points\" and \"Other\" have no direct engine support yet -- they save as Manual Review, excluded from execution until resolved, never silently ignored."
+        : "\"Fixed Points\" aur \"Other\" ka abhi direct engine support nahi -- yeh Manual Review mein save hote hain, resolve hone tak execution se bahar rehte hain, kabhi silently ignore nahi hote."}</p>
+      <label style="margin-top:8px;">${en ? "Value (%, points, ATR multiple, or buffer %)" : "Value (%, points, ATR multiple, ya buffer %)"}</label>
+      <input id="wizSlValue" type="number" step="any" value="${sl.value ?? ""}">
+      <label style="margin-top:8px;">${en ? "Level (only for structure-based, e.g. pdh/pdl -- optional)" : "Level (sirf structure-based ke liye, e.g. pdh/pdl -- optional)"}</label>
+      <input id="wizSlLevel" value="${esc(sl.level || "")}">
+      <label style="margin-top:8px;">${en ? "Describe in your own words (only if type = Other / Fixed Points)" : "Apne alfaaz mein likhein (sirf Other / Fixed Points ke liye)"}</label>
+      <textarea id="wizSlRaw" style="width:100%;min-height:50px;">${esc(sl.raw_source || "")}</textarea>`;
+  }
+
+  function _wizRenderStep5(en) {
+    const tp = wizState.take_profit;
+    return `
+      <label>${en ? "Take Profit Type" : "Take Profit Ka Type"}</label>
+      <select id="wizTpType">
+        <option value="">--</option>
+        <option value="fixed_pct" ${tp.type === "fixed_pct" ? "selected" : ""}>${en ? "Fixed Percentage" : "Fixed Percentage"}</option>
+        <option value="rr" ${tp.type === "rr" ? "selected" : ""}>${en ? "Risk:Reward Ratio" : "Risk:Reward Ratio"}</option>
+        <option value="structure" ${tp.type === "structure" ? "selected" : ""}>${en ? "Structure-based Target" : "Structure-based Target"}</option>
+        <option value="level" ${tp.type === "level" ? "selected" : ""}>${en ? "Named Level (PDH/PDL)" : "Named Level (PDH/PDL)"}</option>
+        <option value="other" ${tp.type === "other" ? "selected" : ""}>${en ? "Other / Partial Exits" : "Other / Partial Exits"}</option>
+      </select>
+      <p class="muted" style="font-size:12px;">${en
+        ? "\"Other\" (including partial-exit splits, which the engine doesn't compute automatically yet) saves as Manual Review."
+        : "\"Other\" (partial-exit splits sameet, jo engine abhi khud compute nahi karta) Manual Review mein save hota hai."}</p>
+      <label style="margin-top:8px;">${en ? "Value (%, or R multiple)" : "Value (%, ya R multiple)"}</label>
+      <input id="wizTpValue" type="number" step="any" value="${tp.value ?? ""}">
+      <label style="margin-top:8px;">${en ? "Level (only for Named Level, e.g. pdh/pdl)" : "Level (sirf Named Level ke liye, e.g. pdh/pdl)"}</label>
+      <input id="wizTpLevel" value="${esc(tp.level || "")}">
+      <label style="margin-top:8px;">${en ? "Describe in your own words (only if type = Other)" : "Apne alfaaz mein likhein (sirf Other ke liye)"}</label>
+      <textarea id="wizTpRaw" style="width:100%;min-height:50px;">${esc(tp.raw_source || "")}</textarea>`;
+  }
+
+  function _wizCollectStep6() {
+    const risk = document.getElementById("wizRiskPct").value;
+    wizState.risk_pct = risk === "" ? null : parseFloat(risk);
+    const maxSim = document.getElementById("wizMaxSim").value;
+    wizState.max_simultaneous_trades = maxSim === "" ? null : parseInt(maxSim, 10);
+    const maxDaily = document.getElementById("wizMaxDaily").value;
+    wizState.max_daily_trades = maxDaily === "" ? null : parseInt(maxDaily, 10);
+    const maxLoss = document.getElementById("wizMaxLoss").value;
+    wizState.max_daily_loss_pct = maxLoss === "" ? null : parseFloat(maxLoss);
+  }
+
+  function _wizRenderStep6(en) {
+    return `
+      <label>${en ? "Risk % per trade" : "Har Trade Par Risk %"}</label>
+      <input id="wizRiskPct" type="number" step="any" value="${wizState.risk_pct ?? ""}" placeholder="${en ? "e.g. 1.0 -- leave blank if not specified anywhere" : "misaal 1.0 -- khali chodein agar kahin specify nahi hua"}">
+      <p class="muted" style="font-size:12px;">${en
+        ? "If you don't know, a common conservative default is 1% -- but it's never applied silently. Type it yourself if you accept it."
+        : "Agar pata nahi to ek aam conservative default 1% hai -- lekin yeh kabhi silently apply nahi hota. Khud type karein agar accept karte hain."}</p>
+      <label style="margin-top:10px;">${en ? "Max Simultaneous Trades (optional)" : "Max Simultaneous Trades (optional)"}</label>
+      <input id="wizMaxSim" type="number" min="1" value="${wizState.max_simultaneous_trades ?? ""}">
+      <label style="margin-top:10px;">${en ? "Max Daily Trades (optional)" : "Max Daily Trades (optional)"}</label>
+      <input id="wizMaxDaily" type="number" min="1" value="${wizState.max_daily_trades ?? ""}">
+      <label style="margin-top:10px;">${en ? "Max Daily Loss % (optional)" : "Max Daily Loss % (optional)"}</label>
+      <input id="wizMaxLoss" type="number" step="any" value="${wizState.max_daily_loss_pct ?? ""}">`;
+  }
+
+  function _wizRenderStep7(en) {
+    return `
+      <p class="muted">${en
+        ? "Conditions that cause an otherwise-valid setup to be SKIPPED (e.g. \"skip if inside a chop range\")."
+        : "Conditions jo warna-valid setup ko SKIP kara dein (jaise \"chop range ke andar ho to skip karein\")."}</p>
+      ${_wizConditionListHtml("filters", en ? "Filters / Discards" : "Filters / Discards", en)}`;
+  }
+
+  function _wizComputeReview() {
+    const wd = _wizToWizardData();
+    // Local mirror of backend trust math (backend recomputes authoritatively on save;
+    // this is only for the review screen preview before the user commits).
+    const allCondLists = [wd.entry_conditions, wd.long_entry_conditions, wd.short_entry_conditions, wd.exit_conditions, wd.filters];
+    let total = 0, manual = 0;
+    const items = [];
+    allCondLists.forEach(list => (list || []).forEach(c => {
+      total++;
+      if (c.input_mode === "other" && !c.matched_concept) { manual++; items.push(c.raw_text); }
+    }));
+    [["Stop Loss", wd.stop_loss], ["Take Profit", wd.take_profit]].forEach(([label, spec]) => {
+      if (spec && spec.type) {
+        total++;
+        if (!["fixed_pct", "atr_multiple", "structure", "signal_candle", "rr", "level"].includes(spec.type)) {
+          manual++; items.push(`${label}: ${spec.raw_source || spec.type}`);
+        }
+      }
+    });
+    return { total, manual, items, trustPct: total ? Math.round((total - manual) / total * 1000) / 10 : 100 };
+  }
+
+  function _wizRenderStep8(en) {
+    const wd = _wizToWizardData();
+    const review = _wizComputeReview();
+    const summarizeList = (list, label) => (list && list.length)
+      ? `<li>${esc(label)}: ${list.map(c => c.input_mode === "other" ? `"${esc(c.raw_text)}"${c.matched_concept ? ` (${en ? "matched" : "match hua"}: ${esc(c.matched_concept)})` : ` (${en ? "MANUAL REVIEW" : "MANUAL REVIEW"})`}` : esc(c.concept || "-")).join(", ")}</li>`
+      : "";
+    return `
+      <div class="section-title" style="font-size:15px;">${en ? "Summary" : "Khulasa"}</div>
+      <ul>
+        <li>${en ? "Name" : "Naam"}: ${esc(wd.name || "-")}</li>
+        <li>${en ? "Entry Timeframe" : "Entry Timeframe"}: ${esc(wd.entry_timeframe || "-")}${wd.bias_timeframe ? `, ${en ? "Bias" : "Bias"}: ${esc(wd.bias_timeframe)}` : ""}</li>
+        <li>${en ? "Direction" : "Direction"}: ${esc(wd.direction_mode)}</li>
+        ${summarizeList(wd.entry_conditions, en ? "Entry Conditions" : "Entry Conditions")}
+        ${summarizeList(wd.long_entry_conditions, en ? "Long Entry Conditions" : "Long Entry Conditions")}
+        ${summarizeList(wd.short_entry_conditions, en ? "Short Entry Conditions" : "Short Entry Conditions")}
+        ${summarizeList(wd.exit_conditions, en ? "Exit Conditions" : "Exit Conditions")}
+        ${summarizeList(wd.filters, en ? "Filters" : "Filters")}
+        <li>${en ? "Stop Loss" : "Stop Loss"}: ${esc(wd.stop_loss.type || "-")} ${wd.stop_loss.value != null ? `(${wd.stop_loss.value})` : ""}</li>
+        <li>${en ? "Take Profit" : "Take Profit"}: ${esc(wd.take_profit.type || "-")} ${wd.take_profit.value != null ? `(${wd.take_profit.value})` : ""}</li>
+        <li>${en ? "Risk %" : "Risk %"}: ${wd.risk_pct != null ? wd.risk_pct : (en ? "not set" : "set nahi hua")}</li>
+      </ul>
+      <div class="section-title" style="font-size:15px;">${en ? "Trust Score" : "Trust Score"}</div>
+      <div class="grid">
+        ${cardClass("Trust Score", `${review.trustPct}%`, review.trustPct === 100 ? "positive" : review.manual > 0 ? "negative" : "")}
+        ${card(en ? "Fields Set By You" : "Aapne Khud Set Kiye", review.total - review.manual)}
+        ${card(en ? "Need Manual Review" : "Manual Review Chahiye", review.manual)}
+      </div>
+      ${review.manual > 0 ? `
+        <p>${en ? `${review.total - review.manual} field(s) set by you directly, ${review.manual} need manual review:` : `${review.total - review.manual} fields aapne khud set kiye, ${review.manual} ko Manual Review chahiye:`}</p>
+        <ul>${review.items.map(i => `<li class="muted">${esc(i)}</li>`).join("")}</ul>
+        <p class="muted" style="font-size:12px;">${en
+          ? "These stay excluded from live backtesting/signals until resolved -- never executed unverified."
+          : "Yeh live backtesting/signals se bahar rehte hain jab tak resolve na ho -- kabhi unverified execute nahi hote."}</p>
+      ` : `<p>${en ? "100% -- every field traces back to something you selected or typed." : "100% -- har field aapke khud select ya type kiye hue se aata hai."}</p>`}
+      <div class="btn-row" style="margin-top:14px;">
+        <button class="btn" id="wizSaveBtn">${en ? "Save Strategy" : "Strategy Save Karein"}</button>
+        <button class="btn-ghost" id="wizSaveRunBtn">${en ? "Save and Run Backtest" : "Save Karein aur Backtest Chalayein"}</button>
+      </div>
+      <div id="wizSaveResult" style="margin-top:12px;"></div>`;
+  }
+
+  function _wizToWizardData() {
+    return {
+      name: wizState.name, entry_timeframe: wizState.entry_timeframe, bias_timeframe: wizState.bias_timeframe,
+      session: wizState.session, session_start: wizState.session_start, session_end: wizState.session_end,
+      direction_mode: wizState.direction_mode,
+      entry_conditions: wizState.entry_conditions, long_entry_conditions: wizState.long_entry_conditions,
+      short_entry_conditions: wizState.short_entry_conditions, exit_conditions: wizState.exit_conditions,
+      filters: wizState.filters,
+      stop_loss: wizState.stop_loss, take_profit: wizState.take_profit,
+      risk_pct: wizState.risk_pct, max_simultaneous_trades: wizState.max_simultaneous_trades,
+      max_daily_trades: wizState.max_daily_trades, max_daily_loss_pct: wizState.max_daily_loss_pct,
+    };
+  }
+
+  function _wizCollectCurrentStep() {
+    const step = wizState.step;
+    if (step === 1) _wizCollectStep1();
+    else if (step === 2) {
+      if (wizState.direction_mode === "both_independent") {
+        wizState.long_entry_conditions = _wizReadConditionRows("wizList_long_entry_conditions");
+        wizState.short_entry_conditions = _wizReadConditionRows("wizList_short_entry_conditions");
+      } else {
+        wizState.entry_conditions = _wizReadConditionRows("wizList_entry_conditions");
+      }
+    } else if (step === 3) wizState.exit_conditions = _wizReadConditionRows("wizList_exit_conditions");
+    else if (step === 4) _wizCollectSlTp("wizSl", wizState.stop_loss);
+    else if (step === 5) _wizCollectSlTp("wizTp", wizState.take_profit);
+    else if (step === 6) _wizCollectStep6();
+    else if (step === 7) wizState.filters = _wizReadConditionRows("wizList_filters");
+  }
+
+  async function renderStrategyWizard() {
+    const myToken = activeRouteToken;
+    const en = getLang() === "en";
+
+    if (!wizState) {
+      wizState = {
+        step: 1, catalog: null, timeframeOptions: null,
+        name: "", entry_timeframe: "", bias_timeframe: "", session: "any", session_start: "", session_end: "",
+        direction_mode: "long_only",
+        entry_conditions: [], long_entry_conditions: [], short_entry_conditions: [], exit_conditions: [],
+        filters: [],
+        stop_loss: { type: "", value: null, level: null, raw_source: null },
+        take_profit: { type: "", value: null, level: null, raw_source: null },
+        risk_pct: null, max_simultaneous_trades: null, max_daily_trades: null, max_daily_loss_pct: null,
+      };
+    }
+
+    if (!wizState.catalog || !wizState.timeframeOptions) {
+      const [catalog, home] = await Promise.all([
+        apiGet("/api/wizard/concept-library"),
+        apiGet("/api/home").catch(() => ({ available_timeframes: ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d"] })),
+      ]);
+      if (isStaleRoute(myToken)) return;
+      wizState.catalog = catalog;
+      wizState.timeframeOptions = home.available_timeframes || ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d"];
+    }
+
+    renderWizardStep();
+  }
+
+  function renderWizardStep() {
+    const en = getLang() === "en";
+    const labels = en ? WIZ_STEP_LABELS_EN : WIZ_STEP_LABELS_UR;
+    const step = wizState.step;
+
+    let body = "";
+    if (step === 1) body = _wizRenderStep1(en);
+    else if (step === 2) body = _wizRenderStep2(en);
+    else if (step === 3) body = _wizRenderStep3(en);
+    else if (step === 4) body = _wizRenderStep4(en);
+    else if (step === 5) body = _wizRenderStep5(en);
+    else if (step === 6) body = _wizRenderStep6(en);
+    else if (step === 7) body = _wizRenderStep7(en);
+    else if (step === 8) body = _wizRenderStep8(en);
+
+    content.innerHTML = `
+      <div class="section-title">${en ? "Strategy Wizard" : "Strategy Wizard"}</div>
+      <p class="muted">${en
+        ? "Step-by-step, zero guessing -- every value you pick or type yourself. Saves into the exact same format as the paste-and-parse import."
+        : "Step-by-step, koi guessing nahi -- har value aap khud choose ya type karte hain. Paste-and-parse import wale exact format mein hi save hota hai."}</p>
+      <div class="btn-row" style="flex-wrap:wrap;margin-bottom:10px;">
+        ${labels.map((l, i) => `<span class="pill ${i + 1 === step ? "pill-bullish" : "pill-muted"}" style="cursor:default;">${i + 1}. ${l}</span>`).join("")}
+      </div>
+      <div style="max-width:640px;">
+        ${body}
+      </div>
+      <div class="btn-row" style="margin-top:16px;">
+        ${step > 1 ? `<button class="btn-ghost" id="wizBackBtn">${en ? "Back" : "Peeche"}</button>` : ""}
+        ${step < 8 ? `<button class="btn" id="wizNextBtn">${en ? "Next" : "Aage"}</button>` : ""}
+      </div>`;
+
+    if (step === 2) _wizWireStep2();
+    else if (step === 3) _wizWireConditionList("exit_conditions");
+    else if (step === 7) _wizWireConditionList("filters");
+
+    const backBtn = document.getElementById("wizBackBtn");
+    if (backBtn) backBtn.onclick = () => { _wizCollectCurrentStep(); wizState.step--; renderWizardStep(); };
+    const nextBtn = document.getElementById("wizNextBtn");
+    if (nextBtn) nextBtn.onclick = () => { _wizCollectCurrentStep(); wizState.step++; renderWizardStep(); };
+
+    if (step === 8) {
+      document.getElementById("wizSaveBtn").onclick = () => _wizSave(false);
+      document.getElementById("wizSaveRunBtn").onclick = () => _wizSave(true);
+    }
+  }
+
+  async function _wizSave(runAfter) {
+    const en = getLang() === "en";
+    const resultEl = document.getElementById("wizSaveResult");
+    resultEl.textContent = en ? "Saving..." : "Save ho raha hai...";
+    try {
+      const res = await apiPost("/api/wizard/save", { wizard_data: _wizToWizardData(), tags: [] });
+      resultEl.innerHTML = `<p class="positive">${en ? "Saved!" : "Save ho gaya!"} ${en ? "Strategy ID" : "Strategy ID"}: ${esc(res.strategy_id)}. ${en ? "Trust Score" : "Trust Score"}: ${res.trust_report.trust_score_pct}%.</p>`;
+      if (runAfter) {
+        resultEl.innerHTML += `<p class="muted">${en ? "Go to the Strategies page to run a backtest on this strategy." : "Is strategy par backtest chalane ke liye Strategies page par jayein."}</p>`;
+      }
+      wizState = null;  // fresh wizard next time
+    } catch (e) {
+      resultEl.innerHTML = `<p class="negative">${en ? "Save failed" : "Save fail hua"}: ${esc(e.message || String(e))}</p>`;
+    }
   }
 
   // ------------------------------------------------------------ SIGNAL TRACKER (Batch 6, Task 5)
