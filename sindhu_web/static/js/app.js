@@ -2083,22 +2083,41 @@
   // suggested options, or a reject button) -- see
   // sindhu_web/api/clarification.py::build_issues() for the shape.
   function issueControlHtml(issue) {
+    const en = getLang() === "en";
     const reasonBlock = `
       <div><b>${esc(issue.reason)}</b></div>
       ${issue.detail ? `<div class="muted" style="margin-top:2px;">${esc(issue.detail)}</div>` : ""}
       ${issue.ai_reason ? `<div class="muted" style="margin-top:4px;">AI's own note: "${esc(issue.ai_reason)}"${issue.ai_confidence != null ? ` (${Math.round(issue.ai_confidence * 100)}% confidence)` : ""}</div>` : ""}`;
 
     if (issue.kind === "raw_condition" || issue.kind === "missing_conditions") {
+      // A short, plain Roman Urdu question -- the actual "reason"/"detail"
+      // strings above stay in English (they come straight from the
+      // backend's validator/AI reasoning, useful detail for anyone who
+      // wants it), but the ACTUAL QUESTION the CEO has to answer is framed
+      // simply here, with a one-click suggested default (defer to Manual
+      // Review, never guessed/never silently dropped) plus the free-text
+      // alternative.
+      const question = issue.original_text
+        ? (en
+            ? `This rule wasn't understood: "${issue.original_text}". What should happen to it?`
+            : `Yeh rule samajh nahi aaya: "${issue.original_text}". Ab kya karein?`)
+        : (en
+            ? "No rule was found here at all. What should happen?"
+            : "Yahan koi rule mila hi nahi. Ab kya karein?");
+      const canDefault = issue.kind === "raw_condition";  // needs a specific rule's text -- a brand-new "missing" issue has nothing to defer
       return `
         <div class="card" data-issue-id="${esc(issue.id)}" data-issue-kind="${issue.kind}">
           ${reasonBlock}
-          ${issue.original_text ? `<div class="muted" style="margin-top:6px;">Original text: "${esc(issue.original_text)}"</div>` : ""}
-          <div class="form-row" style="margin-top:8px;"><label>Redescribe this rule</label>
-            <input class="issue-text-input" placeholder="e.g. RSI 14 below 30, or close above EMA50">
+          <div style="margin-top:8px;"><b>${question}</b></div>
+          <div class="btn-row" style="margin-top:8px;">
+            ${canDefault ? `<button class="btn issue-mark-manual">${en ? "Skip for now (Manual Review)" : "Filhaal chodo (Manual Review)"}</button>` : ""}
+            ${issue.can_reject ? `<button class="btn btn-ghost issue-apply-reject">${en ? "Remove this rule" : "Yeh rule hata dein"}</button>` : ""}
+          </div>
+          <div class="form-row" style="margin-top:8px;"><label>${en ? "Or describe it yourself" : "Ya main khud batata hoon"}</label>
+            <input class="issue-text-input" placeholder="${en ? "e.g. RSI 14 below 30, or close above EMA50" : "misaal: RSI 14, 30 se neeche"}">
           </div>
           <div class="btn-row">
-            <button class="btn btn-ghost issue-apply-edit">Try This Instead</button>
-            ${issue.can_reject ? `<button class="btn btn-ghost issue-apply-reject">Remove This Rule</button>` : ""}
+            <button class="btn btn-ghost issue-apply-edit">${en ? "Try this instead" : "Yeh try karein"}</button>
           </div>
         </div>`;
     }
@@ -2109,12 +2128,12 @@
         <div class="card" data-issue-id="${esc(issue.id)}" data-issue-kind="${issue.kind}">
           ${reasonBlock}
           ${options ? `<div class="btn-row" style="margin-top:8px;">${options}</div>` : ""}
-          <div class="form-row" style="margin-top:8px;"><label>Or redescribe the whole rule</label>
+          <div class="form-row" style="margin-top:8px;"><label>${en ? "Or describe the whole rule yourself" : "Ya poora rule khud batayein"}</label>
             <input class="issue-text-input" placeholder="e.g. RSI 14 below 30">
           </div>
           <div class="btn-row">
-            <button class="btn btn-ghost issue-apply-edit">Try This Instead</button>
-            ${issue.can_reject ? `<button class="btn btn-ghost issue-apply-reject">Remove This Rule</button>` : ""}
+            <button class="btn btn-ghost issue-apply-edit">${en ? "Try this instead" : "Yeh try karein"}</button>
+            ${issue.can_reject ? `<button class="btn btn-ghost issue-apply-reject">${en ? "Remove this rule" : "Yeh rule hata dein"}</button>` : ""}
           </div>
         </div>`;
     }
@@ -2131,28 +2150,29 @@
   }
 
   async function openClarifyBox(strategyId, name, refreshList) {
+    const en = getLang() === "en";
     const box = document.getElementById("clarifyBox");
     const body = document.getElementById("clarifyBody");
-    document.getElementById("clarifyTitle").textContent = `Clarification Needed -- ${name}`;
-    body.innerHTML = `<div class="muted">Loading...</div>`;
+    document.getElementById("clarifyTitle").textContent = en ? `Clarification Needed -- ${name}` : `Saaf Karna Hai -- ${name}`;
+    body.innerHTML = `<div class="muted">${en ? "Loading..." : "Load ho raha hai..."}</div>`;
     box.style.display = "block";
     box.scrollIntoView({ behavior: "smooth", block: "nearest" });
 
     async function load() {
       const data = await apiGet(`/api/backtesting/strategies/${strategyId}/clarification`).catch(() => null);
-      if (!data) { body.innerHTML = `<div class="muted">Could not load clarification details.</div>`; return; }
+      if (!data) { body.innerHTML = `<div class="muted">${en ? "Could not load clarification details." : "Details load nahi ho sakin."}</div>`; return; }
       if (data.status === "READY_FOR_BACKTEST") {
-        body.innerHTML = `<div class="card"><span class="pill pill-completed">Ready for Backtesting</span> Nothing left to clarify -- this strategy is fully executable.</div>`;
+        body.innerHTML = `<div class="card"><span class="pill pill-completed">${en ? "Ready for Backtesting" : "Backtest Ke Liye Tayyar"}</span> ${en ? "Nothing left to clarify -- this strategy is fully executable." : "Kuch bhi saaf karna baaki nahi -- yeh strategy poori tarah chalne ke liye tayyar hai."}</div>`;
         return;
       }
       const confidenceNote = data.confidence_pct != null
-        ? `<div class="muted" style="margin-bottom:8px;">AI import confidence: ${data.confidence_pct}%</div>` : "";
+        ? `<div class="muted" style="margin-bottom:8px;">${en ? "AI import confidence" : "AI import ka confidence"}: ${data.confidence_pct}%</div>` : "";
       body.innerHTML = `
         ${confidenceNote}
         ${data.issues.map(issueControlHtml).join("")}
         <div class="btn-row" style="margin-top:10px;">
-          <button class="btn" id="btnApplyClarifications">Apply Changes</button>
-          <button class="btn btn-ghost" id="btnCloseClarify">Close</button>
+          <button class="btn" id="btnApplyClarifications">${en ? "Apply Changes" : "Changes Lagayein"}</button>
+          <button class="btn btn-ghost" id="btnCloseClarify">${en ? "Close" : "Band Karein"}</button>
           <span id="clarifyStatus" class="muted"></span>
         </div>`;
       wireIssueCards();
@@ -2164,14 +2184,20 @@
       body.querySelectorAll(".issue-apply-edit").forEach(btn => btn.onclick = () => {
         const card = btn.closest("[data-issue-id]");
         const text = card.querySelector(".issue-text-input").value;
-        if (!text || !text.trim()) { alert("Type a replacement description first."); return; }
+        if (!text || !text.trim()) { alert(en ? "Type a replacement description first." : "Pehle apni description likhein."); return; }
         pending.set(card.dataset.issueId, { id: card.dataset.issueId, action: "edit", text });
-        btn.textContent = "Queued ✓";
+        btn.textContent = en ? "Queued ✓" : "Queue Ho Gaya ✓";
       });
       body.querySelectorAll(".issue-apply-reject").forEach(btn => btn.onclick = () => {
         const card = btn.closest("[data-issue-id]");
         pending.set(card.dataset.issueId, { id: card.dataset.issueId, action: "reject" });
-        btn.textContent = "Queued ✓";
+        btn.textContent = en ? "Queued ✓" : "Queue Ho Gaya ✓";
+      });
+      body.querySelectorAll(".issue-mark-manual").forEach(btn => btn.onclick = () => {
+        const card = btn.closest("[data-issue-id]");
+        pending.set(card.dataset.issueId, { id: card.dataset.issueId, action: "mark_manual_review" });
+        btn.textContent = en ? "Queued ✓" : "Queue Ho Gaya ✓";
+        btn.classList.add("btn-active");
       });
       body.querySelectorAll(".issue-pick-indicator").forEach(btn => btn.onclick = () => {
         const card = btn.closest("[data-issue-id]");
@@ -2188,21 +2214,25 @@
 
       document.getElementById("btnCloseClarify").onclick = () => { box.style.display = "none"; };
       document.getElementById("btnApplyClarifications").onclick = async () => {
-        if (!pending.size) { alert("Pick or type at least one resolution first."); return; }
+        if (!pending.size) { alert(en ? "Pick or type at least one resolution first." : "Pehle kam se kam ek jawab chunein ya likhein."); return; }
         const status = document.getElementById("clarifyStatus");
-        status.textContent = "Applying...";
+        status.textContent = en ? "Applying..." : "Lagaya ja raha hai...";
         try {
           const result = await apiPost(`/api/backtesting/strategies/${strategyId}/clarify`, {
             resolutions: Array.from(pending.values()),
           });
           const failedNote = result.failed.length
-            ? ` ${result.failed.length} still unresolved: ${result.failed.map(f => esc(f.detail)).join(" | ")}`
+            ? ` ${result.failed.length} ${en ? "still unresolved" : "abhi bhi baaki"}: ${result.failed.map(f => esc(f.detail)).join(" | ")}`
             : "";
           if (result.status === "READY_FOR_BACKTEST") {
-            status.textContent = "Resolved -- strategy is now Ready for Backtesting." +
-              (result.pipeline_job_id ? " Automation pipeline started automatically." : "");
+            status.textContent = (en
+              ? "Resolved -- strategy is now Ready for Backtesting."
+              : "Saaf ho gaya -- strategy ab Backtest ke liye tayyar hai.") +
+              (result.pipeline_job_id ? (en ? " Automation pipeline started automatically." : " Automation pipeline khud shuru ho gayi.") : "");
           } else {
-            status.textContent = `Applied ${result.applied.length} change(s).${failedNote}`;
+            status.textContent = en
+              ? `Applied ${result.applied.length} change(s).${failedNote}`
+              : `${result.applied.length} change(s) lag gaye.${failedNote}`;
           }
           if (refreshList) refreshList();
           await load();

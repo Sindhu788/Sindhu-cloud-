@@ -122,6 +122,28 @@ def build_issues(cfg, hidden_rules=None):
                 return idx
         return None
 
+    # validator.py's "Unclear entry rule" message is the SAME wording
+    # regardless of which of the three entry buckets the condition actually
+    # lives in (entry_conditions vs. long/short_entry_conditions -- Batch 6's
+    # per-direction rule sets), so which bucket to search in isn't in the
+    # error text itself. Try all three real entry buckets in order rather
+    # than assuming "entry" always means the generic entry_conditions list
+    # -- a mixed long/short document (which routes into long_entry_conditions/
+    # short_entry_conditions, leaving entry_conditions empty) would otherwise
+    # have every one of its unclear rules silently never surfaced as a
+    # fixable clarification issue.
+    _SECTION_TO_BUCKETS = {
+        "entry": ("entry_conditions", "long_entry_conditions", "short_entry_conditions"),
+        "exit": ("exit_conditions",),
+    }
+
+    def _find_unclaimed_raw(section, text):
+        for bucket in _SECTION_TO_BUCKETS[section]:
+            idx = _unclaimed_raw_index(bucket, text)
+            if idx is not None:
+                return bucket, idx
+        return None, None
+
     def _unclaimed_invalid_index(bucket, bad_name):
         for idx, cond in enumerate(getattr(cfg, bucket)):
             if (bucket, idx) in claimed:
@@ -136,8 +158,7 @@ def build_issues(cfg, hidden_rules=None):
         m = re.match(r'^Unclear (entry|exit) rule, needs clarification: "(.*)"$', err)
         if m:
             section, text = m.group(1), m.group(2)
-            bucket = f"{section}_conditions"
-            idx = _unclaimed_raw_index(bucket, text)
+            bucket, idx = _find_unclaimed_raw(section, text)
             if idx is None:
                 continue
             claimed.add((bucket, idx))
@@ -261,6 +282,31 @@ def _apply_resolution(cfg, resolution_id, action, text, value):
         removed = bucket.pop(idx)
         return True, f'Removed the unresolved {_bucket_label(kind)} rule: "{_describe_condition(removed)}"'
 
+    if action == "mark_manual_review":
+        # The one-click suggested default: accept the rule as-is, deferred
+        # for later human review, instead of guessing a structured meaning
+        # for it or silently deleting it. Resolves the clarification (the
+        # condition stops being an "unclear rule" validator error -- see
+        # Condition.is_unclear()), but the strategy still can't actually
+        # backtest until a human resolves it for real: the SAME
+        # manual-review run-time gate the Strategy Wizard's "Other/bilkul
+        # naya" path uses (wizard.has_manual_review, enforced in
+        # sindhu_web/api/backtesting.py's run endpoint) blocks it there.
+        if kind in _BUCKETS and rest == "new":
+            return False, "Nothing to mark -- there's no specific rule text for a missing-condition issue yet. Type something first."
+        if kind not in _BUCKETS:
+            return False, "This issue can't be marked for manual review."
+        bucket = getattr(cfg, kind)
+        idx = int(rest)
+        if idx >= len(bucket):
+            return False, "That condition no longer exists (already resolved)."
+        cond = bucket[idx]
+        if cond.type != "raw":
+            return False, "Only an unrecognized (raw) rule can be marked for manual review."
+        cond.manual_review = True
+        cond.raw_source = cond.text
+        return True, f'Marked for Manual Review: "{cond.text}" -- kept exactly as written, excluded from live execution until resolved.'
+
     if action == "edit":
         if not text or not text.strip():
             return False, "No replacement text was provided."
@@ -343,7 +389,7 @@ def _apply_resolution(cfg, resolution_id, action, text, value):
 
 class ClarifyResolution(BaseModel):
     id: str
-    action: str  # "edit" | "set_field" | "reject" | "replace_indicator"
+    action: str  # "edit" | "set_field" | "reject" | "replace_indicator" | "mark_manual_review"
     text: Optional[str] = None
     value: Any = None
 

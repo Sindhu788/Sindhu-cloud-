@@ -56,7 +56,17 @@ class Condition:
     raw_source: Optional[str] = None
 
     def is_unclear(self):
-        return self.type == "raw"
+        # A raw condition the CEO already explicitly accepted as Manual
+        # Review (via the clarification flow's one-click default, or the
+        # Wizard's "bilkul naya" path) is no longer an open QUESTION -- it's
+        # a resolved decision to defer. It stops appearing as a validator
+        # "unclear rule" error (so clarification can report the strategy
+        # resolved), but stays excluded from live execution via the
+        # separate manual-review run-time gate (wizard.has_manual_review,
+        # checked in sindhu_web/api/backtesting.py's run endpoint) --
+        # "resolved in the UI" and "safe to actually run" are deliberately
+        # two different checks.
+        return self.type == "raw" and not self.manual_review
 
 
 @dataclass
