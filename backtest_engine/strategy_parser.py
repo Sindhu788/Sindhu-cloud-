@@ -202,11 +202,20 @@ _RR_SPOKEN_RE = re.compile(r"(?:\brr\b|risk\s*reward)\D{0,10}(\d+(?:\.\d+)?)\s*t
 # image of _RR_SPOKEN_RE above (label before numbers).
 _RR_SPOKEN_SUFFIX_RE = re.compile(r"(\d+(?:\.\d+)?)\s*to\s*(\d+(?:\.\d+)?)\s*(?:risk\s*reward|rr)\b", re.IGNORECASE)
 _RR_MINIMUM_RE = re.compile(r"minimum\s*(\d+(?:\.\d+)?)\s*(?:rr|risk\s*reward)?", re.IGNORECASE)
-# "risk reward ratio 4" / "risk:reward 4" -- a label followed directly by
-# a bare number, no colon-ratio and no "to". Tried before the fully bare
-# "RR N"/"N R" forms below so a labelled line is never mistaken for an
-# unrelated stray number.
-_RR_LABELED_BARE_RE = re.compile(r"(?:risk\s*reward\s*ratio|risk\s*[:\-]?\s*reward|\brr\b)\D{0,15}?(\d+(?:\.\d+)?)\b", re.IGNORECASE)
+# "risk reward ratio 4" / "risk:reward 4" / "risk-to-reward ratio 4" -- a
+# label followed directly by a bare number, no colon-ratio and no "to".
+# Tried before the fully bare "RR N"/"N R" forms below so a labelled line
+# is never mistaken for an unrelated stray number. [\s\-]* (not just an
+# optional single char) so "risk-to-reward" and "risk to reward" -- both
+# real spoken/written forms -- match, not just "risk:reward"/"risk-reward".
+_RR_LABELED_BARE_RE = re.compile(r"(?:risk\s*reward\s*ratio|risk[\s\-]*(?:to[\s\-]*)?reward|\brr\b)\D{0,15}?(\d+(?:\.\d+)?)\b", re.IGNORECASE)
+# "at least 1 to four (1:4) risk-to-reward ratio" -- the explicit ratio
+# comes BEFORE the "risk-to-reward" label (the mirror image of
+# _RR_RATIO_RE, which expects the label first). Real pasted text uses
+# both orders.
+_RR_RATIO_SUFFIX_RE = re.compile(
+    r"(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)\D{0,30}?(?:risk[\s\-]*(?:to[\s\-]*)?reward|\brr\b)", re.IGNORECASE
+)
 _RR_BARE_RE = re.compile(r"\brr\b\D{0,5}(\d+(?:\.\d+)?)\b", re.IGNORECASE)
 # "4R" -- a bare number immediately followed by a standalone "R". Tried
 # last (most permissive, so checked only once nothing more specific
@@ -269,7 +278,7 @@ def _match_rr(line_lower):
     ambiguous first) so a labelled line is never mistaken for an
     unrelated stray number. Returns the reward multiple per unit of risk,
     or None if nothing matched."""
-    for pattern in (_RR_RATIO_RE, _RR_TP_LABELED_RATIO_RE, _RR_SPOKEN_RE, _RR_SPOKEN_SUFFIX_RE):
+    for pattern in (_RR_RATIO_RE, _RR_RATIO_SUFFIX_RE, _RR_TP_LABELED_RATIO_RE, _RR_SPOKEN_RE, _RR_SPOKEN_SUFFIX_RE):
         m = pattern.search(line_lower)
         if m:
             a, b = float(m.group(1)), float(m.group(2))
@@ -411,8 +420,31 @@ def _detect_direction(text_lower):
 # classification, so none of it can ever masquerade as an "unclear rule."
 
 _STEP_HEADING_RE = re.compile(r"^step\s+\d+\s*[-–—:.]\s*", re.IGNORECASE)
-_SOURCE_LINE_RE = re.compile(r"^(?:source|reference|citation|attribution)\s*:", re.IGNORECASE)
+_SOURCE_LINE_RE = re.compile(r"^(?:source|reference|citation|attribution)\s*:\s*", re.IGNORECASE)
+# A "Source:" line means two different things depending on what follows --
+# "Source: YouTube video transcript, ICT concepts [1, 2]" is a pure
+# attribution (never a rule, always dropped), but "Source: "Setting a stop
+# loss underneath the fair value gap producing candle."" is how some
+# real pasted documents (this exact pattern seen in a real CEO-submitted
+# strategy doc) introduce the ACTUAL rule text -- a direct quote of the
+# source material IS the rule, just fenced in quotes. The distinguishing
+# signal is the quote marks: a quoted remainder is real content (unwrap
+# the quotes, keep the text); an unquoted remainder is metadata (drop it).
+_QUOTED_REMAINDER_RE = re.compile(r'^[\'"‘’“”]\s*(.*?)\s*[\'"‘’“”]$')
 _NEW_ITEM_RE = re.compile(r"^(?:[-*•]|\d+[.)])\s+")
+# A "Rules: 3, 4, 5, 6" line under a category header (this project's own
+# Strategy Import format writes these) is an INDEX into the numbered
+# inventory above, not rule text of its own -- every one of those numbers
+# already has its own real Name/Source pair elsewhere in the document, so
+# treating "3, 4, 5" as literal rule content would only ever produce
+# meaningless "unclear" fragments for what is really just a reference list.
+_RULE_INDEX_LIST_RE = re.compile(r"^rules?\s*:\s*\d+(?:\s*,\s*\d+)*\s*$", re.IGNORECASE)
+# A short line with no lowercase letters at all ("STOP LOSS", "RISK &
+# POSITION SIZING", "FILTERS / DISCARDS") is a category-title heading, not
+# a sentence -- real rule text (even terse) almost always has at least one
+# lowercase word. Capped at 50 chars so a genuinely long ALL-CAPS
+# paragraph (rare, but possible) isn't silently swallowed.
+_ALL_CAPS_HEADING_RE = re.compile(r"^[A-Z0-9][A-Z0-9\s\-&/,]{0,49}$")
 _SENTENCE_END_RE = re.compile(r"[.!?]\s*$")
 # A line eligible to merge INTO the previous statement as a continuation:
 # starts lowercase (a wrapped clause, "wait for a bullish engulfing
@@ -453,7 +485,22 @@ def _strip_scaffolding_line(line):
     stripped = line.strip()
     if not stripped:
         return None
-    if _SOURCE_LINE_RE.match(stripped):
+    source_match = _SOURCE_LINE_RE.match(stripped)
+    if source_match:
+        remainder = stripped[source_match.end():]
+        quoted = _QUOTED_REMAINDER_RE.match(remainder)
+        return quoted.group(1) if quoted else None
+    if _RULE_INDEX_LIST_RE.match(stripped):
+        return None
+    if stripped.startswith("[") and stripped.endswith("]"):
+        # A bracketed aside ("[Full specification..., including all NOT
+        # SPECIFIED items for: ...]") is meta-commentary about what the
+        # document DOESN'T say -- real AI-report-style documents use this
+        # to list open questions, never to state a rule. Every one of
+        # those "not specified" items already surfaces properly through
+        # this parser's own missing-field/clarification logic when it's
+        # genuinely absent; restating them in prose here would just
+        # double them up as bogus rule fragments.
         return None
     if _is_bare_heading(stripped) and not _is_meaningful_bare_heading(stripped.lower()):
         return None
@@ -846,6 +893,29 @@ def parse_strategy_text(text, name="Unnamed Strategy"):
                 if re.search(pattern, line_lower) and session not in config.session_filter:
                     config.session_filter.append(session)
             current_role_hint = None
+            continue
+
+        # 4. a bare ALL-CAPS category heading with no colon ("STOP LOSS",
+        #    "TAKE PROFIT", "RISK & POSITION SIZING", "FILTERS /
+        #    DISCARDS", "TIMEFRAMES & SESSIONS", "DIRECTION-SPECIFIC
+        #    RULES") -- real documents use these as section titles whose
+        #    actual values live elsewhere (in a "Source:" quote, in a
+        #    named rule a few lines up), not on this line itself. Without
+        #    this check, such a heading is neither a recognized section
+        #    header (no colon to split on) nor scaffolding (no colon means
+        #    _is_bare_heading never even looks at it) -- it falls through
+        #    to whatever current_section a PRIOR heading set, silently
+        #    misfiling itself and every following line into the wrong
+        #    (stale) bucket. Ends the stale section instead. Deliberately
+        #    NOT gated on "doesn't also contain a concept keyword" --
+        #    "TIMEFRAMES & SESSIONS" contains "session" (a real
+        #    session_filter keyword) and was still wrongly falling through
+        #    to that check with an earlier, more cautious version of this
+        #    fix. A bare screaming-case line with no verb and no colon is
+        #    essentially always a title, never content, in this document
+        #    style -- real rule content never arrives this way.
+        if _ALL_CAPS_HEADING_RE.match(line):
+            current_section = None
             continue
 
         if current_section:
