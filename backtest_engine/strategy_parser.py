@@ -22,6 +22,22 @@ from backtest_engine.strategy_config import StrategyConfig, Condition, SLTPSpec
 # in its own source text couldn't be detected).
 _TIMEFRAME_RE = re.compile(r"\b(\d{1,3})[\s-]*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days|w|week|weeks)\b", re.IGNORECASE)
 
+_TIMEFRAME_FRAGMENT_STOPWORDS = {"on", "the", "at", "in", "chart", "timeframe", "tf", "candle", "of"}
+
+
+def _is_bare_timeframe_fragment(seg_lower):
+    """True for a segment that names a timeframe and nothing else of
+    substance ("on the 1-minute chart") -- a connector fragment left over
+    when a comma inside a reassembled numbered rule got treated as a
+    condition separator, not a real independent rule."""
+    m = _TIMEFRAME_RE.search(seg_lower)
+    if not m:
+        return False
+    remainder = seg_lower[:m.start()] + seg_lower[m.end():]
+    words = re.findall(r"[a-z]+", remainder)
+    return all(w in _TIMEFRAME_FRAGMENT_STOPWORDS for w in words)
+
+
 _UNIT_TO_SUFFIX = {
     "m": "m", "min": "m", "mins": "m", "minute": "m", "minutes": "m",
     "h": "h", "hr": "h", "hrs": "h", "hour": "h", "hours": "h",
@@ -150,25 +166,91 @@ _INDICATOR_VS_INDICATOR_RE = re.compile(
     re.IGNORECASE,
 )
 
-_RISK_RE = re.compile(r"\brisk\b\D{0,5}(\d+(?:\.\d+)?)\s*%?", re.IGNORECASE)
+# Batch 11 -- URGENT: import was completely blocked because these
+# directive regexes only accepted heavily abbreviated forms ("sl", "tp",
+# a literal "%", a literal "rr"). Real pasted strategies (NotebookLM/
+# ChatGPT output, plain English) spell things out: "stop loss", "take
+# profit", "risk percent", "percent" instead of "%", "risk reward ratio
+# N" instead of "RR N". Widened below to accept both the abbreviated and
+# spelled-out forms, and gap tolerances (`.{0,N}?`) widened enough to
+# span a connector word ("fixed", ":", "of") between the label and the
+# value without becoming so wide it crosses into an unrelated directive
+# on the same combined line.
+_SL_LABEL = r"(?:stop[\s-]*loss|sl)\b"
+_TP_LABEL = r"(?:take[\s-]*profit|tp)\b"
+_PCT_UNIT = r"(?:%|percent\b|pct\b)"
 
-# RR is recognized in four independent forms; _match_rr() tries them in
+# Negative lookahead excludes "risk reward"/"risk:reward"/"risk-reward"
+# (an RR directive, handled separately by _match_rr) from ever being
+# misread as a risk_pct label -- found live: "Take profit: risk reward
+# ratio 4" was incorrectly setting risk_pct=4.0 before this guard existed,
+# because "risk" is also the first word of that phrase.
+_RISK_RE = re.compile(rf"\brisk\b(?!\s*[:\-]?\s*reward)\D{{0,20}}?(\d+(?:\.\d+)?)\s*(?:{_PCT_UNIT})?", re.IGNORECASE)
+
+# RR is recognized in several independent forms; _match_rr() tries them in
 # order (most-specific first) and returns the reward multiple per unit of
 # risk, or None. A bare "A:B"/"A to B" ratio is accepted in either order
 # ("1:3" and "3:1" both mean "risk 1 to make 3") since that's how traders
 # actually write it -- the larger number is always the reward side.
 _RR_RATIO_RE = re.compile(r"(?:\brr\b|risk\s*reward|r\s*:\s*r)\D{0,10}(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)", re.IGNORECASE)
+# A bare "A:B" ratio on a Take Profit-labelled line ("Take profit: 1:4")
+# with no "rr"/"risk reward" wording at all -- traders write the ratio
+# alone under a TP label just as often as they spell out "risk reward".
+_RR_TP_LABELED_RATIO_RE = re.compile(rf"{_TP_LABEL}\D{{0,10}}?(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)", re.IGNORECASE)
 _RR_SPOKEN_RE = re.compile(r"(?:\brr\b|risk\s*reward)\D{0,10}(\d+(?:\.\d+)?)\s*to\s*(\d+(?:\.\d+)?)", re.IGNORECASE)
+# "1 to 4 risk reward" -- the label comes AFTER the numbers, the mirror
+# image of _RR_SPOKEN_RE above (label before numbers).
+_RR_SPOKEN_SUFFIX_RE = re.compile(r"(\d+(?:\.\d+)?)\s*to\s*(\d+(?:\.\d+)?)\s*(?:risk\s*reward|rr)\b", re.IGNORECASE)
 _RR_MINIMUM_RE = re.compile(r"minimum\s*(\d+(?:\.\d+)?)\s*(?:rr|risk\s*reward)?", re.IGNORECASE)
+# "risk reward ratio 4" / "risk:reward 4" -- a label followed directly by
+# a bare number, no colon-ratio and no "to". Tried before the fully bare
+# "RR N"/"N R" forms below so a labelled line is never mistaken for an
+# unrelated stray number.
+_RR_LABELED_BARE_RE = re.compile(r"(?:risk\s*reward\s*ratio|risk\s*[:\-]?\s*reward|\brr\b)\D{0,15}?(\d+(?:\.\d+)?)\b", re.IGNORECASE)
 _RR_BARE_RE = re.compile(r"\brr\b\D{0,5}(\d+(?:\.\d+)?)\b", re.IGNORECASE)
+# "4R" -- a bare number immediately followed by a standalone "R". Tried
+# last (most permissive, so checked only once nothing more specific
+# matched) to avoid misreading an unrelated "R" elsewhere on the line.
+_RR_MULTIPLE_RE = re.compile(r"\b(\d+(?:\.\d+)?)\s*r\b", re.IGNORECASE)
 
-_SL_PCT_RE = re.compile(r"\bsl\b.{0,10}?(\d+(?:\.\d+)?)\s*%", re.IGNORECASE)
-_SL_ATR_RE = re.compile(r"\bsl\b.{0,15}?atr\D{0,3}(\d+(?:\.\d+)?)", re.IGNORECASE)
-_SL_STRUCTURE_RE = re.compile(
-    r"\bsl\b.{0,25}?\b(order block|ob|swing|structure|breaker|fvg|fair value gap)\b", re.IGNORECASE
+# Percentage value near a label, accepting the number BEFORE the unit
+# ("0.3%", "0.3 percent") or the unit-word BEFORE the number ("percent
+# 0.3", "fixed percent 0.3") -- real pasted text uses both orders.
+_PCT_VALUE_RE = re.compile(
+    rf"(\d+(?:\.\d+)?)\s*{_PCT_UNIT}|(?:percent|pct)\s*(?:of\s*)?(\d+(?:\.\d+)?)\b", re.IGNORECASE
 )
-_TP_PCT_RE = re.compile(r"\btp\b.{0,10}?(\d+(?:\.\d+)?)\s*%", re.IGNORECASE)
-_TP_LEVEL_RE = re.compile(r"\btp\b.{0,15}?\b(pdh|pdl)\b", re.IGNORECASE)
+
+
+def _find_pct_near(label_re, text_lower, window=40):
+    """Finds a percent value within `window` characters after the first
+    match of `label_re` -- used for stop-loss/take-profit so a percentage
+    elsewhere on an unrelated line never gets misattributed."""
+    m = label_re.search(text_lower)
+    if not m:
+        return None
+    segment = text_lower[m.end():m.end() + window]
+    pm = _PCT_VALUE_RE.search(segment)
+    if not pm:
+        return None
+    return float(pm.group(1) or pm.group(2))
+
+
+_SL_ATR_RE = re.compile(rf"{_SL_LABEL}.{{0,20}}?(\d+(?:\.\d+)?)\s*(?:x\s*)?atr\b|atr\D{{0,10}}?(\d+(?:\.\d+)?)\D{{0,10}}?{_SL_LABEL}", re.IGNORECASE)
+_SL_STRUCTURE_RE = re.compile(
+    rf"{_SL_LABEL}.{{0,30}}?\b(order block|ob|swing|structure|breaker|fvg|fair value gap)\b", re.IGNORECASE
+)
+# "signal_candle" (Batch 3) -- the stop sits at the SIGNAL/TRIGGER bar's
+# own high or low (a buffer % away), not a generic historical structure
+# level -- e.g. "stop below the low of the candle that created the FVG",
+# "stop below the FVG candle low", "SL above the signal candle high".
+_SL_SIGNAL_CANDLE_RE = re.compile(
+    r"\b(?:low|high)\s+of\s+(?:the\s+)?(?:signal|trigger|entry)\s+candle"
+    r"|\b(?:signal|trigger)\s+candle\W{0,10}(?:low|high)\b"
+    r"|\bcandle\s+that\s+(?:created|triggered|formed)\b.{0,20}\b(?:low|high)\b"
+    r"|\b(?:low|high)\b.{0,20}\bcandle\s+that\s+(?:created|triggered|formed)\b",
+    re.IGNORECASE,
+)
+_TP_LEVEL_RE = re.compile(rf"{_TP_LABEL}.{{0,20}}?\b(pdh|pdl)\b", re.IGNORECASE)
 
 # Problem 2 (lookback window): a concept condition can require the concept
 # to have occurred within the last N bars, not necessarily on the exact
@@ -181,9 +263,13 @@ _STRICT_SAME_BAR_RE = re.compile(r"\b(?:same\s*bar|same\s*candle|strict)\b", re.
 
 def _match_rr(line_lower):
     """Recognizes RR as an explicit ratio ("1:3", "3:1", "2.5:1"), spoken
-    ("1 to 3"), "minimum N [RR]", or a bare "RR N". Returns the reward
-    multiple per unit of risk, or None if nothing matched."""
-    for pattern in (_RR_RATIO_RE, _RR_SPOKEN_RE):
+    ("1 to 3 risk reward", "risk reward 1 to 3"), "minimum N [RR]", a
+    labelled bare number ("risk reward ratio 4", "risk:reward 4"), a bare
+    "RR N", or a bare "4R". Tried in that order (most specific/least
+    ambiguous first) so a labelled line is never mistaken for an
+    unrelated stray number. Returns the reward multiple per unit of risk,
+    or None if nothing matched."""
+    for pattern in (_RR_RATIO_RE, _RR_TP_LABELED_RATIO_RE, _RR_SPOKEN_RE, _RR_SPOKEN_SUFFIX_RE):
         m = pattern.search(line_lower)
         if m:
             a, b = float(m.group(1)), float(m.group(2))
@@ -191,7 +277,13 @@ def _match_rr(line_lower):
     m = _RR_MINIMUM_RE.search(line_lower)
     if m:
         return float(m.group(1))
+    m = _RR_LABELED_BARE_RE.search(line_lower)
+    if m:
+        return float(m.group(1))
     m = _RR_BARE_RE.search(line_lower)
+    if m:
+        return float(m.group(1))
+    m = _RR_MULTIPLE_RE.search(line_lower)
     if m:
         return float(m.group(1))
     return None
@@ -217,9 +309,19 @@ def _normalize_timeframe(number, unit):
 
 
 def _detect_role(line_lower):
+    """A role LABEL only ever legitimately appears at the START of a line
+    ("Entry: 15m", "Bias: 4H", "Entry timeframe on the 1H chart") -- never
+    matched as a bare substring anywhere in the line. Batch 11: this was
+    the field-routing bug's other half -- "below entry price" (inside a
+    stop-loss line) and "Entry Rules: ... on the 1H chart" (a section
+    header that also happens to mention a timeframe) both contain the
+    substring "entry" NOT as a role label, and a naive `kw in line_lower`
+    check misclassified both as bare "Entry:" role-hint lines, hijacking
+    them away from stop-loss binding / section-header detection."""
+    stripped = line_lower.strip()
     for role, keywords in _ROLE_KEYWORDS.items():
         for kw in keywords:
-            if kw in line_lower:
+            if stripped == kw or stripped.startswith(kw + ":") or stripped.startswith(kw + " "):
                 return role
     return None
 
@@ -272,12 +374,140 @@ def _detect_section_header(line_lower):
     return None
 
 
+def _is_pure_timeframe_remainder(line):
+    """True when the content after a line's first colon is JUST a
+    timeframe mention ("Entry: 1m") with nothing else of substance --
+    distinguishes a bare role/timeframe declaration from a rule-section
+    header whose label happens to collide with the same keyword ("Entry
+    Rules: bullish BOS on the 1H chart", where "1H" belongs to the rule
+    text, not a timeframe declaration for the "entry" role)."""
+    if ":" not in line:
+        return False
+    remainder = line.split(":", 1)[1].strip()
+    if not remainder:
+        return False
+    m = _TIMEFRAME_RE.search(remainder)
+    if not m:
+        return False
+    leftover = (remainder[:m.start()] + remainder[m.end():]).strip(" ,.-")
+    return len(leftover) <= 3
+
+
 def _detect_direction(text_lower):
     for direction, words in _DIRECTION_WORDS.items():
         for w in words:
             if w in text_lower:
                 return direction
     return None
+
+
+# ---------------------------------------------------------------- scaffolding stripping (Batch 11)
+# Real pasted documents (NotebookLM/ChatGPT-style output the user actually
+# pastes) are full of structural noise that is NEVER a trading rule: bare
+# section headings ("RISK MANAGEMENT:", "FILTERS:", "Timeframes:"),
+# "Source:"/citation attributions, "STEP N -- ..." headings, and numbered-
+# list items whose continuation got split across raw lines by the
+# document's own line wrapping. Stripped/reassembled here, BEFORE
+# classification, so none of it can ever masquerade as an "unclear rule."
+
+_STEP_HEADING_RE = re.compile(r"^step\s+\d+\s*[-–—:.]\s*", re.IGNORECASE)
+_SOURCE_LINE_RE = re.compile(r"^(?:source|reference|citation|attribution)\s*:", re.IGNORECASE)
+_NEW_ITEM_RE = re.compile(r"^(?:[-*•]|\d+[.)])\s+")
+_SENTENCE_END_RE = re.compile(r"[.!?]\s*$")
+# A line eligible to merge INTO the previous statement as a continuation:
+# starts lowercase (a wrapped clause, "wait for a bullish engulfing
+# candle") or is an orphaned parenthetical ("(opposite direction)"). A
+# line starting uppercase/digit is a fresh sentence and must never merge,
+# even if the previous line lacks trailing punctuation.
+_CONTINUATION_START_RE = re.compile(r"^[a-z(]")
+
+
+def _is_bare_heading(line):
+    """A line whose ENTIRE content is a label -- nothing meaningful after
+    the colon (e.g. "RISK MANAGEMENT:", "STOP LOSS:", "Timeframes:").
+    Deliberately distinct from "Stop loss: fixed 0.3% below entry price",
+    which has real content after the colon and must NOT be treated as
+    scaffolding."""
+    if ":" not in line:
+        return False
+    before, after = line.split(":", 1)
+    return bool(before.strip()) and not after.strip()
+
+
+def _is_meaningful_bare_heading(line_lower):
+    """A bare heading the parser already knows what to DO with -- "Entry
+    Rules:", "Bias:", "Confirmation:" etc -- must survive scaffolding
+    stripping, since parse_strategy_text's own section/role detection
+    depends on seeing it. Only a bare heading with NO recognized meaning
+    ("RISK MANAGEMENT:", "FILTERS:", "STOP LOSS:", "Timeframes:" as a
+    standalone label with the value elsewhere) is pure scaffolding."""
+    return bool(_detect_section_header(line_lower) or _detect_role(line_lower))
+
+
+def _strip_scaffolding_line(line):
+    """Returns the line with document scaffolding removed, or None if the
+    ENTIRE line is scaffolding and should be dropped outright. Never
+    touches a line that carries real content, and never touches a bare
+    heading the parser already has a real handler for -- only recognized
+    structural noise with no meaning to this parser is discarded."""
+    stripped = line.strip()
+    if not stripped:
+        return None
+    if _SOURCE_LINE_RE.match(stripped):
+        return None
+    if _is_bare_heading(stripped) and not _is_meaningful_bare_heading(stripped.lower()):
+        return None
+    # "STEP 1 -- Identify the trend" keeps its real content ("Identify the
+    # trend"), only the "STEP 1 --" scaffolding prefix is dropped -- a
+    # STEP heading often carries the actual instruction on the same line.
+    without_step = _STEP_HEADING_RE.sub("", stripped)
+    return without_step if without_step.strip() else None
+
+
+def _reassemble_lines(raw_lines):
+    """Merges a soft-wrapped continuation back into the statement it
+    belongs to, so a numbered/bulleted rule is always ONE rule regardless
+    of how the source document wrapped its lines -- e.g. "4. On the
+    1-minute chart," / "wait for a bullish engulfing candle" / "(opposite
+    direction)" reassembles into one statement instead of three unrelated
+    "unclear rule" fragments. A line starts a NEW statement only if it
+    opens a new numbered/bulleted item, is itself a bare heading (handled
+    separately by _strip_scaffolding_line), or the previous statement
+    already looked grammatically complete (ended in . ! ?) -- otherwise
+    it's treated as a continuation of whatever came before, including an
+    orphaned parenthetical fragment like "opposite direction)". A line
+    that starts with an uppercase letter (a fresh sentence, like "Enter
+    on retracement into bullish FVG" following "Bullish BOS on the 1H
+    chart" with no period between them) is never merged even when the
+    previous line lacks trailing punctuation -- real pasted documents
+    routinely omit end-of-line periods on genuinely separate rules, and
+    merging them would silently fuse two conditions into one line, losing
+    whichever concept the line-level condition parser doesn't match
+    first. Only a line that itself reads as a continuation (starts
+    lowercase, or an orphaned parenthetical) is eligible to merge."""
+    merged = []
+    for raw in raw_lines:
+        line = _strip_scaffolding_line(raw)
+        if line is None:
+            continue
+        # A "LABEL: value" line ("Stop loss: ...", "Entry Rules: ...") is
+        # ALWAYS its own statement, regardless of whether the previous
+        # line ended in sentence punctuation -- label:value lines are
+        # extremely common in real strategy documents and essentially
+        # never end in a period. Checked on a short PREFIX (not the whole
+        # line) so a colon appearing later in a long sentence ("wait for
+        # price to close: above the level") doesn't falsely count.
+        has_early_label = ":" in line[:30] and bool(line[:30].split(":", 1)[0].strip())
+        looks_like_new_sentence = bool(merged) and not _CONTINUATION_START_RE.match(line)
+        starts_new = (
+            bool(_NEW_ITEM_RE.match(line)) or _is_bare_heading(line) or has_early_label
+            or not merged or looks_like_new_sentence
+        )
+        if not starts_new and merged and not _SENTENCE_END_RE.search(merged[-1]):
+            merged[-1] = merged[-1].rstrip() + " " + line.lstrip()
+        else:
+            merged.append(line)
+    return merged
 
 
 def _parse_conditions_from_line(line, timeframes=None):
@@ -289,6 +519,11 @@ def _parse_conditions_from_line(line, timeframes=None):
     (see _detect_condition_role) -- defaults to None so parse_conditions()
     below (used by the Knowledge Engine for lessons, which have no declared
     multi-timeframe roles) is completely unaffected."""
+    # Strip a leading numbered/bulleted marker ("4. ") before splitting --
+    # _reassemble_lines() keeps it so a numbered item survives as ONE
+    # statement, but left in place it contaminates the first comma-split
+    # segment ("4. On the 1-minute chart") into its own bogus fragment.
+    line = _NEW_ITEM_RE.sub("", line, count=1)
     line_role = _detect_condition_role(line.lower(), timeframes)
     segments = re.split(r"\band\b|\baur\b|\+|,", line, flags=re.IGNORECASE)
     conditions = []
@@ -361,6 +596,17 @@ def _parse_conditions_from_line(line, timeframes=None):
             matched = True
 
         if not matched:
+            if _is_bare_timeframe_fragment(seg_lower):
+                # A leftover connector fragment like "on the 1-minute
+                # chart" -- the comma that split it off a longer
+                # reassembled numbered item was ordinary prose punctuation,
+                # not a rule separator. It carries no rule content of its
+                # own (the timeframe it names is already captured wherever
+                # the real condition/timeframe declaration bound it), so
+                # silently dropping it is correct -- surfacing it as
+                # "unclear" would just be structural noise, exactly what
+                # Requirement 2/3 asked to eliminate.
+                continue
             conditions.append(Condition(type="raw", text=seg))
 
     return conditions
@@ -433,15 +679,94 @@ def repair_condition_roles(config):
     return changed
 
 
+def _match_stop_loss(line_lower):
+    """Tries every recognized stop-loss phrasing, most specific first, and
+    returns an SLTPSpec or None. signal_candle (a natural-language-only
+    form -- there's no abbreviated shorthand for it) is checked before the
+    generic "structure" match since "the candle that created the FVG" also
+    contains the word "fvg", which would otherwise match _SL_STRUCTURE_RE
+    first and lose the more precise signal-candle semantics."""
+    if _SL_SIGNAL_CANDLE_RE.search(line_lower):
+        return SLTPSpec(type="signal_candle", value=None)
+    pct = _find_pct_near(re.compile(_SL_LABEL, re.IGNORECASE), line_lower)
+    if pct is not None:
+        return SLTPSpec(type="fixed_pct", value=pct)
+    m = _SL_ATR_RE.search(line_lower)
+    if m:
+        return SLTPSpec(type="atr_multiple", value=float(m.group(1) or m.group(2)))
+    m = _SL_STRUCTURE_RE.search(line_lower)
+    if m:
+        return SLTPSpec(type="structure", value=None)
+    return None
+
+
+def _match_take_profit(line_lower):
+    m = _TP_LEVEL_RE.search(line_lower)
+    if m:
+        return SLTPSpec(type="level", level=m.group(1).lower())
+    pct = _find_pct_near(re.compile(_TP_LABEL, re.IGNORECASE), line_lower)
+    if pct is not None:
+        return SLTPSpec(type="fixed_pct", value=pct)
+    return None
+
+
 def parse_strategy_text(text, name="Unnamed Strategy"):
     config = StrategyConfig(name=name, raw_text=text)
-    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    raw_lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    # Batch 11: reassemble soft-wrapped continuations (a numbered/bulleted
+    # rule split across raw lines by the source document's own line
+    # wrapping) and drop pure document scaffolding (bare section headings,
+    # "Source:" attributions, "STEP N --" prefixes) BEFORE any
+    # classification happens, so none of it can end up as a fabricated
+    # "unclear rule".
+    lines = _reassemble_lines(raw_lines)
 
     current_section = None
     current_role_hint = None
 
     for line in lines:
         line_lower = line.lower()
+
+        # Batch 11 -- URGENT FIX: Risk / RR / SL / TP directives are now
+        # checked FIRST, before role/section/timeframe detection. This was
+        # the field-routing bug's root cause: a line like "Stop loss:
+        # fixed 0.3% below entry price" contains the substring "entry"
+        # (inside "below entry price"), which _detect_role() matched as a
+        # bare role-hint label -- the line was treated as an "Entry:"
+        # declaration and `continue`d past BEFORE the stop-loss value was
+        # ever looked at, then the same line later got swept up as a raw/
+        # unclear entry condition by the generic fallback. Checking these
+        # unambiguous, explicitly-labelled directives first means a
+        # labelled field always binds to that field, never to entry
+        # conditions, regardless of what other words happen to appear on
+        # the same line. Each is checked independently (not a single if/
+        # continue chain) so one compact line combining several directives
+        # -- "SL 2% TP 4% Risk 1%" -- detects ALL of them.
+        matched_directive = False
+
+        m = _RISK_RE.search(line_lower)
+        if m:
+            config.risk_pct = float(m.group(1))
+            matched_directive = True
+
+        rr_value = _match_rr(line_lower)
+        if rr_value is not None:
+            config.risk_reward = rr_value
+            matched_directive = True
+
+        sl_spec = _match_stop_loss(line_lower)
+        if sl_spec is not None:
+            config.stop_loss = sl_spec
+            matched_directive = True
+
+        tp_spec = _match_take_profit(line_lower)
+        if tp_spec is not None:
+            config.take_profit = tp_spec
+            matched_directive = True
+
+        if matched_directive:
+            current_role_hint = None
+            continue
 
         # Concept/indicator mentions are recorded unconditionally so they're
         # never lost just because the line was also a timeframe/section
@@ -465,16 +790,33 @@ def parse_strategy_text(text, name="Unnamed Strategy"):
         #    the value on the next line. Checked before section headers
         #    since "entry:"/"confirmation:" alone are ambiguous with rule
         #    section names -- a timeframe pattern on the line resolves it.
+        #    BUT only when this line isn't ALSO a real section header with
+        #    real rule content ("Entry Rules: bullish BOS on the 1H
+        #    chart") -- that "1H" belongs to the rule's own content, not a
+        #    role-timeframe declaration, so section-header detection (more
+        #    specific) must win whenever both could apply. Computed here,
+        #    once, and reused below rather than calling twice.
         role = line_role
+        section = _detect_section_header(line_lower)
         tf_matches = _TIMEFRAME_RE.findall(line)
-        if role and tf_matches:
+        # A label like "Entry:" is itself ambiguous between a role/
+        # timeframe declaration ("Entry: 1m") and a rule-section header
+        # ("Entry Rules: ..." / "Entry: enter on retracement into the
+        # FVG") -- both match _SECTION_KEYWORDS since "entry:" is listed
+        # there too. The content AFTER the colon disambiguates: if it's
+        # JUST the timeframe with nothing else of substance, it's a
+        # timeframe declaration regardless of the section-name collision;
+        # only real rule content after the colon lets section-header
+        # detection (more specific) win.
+        pure_tf_remainder = bool(tf_matches) and _is_pure_timeframe_remainder(line)
+        if role and tf_matches and (not section or pure_tf_remainder):
             number, unit = tf_matches[0]
             tf = _normalize_timeframe(number, unit)
             if tf:
                 config.timeframes[role] = tf
             current_role_hint = None
             continue
-        elif tf_matches and current_role_hint:
+        elif tf_matches and current_role_hint and (not section or pure_tf_remainder):
             number, unit = tf_matches[0]
             tf = _normalize_timeframe(number, unit)
             if tf:
@@ -484,7 +826,6 @@ def parse_strategy_text(text, name="Unnamed Strategy"):
 
         # 2. explicit rule-section headers ("Entry Rules:", "Confirmation
         #    Rules:", ...) -- more specific than a bare role keyword.
-        section = _detect_section_header(line_lower)
         if section:
             current_section = section
             current_role_hint = None
@@ -505,52 +846,6 @@ def parse_strategy_text(text, name="Unnamed Strategy"):
                 if re.search(pattern, line_lower) and session not in config.session_filter:
                     config.session_filter.append(session)
             current_role_hint = None
-            continue
-
-        # Risk / RR / SL / TP are each checked independently (not a single
-        # if/continue chain) so a compact line combining several directives
-        # -- "SL 2% TP 4% Risk 1%" -- detects ALL of them, not just
-        # whichever regex happened to be tried first. Only `continue`s past
-        # the fallback condition-parsing step below once at least one
-        # directive actually matched on this line.
-        matched_directive = False
-
-        m = _RISK_RE.search(line_lower)
-        if m:
-            config.risk_pct = float(m.group(1))
-            matched_directive = True
-
-        rr_value = _match_rr(line_lower)
-        if rr_value is not None:
-            config.risk_reward = rr_value
-            matched_directive = True
-
-        m = _SL_PCT_RE.search(line_lower)
-        if m:
-            config.stop_loss = SLTPSpec(type="fixed_pct", value=float(m.group(1)))
-            matched_directive = True
-        else:
-            m = _SL_ATR_RE.search(line_lower)
-            if m:
-                config.stop_loss = SLTPSpec(type="atr_multiple", value=float(m.group(1)))
-                matched_directive = True
-            else:
-                m = _SL_STRUCTURE_RE.search(line_lower)
-                if m:
-                    config.stop_loss = SLTPSpec(type="structure", value=None)
-                    matched_directive = True
-
-        m = _TP_LEVEL_RE.search(line_lower)
-        if m:
-            config.take_profit = SLTPSpec(type="level", level=m.group(1).lower())
-            matched_directive = True
-        else:
-            m = _TP_PCT_RE.search(line_lower)
-            if m:
-                config.take_profit = SLTPSpec(type="fixed_pct", value=float(m.group(1)))
-                matched_directive = True
-
-        if matched_directive:
             continue
 
         if current_section:
