@@ -275,4 +275,7 @@ DONE. Never restart from the beginning.
       tests/test_migrate_to_postgres.py (7), tests/test_ws_login_gate.py
       (5) -- 19 new tests, all passing.
 
-## STATUS: COMPLETE (pending final full-suite confirmation number below)
+## STATUS: COMPLETE
+Full suite: 962 passed, 0 failed. Committed locally as 461b988. Pushing
+to GitHub and the Railway UI setup are the CEO's own steps -- see
+RAILWAY_DEPLOY.md.
