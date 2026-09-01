@@ -3,7 +3,7 @@ import os
 import pandas as pd
 
 from data_engine import storage, resample_cache
-from data_engine.config import SUPPORTED_INTERVALS, RESAMPLE_RULE
+from data_engine.config import SUPPORTED_INTERVALS, RESAMPLE_RULE, env_flag
 
 _COLUMNS = ["open_time", "open", "high", "low", "close", "volume", "close_time", "quote_volume", "trades"]
 _OUT_COLUMNS = ["open", "high", "low", "close", "volume", "quote_volume", "trades"]
@@ -15,7 +15,7 @@ _OUT_COLUMNS = ["open", "high", "low", "close", "volume", "quote_volume", "trade
 # zero changes needed in any of those callers. Unset (the local laptop,
 # always, unless deliberately configured otherwise), this file's behavior
 # is byte-for-byte unchanged.
-LIVE_CANDLES_ONLY = os.environ.get("SINDHU_LIVE_CANDLES") == "1"
+LIVE_CANDLES_ONLY = env_flag("SINDHU_LIVE_CANDLES")
 
 
 def _rows_to_df(rows):

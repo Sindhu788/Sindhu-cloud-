@@ -130,10 +130,17 @@ def test_get_home_stub_returns_a_minimal_shape(cloud_app):
 
 
 def test_health_endpoint_exists_and_is_trivial(cloud_app):
-    """The uptime-pinger endpoint (cron-job.org et al.) must do nothing
-    but return a fixed literal -- no database read, no exchange call."""
+    """The uptime-pinger endpoint (cron-job.org et al.) must stay a
+    near-zero-cost request -- no database read, no exchange call -- while
+    still surfacing the two flags most likely to explain "why can't I
+    reach the dashboard" (see the endpoint's own docstring for the real
+    incident that motivated exposing these)."""
     route = next(r for r in cloud_app.app.routes if getattr(r, "path", None) == "/health")
-    assert route.endpoint() == {"status": "ok"}
+    body = route.endpoint()
+    assert body["status"] == "ok"
+    assert set(body) == {"status", "cloud_mode", "live_candles_only"}
+    assert isinstance(body["cloud_mode"], bool)
+    assert isinstance(body["live_candles_only"], bool)
 
 
 def test_health_endpoint_is_exempt_from_the_login_gate():

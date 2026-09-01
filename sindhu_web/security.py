@@ -13,6 +13,7 @@ import secrets
 from fastapi import Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
+from data_engine.config import env_flag
 from data_engine.paths import CONFIG_DIR, ensure_folders
 from sindhu_web import auth
 
@@ -55,7 +56,7 @@ _SESSION_AUTHENTICATES_PATHS = {"/api/auth/logout", "/api/auth/change-password"}
 # check, and it bypasses ONLY the LAN check -- the login-session gate right
 # below this in the middleware still runs unconditionally either way, so a
 # cloud deployment is never reachable by anyone who hasn't logged in.
-CLOUD_MODE = os.environ.get("SINDHU_CLOUD_MODE") == "1"
+CLOUD_MODE = env_flag("SINDHU_CLOUD_MODE")
 
 
 def _is_lan_client(host):

@@ -20,6 +20,7 @@ import uuid
 from datetime import datetime, timezone, timedelta as _timedelta
 
 from data_engine import storage, config as base_config, feature_toggles
+from data_engine.config import env_flag
 from data_engine.exchanges.registry import get_exchange_client
 from data_engine.logging_setup import log as default_log
 
@@ -33,7 +34,7 @@ from data_engine.logging_setup import log as default_log
 # mode, so there is nothing to warm. Unset (the local laptop, always,
 # unless deliberately configured otherwise): both lines below are never
 # reached, byte-for-byte unchanged behavior.
-LIVE_CANDLES_ONLY = os.environ.get("SINDHU_LIVE_CANDLES") == "1"
+LIVE_CANDLES_ONLY = env_flag("SINDHU_LIVE_CANDLES")
 
 from paper_trading import config as pt_config
 from paper_trading import coin_filter, live_feed, market_state, strategy_matcher, lesson_matcher

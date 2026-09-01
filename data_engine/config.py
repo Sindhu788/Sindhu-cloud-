@@ -13,6 +13,18 @@ import os
 
 from data_engine.paths import CONFIG_DIR, DATABASE_DIR, LOGS_DIR, DB_PATH, LOG_FILE, ensure_folders
 
+
+def env_flag(name):
+    """Reads a boolean environment variable (SINDHU_CLOUD_MODE,
+    SINDHU_LIVE_CANDLES, ...) the way a person actually types one into a
+    PaaS dashboard -- "1", "true"/"True", "yes", "on", any of those with
+    stray leading/trailing whitespace -- rather than requiring the exact
+    literal string "1". A real deploy hit this: a flag stayed silently
+    off because of how its value happened to be entered, with the app
+    giving no sign from the outside that it hadn't taken effect. Unset or
+    anything else evaluates to off."""
+    return (os.environ.get(name) or "").strip().lower() in ("1", "true", "yes", "on")
+
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 

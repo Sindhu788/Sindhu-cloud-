@@ -173,12 +173,20 @@ def create_app():
         free-tier host from sleeping the app after ~15 minutes idle.
         Exempt from the login gate (see sindhu_web/security.py's
         _LOGIN_EXEMPT_PATHS) so the pinger needs no credentials.
-        Deliberately does nothing but return a fixed literal: no database
-        read, no exchange call, no imports beyond what this file already
-        has -- the whole point is a near-zero-cost request an external
-        service can hit every few minutes without it ever being "heavy
-        work" in the sense the CEO asked to avoid."""
-        return {"status": "ok"}
+        Reads two already-computed module-level flags -- no database
+        read, no exchange call -- so this stays a near-zero-cost request
+        an external service can hit every few minutes.
+
+        cloud_mode/live_candles_only are included deliberately: a real
+        deploy once returned "access restricted to the local network" on
+        every request with no way to tell, from the outside, whether that
+        was because SINDHU_CLOUD_MODE genuinely wasn't set on the host or
+        because of some other bug -- this makes that immediately visible
+        without needing dashboard access or a redeploy to check. Neither
+        value is a secret; they're just which mode the process is in."""
+        from data_engine.resample import LIVE_CANDLES_ONLY
+        from sindhu_web.security import CLOUD_MODE
+        return {"status": "ok", "cloud_mode": CLOUD_MODE, "live_candles_only": LIVE_CANDLES_ONLY}
 
     app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 
