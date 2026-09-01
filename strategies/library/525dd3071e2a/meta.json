@@ -1,0 +1,17 @@
+{
+  "id": "525dd3071e2a",
+  "name": "Liquidity Sweep + CISD (Pure Swing Variant) [Medium Variant]",
+  "tags": [
+    "confirmation_optimizer_variant",
+    "level:medium",
+    "source:872544b77a57",
+    "additions:sl_distance"
+  ],
+  "favourite": false,
+  "archived": true,
+  "created_at": "2026-08-28T19:30:10.379290+00:00",
+  "updated_at": "2026-08-28T19:30:10.395669+00:00",
+  "current_version": 1,
+  "safety_status": "ready",
+  "safety_reasons": []
+}

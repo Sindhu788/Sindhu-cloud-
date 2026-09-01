@@ -1,0 +1,17 @@
+{
+  "id": "84525b11cd18",
+  "name": "Richard Dennis Turtle Trader Strategy [Manual Build]",
+  "tags": [
+    "turtle_trader",
+    "manual_build",
+    "1h",
+    "rebuild"
+  ],
+  "favourite": false,
+  "archived": false,
+  "created_at": "2026-08-23T07:57:04.179520+00:00",
+  "updated_at": "2026-08-23T07:57:04.179520+00:00",
+  "current_version": 1,
+  "safety_status": "ready",
+  "safety_reasons": []
+}

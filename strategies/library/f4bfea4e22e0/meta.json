@@ -1,0 +1,18 @@
+{
+  "id": "f4bfea4e22e0",
+  "name": "SAR + SMC (CISD Entry) [Manual Build]",
+  "tags": [
+    "concept_based_strategy",
+    "manual_build",
+    "cisd_entry",
+    "5m",
+    "1h"
+  ],
+  "favourite": false,
+  "archived": false,
+  "created_at": "2026-08-28T06:00:29.933602+00:00",
+  "updated_at": "2026-08-28T06:00:29.933602+00:00",
+  "current_version": 1,
+  "safety_status": "ready",
+  "safety_reasons": []
+}

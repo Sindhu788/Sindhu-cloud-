@@ -244,6 +244,55 @@ def get_strategy_versions(strategy_id: str):
     return {"versions": lib.version_history(strategy_id)}
 
 
+@router.get("/api/backtesting/strategies/{strategy_id}/claim-check")
+def get_strategy_claim_check(strategy_id: str):
+    """Item 7 (Cross-Reference Validation): compares this strategy's own
+    source-document performance claim (captured at import time -- see
+    ai_integration.claim_extraction) against its real, latest completed
+    backtest result. Reuses the exact same "latest batch by strategy name"
+    lookup and quick_batch_summary() that /api/reports/best-worst/strategies
+    already uses, so this never disagrees with what the rest of the app
+    shows as this strategy's real performance."""
+    from backtest_engine.claim_validation import compare_claim_to_backtest
+    from backtest_engine.reports import quick_batch_summary
+
+    try:
+        cfg = lib.load(strategy_id)
+    except FileNotFoundError:
+        raise HTTPException(404, "strategy not found")
+
+    if cfg.claimed_win_rate_pct is None:
+        return {"has_claim": False}
+
+    actual_win_rate_pct, actual_trade_count = None, None
+    for b in storage.list_recent_batches(limit=200):
+        if b["status"] != "completed" or b["strategy_name"] != cfg.name:
+            continue
+        summary = quick_batch_summary(b["batch_id"])
+        if summary and summary.get("total_trades"):
+            actual_win_rate_pct = summary["win_rate"]
+            actual_trade_count = summary["total_trades"]
+            break  # list_recent_batches is newest-first -- this is the latest result
+
+    result = compare_claim_to_backtest(cfg.claimed_win_rate_pct, actual_win_rate_pct, actual_trade_count)
+    result["claim_source_text"] = cfg.claimed_win_rate_source_text
+    return result
+
+
+@router.get("/api/backtesting/strategies/{strategy_id}/versions/{version_a}/diff/{version_b}")
+def get_strategy_version_diff(strategy_id: str, version_a: int, version_b: int):
+    """Item 6 (Extraction History/Versioning): what actually changed
+    between two saved versions of the same strategy -- both versions are
+    full snapshots already kept forever (strategies/library/<id>/versions/),
+    this just reads two of them and reports the field-level differences
+    instead of making the user diff two raw JSON files by hand."""
+    try:
+        changes = lib.diff_versions(strategy_id, version_a, version_b)
+    except FileNotFoundError:
+        raise HTTPException(404, "strategy or version not found")
+    return {"strategy_id": strategy_id, "version_a": version_a, "version_b": version_b, "changes": changes}
+
+
 # --------------------------------------------------------------- Batch 4, Task 3: Duplicate Strategy Cleanup
 
 def _rule_count_for(strategy_id, cfg, fidelity_reports):

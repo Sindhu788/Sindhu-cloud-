@@ -1,0 +1,15 @@
+{
+  "id": "ca25e64032ca",
+  "name": "Kotegawa Bear Market Reversal Strategy -- Fixed 1:2 TP variant [Manual Build]",
+  "tags": [
+    "dual_tp_variant",
+    "source:6c9dddb14b67"
+  ],
+  "favourite": false,
+  "archived": true,
+  "created_at": "2026-08-25T19:33:43.955760+00:00",
+  "updated_at": "2026-08-25T19:33:44.071665+00:00",
+  "current_version": 1,
+  "safety_status": "ready",
+  "safety_reasons": []
+}

@@ -15,7 +15,7 @@ import pandas as pd
 import pytest
 
 from backtest_engine.engine import run_backtest, _position_size
-from backtest_engine.strategy_config import StrategyConfig
+from backtest_engine.strategy_config import StrategyConfig, SLTPSpec
 from backtest_engine import validator
 from strategies.base import Strategy, Signal
 
@@ -349,7 +349,7 @@ def test_wrong_side_take_profit_from_slippage_is_discarded_not_trusted():
     assert trades[0]["stop_loss"] == pytest.approx(90.0)  # still valid, untouched
 
 
-def test_wrong_side_stop_loss_is_discarded_not_trusted():
+def test_wrong_side_stop_loss_gets_emergency_fallback_not_discarded():
     """The guard in _open_position() is a GENERAL safety net, not specific
     to slippage-caused invalidation -- entry-side slippage structurally
     can only ever push a fill TOWARD the take_profit side and AWAY from
@@ -359,18 +359,104 @@ def test_wrong_side_stop_loss_is_discarded_not_trusted():
     structural-zone computation, same bug class as the original eb1ca8f
     fix). Constructed directly here to prove the guard catches it
     regardless of WHY it's wrong, not just the one mechanism that happens
-    to be easy to reproduce with slippage."""
+    to be easy to reproduce with slippage.
+
+    Requirement 20 originally discarded this to None with no fallback,
+    leaving the trade completely unprotected (see the ZECUSDT regression
+    tests below). It must now get EMERGENCY_STOP_PCT below the real fill
+    price instead -- never left with no stop at all. The fallback only
+    applies when the strategy actually configured a real stop-loss
+    mechanism (stop_loss.type != "unknown"), hence the explicit config
+    here -- see test_strategy_with_no_configured_stop_loss_is_untouched
+    for the case where it must NOT fire."""
     df = _make_df([
         (100, 101, 99, 100),
         (100, 101, 95, 100),   # signal fires: buy at ~100, but sl is ABOVE entry --
                                 # already wrong-side even before any slippage.
         (100, 106, 94, 96),
     ])
-    strat = _FixedSignalStrategy(fire_at_bar=1, action="buy", stop_loss=100.5, take_profit=110.0)
+    cfg = StrategyConfig(name="t", stop_loss=SLTPSpec(type="structure"))
+    strat = _FixedSignalStrategy(fire_at_bar=1, action="buy", stop_loss=100.5, take_profit=110.0, config=cfg)
     trades, equity, bal = run_backtest(df, strat, _settings())
     assert len(trades) == 1
-    assert trades[0]["stop_loss"] is None  # discarded, not silently wrong-side
+    assert trades[0]["stop_loss"] == pytest.approx(100 * 0.99)  # emergency fallback, not None
     assert trades[0]["take_profit"] == pytest.approx(110.0)  # still valid, untouched
+
+
+def test_never_computed_stop_loss_gets_emergency_fallback_not_left_none():
+    """Regression test for the REAL root cause found live on Fabio
+    Valentina's Models (ZECUSDT), which turned out to be a DIFFERENT path
+    than the wrong-side-post-slippage case above: the strategy's
+    "structure" stop-loss search (order block / FVG / support-resistance,
+    in configured_strategy.py) found no valid zone at all on the signal
+    bar and returned None outright -- never invalidated by the wrong-side
+    guard, since there was never a value to invalidate. The old code left
+    this stop_loss=None from the moment the trade opened, exactly like the
+    wrong-side case, so it needs the same emergency fallback."""
+    df = _make_df([
+        (100, 101, 99, 100),
+        (100, 101, 95, 100),   # signal fires: buy at ~100, stop_loss=None from the start
+                                # (as if the structure search found no zone).
+        (100, 106, 94, 96),
+    ])
+    cfg = StrategyConfig(name="t", stop_loss=SLTPSpec(type="structure"))
+    strat = _FixedSignalStrategy(fire_at_bar=1, action="buy", stop_loss=None, take_profit=110.0, config=cfg)
+    trades, equity, bal = run_backtest(df, strat, _settings())
+    assert len(trades) == 1
+    assert trades[0]["stop_loss"] == pytest.approx(100 * 0.99)  # emergency fallback, not None
+
+
+def test_strategy_with_no_configured_stop_loss_is_untouched():
+    """A strategy that never configured a stop-loss mechanism (type stays
+    at the SLTPSpec default, "unknown") is deliberately relying on
+    exit_conditions instead -- the emergency fallback must NOT force a
+    stop onto it just because a signal happens to come in with
+    stop_loss=None. Forcing one would be a real behavior change nobody
+    asked for, not a safety fix."""
+    df = _make_df([
+        (100, 101, 99, 100),
+        (100, 101, 95, 100),
+        (100, 106, 94, 96),
+    ])
+    strat = _FixedSignalStrategy(fire_at_bar=1, action="buy", stop_loss=None, take_profit=110.0)
+    trades, equity, bal = run_backtest(df, strat, _settings())
+    assert len(trades) == 1
+    assert trades[0]["stop_loss"] is None
+
+
+def test_invalidated_structure_stop_loss_does_not_ride_unprotected_to_end_of_data():
+    """Regression test for the real bug found live on Fabio Valentina's
+    Models (ZECUSDT): a structure-based stop_loss left at None (whether
+    discarded as wrong-side or never computed at all) used to have NO
+    fallback, so _check_forced_exit's stop check (which only fires when
+    stop_loss is not None) had nothing left to catch a huge adverse move
+    -- the trade rode open, unprotected, until the backtest ran out of
+    data and force-closed it wherever price happened to be (confirmed:
+    one such trade sat open over a year and closed at -1075%). With the
+    emergency fallback in place, a large adverse move must now trigger an
+    ordinary stop_loss exit long before end_of_data, at a small, bounded
+    loss."""
+    rows = [
+        (100, 101, 99, 100),
+        (100, 101, 95, 100),   # signal fires: buy at ~100, stop_loss=None from the start ->
+                                # falls back to 99.0 (100 * (1 - EMERGENCY_STOP_PCT)).
+    ]
+    # A long, catastrophic adverse drift that would have ridden to
+    # end_of_data unprotected under the old no-fallback behavior.
+    price = 96.0
+    for _ in range(500):
+        rows.append((price, price, price - 20, price))
+        price -= 1.0
+    df = _make_df(rows)
+    cfg = StrategyConfig(name="t", stop_loss=SLTPSpec(type="structure"))
+    strat = _FixedSignalStrategy(fire_at_bar=1, action="buy", stop_loss=None, take_profit=110.0, config=cfg)
+    trades, equity, bal = run_backtest(df, strat, _settings())
+    assert len(trades) == 1
+    assert trades[0]["exit_reason"] == "stop_loss"
+    assert trades[0]["exit_price"] == pytest.approx(100 * 0.99)
+    # Bounded loss from the emergency stop, not the unbounded catastrophic
+    # drift that continues for hundreds of bars afterward.
+    assert trades[0]["pnl_pct"] > -5.0
 
 
 # ------------------------------------------------------------ exit types

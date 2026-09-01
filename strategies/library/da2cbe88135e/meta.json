@@ -1,0 +1,17 @@
+{
+  "id": "da2cbe88135e",
+  "name": "Fair Value Gap Reversal -- Confirmation Strict variant [Manual Build]",
+  "tags": [
+    "confirmation_optimizer_variant",
+    "level:strict",
+    "source:798166a860a3",
+    "additions:sl_distance,min_rr"
+  ],
+  "favourite": false,
+  "archived": true,
+  "created_at": "2026-08-27T08:56:19.838917+00:00",
+  "updated_at": "2026-08-27T08:56:19.858600+00:00",
+  "current_version": 1,
+  "safety_status": "ready",
+  "safety_reasons": []
+}

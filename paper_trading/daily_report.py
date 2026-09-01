@@ -79,45 +79,46 @@ def generate_daily_report(now=None):
         key=lambda s: s["count"], reverse=True,
     )
 
-    lines = [f"Roz Ki Report -- {now.strftime('%Y-%m-%d')}", ""]
+    lines = [f"\U0001F4C5 <b>Roz Ki Report -- {now.strftime('%Y-%m-%d')}</b>", "─" * 18, ""]
 
     if sent_texts:
         lines.append(
-            f"Aaj {len(sent_texts)} signal(s) Telegram par bheje gaye -- "
+            f"\U0001F4E8 Aaj {len(sent_texts)} signal(s) Telegram par bheje gaye -- "
             f"{high_count} High Confidence, {low_count} regular."
         )
     else:
-        lines.append("Aaj tak koi signal Telegram par nahi bheja gaya.")
+        lines.append("\U0001F4E8 Aaj tak koi signal Telegram par nahi bheja gaya.")
 
     if today_summary["closed_trades"]:
         lines.append(
-            f"Aaj {today_summary['closed_trades']} trade(s) band huay, {today_summary['win_count']} jeete -- "
+            f"\U0001F4B0 Aaj {today_summary['closed_trades']} trade(s) band huay, {today_summary['win_count']} jeete -- "
             f"aaj ka PnL: ${today_summary['total_pnl']:.2f}."
         )
     else:
-        lines.append("Aaj koi trade band nahi hua.")
+        lines.append("\U0001F4B0 Aaj koi trade band nahi hua.")
 
     if month_summary["closed_trades"]:
         lines.append(
-            f"Is mahine ab tak ka PnL: ${month_summary['total_pnl']:.2f} "
+            f"\U0001F4C6 Is mahine ab tak ka PnL: ${month_summary['total_pnl']:.2f} "
             f"({month_summary['closed_trades']} trades band hue)."
         )
     else:
-        lines.append("Is mahine ab tak koi trade band nahi hua.")
+        lines.append("\U0001F4C6 Is mahine ab tak koi trade band nahi hua.")
 
     if best_today and best_today["total_pnl"] > 0:
-        lines.append(f"Aaj ki sabse achi strategy: {best_today['strategy_name']} (${best_today['total_pnl']:.2f}).")
+        lines.append(f"\U0001F3C6 Aaj ki sabse achi strategy: {best_today['strategy_name']} (${best_today['total_pnl']:.2f}).")
     elif strategy_stats_today:
-        lines.append("Aaj koi strategy profit mein nahi hai.")
+        lines.append("\U0001F3C6 Aaj koi strategy profit mein nahi hai.")
     else:
-        lines.append("Aaj kisi strategy ka koi trade band nahi hua.")
+        lines.append("\U0001F3C6 Aaj kisi strategy ka koi trade band nahi hua.")
 
+    lines.append("")
     if losing_streaks:
-        lines.append("Losing streak par strategies:")
+        lines.append("⚠️ <b>Losing streak par strategies:</b>")
         for s in losing_streaks[:5]:
-            lines.append(f"  - {s['strategy_name']}: {s['count']} trades laga taar haar rahi hai.")
+            lines.append(f"• {s['strategy_name']}: {s['count']} trades laga taar haar rahi hai.")
     else:
-        lines.append("Is waqt koi strategy losing streak par nahi hai.")
+        lines.append("✅ Is waqt koi strategy losing streak par nahi hai.")
 
     # Batch 9, Task 4: only ever added when the CEO has explicitly opted
     # this specific challenge into the daily report -- reuses
@@ -126,17 +127,18 @@ def generate_daily_report(now=None):
     challenge_progress = challenge_mode.compute_progress(now_iso=now.isoformat())
     if challenge_progress and challenge_progress.get("telegram_report_enabled"):
         lines.append("")
+        lines.append("\U0001F3AF <b>Challenge:</b>")
         lines.append(
-            f"Challenge: ${challenge_progress['start_amount']:.2f} -> "
+            f"• ${challenge_progress['start_amount']:.2f} -> "
             f"${challenge_progress['target_amount']:.2f} mein {challenge_progress['days']} din."
         )
         lines.append(
-            f"Abhi tak: ${challenge_progress['current_amount']:.2f} "
+            f"• Abhi tak: ${challenge_progress['current_amount']:.2f} "
             f"({challenge_progress['progress_pct']:.1f}% raasta tay), "
             f"{challenge_progress['remaining_days']:.1f} din baaki, "
             f"{'pace se aage' if challenge_progress['ahead_of_pace'] else 'pace se peeche'} hain."
         )
-        lines.append(challenge_progress["honest_note"])
+        lines.append(f"• {challenge_progress['honest_note']}")
 
     report_text = "\n".join(lines)
     return {

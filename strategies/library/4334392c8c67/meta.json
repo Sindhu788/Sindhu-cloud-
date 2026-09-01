@@ -1,0 +1,37 @@
+{
+  "id": "4334392c8c67",
+  "name": "Supply/Demand Zone Strategy [Manual Build]",
+  "tags": [
+    "demand_zone",
+    "supply_zone",
+    "valid_structure_trend",
+    "manual_build",
+    "1h",
+    "price_action",
+    "new_capability"
+  ],
+  "favourite": false,
+  "archived": false,
+  "created_at": "2026-08-23T03:22:08.021202+00:00",
+  "updated_at": "2026-08-25T00:39:06.492224+00:00",
+  "current_version": 4,
+  "safety_status": "ready",
+  "safety_reasons": [],
+  "version_log": [
+    {
+      "version": 2,
+      "reason": "Fix R:R filter to check against the actual take-profit target instead of a separate lookback reference, so the pre-trade 2.5:1 gate matches the real exit level, not an approximation of it.",
+      "at": "2026-08-23T04:09:26.650066+00:00"
+    },
+    {
+      "version": 3,
+      "reason": "Threshold tuning: strengthened impulse_atr_mult from 1.5x to 2.0x ATR(14) after a grid search across 6 threshold combinations (zone counts 157-4330 across 50 coins). Kept tightness_mult at 1.5x -- tightening it to 1.2x actually produced the WORST profit factor (0.692) of the tested combos despite the tighter range check, while strengthening impulse to 2.0x gave the best profit factor (0.707) and lowest max drawdown (13.11%) among genuinely selective (non-sparse, non-noisy) combinations, and better matches the source documents emphatic sharp/large-move language.",
+      "at": "2026-08-23T06:23:05.350175+00:00"
+    },
+    {
+      "version": 4,
+      "reason": "Optimizer Part 1: add 1.0% buffer to structure SL (previously zero buffer, cost_model verified safe) -- combined with existing min_risk_reward_filter=2.5, this raises entry selectivity",
+      "at": "2026-08-25T00:39:06.492224+00:00"
+    }
+  ]
+}

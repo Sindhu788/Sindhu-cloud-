@@ -1,0 +1,96 @@
+{
+  "name": "HTF-LTF FVG/OB Confluence Entry -- Medium Variant [Manual Build]",
+  "raw_text": "HTF-LTF FVG/OB Confluence Entry (intraday v1 only, per the task's own instruction -- no swing/weekly variant built). Bias TF: 4H -- marks Support/Resistance, Order Blocks, and FVGs. Entry TF: 15m -- looks for a matching FVG/OB in the SAME direction as HTF bias. HARD FILTER (High Probability Zone): HTF and LTF trend (trend_regime, own 3-way up/down/sideways classifier) must match; HTF sideways or HTF/LTF mismatch = skip entirely (a genuinely unclear HTF trend can satisfy neither the bullish nor bearish gate, so this is enforced by construction, no separate check needed). Order Block mitigation: an OB invalidates the instant price closes back through it before an entry occurs (reuses the same close-through-the-zone trigger breaker_blocks() already uses). Entry (long, HTF bullish; short is a builder's own MIRRORED default, since the source only detailed longs explicitly): price retraces to touch the 15m bullish FVG -- 50% level preferred, full-zone touch as fallback (represented as one first-touch-of-zone event per distinct gap; see the block's own comment for why the two collapse to one mechanism here). Stop-loss: slightly beyond the FVG zone, or its 50% level if the FVG-producing candle was unusually large (1.5x ATR14, own default) -- 0.65% buffer (cost_model-verified safe). Take-profit: structure-based -- nearest swing/HTF level (naturally produces high RR, no fixed ratio forced). No session restriction, 24/7. Risk 1% default.",
+  "timeframes": {
+    "bias": "4h",
+    "entry": "15m"
+  },
+  "indicators": [],
+  "concepts_used": [
+    "htf_ltf_fvg_ob_confluence",
+    "order_block",
+    "fvg",
+    "support",
+    "resistance"
+  ],
+  "entry_conditions": [],
+  "exit_conditions": [],
+  "confirmation_conditions": [],
+  "long_entry_conditions": [
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "htf_ltf_fvg_ob_confluence",
+      "direction": "bullish",
+      "text": null,
+      "role": null,
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": null
+    }
+  ],
+  "short_entry_conditions": [
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "htf_ltf_fvg_ob_confluence",
+      "direction": "bearish",
+      "text": null,
+      "role": null,
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": null
+    }
+  ],
+  "entry_rule_groups": [],
+  "stop_loss": {
+    "type": "structure",
+    "value": 0.65,
+    "level": null,
+    "atr_period": null
+  },
+  "take_profit": {
+    "type": "structure",
+    "value": null,
+    "level": null,
+    "atr_period": null
+  },
+  "risk_pct": 1.0,
+  "risk_reward": null,
+  "sl_distance_filter_pct": {
+    "min_pct": 0.6
+  },
+  "min_risk_reward_filter": null,
+  "primary_target_lookback_bars": null,
+  "risk_reward_filter_uses_take_profit": false,
+  "zone_params": {},
+  "session_filter": [],
+  "trend_filter": null,
+  "day_filter": [],
+  "breakeven_at_rr": null,
+  "entry_type": "market",
+  "long_entry_type": null,
+  "short_entry_type": null,
+  "entry_price_offset_pct": null,
+  "partial_take_profit": null,
+  "trailing_stop": null,
+  "time_exit_bars": null,
+  "tags": [],
+  "favourite": false,
+  "claimed_win_rate_pct": null,
+  "claimed_win_rate_source_text": null,
+  "missing": [],
+  "warnings": []
+}

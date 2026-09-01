@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from data_engine import storage
 from knowledge_compiler.compiler import compile_document, compile_from_ai_extraction
 
+from ai_integration import claim_extraction
 from ai_integration import deep_understanding
 from ai_integration import dictionary_builder
 from ai_integration import multi_pass_extraction
@@ -226,13 +227,29 @@ def import_document(raw_text, title=None, source_hint=None, use_ai=True, input_k
         )
         ai_result, provider_name, ai_error = mp["result"], mp["provider"], mp["error"]
         if mp["result"] is not None:
+            rules = list(mp["comparison"]["rules"])
+            # Extraction Pipeline Improvements (gap 1): an ambiguous multi-
+            # model document (2+ numbered models MENTIONED but fewer than 2
+            # have a confident heading to anchor a real split) is surfaced
+            # as an extra "missing" rule so it flows through the SAME
+            # Incomplete Lock / clarification path every other unresolved
+            # item already uses, rather than a separate, easy-to-miss UI --
+            # this is the "flag for clarification rather than guess" the
+            # gap requires, reusing existing machinery instead of new.
+            sections = mp.get("model_sections") or {}
+            if sections.get("ambiguous"):
+                rules.append({
+                    "id": f"model-separation-{len(rules) + 1}", "text": sections["reason"],
+                    "category": "multi_model_ambiguous", "status": "missing", "captured_as": None,
+                })
             fidelity_report = {
-                "expected_rule_count": mp["comparison"]["expected_count"],
+                "expected_rule_count": mp["comparison"]["expected_count"] + (1 if sections.get("ambiguous") else 0),
                 "captured_rule_count": mp["comparison"]["captured_count"],
                 "call_count": mp["call_count"],
                 "retry_count": mp["retry_count"],
-                "rules": mp["comparison"]["rules"],
+                "rules": rules,
                 "provider": mp["provider"],
+                "model_sections": sections,
             }
     elif not served_from_cache:
         understanding = deep_understanding.understand_document_structured(
@@ -255,6 +272,15 @@ def import_document(raw_text, title=None, source_hint=None, use_ai=True, input_k
         if ai_result["strategy"] and content_type != "lesson" else None
     )
 
+    # Item 7 (Cross-Reference Validation): capture the document's own
+    # performance claim (if it makes one) verbatim, before anything else
+    # touches this strategy -- see claim_extraction.py and, once a real
+    # backtest exists, claim_validation.compare_claim_to_backtest.
+    if strategy_config is not None:
+        claimed_pct, claim_text = claim_extraction.extract_claimed_win_rate(raw_text)
+        strategy_config.claimed_win_rate_pct = claimed_pct
+        strategy_config.claimed_win_rate_source_text = claim_text
+
     # Self-Correcting Import Pipeline. The AI has already been asked to
     # self-verify inside the extraction call above (Level 1, preventive --
     # see schema.py's SELF-VERIFICATION block), but prompt-following alone
@@ -269,9 +295,18 @@ def import_document(raw_text, title=None, source_hint=None, use_ai=True, input_k
     correction = None
     if strategy_config is not None:
         correction = self_correction.self_correct(strategy_config, use_ai=use_ai)
+        extra_notes = []
         if correction["level"] == 3 and correction["user_message"]:
+            extra_notes.append(correction["user_message"])
+        # Level 1/2 repairs (structural auto-fixes, contradiction splits,
+        # Item 10's learned-field auto-fills) are never left invisible --
+        # each is a transparency note ("here's what was fixed and why"),
+        # distinct from Level 3's "please answer this" question above.
+        elif correction["repairs"]:
+            extra_notes.extend(f"Auto-fixed: {r}" for r in correction["repairs"])
+        if extra_notes:
             ai_result = dict(ai_result)
-            ai_result["missing_rules"] = list(ai_result["missing_rules"]) + [correction["user_message"]]
+            ai_result["missing_rules"] = list(ai_result["missing_rules"]) + extra_notes
 
     lesson_objects = [strategy_builder.build_lesson(l) for l in ai_result["lessons"]]
 

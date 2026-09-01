@@ -4,15 +4,29 @@ data_engine.config.load_or_seed / save_config helpers. No new persistence
 mechanism, no database table for settings (matches app_settings.json,
 paper_trading_settings.json, etc.)."""
 
+import os
+
 from data_engine import config as base_config
 
 _SETTINGS_FILE = "ai_settings.json"
+
+# Lightweight cloud runner support: the real ai_settings.json (with the
+# CEO's already-configured Groq key) lives only on the local laptop and is
+# not part of the curated cloud database or migrated anywhere -- a fresh
+# Railway deploy starts with no AI provider configured at all, and this
+# runner mounts no Settings page to enter one. GROQ_API_KEY, if set, seeds
+# the very first save of ai_settings.json (data_engine.config.load_or_seed's
+# existing "defaults only apply until the file exists" behavior) so AI
+# Trade Review works immediately after deploy using the SAME key already
+# configured locally, pasted once as an environment variable. Local laptop
+# behavior is unchanged when the env var is unset.
+_ENV_API_KEY_SEEDS = {"groq": "GROQ_API_KEY"}
 
 SUPPORTED_PROVIDERS = ["claude", "groq", "openai", "gemini", "deepseek"]
 
 _DEFAULT_MODELS = {
     "claude": "claude-sonnet-5",
-    "groq": "llama-3.3-70b-versatile",
+    "groq": "openai/gpt-oss-120b",
     "openai": "gpt-4o-mini",
     "gemini": "gemini-2.0-flash",
     "deepseek": "deepseek-chat",
@@ -41,11 +55,17 @@ _DEFAULT_PROVIDER_SETTINGS = {
 
 def _default_settings():
     providers = {}
+    active_provider = None
     for name in SUPPORTED_PROVIDERS:
         entry = dict(_DEFAULT_PROVIDER_SETTINGS)
         entry["model"] = _DEFAULT_MODELS[name]
+        env_var = _ENV_API_KEY_SEEDS.get(name)
+        if env_var and os.environ.get(env_var):
+            entry["api_key"] = os.environ[env_var]
+            entry["enabled"] = True
+            active_provider = name
         providers[name] = entry
-    return {"active_provider": None, "providers": providers}
+    return {"active_provider": active_provider, "providers": providers}
 
 
 def load_settings():

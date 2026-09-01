@@ -1,0 +1,95 @@
+{
+  "name": "HTF Trend Trendline Breakout [Manual Build]",
+  "raw_text": "HTF Trend Trendline Breakout. Bias TF: 4H + 1H, trend must be confirmed on both (valid_structure_trend). Entry TF: 15m. NEW CONCEPT -- Trendline breakout: on the entry TF, connect the 2 most recent confirmed swing points (lows for an uptrend, highs for a downtrend) into a line, detect the first close beyond it in the HTF trend's direction. Long: HTF uptrend (4H+1H) confirmed, entry-TF trendline (from swing-lows) broken UP. Short: HTF downtrend confirmed, entry-TF trendline (from swing-highs) broken DOWN. Stop-loss: recent swing-low(long)/swing-high(short), 0.65% buffer (cost_model-verified safe). Take-profit: NONE fixed -- structural trailing stop only (rides the trend, allows 1:10+ RR). Optional soft filters: half size on weekends or when the 1H regime is sideways. No session restriction, 24/7. Risk 1% default.",
+  "timeframes": {
+    "h4": "4h",
+    "h1": "1h",
+    "entry": "15m"
+  },
+  "indicators": [],
+  "concepts_used": [
+    "trendline_breakout",
+    "support",
+    "resistance"
+  ],
+  "entry_conditions": [],
+  "exit_conditions": [],
+  "confirmation_conditions": [],
+  "long_entry_conditions": [
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "trendline_breakout",
+      "direction": "bullish",
+      "text": null,
+      "role": null,
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": null
+    }
+  ],
+  "short_entry_conditions": [
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "trendline_breakout",
+      "direction": "bearish",
+      "text": null,
+      "role": null,
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": null
+    }
+  ],
+  "entry_rule_groups": [],
+  "stop_loss": {
+    "type": "structure",
+    "value": 0.65,
+    "level": null,
+    "atr_period": null
+  },
+  "take_profit": {
+    "type": "unknown",
+    "value": null,
+    "level": null,
+    "atr_period": null
+  },
+  "risk_pct": 1.0,
+  "risk_reward": null,
+  "sl_distance_filter_pct": null,
+  "min_risk_reward_filter": null,
+  "primary_target_lookback_bars": null,
+  "risk_reward_filter_uses_take_profit": false,
+  "zone_params": {},
+  "session_filter": [],
+  "trend_filter": null,
+  "day_filter": [],
+  "breakeven_at_rr": null,
+  "entry_type": "market",
+  "long_entry_type": null,
+  "short_entry_type": null,
+  "entry_price_offset_pct": null,
+  "partial_take_profit": null,
+  "trailing_stop": {
+    "type": "structure"
+  },
+  "time_exit_bars": null,
+  "tags": [],
+  "favourite": false,
+  "claimed_win_rate_pct": null,
+  "claimed_win_rate_source_text": null,
+  "missing": [],
+  "warnings": []
+}

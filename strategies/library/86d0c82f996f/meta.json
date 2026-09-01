@@ -1,0 +1,15 @@
+{
+  "id": "86d0c82f996f",
+  "name": "Support/Resistance Breakout (Swing/Crypto Futures) -- Fixed 1:2 TP variant [Manual Build]",
+  "tags": [
+    "dual_tp_variant",
+    "source:b4caef4ee47d"
+  ],
+  "favourite": false,
+  "archived": true,
+  "created_at": "2026-08-25T18:31:07.336483+00:00",
+  "updated_at": "2026-08-25T18:31:07.436672+00:00",
+  "current_version": 1,
+  "safety_status": "ready",
+  "safety_reasons": []
+}

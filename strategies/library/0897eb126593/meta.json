@@ -1,0 +1,25 @@
+{
+  "id": "0897eb126593",
+  "name": "4-Hour Range Breakout-Retest [Manual Build]",
+  "tags": [
+    "concept_based_strategy",
+    "manual_build",
+    "sequence_ordering",
+    "5m",
+    "range_breakout"
+  ],
+  "favourite": false,
+  "archived": false,
+  "created_at": "2026-08-24T14:50:21.799982+00:00",
+  "updated_at": "2026-08-25T00:22:01.465456+00:00",
+  "current_version": 2,
+  "safety_status": "ready",
+  "safety_reasons": [],
+  "version_log": [
+    {
+      "version": 2,
+      "reason": "Optimizer Part 1: widen signal_candle SL buffer 1.0% -> 1.5% (cost_model verified safe) -- realized RR well below 2.0 TP target",
+      "at": "2026-08-25T00:22:01.465456+00:00"
+    }
+  ]
+}

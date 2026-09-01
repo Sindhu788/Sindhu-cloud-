@@ -1,0 +1,738 @@
+{
+  "categories": [
+    {
+      "name": "Candlestick Patterns",
+      "concepts": [
+        {
+          "name": "Doji",
+          "status": "defined",
+          "detail": {
+            "what_it_is": "A candlestick where the open and close prices are approximately equal, producing a very small body. Body <= 10% of the candle's full range (high to low). Signal: market indecision -- buyers and sellers pushed in opposite directions but price returned close to where it opened.",
+            "types": [
+              {"name": "Normal Doji", "description": "Open ~= Close, roughly symmetric wicks on both sides."},
+              {"name": "Long-Legged Doji", "description": "Long wicks on both sides -- higher uncertainty."},
+              {"name": "Dragonfly Doji", "description": "Long lower wick, open/close near the high -- more bullish bias within the indecision signal."},
+              {"name": "Gravestone Doji", "description": "Long upper wick, open/close near the low -- more bearish bias within the indecision signal."}
+            ],
+            "why_location_matters": {
+              "principle": "A Doji's meaning depends entirely on WHERE it forms.",
+              "cases": [
+                {"location": "Near support", "meaning": "Possible sign price is pausing before a bullish move -- requires confirmation."},
+                {"location": "Near resistance", "meaning": "Possible sign price is pausing before a bearish move -- requires confirmation."},
+                {"location": "Middle of a trend, isolated", "meaning": "Generally a weak/low-value signal -- should not be traded alone."}
+              ]
+            },
+            "golden_rule": "Location + Doji + Confirmation = valid setup. A Doji alone, without both location and confirmation, is not a trade signal.",
+            "long_setup": [
+              {"step": 1, "title": "Location", "text": "Price is at or near a support zone (uses the engine's existing support/resistance zone mechanism)."},
+              {"step": 2, "title": "Doji forms", "text": "A Doji candle forms at this support zone (body <= 10% of range, per the definition above)."},
+              {"step": 3, "title": "Wait, do not enter yet", "text": "The Doji itself is not the entry signal."},
+              {"step": 4, "title": "Confirmation (sequence-ordered)", "text": "A subsequent candle must close ABOVE the Doji's high, and this confirmation must occur strictly AFTER the Doji (uses the engine's existing sequential-event/sequence-ordering capability)."},
+              {"step": 5, "title": "Entry", "text": "At the close of the confirmation candle."},
+              {"step": 6, "title": "Stop Loss", "text": "Placed just below the Doji's low (uses cost_model.check_buffer_safety() to confirm the buffer is genuinely safe against real transaction costs before finalizing)."},
+              {"step": 7, "title": "Take Profit", "text": "At the nearest opposing resistance/structure level (reuses the existing structure-based TP mechanism used in prior strategies)."}
+            ],
+            "short_setup": [
+              {"step": 1, "title": "Location", "text": "Price at or near a resistance zone."},
+              {"step": 2, "title": "Doji forms", "text": "A Doji candle forms at this resistance zone."},
+              {"step": 3, "title": "Wait for confirmation", "text": "The Doji itself is not the entry signal."},
+              {"step": 4, "title": "Confirmation (sequence-ordered)", "text": "A subsequent candle closes BELOW the Doji's low, strictly after the Doji."},
+              {"step": 5, "title": "Entry", "text": "At the close of the confirmation candle."},
+              {"step": 6, "title": "Stop Loss", "text": "Just above the Doji's high, buffer-safety verified."},
+              {"step": 7, "title": "Take Profit", "text": "At the nearest opposing support/structure level."}
+            ],
+            "risk_note": "Trading a Doji without both location and confirmation is high-risk. This complete definition requires all three elements (location + pattern + confirmation) before it should ever be considered a valid setup -- the same discipline applied to every strategy built this session.",
+            "thresholds": [
+              {"value": "Body <= 10% of candle range", "note": "Builder's own default -- source material said \"very small\" with no exact number."},
+              {"value": "Stop-loss buffer size", "note": "Determined dynamically via cost_model.check_buffer_safety(), not a fixed guess."}
+            ],
+            "engine_note": "This is a display/reference task only -- it does not need to be wired into the backtest engine as a new runnable strategy, since the existing Candlestick Pattern Reversal strategy already implements Doji's trade logic in the engine."
+          }
+        },
+        {
+          "name": "Hammer",
+          "status": "defined",
+          "detail": {
+            "what_it_is": "A candle with a small body positioned in the UPPER portion of its range, a lower wick at least 2x the body length, and a minimal or absent upper wick. Occurs after a downtrend, at or near a support zone. Signal: sellers pushed price down during the session, but buyers stepped in and pushed it back up near the open -- potential bullish reversal.",
+            "types": [
+              {"name": "Hammer", "description": "The standard bullish version described above -- small body high in the range, long lower wick, after a downtrend at support."},
+              {"name": "Inverted Hammer (related, not built as a full concept here)", "description": "Small body in the LOWER portion of the range with a long UPPER wick instead -- a distinct, weaker variant. Mentioned for completeness; its own full reference entry is a future pass, not part of this one."}
+            ],
+            "why_location_matters": {
+              "principle": "A Hammer only means something in the context of a prior downtrend and a real support zone underneath it.",
+              "cases": [
+                {"location": "After a downtrend, at/near support", "meaning": "The classic valid context -- rejection of lower prices right where buyers are expected to defend."},
+                {"location": "In the middle of a trend, isolated, no support nearby", "meaning": "Weak/low-value signal -- the long lower wick isn't happening at a level that matters."},
+                {"location": "During an uptrend", "meaning": "Not a Hammer setup at all -- see Hanging Man (same shape, opposite trend context, a related but separate pattern)."}
+              ]
+            },
+            "golden_rule": "Location (support, after a downtrend) + Hammer shape + Confirmation = valid setup. The long lower wick alone, without both location and confirmation, is not a trade signal.",
+            "long_setup": [
+              {"step": 1, "title": "Location", "text": "Price is at or near a support zone, following a downtrend (uses the engine's existing support/resistance zone mechanism)."},
+              {"step": 2, "title": "Hammer forms", "text": "A Hammer candle forms at this support zone -- small body in the upper part of the range, lower wick >= 2x the body."},
+              {"step": 3, "title": "Wait, do not enter yet", "text": "The Hammer itself is not the entry signal."},
+              {"step": 4, "title": "Confirmation (sequence-ordered)", "text": "A subsequent candle must close ABOVE the Hammer's high, strictly AFTER the Hammer (uses the engine's existing sequential-event/sequence-ordering capability)."},
+              {"step": 5, "title": "Entry", "text": "At the close of the confirmation candle."},
+              {"step": 6, "title": "Stop Loss", "text": "Placed just below the Hammer's low (uses cost_model.check_buffer_safety() to confirm the buffer is genuinely safe against real transaction costs before finalizing)."},
+              {"step": 7, "title": "Take Profit", "text": "At the nearest opposing resistance/structure level (reuses the existing structure-based TP mechanism used in prior strategies)."}
+            ],
+            "short_setup": [
+              {"step": 1, "title": "Not directly applicable", "text": "Hammer is a bullish-only pattern by definition (small body high in the range, long lower wick, after a downtrend at support). Its short-side mirror is a separate, related pattern -- Shooting Star (see that entry) -- rather than a 'short Hammer.'"}
+            ],
+            "risk_note": "Trading a Hammer without both a real prior downtrend into support AND a confirmation candle is high-risk -- the long lower wick by itself just means price dipped and came back, which happens constantly without being a reversal. Location + pattern + confirmation together are what make it a valid setup, matching the same discipline used for Doji.",
+            "thresholds": [
+              {"value": "Lower wick >= 2x body length", "note": "Builder's own default -- source material said 'small body, long lower wick' with no exact ratio."},
+              {"value": "Upper wick minimal or absent", "note": "Qualitative in the source material -- treated the same way as the Doji's body-size threshold: a deliberate, flagged default."},
+              {"value": "Stop-loss buffer size", "note": "Determined dynamically via cost_model.check_buffer_safety(), not a fixed guess."}
+            ],
+            "engine_note": "This is a display/reference task only -- it does not need to be wired into the backtest engine as a new runnable strategy, since the existing Candlestick Pattern Reversal strategy already implements this logic separately."
+          }
+        },
+        {
+          "name": "Inverted Hammer",
+          "status": "defined",
+          "detail": {
+            "what_it_is": "A candle with a small body positioned in the LOWER portion of its range, an upper wick at least 2x the body length, and a minimal or absent lower wick. Occurs after a downtrend, at or near a support zone. Signal: buyers attempted to push price up during the session and were pushed back down before the close -- a rejected attempt at higher prices, still read as a sign selling pressure may be running out.",
+            "types": [
+              {"name": "Inverted Hammer", "description": "The pattern described above -- small body low in the range, long upper wick, after a downtrend at support."}
+            ],
+            "distinction_from_hammer": "Directly builds on the already-documented Hammer entry rather than re-explaining the context from scratch: Inverted Hammer forms in the exact same context as Hammer (after a downtrend, at/near support), but the long wick sits on the OPPOSITE side (upper instead of lower). Signal strength is generally considered WEAKER than a standard Hammer -- Hammer's long lower wick shows buying pressure was absorbed and held; Inverted Hammer's long upper wick shows buying pressure was attempted and REJECTED, which is a less committed signal of exhaustion even though it still points the same direction.",
+            "why_location_matters": {
+              "principle": "Same as Hammer: an Inverted Hammer only means something in the context of a prior downtrend and a real support zone underneath it.",
+              "cases": [
+                {"location": "After a downtrend, at/near support", "meaning": "The classic valid context, same as Hammer -- ideally at a higher-timeframe level for extra confidence."},
+                {"location": "In the middle of a trend, isolated, no support nearby", "meaning": "Weak/low-value signal, same reasoning as every other pattern in this library."}
+              ]
+            },
+            "golden_rule": "Location (support, after a downtrend) + Inverted Hammer shape + bullish confirmation candle (sequence-ordered, strictly after) = valid setup -- same discipline as Hammer, not a looser bar just because the pattern is a known weaker variant.",
+            "long_setup": [
+              {"step": 1, "title": "Location", "text": "Price is at or near a support zone, following a downtrend (uses the engine's existing support/resistance zone mechanism)."},
+              {"step": 2, "title": "Inverted Hammer forms", "text": "An Inverted Hammer candle forms at this support zone -- small body in the lower part of the range, upper wick >= 2x the body."},
+              {"step": 3, "title": "Wait, do not enter yet", "text": "The Inverted Hammer itself is not the entry signal."},
+              {"step": 4, "title": "Confirmation (sequence-ordered)", "text": "A subsequent candle must close ABOVE the Inverted Hammer's high, strictly AFTER it forms (uses the engine's existing sequential-event/sequence-ordering capability)."},
+              {"step": 5, "title": "Entry", "text": "At the close of the confirmation candle."},
+              {"step": 6, "title": "Stop Loss", "text": "Placed just below the Inverted Hammer's low, buffer-verified via cost_model.check_buffer_safety()."},
+              {"step": 7, "title": "Take Profit", "text": "At the nearest opposing resistance/structure level."}
+            ],
+            "short_setup": [
+              {"step": 1, "title": "No short-side version -- stated honestly rather than fabricated", "text": "Inverted Hammer is conventionally a long-only/bullish-context pattern in standard trading literature, unlike most other patterns in this library which have a clean bearish mirror (Hammer/Shooting Star, Bullish/Bearish Engulfing). There is no widely-recognized 'inverted' short-side counterpart to force into this slot -- Shooting Star already covers the genuinely distinct bearish shape (small body low, long upper wick, uptrend-into-resistance context). Documented honestly here rather than inventing a mirror setup that doesn't exist in real usage."}
+            ],
+            "risk_note": "Weaker signal than a standard Hammer even with correct location and confirmation -- the rejected-buying-attempt read is a less committal exhaustion signal than absorbed selling pressure. The same 'never trade alone' discipline applies with extra weight here: location + pattern + confirmation are the floor, not a guarantee, and this pattern's lower conviction should be weighed accordingly.",
+            "thresholds": [
+              {"value": "Upper wick >= 2x body length", "note": "Reuses Hammer's existing wick-to-body ratio threshold exactly (2x), flagged as the same builder default, not a new number."},
+              {"value": "Stop-loss buffer size", "note": "Determined dynamically via cost_model.check_buffer_safety(), not a fixed guess."}
+            ],
+            "engine_note": "This is a display/reference task only -- it does not need to be wired into the backtest engine as a new runnable strategy for this task; a future build would reuse pin_bar()'s existing geometry test with the wick/body sides swapped relative to Hammer, the same way Hammer/Shooting Star already reuse pin_bar()."
+          }
+        },
+        {
+          "name": "Shooting Star",
+          "status": "defined",
+          "detail": {
+            "what_it_is": "The exact mirror of Hammer: a small body positioned in the LOWER portion of the candle's range, an upper wick at least 2x the body length (builder's own default, same as Hammer), minimal or absent lower wick. Occurs after an uptrend, at or near a resistance zone. Signal: buyers pushed price up during the session, but sellers rejected it strongly and pushed it back down near the open -- potential bearish reversal.",
+            "types": [
+              {"name": "Shooting Star", "description": "The standard bearish version described above -- small body low in the range, long upper wick, after an uptrend at resistance."},
+              {"name": "Hanging Man (related, not built as a full concept here)", "description": "Same shape as Hammer (small body high in the range, long lower wick) but occurring after an UPTREND at resistance instead of after a downtrend at support -- a related pattern, mentioned for completeness. Its own full reference entry is a future pass."}
+            ],
+            "why_location_matters": {
+              "principle": "A Shooting Star only means something in the context of a prior uptrend and a real resistance zone above it.",
+              "cases": [
+                {"location": "After an uptrend, at/near resistance", "meaning": "The classic valid context -- rejection of higher prices right where sellers are expected to defend."},
+                {"location": "In the middle of a trend, isolated, no resistance nearby", "meaning": "Weak/low-value signal -- the long upper wick isn't happening at a level that matters."},
+                {"location": "During a downtrend", "meaning": "Not a Shooting Star setup -- see Hanging Man for the shape that matters in a downtrend-into-resistance context instead."}
+              ]
+            },
+            "golden_rule": "Location (resistance, after an uptrend) + Shooting Star shape + Confirmation = valid setup. The long upper wick alone, without both location and confirmation, is not a trade signal.",
+            "long_setup": [
+              {"step": 1, "title": "Not directly applicable", "text": "Shooting Star is a bearish-only pattern by definition (small body low in the range, long upper wick, after an uptrend at resistance). Its long-side mirror is the separate Hammer pattern (see that entry), not a 'long Shooting Star.'"}
+            ],
+            "short_setup": [
+              {"step": 1, "title": "Location", "text": "Price is at or near a resistance zone, following an uptrend."},
+              {"step": 2, "title": "Shooting Star forms", "text": "A Shooting Star candle forms at this resistance zone -- small body in the lower part of the range, upper wick >= 2x the body."},
+              {"step": 3, "title": "Wait, do not enter yet", "text": "The Shooting Star itself is not the entry signal."},
+              {"step": 4, "title": "Confirmation (sequence-ordered)", "text": "A subsequent candle must close BELOW the Shooting Star's low, strictly AFTER the Shooting Star."},
+              {"step": 5, "title": "Entry", "text": "At the close of the confirmation candle."},
+              {"step": 6, "title": "Stop Loss", "text": "Placed just above the Shooting Star's high (buffer-verified via cost_model.check_buffer_safety())."},
+              {"step": 7, "title": "Take Profit", "text": "At the nearest opposing support/structure level."}
+            ],
+            "risk_note": "Trading a Shooting Star without both a real prior uptrend into resistance AND a confirmation candle is high-risk -- the long upper wick by itself just means price spiked and came back, which happens constantly without being a reversal. Location + pattern + confirmation together are what make it a valid setup.",
+            "thresholds": [
+              {"value": "Upper wick >= 2x body length", "note": "Builder's own default -- source material said 'small body, long upper wick' with no exact ratio, mirroring the same choice made for Hammer."},
+              {"value": "Stop-loss buffer size", "note": "Determined dynamically via cost_model.check_buffer_safety(), not a fixed guess."}
+            ],
+            "engine_note": "This is a display/reference task only -- it does not need to be wired into the backtest engine as a new runnable strategy, since the existing Candlestick Pattern Reversal strategy already implements this logic separately."
+          }
+        },
+        {
+          "name": "Hanging Man",
+          "status": "defined",
+          "detail": {
+            "what_it_is": "The IDENTICAL candle shape to Hammer -- small body positioned in the upper portion of its range, a lower wick at least 2x the body length, minimal or absent upper wick -- but occurring after an UPTREND, at or near a RESISTANCE zone, instead of after a downtrend at support.",
+            "types": [
+              {"name": "Hanging Man", "description": "Hammer's exact shape, uptrend-into-resistance context instead of downtrend-into-support -- read as a bearish reversal warning instead of a bullish reversal signal."}
+            ],
+            "distinction_from_hammer": "This is the single most important thing to understand about Hanging Man: it is the SAME candle shape as Hammer, pixel for pixel. The ONLY difference is trend context -- Hammer forms after a downtrend at support (bullish read); Hanging Man forms after an uptrend at resistance (bearish read). Because the shapes are visually identical, context is not a nice-to-have filter here the way it sometimes reads for other patterns -- it is the ENTIRE basis for which signal (if any) the candle actually means. A trader who reads candle shape alone, without checking trend context, cannot tell a Hammer from a Hanging Man at all.",
+            "why_location_matters": {
+              "principle": "Occurring at a resistance zone after a genuine uptrend strengthens the bearish reversal read, same principle used throughout this library.",
+              "cases": [
+                {"location": "After an uptrend, at/near resistance", "meaning": "The classic valid context -- the only context in which this shape should be read as a Hanging Man at all."},
+                {"location": "After a downtrend, at/near support", "meaning": "Not a Hanging Man -- this is a Hammer instead (see that entry). Same shape, opposite context, opposite conclusion."}
+              ]
+            },
+            "golden_rule": "Location (resistance, after an uptrend) + Hanging Man shape + bearish confirmation candle (sequence-ordered, strictly after) = valid setup.",
+            "long_setup": [
+              {"step": 1, "title": "No long-side version -- by definition", "text": "Hanging Man IS the long-side shape (Hammer's shape), just read bearishly because of its uptrend/resistance context. The long-side USE of this exact shape is already fully covered by the Hammer entry -- duplicating it here under a different name would be redundant, not a genuinely separate setup."}
+            ],
+            "short_setup": [
+              {"step": 1, "title": "Location", "text": "Price is at or near a resistance zone, following an uptrend (mirrors Shooting Star's own location requirement)."},
+              {"step": 2, "title": "Hanging Man forms", "text": "A Hanging Man candle forms at this resistance zone -- small body in the upper part of the range, lower wick >= 2x the body (Hammer's exact geometry)."},
+              {"step": 3, "title": "Wait, do not enter yet", "text": "The Hanging Man itself is not the entry signal."},
+              {"step": 4, "title": "Confirmation (sequence-ordered)", "text": "A subsequent candle must close BELOW the Hanging Man's low, strictly AFTER it forms -- mirrors Shooting Star's confirmation structure exactly, since the trading logic here is bearish-context despite the bullish-looking shape name."},
+              {"step": 5, "title": "Entry", "text": "At the close of the confirmation candle."},
+              {"step": 6, "title": "Stop Loss", "text": "Placed just above the Hanging Man's high, buffer-verified via cost_model.check_buffer_safety()."},
+              {"step": 7, "title": "Take Profit", "text": "At the nearest opposing support/structure level."}
+            ],
+            "risk_note": "The exact shape ambiguity documented above (identical to Hammer) IS the risk here -- reading this shape correctly requires confirmed uptrend context at a real resistance level; without it, there's no way to distinguish a genuine Hanging Man from a Hammer that simply happened to form in the wrong context. This reinforces why location + trend context is essential for this pattern specifically, not merely a strengthening factor the way it is for some other patterns in this library.",
+            "thresholds": [
+              {"value": "Lower wick >= 2x body length", "note": "Reuses Hammer/Shooting Star's existing wick-ratio threshold exactly, same builder default."},
+              {"value": "Stop-loss buffer size", "note": "Determined dynamically via cost_model.check_buffer_safety(), not a fixed guess."}
+            ],
+            "engine_note": "This is a display/reference task only -- it does not need to be wired into the backtest engine as a new runnable strategy for this task; a future build would reuse pin_bar()'s existing bullish-pin geometry (identical to Hammer's own detection) gated by an uptrend/resistance context filter instead of Hammer's downtrend/support one."
+          }
+        },
+        {"name": "Spinning Top", "status": "not yet defined"},
+        {
+          "name": "Bullish Engulfing",
+          "status": "defined",
+          "detail": {
+            "what_it_is": "A small red (bearish) candle immediately followed by a larger green (bullish) candle whose body fully covers/engulfs the red candle's body. Occurs after a downtrend, at or near a support zone. Signal: sellers were in control on the first candle, then buyers overwhelmed them completely on the very next candle.",
+            "types": [
+              {"name": "Bullish Engulfing", "description": "The two-candle pattern described above -- the only variant of this specific pattern (as opposed to Doji/Hammer, which have several named variants)."}
+            ],
+            "why_location_matters": {
+              "principle": "A Bullish Engulfing only means something in the context of a prior downtrend and a real support zone underneath it.",
+              "cases": [
+                {"location": "After a downtrend, at/near support", "meaning": "The classic valid context -- a genuine shift in control right where buyers are expected to defend."},
+                {"location": "In the middle of a trend, isolated, no support nearby", "meaning": "Weak/low-value signal -- one strong green candle happens often without being a real reversal."}
+              ]
+            },
+            "golden_rule": "Location (support, after a downtrend) + Bullish Engulfing shape = valid setup. Unlike Doji or Hammer, this pattern does NOT need a separate third confirmation candle -- see the note below on why.",
+            "long_setup": [
+              {"step": 1, "title": "Location", "text": "Price is at or near a support zone, following a downtrend."},
+              {"step": 2, "title": "Red candle forms", "text": "A bearish (red) candle forms at this support zone."},
+              {"step": 3, "title": "Green candle engulfs it", "text": "The next candle is bullish (green) and its body fully covers the red candle's body -- this candle IS the confirmation, no third candle needed."},
+              {"step": 4, "title": "Entry", "text": "At the close of the engulfing (green) candle."},
+              {"step": 5, "title": "Stop Loss", "text": "Placed just below the red candle's low (uses cost_model.check_buffer_safety() to confirm the buffer is genuinely safe)."},
+              {"step": 6, "title": "Take Profit", "text": "At the nearest opposing resistance/structure level."}
+            ],
+            "short_setup": [
+              {"step": 1, "title": "Not applicable here", "text": "Bullish Engulfing is the long-side pattern. Its exact mirror is the separate Bearish Engulfing entry."}
+            ],
+            "risk_note": "Trading a Bullish Engulfing without real support beneath it is still high-risk even though the pattern itself is self-confirming -- location still matters just as much as it does for Doji or Hammer. What's different here is only that no SEPARATE confirmation candle is needed, not that confirmation itself is optional.",
+            "thresholds": [
+              {"value": "Green candle body must fully cover red candle's body", "note": "This is the precise, non-fuzzy part of the definition -- taken directly from the standard pattern shape, not a builder default."},
+              {"value": "Stop-loss buffer size", "note": "Determined dynamically via cost_model.check_buffer_safety(), not a fixed guess."}
+            ],
+            "why_self_confirming": "Doji and Hammer show INDECISION or a REJECTION WICK on one candle -- by themselves they don't prove which side actually won, so a third candle is needed to confirm direction. Bullish Engulfing is different: the second candle's size and direction ARE the proof. A green candle large enough to fully swallow the prior red candle's body has already demonstrated buyers overwhelmed sellers within that same candle -- there is nothing left for a third candle to confirm that the pattern itself hasn't already shown.",
+            "engine_note": "This is a display/reference task only -- it does not need to be wired into the backtest engine as a new runnable strategy, since the existing Candlestick Pattern Reversal strategy already implements this logic separately."
+          }
+        },
+        {
+          "name": "Bearish Engulfing",
+          "status": "defined",
+          "detail": {
+            "what_it_is": "The exact mirror of Bullish Engulfing: a small green (bullish) candle immediately followed by a larger red (bearish) candle whose body fully covers/engulfs the green candle's body. Occurs after an uptrend, at or near a resistance zone. Signal: buyers were in control on the first candle, then sellers overwhelmed them completely on the very next candle.",
+            "types": [
+              {"name": "Bearish Engulfing", "description": "The two-candle pattern described above -- the only variant of this specific pattern."}
+            ],
+            "why_location_matters": {
+              "principle": "A Bearish Engulfing only means something in the context of a prior uptrend and a real resistance zone above it.",
+              "cases": [
+                {"location": "After an uptrend, at/near resistance", "meaning": "The classic valid context -- a genuine shift in control right where sellers are expected to defend."},
+                {"location": "In the middle of a trend, isolated, no resistance nearby", "meaning": "Weak/low-value signal -- one strong red candle happens often without being a real reversal."}
+              ]
+            },
+            "golden_rule": "Location (resistance, after an uptrend) + Bearish Engulfing shape = valid setup. Same as Bullish Engulfing, this pattern is self-confirming -- no separate third confirmation candle is needed.",
+            "long_setup": [
+              {"step": 1, "title": "Not applicable here", "text": "Bearish Engulfing is the short-side pattern. Its exact mirror is the Bullish Engulfing entry."}
+            ],
+            "short_setup": [
+              {"step": 1, "title": "Location", "text": "Price is at or near a resistance zone, following an uptrend."},
+              {"step": 2, "title": "Green candle forms", "text": "A bullish (green) candle forms at this resistance zone."},
+              {"step": 3, "title": "Red candle engulfs it", "text": "The next candle is bearish (red) and its body fully covers the green candle's body -- this candle IS the confirmation, no third candle needed."},
+              {"step": 4, "title": "Entry", "text": "At the close of the engulfing (red) candle."},
+              {"step": 5, "title": "Stop Loss", "text": "Placed just above the green candle's high (buffer-verified via cost_model.check_buffer_safety())."},
+              {"step": 6, "title": "Take Profit", "text": "At the nearest opposing support/structure level."}
+            ],
+            "risk_note": "Trading a Bearish Engulfing without real resistance above it is still high-risk even though the pattern itself is self-confirming -- location still matters just as much as it does for Doji or Shooting Star. What's different here is only that no separate confirmation candle is needed, not that confirmation itself is optional.",
+            "thresholds": [
+              {"value": "Red candle body must fully cover green candle's body", "note": "This is the precise, non-fuzzy part of the definition -- taken directly from the standard pattern shape, not a builder default."},
+              {"value": "Stop-loss buffer size", "note": "Determined dynamically via cost_model.check_buffer_safety(), not a fixed guess."}
+            ],
+            "why_self_confirming": "Same reasoning as Bullish Engulfing, mirrored: a red candle large enough to fully swallow the prior green candle's body has already demonstrated sellers overwhelmed buyers within that same candle -- there is nothing left for a third candle to confirm.",
+            "engine_note": "This is a display/reference task only -- it does not need to be wired into the backtest engine as a new runnable strategy, since the existing Candlestick Pattern Reversal strategy already implements this logic separately."
+          }
+        },
+        {"name": "Tweezer Top", "status": "not yet defined"},
+        {"name": "Tweezer Bottom", "status": "not yet defined"},
+        {
+          "name": "Morning Star",
+          "status": "defined",
+          "detail": {
+            "what_it_is": "A three-candle pattern: (1) a large red (bearish) candle, (2) a small-bodied indecision candle (a gap down from candle 1, or at least a body overlapping only slightly with it -- see thresholds note), (3) a large green (bullish) candle closing well into candle 1's body. Occurs after a downtrend, at or near a support zone. Signal: strong selling, then a pause/indecision, then strong buying overwhelms the prior selling -- a full reversal in the shape of the pattern itself.",
+            "types": [
+              {"name": "Morning Star", "description": "The three-candle pattern described above -- the only variant of this specific pattern."},
+              {"name": "Morning Doji Star (related, not built as a full concept here)", "description": "Same shape, but the middle candle is specifically a Doji rather than just any small body -- a stronger version of the same signal, mentioned for completeness."}
+            ],
+            "why_location_matters": {
+              "principle": "A Morning Star only means something in the context of a prior downtrend and a real support zone underneath it.",
+              "cases": [
+                {"location": "After a downtrend, at/near support", "meaning": "The classic valid context -- a genuine three-candle shift in control right where buyers are expected to defend."},
+                {"location": "In the middle of a trend, isolated, no support nearby", "meaning": "Weak/low-value signal -- the same three-candle shape happens without being a real reversal if there's no level backing it."}
+              ]
+            },
+            "golden_rule": "Location (support, after a downtrend) + Morning Star shape = valid setup. Like Bullish/Bearish Engulfing, this pattern does NOT need a separate fourth confirmation candle -- the third candle IS the confirmation (same self-confirming logic as Engulfing, extended to three candles instead of two).",
+            "long_setup": [
+              {"step": 1, "title": "Location", "text": "Price is at or near a support zone, following a downtrend."},
+              {"step": 2, "title": "Large red candle", "text": "A large bearish (red) candle forms at this support zone."},
+              {"step": 3, "title": "Small indecision candle", "text": "The next candle has a small body -- gapping down from, or only lightly overlapping, the first candle's body (own-default: exact gap requirement not fixed, see thresholds)."},
+              {"step": 4, "title": "Large green candle closes the pattern", "text": "The third candle is a large bullish (green) candle that closes well into the first (red) candle's body -- this candle IS the confirmation, no fourth candle needed."},
+              {"step": 5, "title": "Entry", "text": "At the close of the third candle."},
+              {"step": 6, "title": "Stop Loss", "text": "Placed below the pattern's lowest low (the lowest point across all three candles), buffer-verified via cost_model.check_buffer_safety()."},
+              {"step": 7, "title": "Take Profit", "text": "At the nearest opposing resistance/structure level (reuses the existing structure-based TP mechanism)."}
+            ],
+            "short_setup": [
+              {"step": 1, "title": "Not applicable here", "text": "Morning Star is the long-side pattern. Its exact mirror is the separate Evening Star entry."}
+            ],
+            "risk_note": "Trading a Morning Star without real support beneath it is still high-risk even though the pattern is self-confirming -- location still matters just as much as it does for every other pattern here. The three-candle shape alone, without a level behind it, is not a valid setup.",
+            "thresholds": [
+              {"value": "Middle candle: gap down or overlapping small body", "note": "Own-default, flagged since source material generally leaves the exact gap requirement ambiguous -- treated here as 'small body relative to the outer two candles,' not requiring a strict price gap (crypto markets trade near-continuously, so true gaps are rare)."},
+              {"value": "Third candle must close 'well into' the first candle's body", "note": "Own-default -- treated qualitatively (a meaningful portion, not just barely past the midpoint), no single fixed percentage given by the source material."},
+              {"value": "Stop-loss buffer size", "note": "Determined dynamically via cost_model.check_buffer_safety(), not a fixed guess."}
+            ],
+            "why_self_confirming": "Same reasoning as Bullish Engulfing, extended across three candles: the third candle's size and direction ARE the proof -- a green candle large enough to close well back into the first red candle's body has already demonstrated buyers overwhelmed the entire prior selling move within that same candle. There is nothing left for a fourth candle to confirm that the pattern itself hasn't already shown.",
+            "engine_note": "This is a display/reference task only -- it does not need to be wired into the backtest engine as a new runnable strategy on its own; morning_star_event is already computed by concepts.morning_evening_star() and used inside the existing Candlestick Pattern Reversal strategy."
+          }
+        },
+        {
+          "name": "Evening Star",
+          "status": "defined",
+          "detail": {
+            "what_it_is": "The exact mirror of Morning Star: (1) a large green (bullish) candle, (2) a small-bodied indecision candle, (3) a large red (bearish) candle closing well into candle 1's body. Occurs after an uptrend, at or near a resistance zone. Signal: strong buying, then a pause/indecision, then strong selling overwhelms the prior buying.",
+            "types": [
+              {"name": "Evening Star", "description": "The three-candle pattern described above -- the only variant of this specific pattern."},
+              {"name": "Evening Doji Star (related, not built as a full concept here)", "description": "Same shape, but the middle candle is specifically a Doji -- a stronger version of the same signal, mentioned for completeness."}
+            ],
+            "why_location_matters": {
+              "principle": "An Evening Star only means something in the context of a prior uptrend and a real resistance zone above it.",
+              "cases": [
+                {"location": "After an uptrend, at/near resistance", "meaning": "The classic valid context -- a genuine three-candle shift in control right where sellers are expected to defend."},
+                {"location": "In the middle of a trend, isolated, no resistance nearby", "meaning": "Weak/low-value signal -- the same three-candle shape happens without being a real reversal if there's no level backing it."}
+              ]
+            },
+            "golden_rule": "Location (resistance, after an uptrend) + Evening Star shape = valid setup. Same as Morning Star, this pattern is self-confirming -- no separate fourth confirmation candle is needed.",
+            "long_setup": [
+              {"step": 1, "title": "Not applicable here", "text": "Evening Star is the short-side pattern. Its exact mirror is the Morning Star entry."}
+            ],
+            "short_setup": [
+              {"step": 1, "title": "Location", "text": "Price is at or near a resistance zone, following an uptrend."},
+              {"step": 2, "title": "Large green candle", "text": "A large bullish (green) candle forms at this resistance zone."},
+              {"step": 3, "title": "Small indecision candle", "text": "The next candle has a small body -- gapping up from, or only lightly overlapping, the first candle's body (own-default, same reasoning as Morning Star)."},
+              {"step": 4, "title": "Large red candle closes the pattern", "text": "The third candle is a large bearish (red) candle that closes well into the first (green) candle's body -- this candle IS the confirmation, no fourth candle needed."},
+              {"step": 5, "title": "Entry", "text": "At the close of the third candle."},
+              {"step": 6, "title": "Stop Loss", "text": "Placed above the pattern's highest high (the highest point across all three candles), buffer-verified via cost_model.check_buffer_safety()."},
+              {"step": 7, "title": "Take Profit", "text": "At the nearest opposing support/structure level."}
+            ],
+            "risk_note": "Trading an Evening Star without real resistance above it is still high-risk even though the pattern is self-confirming -- location still matters just as much as it does for every other pattern here.",
+            "thresholds": [
+              {"value": "Middle candle: gap up or overlapping small body", "note": "Own-default, same reasoning as Morning Star -- exact gap requirement left ambiguous by source material generally, treated qualitatively here."},
+              {"value": "Third candle must close 'well into' the first candle's body", "note": "Own-default, mirrors Morning Star's threshold."},
+              {"value": "Stop-loss buffer size", "note": "Determined dynamically via cost_model.check_buffer_safety(), not a fixed guess."}
+            ],
+            "why_self_confirming": "Same reasoning as Bearish Engulfing, extended across three candles: the third candle's size and direction ARE the proof -- there is nothing left for a fourth candle to confirm that the pattern itself hasn't already shown.",
+            "engine_note": "This is a display/reference task only -- it does not need to be wired into the backtest engine as a new runnable strategy on its own; evening_star_event is already computed by concepts.morning_evening_star() and used inside the existing Candlestick Pattern Reversal strategy."
+          }
+        },
+        {
+          "name": "Three White Soldiers",
+          "status": "defined",
+          "detail": {
+            "what_it_is": "Three consecutive long bullish (green) candles, each closing higher than the previous, each opening within or near the prior candle's body (not gapping wildly away from it), with relatively small wicks on each -- together signaling strong, sustained buying momentum across three full sessions rather than a single reaction candle.",
+            "types": [
+              {"name": "Three White Soldiers", "description": "The pattern described above -- three consecutive qualifying green candles."}
+            ],
+            "pattern_type_distinction": "Unlike almost every other pattern in this library (Doji, Hammer, Engulfing, Morning Star -- all reversal signals), Three White Soldiers is a trend-CONTINUATION signal, not a reversal pattern. This changes the appropriate location context: it works best breaking out of a consolidation/range or early in a fresh uptrend, NOT at a support level the way reversal patterns need to be. Stated explicitly here since applying reversal-pattern location logic ('near support') to a continuation pattern would be a category error.",
+            "why_location_matters": {
+              "principle": "Most effective breaking out of consolidation or early in a new uptrend; a nuance worth flagging explicitly: occurring LATE in an already-extended move can mean the opposite of what it looks like -- exhaustion (a blow-off top) rather than fresh momentum, since three strong candles after a move that has already run far can just as easily be the last gasp of buyers as the start of something new.",
+              "cases": [
+                {"location": "Breaking out of consolidation/range, or early in a new uptrend", "meaning": "The classic valid context -- fresh momentum confirming a genuine breakout."},
+                {"location": "Late in an already-extended uptrend", "meaning": "Weaker, and potentially the OPPOSITE signal -- may indicate exhaustion rather than continuation. Flagged as a real nuance, not a hard rule this entry enforces (see thresholds below on why no filter for this was built)."}
+              ]
+            },
+            "golden_rule": "Three consecutive qualifying green candles, not already occurring late in a heavily-extended move, = valid setup. The 'not already extended' half of this rule is a real requirement from the source material, but is NOT enforced as a hard filter in this engine today -- see the honest limitation noted under thresholds.",
+            "long_setup": [
+              {"step": 1, "title": "Identify three qualifying candles", "text": "Three consecutive bullish (close > open) candles, each with a 'large' body (own-default: body >= 50% of the candle's own high-low range, consistent with how 'large candle' is already defined elsewhere in this engine, e.g. Doji's own inverse 10%-body threshold) and each closing higher than the previous candle's close."},
+              {"step": 2, "title": "Check open placement", "text": "Each candle's open should sit within or near the prior candle's body -- not gapping sharply away from it."},
+              {"step": 3, "title": "Entry", "text": "At the close of the third qualifying candle."},
+              {"step": 4, "title": "Stop Loss", "text": "Below the first candle's low (the lowest point of the whole 3-candle pattern), buffer-verified via cost_model.check_buffer_safety()."},
+              {"step": 5, "title": "Take Profit", "text": "At the nearest resistance/structure level; if no clear structure target exists nearby, a fixed reward:risk ratio is used instead as a fallback (flagged: this entry documents both options rather than assuming structure is always available, the same honesty already applied to Order Block's TP mechanism)."}
+            ],
+            "short_setup": [
+              {"step": 1, "title": "See Three Black Crows", "text": "The natural bearish counterpart is documented as its own separate entry (Three Black Crows) rather than duplicated here as a 'short' version of this one -- referenced, not repeated."}
+            ],
+            "risk_note": "As a CONTINUATION (not reversal) pattern, the risk profile is genuinely different from most of this library: entering after three already-strong candles means the move may be partway exhausted rather than just beginning, which is exactly the 'late in an extended move' caution from the why_location_matters section above. Trading this pattern purely on shape, with no read on how far the move has already run, is the primary way this setup goes wrong.",
+            "thresholds": [
+              {"value": "'Large' candle body: >= 50% of the candle's own high-low range", "note": "Own default, flagged -- source material gives no exact number for 'long' candles here, same treatment as every other qualitative threshold in this library."},
+              {"value": "'Closing higher' progression: each candle's close strictly above the previous candle's close", "note": "Own default, the literal reading of 'each closing higher than the previous.'"},
+              {"value": "'Not already extended' filter: NOT implemented", "note": "Honest limitation, not a fabricated mechanism -- this engine has no existing 'distance from a moving average or swing point beyond a threshold' check to reuse for this. Per this task's own explicit instruction, this filter is excluded from the setup logic above rather than inventing a new capability outside this task's scope; the risk_note and why_location_matters sections document the nuance qualitatively instead."},
+              {"value": "Stop-loss buffer size", "note": "Determined dynamically via cost_model.check_buffer_safety(), not a fixed guess."}
+            ],
+            "engine_note": "This is a display/reference task only -- no strategy build is required as part of this task; a future build would need a new 3-consecutive-candle detection function (no existing concept currently checks a 3-candle same-direction progression outside of Morning/Evening Star, both of which require a specific reversal SHAPE across the three candles rather than three uniformly large same-direction ones)."
+          }
+        },
+        {
+          "name": "Three Black Crows",
+          "status": "defined",
+          "detail": {
+            "what_it_is": "The exact mirror of Three White Soldiers: three consecutive long bearish (red) candles, each closing lower than the previous, each opening within or near the prior candle's body, with relatively small wicks -- strong, sustained selling momentum across three full sessions. A trend-CONTINUATION pattern to the downside.",
+            "types": [
+              {"name": "Three Black Crows", "description": "The pattern described above -- three consecutive qualifying red candles."}
+            ],
+            "pattern_type_distinction": "Same as Three White Soldiers (its direct bullish counterpart): this is a trend-CONTINUATION signal, not a reversal pattern -- works best breaking down out of consolidation or early in a fresh downtrend, not at a resistance level the way reversal patterns need to be.",
+            "why_location_matters": {
+              "principle": "Exact mirror of Three White Soldiers: most effective breaking down out of consolidation or early in a new downtrend; late in an already-extended downtrend, it can signal exhaustion (capitulation/a selling climax) rather than fresh continuation.",
+              "cases": [
+                {"location": "Breaking down out of consolidation/range, or early in a new downtrend", "meaning": "The classic valid context -- fresh downside momentum confirming a genuine breakdown."},
+                {"location": "Late in an already-extended downtrend", "meaning": "Weaker, and potentially the OPPOSITE signal -- may indicate capitulation/exhaustion selling rather than continuation, same nuance as Three White Soldiers' mirror case."}
+              ]
+            },
+            "golden_rule": "Three consecutive qualifying red candles, not already occurring late in a heavily-extended downtrend, = valid setup. Same honest limitation as Three White Soldiers: the 'not already extended' half is not enforced as a hard filter today.",
+            "long_setup": [
+              {"step": 1, "title": "See Three White Soldiers", "text": "The natural bullish counterpart is documented as its own separate entry rather than duplicated here."}
+            ],
+            "short_setup": [
+              {"step": 1, "title": "Identify three qualifying candles", "text": "Three consecutive bearish (close < open) candles, each with a 'large' body (same own-default >= 50% of range threshold as Three White Soldiers) and each closing lower than the previous candle's close."},
+              {"step": 2, "title": "Check open placement", "text": "Each candle's open should sit within or near the prior candle's body -- not gapping sharply away from it."},
+              {"step": 3, "title": "Entry", "text": "At the close of the third qualifying candle."},
+              {"step": 4, "title": "Stop Loss", "text": "Above the first candle's high (the highest point of the whole 3-candle pattern), buffer-verified via cost_model.check_buffer_safety()."},
+              {"step": 5, "title": "Take Profit", "text": "At the nearest support/structure level; a fixed reward:risk ratio fallback if no clear structure target exists nearby, same as Three White Soldiers."}
+            ],
+            "risk_note": "Exact mirror of Three White Soldiers' risk profile: a continuation pattern entered after three already-strong red candles carries genuine risk of the downmove being partway exhausted rather than just beginning -- the same 'late in an extended move' caution applies symmetrically to the downside.",
+            "thresholds": [
+              {"value": "'Large' candle body: >= 50% of the candle's own high-low range", "note": "Same own default as Three White Soldiers, mirrored."},
+              {"value": "'Closing lower' progression: each candle's close strictly below the previous candle's close", "note": "Own default, the literal reading of 'each closing lower than the previous.'"},
+              {"value": "'Not already extended' filter: NOT implemented", "note": "Same honest limitation as Three White Soldiers -- no existing extension/exhaustion check to reuse, not fabricated here."},
+              {"value": "Stop-loss buffer size", "note": "Determined dynamically via cost_model.check_buffer_safety(), not a fixed guess."}
+            ],
+            "engine_note": "This is a display/reference task only -- no strategy build is required as part of this task; would reuse the same new 3-consecutive-candle detection function Three White Soldiers would need, mirrored to the downside."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Price-Action / Structure Concepts",
+      "concepts": [
+        {
+          "name": "Support & Resistance",
+          "status": "defined",
+          "detail": {
+            "what_it_is": "Price levels where the market has previously reversed or paused, acting as psychological/structural barriers to further movement. Support is a 'floor' -- a level where buying pressure has previously stepped in and pushed price back up. Resistance is a 'ceiling' -- a level where selling pressure has previously stepped in and pushed price back down. This is the foundational structural concept nearly every other pattern in this library (Doji, Hammer, Shooting Star, Engulfing, Morning/Evening Star, Liquidity Sweep) depends on for its own 'location' requirement.",
+            "types": [
+              {"name": "Support", "description": "A price floor -- buyers have previously defended this level, and are expected to again."},
+              {"name": "Resistance", "description": "A price ceiling -- sellers have previously defended this level, and are expected to again."},
+              {"name": "Role Reversal (support <-> resistance)", "description": "Once a support level is genuinely broken (price closes clearly below it), it can flip and act as NEW resistance on a later retest from below -- and the mirror is true for a broken resistance becoming new support. This is represented in the engine already: support_resistance() recomputes both values continuously from the same underlying swing points, so once price structure shifts, the nearest support/resistance values shift with it -- there is no separate 'this used to be support' flag, the role reversal falls out naturally from always reading the CURRENT nearest levels rather than a fixed historical one."}
+            ],
+            "why_it_matters": "A level is not inherently significant just because price is near a round number -- it matters because of MARKET MEMORY: traders who bought/sold there before, and the stop-loss/breakout orders resting around that price, make the market genuinely more likely to react there again. The more times a level has been touched and reacted to, the more traders are watching it, and the more significant it becomes (see risk_note below on what happens after many touches).",
+            "how_identified": "Mechanically: swing highs and swing lows -- points where price reversed direction for at least one full swing (the same swing-point detection already used throughout this project's strategies, via concepts.swing_points()/concepts.support_resistance()). A swing low that price reversed from becomes a candidate support level; a swing high becomes a candidate resistance level. No separate new detection primitive was built for this entry -- it reuses the existing mechanism strategy-for-strategy, exactly as the task for this entry required.",
+            "how_used_in_a_full_setup": {
+              "principle": "Support/Resistance on its own is only half a setup -- it is the LOCATION component that every reaction/confirmation pattern in this library is combined with. None of Doji, Hammer, Shooting Star, Engulfing, or Morning/Evening Star are traded in isolation; each requires 'at support' or 'at resistance' as step 1 before the candle pattern itself even matters (see each entry's own golden_rule).",
+              "worked_example": [
+                {"step": 1, "title": "Identify the level", "text": "A swing low is confirmed at some price -- this becomes the active support level."},
+                {"step": 2, "title": "Price returns to the level", "text": "Later, price moves back down toward that same support level."},
+                {"step": 3, "title": "A reaction/confirmation pattern forms there", "text": "E.g. a Hammer forms at the level, followed by a confirmation candle closing above the Hammer's high -- see the Hammer entry for the full sequence."},
+                {"step": 4, "title": "Entry, Stop Loss, Take Profit", "text": "Exactly as described in that pattern's own entry -- Support & Resistance supplies the WHERE, the candle pattern supplies the WHEN."}
+              ]
+            },
+            "thresholds": [
+              {"value": "What counts as a 'touch' or 'reaction' at a level", "note": "Builder's own default, since it isn't fixed elsewhere in this library: a touch is the swing-point mechanism itself registering a reversal at (or very near) the level's price -- price wicking through and closing back on the same side it approached from, using the same swing_points()/support_resistance() logic already shared across every strategy, not a separate new counting rule."},
+              {"value": "Lookback window for swing detection", "note": "Uses the engine's existing swing_points() default lookback (2 bars either side) unless a specific strategy overrides it -- unchanged from how every prior strategy in this project already reads these two functions."}
+            ],
+            "risk_note": "A level that has been tested multiple times is more likely to eventually break -- each touch consumes some of the resting orders that made the level significant in the first place, so a level's defenders get thinner with every successful test. This is the same 'once-tested' logic already used as a hard trading rule in the Dumb Money Concepts strategies (each specific level triggers only ONE trade, ever, then is retired) -- Support & Resistance's own risk profile is the reasoning that rule is built on, made explicit here.",
+            "engine_note": "This is a display/reference task only. Support/resistance detection itself (concepts.support_resistance(), concepts.swing_points()) is already deeply wired into the backtest engine and reused by nearly every strategy built this session -- this entry documents the concept, it does not add a new one."
+          }
+        },
+        {
+          "name": "Liquidity Sweep",
+          "status": "defined",
+          "detail": {
+            "what_it_is": "Price moves beyond an obvious liquidity area (a previous high/low, equal highs/lows, or a range extreme) -- triggering the stop-losses and breakout orders resting there -- then reverses and closes back on the other side of that level. The critical distinction: a sweep WITHOUT reclaim is a genuine breakout/continuation, not a signal; a sweep WITH reclaim (the reclaim strictly AFTER the sweep) is the valid reversal setup.",
+            "types": [
+              {"name": "Sweep of a low (bullish setup)", "description": "Price dips below an important low, triggering resting sell-stops, then reclaims back above it."},
+              {"name": "Sweep of a high (bearish setup)", "description": "Price spikes above an important high, triggering resting buy-stops, then reclaims back below it."},
+              {"name": "Sweep without reclaim (NOT a signal)", "description": "Price moves beyond the level and stays there -- this is a genuine breakout/continuation, the opposite of a reversal signal. See the risk note below."}
+            ],
+            "why_location_matters": {
+              "principle": "A sweep only matters at genuinely important liquidity levels -- ones with real resting orders behind them.",
+              "cases": [
+                {"location": "Previous swing high/low, equal highs/lows, or a well-defined range extreme", "meaning": "The classic valid context -- these are exactly where stop-losses and breakout orders cluster."},
+                {"location": "An arbitrary price level with no prior structure", "meaning": "Weak/low-value -- there's no real liquidity resting there for the 'sweep' to trigger, so a bounce there is much less meaningful."}
+              ]
+            },
+            "golden_rule": "Important level + Sweep beyond it + Reclaim (sequence-ordered, strictly after the sweep) = valid setup. A sweep alone, without the reclaim, is noise -- often the start of a real breakout, not a reversal.",
+            "long_setup": [
+              {"step": 1, "title": "Identify the level", "text": "Find an important low (previous low, equal-lows, or range low)."},
+              {"step": 2, "title": "Sweep", "text": "Price moves below that low, triggering the resting sell-stops there."},
+              {"step": 3, "title": "Wait, do not enter yet", "text": "The sweep itself is not the entry signal -- see the risk note on sweep-without-reclaim."},
+              {"step": 4, "title": "Reclaim (sequence-ordered)", "text": "Price closes back above the swept low, strictly AFTER the sweep (uses the engine's existing sequential-event/sequence-ordering capability)."},
+              {"step": 5, "title": "Entry", "text": "At the close of the reclaim candle."},
+              {"step": 6, "title": "Stop Loss", "text": "Placed just below the swept low (buffer-verified via cost_model.check_buffer_safety() -- note that this pattern's typical sweep distance beyond the level can itself already exceed the safety threshold, so the buffer check matters more here than on a plain candlestick pattern)."},
+              {"step": 7, "title": "Take Profit", "text": "At the nearest opposing structure level."}
+            ],
+            "short_setup": [
+              {"step": 1, "title": "Identify the level", "text": "Find an important high (previous high, equal-highs, or range high)."},
+              {"step": 2, "title": "Sweep", "text": "Price moves above that high, triggering the resting buy-stops there."},
+              {"step": 3, "title": "Wait, do not enter yet", "text": "The sweep itself is not the entry signal."},
+              {"step": 4, "title": "Reclaim (sequence-ordered)", "text": "Price closes back below the swept high, strictly AFTER the sweep."},
+              {"step": 5, "title": "Entry", "text": "At the close of the reclaim candle."},
+              {"step": 6, "title": "Stop Loss", "text": "Placed just above the swept high, buffer-verified."},
+              {"step": 7, "title": "Take Profit", "text": "At the nearest opposing support level."}
+            ],
+            "risk_note": "The single most important distinction for this pattern: a sweep WITHOUT reclaim is not noise to be filtered out incidentally -- it is actively the OPPOSITE case, a genuine breakout/continuation. Entering on the sweep alone, before the sequence-ordered reclaim confirms, risks entering directly against a real breakout in progress. The reclaim is not optional confirmation the way it is for Doji -- for this pattern specifically, no reclaim means no trade, full stop.",
+            "thresholds": [
+              {"value": "What counts as an 'important' level", "note": "Builder's own default -- treated as previous swing high/low, equal highs/lows, or a defined range extreme, per the source material's own listed examples; no single numeric threshold given."},
+              {"value": "Stop-loss buffer size", "note": "Determined dynamically via cost_model.check_buffer_safety(), not a fixed guess -- flagged as especially important for this pattern since the sweep distance itself can already be sizeable."}
+            ],
+            "engine_note": "This is a display/reference task only -- it does not need to be wired into the backtest engine as a new runnable strategy, since the existing Liquidity Sweep Reversal strategy already implements this logic separately."
+          }
+        },
+        {
+          "name": "Equal Highs/Lows",
+          "status": "defined",
+          "detail": {
+            "what_it_is": "Two or more swing highs (or lows) at approximately the same price level -- a sign that stop-losses and breakout orders are clustered right at that exact price, making it a concentrated liquidity pool rather than an ordinary single level.",
+            "types": [
+              {"name": "Equal Highs (EQH)", "description": "Two+ swing highs at nearly the same level -- a resistance-side liquidity pool, often swept before a bearish move."},
+              {"name": "Equal Lows (EQL)", "description": "Two+ swing lows at nearly the same level -- a support-side liquidity pool, often swept before a bullish move."}
+            ],
+            "why_location_matters": {
+              "principle": "EQH/EQL near a higher-timeframe level is a stronger liquidity target than an isolated equal pair sitting in open space -- the same 'does this converge with something else important' principle used throughout this library.",
+              "cases": [
+                {"location": "Near a higher-timeframe support/resistance level", "meaning": "Strong -- multiple reasons for a real reaction converge."},
+                {"location": "Isolated pair, no nearby structure", "meaning": "Weaker -- still a real liquidity pool, but with less backing it."}
+              ]
+            },
+            "golden_rule": "This directly reuses the already-documented Liquidity Sweep concept rather than re-explaining sweep mechanics from scratch: Equal Highs/Lows + a sweep of that level + a reclaim back inside (sequence-ordered, strictly after the sweep) = valid reversal setup. Equal Highs/Lows only supplies WHERE the sweep matters most (a level with real resting orders behind it); the sweep-then-reclaim mechanics themselves are identical to the Liquidity Sweep entry.",
+            "long_setup": [
+              {"step": 1, "title": "Identify equal lows", "text": "Two or more swing lows confirm within a small tolerance of each other (see thresholds)."},
+              {"step": 2, "title": "Sweep", "text": "Price moves below both equal lows, triggering the resting sell-stops clustered there."},
+              {"step": 3, "title": "Wait for reclaim (sequence-ordered)", "text": "Price closes back above the swept level, strictly AFTER the sweep -- the same level_sweep_reclaim()-style ordering already used for Liquidity Sweep Reversal (that function derives its level from the nearest swing support/resistance generally; here the level is specifically an already-confirmed EQUAL-lows pair, the same reclaim shape applied to a more specific level)."},
+              {"step": 4, "title": "Entry", "text": "At the close of the reclaim candle."},
+              {"step": 5, "title": "Stop Loss", "text": "Below the sweep's low, buffer-verified via cost_model.check_buffer_safety()."},
+              {"step": 6, "title": "Take Profit", "text": "At the nearest opposing resistance/structure level."}
+            ],
+            "short_setup": [
+              {"step": 1, "title": "Identify equal highs", "text": "Two or more swing highs confirm within a small tolerance of each other."},
+              {"step": 2, "title": "Sweep", "text": "Price moves above both equal highs, triggering the resting buy-stops clustered there."},
+              {"step": 3, "title": "Wait for reclaim (sequence-ordered)", "text": "Price closes back below the swept level, strictly after the sweep."},
+              {"step": 4, "title": "Entry", "text": "At the close of the reclaim candle."},
+              {"step": 5, "title": "Stop Loss", "text": "Above the sweep's high, buffer-verified."},
+              {"step": 6, "title": "Take Profit", "text": "At the nearest opposing support/structure level."}
+            ],
+            "risk_note": "Same caution as Liquidity Sweep: a sweep WITHOUT reclaim is not noise to filter out incidentally -- it is the opposite case, a genuine breakout/continuation. No reclaim means no trade, full stop.",
+            "thresholds": [
+              {"value": "'Equal' tolerance: within 0.1% of the prior swing level's price", "note": "Own default (this is already the engine's real, already-wired default -- concepts.equal_highs_lows()'s tolerance=0.001 -- not a new number invented for this entry). Source material for this general concept typically gives no exact percentage; 0.1% was this project's own choice, applied consistently."}
+            ],
+            "engine_note": "This is a display/reference task only -- concepts.equal_highs_lows() already exists and is already wired into the engine's event dispatch (concept name \"equal_highs_lows\"), available for a future strategy build the same way Fair Value Gap Reversal and Order Block Reversal were built from their own Concepts Library entries this session."
+          }
+        },
+        {
+          "name": "Previous High/Low",
+          "status": "defined",
+          "detail": {
+            "what_it_is": "The high and low of the previous session/day/week, treated as a significant reference level purely because so many market participants are watching that exact price -- unlike a swing point (whose importance comes from where price itself reversed), a Previous High/Low's importance comes from being a well-known, widely-watched calendar boundary.",
+            "types": [
+              {"name": "Previous Day High/Low (PDH/PDL)", "description": "Yesterday's (UTC calendar day) high and low -- already computed by the engine's own concepts.previous_day_high_low()."},
+              {"name": "Previous Week High/Low", "description": "The same underlying concept at a wider time granularity -- last week's high/low instead of yesterday's. Not separately implemented in the engine today; would reuse the exact same weekly-groupby shape previous_day_high_low() already uses for days, if a strategy needed it."}
+            ],
+            "why_it_matters": "Unlike the other location-based concepts in this library, Previous High/Low's importance is NOT really about sub-location (there's no 'near support vs in open space' variant here) -- it's that these exact price levels are among the most-watched in the entire market, purely because of what they ARE (yesterday's extremes), not because of anything else nearby. This is a genuine structural difference from Support & Resistance, Order Block, FVG, and Equal Highs/Lows, all of which the significance depends on. Noted explicitly here rather than forcing a 'why location matters' table that wouldn't really apply.",
+            "golden_rule": "Same discipline as every other concept here: Previous High/Low + a reaction (wick, reclaim) or sweep pattern = valid setup. An isolated touch of PDH/PDL with no reaction is not a signal by itself.",
+            "long_setup": [
+              {"step": 1, "title": "Mark the level", "text": "The previous session's low (concepts.previous_day_high_low()'s PDL -- already causal: yesterday is fully closed by the time today reads it)."},
+              {"step": 2, "title": "Sweep", "text": "Price dips below PDL intraday."},
+              {"step": 3, "title": "Wait for reclaim (sequence-ordered)", "text": "Price closes back above PDL, strictly AFTER the sweep. The engine already has a same-bar version of this exact pattern (concepts.pdh_pdl_sweep(), wick-beyond-and-close-back-inside on ONE bar); a sequence-ordered, separate-bar version -- which is what this entry documents -- reuses the identical compositional PATTERN already built for Asian Range London Sweep (concepts.session_sweep_reclaim(), sweep and reclaim as two separate boolean series combined via sequential_event()), just applied to the previous-DAY level source (previous_day_high_low()) instead of the previous-SESSION level source (previous_session_high_low()) that function reads today. Flagged precisely: no existing function combines 'day-boundary level' with 'sequence-ordered reclaim' yet -- a future strategy build would need a small new composition following this exact established pattern, not a new capability."},
+              {"step": 4, "title": "Entry", "text": "At the close of the reclaim candle."},
+              {"step": 5, "title": "Stop Loss", "text": "Below the sweep's low, buffer-verified via cost_model.check_buffer_safety()."},
+              {"step": 6, "title": "Take Profit", "text": "At the nearest resistance, or the previous session's high."}
+            ],
+            "short_setup": [
+              {"step": 1, "title": "Mark the level", "text": "The previous session's high (PDH)."},
+              {"step": 2, "title": "Sweep", "text": "Price spikes above PDH intraday."},
+              {"step": 3, "title": "Wait for reclaim (sequence-ordered)", "text": "Price closes back below PDH, strictly after the sweep -- same reasoning as the long side."},
+              {"step": 4, "title": "Entry", "text": "At the close of the reclaim candle."},
+              {"step": 5, "title": "Stop Loss", "text": "Above the sweep's high, buffer-verified."},
+              {"step": 6, "title": "Take Profit", "text": "At the nearest support, or the previous session's low."}
+            ],
+            "risk_note": "Same sweep-without-reclaim caution already documented for Liquidity Sweep and Equal Highs/Lows -- a sweep of PDH/PDL that never reclaims is a breakout signal, not a reversal one.",
+            "thresholds": [
+              {"value": "No new thresholds", "note": "The level definition itself (prior UTC calendar day's session-window high/low) reuses concepts.previous_day_high_low() exactly as already built -- the only genuinely new element for a future strategy build would be composing the sequence-ordered reclaim, following the identical pattern already established for Asian Range London Sweep."}
+            ],
+            "engine_note": "This is a display/reference task only -- concepts.previous_day_high_low() and concepts.pdh_pdl_sweep() (same-bar version) already exist and are already wired into the engine's event dispatch (concept names \"pdh\"/\"pdl\"/\"pdh_sweep\"/\"pdl_sweep\")."
+          }
+        },
+        {
+          "name": "Fair Value Gap (FVG)",
+          "status": "defined",
+          "detail": {
+            "what_it_is": "A three-candle imbalance: an area on the chart where price moved so fast that a gap exists between candle 1's wick and candle 3's wick (candle 2 is the large, fast-moving candle that creates the imbalance). Represents a zone that traded through inefficiently -- no real two-sided (buyer vs seller) battle happened there, just one side sweeping through.",
+            "types": [
+              {"name": "Bullish FVG", "description": "Formed during an upward move (candle 3's low sits above candle 1's high) -- acts as potential support if price retraces back into it."},
+              {"name": "Bearish FVG", "description": "Formed during a downward move (candle 3's high sits below candle 1's low) -- acts as potential resistance if price retraces back into it."}
+            ],
+            "why_location_matters": {
+              "principle": "An FVG formed in the direction of the higher-timeframe trend carries more weight than one against it, and a FRESH (never-revisited) gap is stronger than one already partially filled.",
+              "cases": [
+                {"location": "Aligned with higher-timeframe bias, still fresh", "meaning": "The classic valid context -- an efficient continuation zone the broader trend is likely to respect."},
+                {"location": "Against the higher-timeframe bias, or already partially filled", "meaning": "Weaker -- fighting the larger trend, or the gap's 'magnet' effect has already been partly used up."}
+              ]
+            },
+            "golden_rule": "Location (aligned with higher-timeframe bias) + a fresh FVG + price actually returning to tag the gap = valid setup -- an FVG sitting untouched on the chart, on its own, is not yet a trade signal.",
+            "long_setup": [
+              {"step": 1, "title": "Identify the gap", "text": "A bullish FVG forms during an upward move, in the direction of the higher-timeframe bias."},
+              {"step": 2, "title": "Wait for the retrace", "text": "Price must return into the gap zone strictly AFTER the FVG forms (uses the engine's existing sequential-event/sequence-ordering capability -- the retrace can never be dated before the gap that created it)."},
+              {"step": 3, "title": "Reaction confirmation", "text": "Entry at the candle that closes back in the direction of the original move after tagging the gap -- not on the tag itself."},
+              {"step": 4, "title": "Entry", "text": "At the close of that reaction candle."},
+              {"step": 5, "title": "Stop Loss", "text": "Below the gap's low (buffer-verified via cost_model.check_buffer_safety())."},
+              {"step": 6, "title": "Take Profit", "text": "At the nearest opposing resistance/structure level (reuses the existing structure-based TP mechanism)."}
+            ],
+            "short_setup": [
+              {"step": 1, "title": "Identify the gap", "text": "A bearish FVG forms during a downward move, in the direction of the higher-timeframe bias."},
+              {"step": 2, "title": "Wait for the retrace", "text": "Price returns into the gap zone, strictly after the FVG forms."},
+              {"step": 3, "title": "Reaction confirmation", "text": "Entry at the candle that closes back down after tagging the gap."},
+              {"step": 4, "title": "Entry", "text": "At the close of that reaction candle."},
+              {"step": 5, "title": "Stop Loss", "text": "Above the gap's high, buffer-verified."},
+              {"step": 6, "title": "Take Profit", "text": "At the nearest opposing support/structure level."}
+            ],
+            "risk_note": "An FVG by itself, without higher-timeframe alignment and without waiting for a genuine reaction at the retest, is a weak signal -- plenty of gaps get sliced straight through with no reaction at all. The same once-tested-level caution used elsewhere in this library applies here too: a gap that has already been tagged and reacted to once is a weaker target on a second visit.",
+            "thresholds": [
+              {"value": "Correction to this entry's own brief", "note": "This task originally described FVG detection as reusing a candle_body_pct-based 'large candle' threshold from CRT 2.0. Checked directly against the engine: CRT 2.0 actually uses fvg_zone() (built on fair_value_gap()), which is a pure 3-candle WICK-GAP comparison (candle 3's low > candle 1's high, or the mirror) -- there is no separate body-size/percentage threshold anywhere in this definition, and none is needed, because the gap itself (no overlap between candle 1 and candle 3's wicks) already IS the qualifying test. Documented here accurately rather than repeating the inaccurate premise."},
+              {"value": "Stop-loss buffer size", "note": "Determined dynamically via cost_model.check_buffer_safety(), not a fixed guess."}
+            ],
+            "engine_note": "This is a display/reference task only -- fair_value_gap()/fvg_zone() are already wired into the backtest engine and used live by the existing Candle Range Theory (CRT) Strategy 2.0."
+          }
+        },
+        {
+          "name": "Order Block (OB)",
+          "status": "defined",
+          "detail": {
+            "what_it_is": "The last opposing candle before a strong, decisive move in the other direction -- e.g. the last red candle before a strong bullish breakout is the bullish order block. Represents a zone believed to contain concentrated institutional orders left behind right before the market moved away sharply.",
+            "types": [
+              {"name": "Bullish Order Block", "description": "The last down-candle before a strong up-move -- a potential support zone on retracement."},
+              {"name": "Bearish Order Block", "description": "The last up-candle before a strong down-move -- a potential resistance zone on retracement."}
+            ],
+            "why_location_matters": {
+              "principle": "An order block near a higher-timeframe support/resistance level, or near an untested zone (the same 'untested level' idea the Dumb Money Concepts strategies are built around), is considered more significant than one sitting in the middle of an open range.",
+              "cases": [
+                {"location": "Near a higher-timeframe level or an untested DMC-style zone", "meaning": "The classic valid context -- multiple reasons for the market to react converge at the same price."},
+                {"location": "In open space, no nearby structure", "meaning": "Weaker -- the order block is the only reason for a reaction, with nothing else backing it up."}
+              ]
+            },
+            "golden_rule": "Location + a genuine order block (confirmed by the strength of the move that followed it) + price returning to retest the block = valid setup.",
+            "long_setup": [
+              {"step": 1, "title": "Identify the order block", "text": "The last bearish candle before a strong bullish move -- 'strong' is confirmed the same way the engine already confirms it: a genuine Break of Structure (a close beyond the most recent swing high), not a separately guessed size threshold."},
+              {"step": 2, "title": "Mark the zone", "text": "That candle's own high-to-low range becomes the order block zone."},
+              {"step": 3, "title": "Wait for the retrace", "text": "Price retraces back into the zone, strictly AFTER the initial move (sequence-ordered)."},
+              {"step": 4, "title": "Reaction confirmation", "text": "Entry at the candle confirming a bounce/reaction within the zone."},
+              {"step": 5, "title": "Stop Loss", "text": "Below the order block's low (buffer-verified via cost_model.check_buffer_safety())."},
+              {"step": 6, "title": "Take Profit", "text": "At the nearest opposing resistance/structure level."}
+            ],
+            "short_setup": [
+              {"step": 1, "title": "Identify the order block", "text": "The last bullish candle before a strong bearish move, confirmed by a Break of Structure down."},
+              {"step": 2, "title": "Mark the zone", "text": "That candle's own high-to-low range becomes the order block zone."},
+              {"step": 3, "title": "Wait for the retrace", "text": "Price retraces back into the zone, strictly after the initial move."},
+              {"step": 4, "title": "Reaction confirmation", "text": "Entry at the candle confirming a rejection within the zone."},
+              {"step": 5, "title": "Stop Loss", "text": "Above the order block's high, buffer-verified."},
+              {"step": 6, "title": "Take Profit", "text": "At the nearest opposing support/structure level."}
+            ],
+            "risk_note": "An order block that has already been tested and reacted to once is weaker on a second test -- the exact 'once-tested' logic already used as a hard trading rule in the Dumb Money Concepts strategies (each specific level triggers only ONE trade, ever). The same caution applies here even though it isn't enforced as a hard filter for this reference entry.",
+            "thresholds": [
+              {"value": "Correction to this entry's own brief", "note": "This task originally described 'strong move' as reusing an ATR-multiple threshold already established elsewhere. Checked directly against the engine: order_blocks() actually confirms strength via break_of_structure() -- a genuine close beyond the most recent swing high/low -- not an ATR-multiple. The ATR-multiple 'impulse' threshold (impulse_atr_mult) is a real but DIFFERENT mechanism, used by consolidation_impulse_zones() for the separate Supply/Demand Zone concept, not for Order Blocks. Documented here accurately rather than conflating the two."},
+              {"value": "Stop-loss buffer size", "note": "Determined dynamically via cost_model.check_buffer_safety(), not a fixed guess."}
+            ],
+            "engine_note": "This is a display/reference task only -- order_blocks() is already wired into the backtest engine and used live by the existing 9-20 EMA SMC Hybrid strategy."
+          }
+        },
+        {
+          "name": "Market Structure Shift (MSS) / Change of Character (CHoCH)",
+          "status": "defined",
+          "detail": {
+            "what_it_is": "The first structural break of a prevailing trend: in a downtrend (lower highs, lower lows), the first time price closes above a prior swing high signals a potential shift to bullish structure (and the mirror for uptrends breaking down). The engine actually has TWO related implementations of this idea, at two different rigor levels, both reused here rather than building anything new: change_of_character() (a swing-point BOS in the opposite direction of the last BOS -- the existing 'choch' concept, used live by the Double Confirmation CHoCH with Liquidity Trap strategy) and the stricter valid_structure_trend() / valid_structure_trend_soft() (a genuinely stateful 'valid break' machine -- a low only counts once price has closed above the high that predates it -- used live by CRT 2.0 and Liquidity Sweep Reversal). Both represent the same underlying idea; valid_structure_trend() is the more rigorous of the two.",
+            "types": [
+              {"name": "Bullish CHoCH", "description": "A downtrend's structure breaking to the upside -- the first sign of a potential reversal."},
+              {"name": "Bearish CHoCH", "description": "An uptrend's structure breaking to the downside."},
+              {"name": "BOS vs CHoCH -- the distinction that matters", "description": "Break of Structure (BOS) is a break that CONTINUES the already-established trend (e.g. a higher high in an uptrend). CHoCH is the FIRST break that goes AGAINST the established trend, signaling a potential reversal. The two are often confused because they use the exact same mechanical test (a close beyond a swing point) -- what differs is only which direction it breaks relative to the CURRENT trend, which is exactly what change_of_character() checks for (a BOS whose direction is opposite the prior BOS's direction)."}
+            ],
+            "why_location_matters": {
+              "principle": "A CHoCH occurring at a major higher-timeframe level (support/resistance, or an untested DMC-style level) carries more weight than one occurring in open space, same reasoning as every location-dependent concept in this library.",
+              "cases": [
+                {"location": "At a major higher-timeframe level", "meaning": "The classic valid context -- structure shift AND a level converge."},
+                {"location": "In open space, no nearby level", "meaning": "Weaker -- more likely to be noise in a ranging market than a genuine reversal."}
+              ]
+            },
+            "golden_rule": "Location + a genuine structural break confirmed via real swing-detection (not a same-window co-occurrence approximation -- see the risk note below on the sequential_event() fix this session that specifically addressed this exact failure mode) + confirmation retest = valid setup.",
+            "long_setup": [
+              {"step": 1, "title": "Identify the downtrend", "text": "Lower highs and lower lows, via the engine's existing valid_structure_trend()."},
+              {"step": 2, "title": "Wait for the break", "text": "Price closes above the most recent lower high -- a genuine CLOSE beyond the prior swing high, not just a wick poking through."},
+              {"step": 3, "title": "Optional: wait for a retest", "text": "For extra confirmation, wait for price to retest the broken level (sequence-ordered, strictly after the break) -- this is the RECOMMENDED default entry for this library, consistent with the established preference for confirmed entries over reacting to the break itself."},
+              {"step": 4, "title": "Entry -- two options", "text": "Either at the retest reaction (recommended/default) OR at the break candle's own close (faster, less confirmed -- both are flagged here as valid, but the retest version is the default)."},
+              {"step": 5, "title": "Stop Loss", "text": "Below the most recent swing low, buffer-verified via cost_model.check_buffer_safety()."},
+              {"step": 6, "title": "Take Profit", "text": "At the nearest resistance/next structural level."}
+            ],
+            "short_setup": [
+              {"step": 1, "title": "Identify the uptrend", "text": "Higher highs and higher lows."},
+              {"step": 2, "title": "Wait for the break", "text": "Price closes below the most recent higher low."},
+              {"step": 3, "title": "Optional: wait for a retest", "text": "Same reasoning as the long side -- the retest version is the recommended default."},
+              {"step": 4, "title": "Entry -- two options", "text": "At the retest reaction (recommended) or at the break candle's own close."},
+              {"step": 5, "title": "Stop Loss", "text": "Above the most recent swing high, buffer-verified."},
+              {"step": 6, "title": "Take Profit", "text": "At the nearest support/next structural level."}
+            ],
+            "risk_note": "The primary risk is distinguishing a genuine CHoCH from noise in choppy/ranging conditions -- multiple CHoCH signals firing in a short window without a sustained move afterward should reduce confidence in the level (a descriptive caution, not a hard filter here). This is also exactly the failure mode a real bug fix this session addressed directly: sequential_event()'s ordering check used to be vulnerable to a same-window overlap (an event that satisfies BOTH sides of a two-step sequence on the same bar could silently clobber a genuinely earlier, still-valid reference event) -- confirmed on real Asian Range London Sweep data before the fix, where a legitimate sweep failed to pair with its own reclaim purely because a later bar happened to ALSO look like a fresh sweep. Fixed by checking the second event's condition against state as of the END of the previous bar, before the current bar's own first-event flag can update it -- this is what makes 'genuine structural break, not a same-window approximation' in the golden_rule above an accurate claim rather than an aspirational one.",
+            "thresholds": [
+              {"value": "No new thresholds", "note": "This concept reuses 100% existing swing-detection (swing_points()) and sequence-ordering (sequential_event()) infrastructure -- nothing new was built or tuned for this entry."}
+            ],
+            "engine_note": "This is a display/reference task only -- both change_of_character() and valid_structure_trend() are already wired into the backtest engine and used live by the Double Confirmation CHoCH with Liquidity Trap, CRT 2.0, and Liquidity Sweep Reversal strategies."
+          }
+        },
+        {
+          "name": "Premium & Discount",
+          "status": "defined",
+          "detail": {
+            "structural_note": "IMPORTANT -- this concept works differently from every other entry in this library. It is a LOCATION FILTER for other setups, not a standalone pattern with its own entry/SL/TP. Every section below is reframed accordingly rather than forced into the same template as Doji, FVG, Order Block, etc. -- represented accurately rather than stretched to fit a shape it doesn't have.",
+            "what_it_is": "Dividing a defined price range (between a significant swing high and swing low) into an upper half ('premium,' where price is relatively expensive, favoring look-for-shorts) and a lower half ('discount,' where price is relatively cheap, favoring look-for-longs). The dividing line (the range's midpoint) is called 'equilibrium.'",
+            "types": [
+              {"name": "Discount zone", "description": "The lower half of the active range -- price here is 'on sale' relative to the range, the zone that favors looking for LONG entries from another concept."},
+              {"name": "Premium zone", "description": "The upper half of the active range -- price here is 'expensive' relative to the range, the zone that favors looking for SHORT entries from another concept."},
+              {"name": "Equilibrium (the 50% line itself)", "description": "The exact midpoint dividing premium from discount -- a third reference point worth naming on its own, since price crossing it is itself often watched as a shift in which zone is currently 'active.'"}
+            ],
+            "why_location_matters": "This concept IS the location-filter -- it doesn't have a separate 'why location matters' the way Order Block or FVG do (those ask 'where is this pattern relative to other structure'; Premium/Discount instead asks 'where in the current range is price right now, and does that support the trade direction'). Explicit design choice: Premium/Discount should be used ALONGSIDE another concept (e.g. only take a long-side Order Block or FVG setup if it also falls in the discount zone of the current range), never traded on its own.",
+            "golden_rule": "Reframed for this concept, since it doesn't have a standalone golden rule the way other entries do: Premium/Discount zone + another qualifying setup (FVG, Order Block, Liquidity Sweep, a candlestick pattern) occurring within the CORRECT zone for that trade's direction = added confluence. Premium/Discount alone, with no genuine entry trigger from another concept, is never a valid trade by itself.",
+            "long_setup": [
+              {"step": 1, "title": "Define the active range", "text": "The most recent significant swing high to swing low (concepts.premium_discount_zone() already does this via the engine's existing swing_points())."},
+              {"step": 2, "title": "Calculate the discount zone", "text": "The lower 50% of that range is the clean, unambiguous default used here (equilibrium = (swing_high + swing_low) / 2, in_discount = close below equilibrium -- exactly what concepts.premium_discount_zone() already computes and returns). A stricter sub-zone (e.g. only the lower 38-50%, a Fibonacci-style narrowing) is a valid FUTURE refinement, flagged here but not implemented -- 50% is the deliberately simple, already-built default."},
+              {"step": 3, "title": "Require it as a filter, not a trigger", "text": "Any long entry produced by ANOTHER concept (FVG Reversal, Order Block Reversal, a candlestick reversal, etc.) only counts if it also falls within this discount zone at the moment of entry -- Premium/Discount adds no SL/TP logic of its own; the triggering concept's own SL/TP rules are used unchanged."}
+            ],
+            "short_setup": [
+              {"step": 1, "title": "Define the active range", "text": "Same range as the long side."},
+              {"step": 2, "title": "Calculate the premium zone", "text": "The upper 50% of the range, mirrored from the discount calculation above."},
+              {"step": 3, "title": "Require it as a filter, not a trigger", "text": "Any short entry from another concept only counts if it also falls within the premium zone."}
+            ],
+            "thresholds": [
+              {"value": "50% midpoint division", "note": "Flagged as the clean, unambiguous default actually implemented (concepts.premium_discount_zone()), chosen deliberately over more complex Fibonacci-style subdivisions (e.g. a stricter 38.2%/61.8% band) -- those remain a valid future refinement, not built here."}
+            ],
+            "risk_note": "Premium/Discount is a filter, not a signal. Using it alone, without a genuine entry trigger from another concept firing inside the correct zone, is not a valid trade -- it only ever narrows down WHERE another concept's setups are taken seriously, never fires a trade by itself.",
+            "engine_note": "This is a display/reference task only -- concepts.premium_discount_zone() already exists and is already wired into the engine's concept-column computation (concept name \"premium_discount_zone\", producing in_discount/in_premium columns), ready to be added as an extra AND-condition onto a future strategy's existing entry logic."
+          }
+        }
+      ]
+    }
+  ]
+}

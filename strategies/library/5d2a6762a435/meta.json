@@ -1,0 +1,17 @@
+{
+  "id": "5d2a6762a435",
+  "name": "Equal Highs/Lows Reversal -- Confirmation Medium variant [Manual Build]",
+  "tags": [
+    "confirmation_optimizer_variant",
+    "level:medium",
+    "source:74c3a80238d4",
+    "additions:sl_distance"
+  ],
+  "favourite": false,
+  "archived": true,
+  "created_at": "2026-08-27T08:54:15.153857+00:00",
+  "updated_at": "2026-08-27T08:54:15.178317+00:00",
+  "current_version": 1,
+  "safety_status": "ready",
+  "safety_reasons": []
+}

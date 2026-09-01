@@ -1,0 +1,1415 @@
+{
+  "task_id": "part2_optimizer",
+  "created_at": "2026-08-26T16:28:43.192722+00:00",
+  "updated_at": "2026-08-31T06:42:06.721421+00:00",
+  "items": {
+    "0897eb126593:medium": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "c4f1c978e8fd",
+        "base_strategy_id": "0897eb126593",
+        "base_name": "4-Hour Range Breakout-Retest [Manual Build]",
+        "level": "medium",
+        "additions": [
+          "sl_distance"
+        ],
+        "baseline_profit_factor": 0.8097,
+        "batch_id": "opt_medium_c4f1c978e8fd",
+        "total_trades": 15361,
+        "wins": 5120,
+        "win_rate_pct": 33.33,
+        "net_pnl": -21078.2,
+        "profit_factor": 0.8097,
+        "max_drawdown_pct": 92.67
+      }
+    },
+    "0897eb126593:strict": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "8c8bb18a5528",
+        "base_strategy_id": "0897eb126593",
+        "base_name": "4-Hour Range Breakout-Retest [Manual Build]",
+        "level": "strict",
+        "additions": [
+          "sl_distance",
+          "min_rr"
+        ],
+        "baseline_profit_factor": 0.8097,
+        "batch_id": "opt_strict_8c8bb18a5528",
+        "total_trades": 15361,
+        "wins": 5120,
+        "win_rate_pct": 33.33,
+        "net_pnl": -21078.2,
+        "profit_factor": 0.8097,
+        "max_drawdown_pct": 92.67
+      }
+    },
+    "1be394d92302:medium": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "0ce843c91da9",
+        "base_strategy_id": "1be394d92302",
+        "base_name": "Candlestick Pattern Reversal Strategy [Manual Build]",
+        "level": "medium",
+        "additions": [
+          "sl_distance"
+        ],
+        "baseline_profit_factor": 1.1435,
+        "batch_id": "opt_medium_0ce843c91da9",
+        "total_trades": 3755,
+        "wins": 1171,
+        "win_rate_pct": 31.19,
+        "net_pnl": 2841.57,
+        "profit_factor": 1.1435,
+        "max_drawdown_pct": 93.88
+      }
+    },
+    "1be394d92302:strict": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "f2bada5fba26",
+        "base_strategy_id": "1be394d92302",
+        "base_name": "Candlestick Pattern Reversal Strategy [Manual Build]",
+        "level": "strict",
+        "additions": [
+          "sl_distance",
+          "min_rr"
+        ],
+        "baseline_profit_factor": 1.1435,
+        "batch_id": "opt_strict_f2bada5fba26",
+        "total_trades": 1570,
+        "wins": 526,
+        "win_rate_pct": 33.5,
+        "net_pnl": -2779.96,
+        "profit_factor": 0.7714,
+        "max_drawdown_pct": 25.45
+      }
+    },
+    "1f43468bb6af:medium": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "b6bf0c760e89",
+        "base_strategy_id": "1f43468bb6af",
+        "base_name": "Laxman Rekha 5-EMA Trigger-Candle Strategy [Manual Build]",
+        "level": "medium",
+        "additions": [
+          "sl_distance"
+        ],
+        "baseline_profit_factor": 0.8059,
+        "batch_id": "opt_medium_b6bf0c760e89",
+        "total_trades": 11353,
+        "wins": 2564,
+        "win_rate_pct": 22.58,
+        "net_pnl": -16599.74,
+        "profit_factor": 0.8059,
+        "max_drawdown_pct": 94.21
+      }
+    },
+    "1f43468bb6af:strict": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "8e56262e2b75",
+        "base_strategy_id": "1f43468bb6af",
+        "base_name": "Laxman Rekha 5-EMA Trigger-Candle Strategy [Manual Build]",
+        "level": "strict",
+        "additions": [
+          "sl_distance",
+          "min_rr"
+        ],
+        "baseline_profit_factor": 0.8059,
+        "batch_id": "opt_strict_8e56262e2b75",
+        "total_trades": 11353,
+        "wins": 2564,
+        "win_rate_pct": 22.58,
+        "net_pnl": -16599.74,
+        "profit_factor": 0.8059,
+        "max_drawdown_pct": 94.21
+      }
+    },
+    "2d7299c7a197:medium": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "12119ea3d3d3",
+        "base_strategy_id": "2d7299c7a197",
+        "base_name": "Dumb Money Concepts -- Confirmation Entry [Manual Build]",
+        "level": "medium",
+        "additions": [
+          "sl_distance"
+        ],
+        "baseline_profit_factor": 0.9501,
+        "batch_id": "opt_medium_12119ea3d3d3",
+        "total_trades": 1602,
+        "wins": 467,
+        "win_rate_pct": 29.15,
+        "net_pnl": -619.33,
+        "profit_factor": 0.9501,
+        "max_drawdown_pct": 53.8
+      }
+    },
+    "2d7299c7a197:strict": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "12144b72800b",
+        "base_strategy_id": "2d7299c7a197",
+        "base_name": "Dumb Money Concepts -- Confirmation Entry [Manual Build]",
+        "level": "strict",
+        "additions": [
+          "sl_distance",
+          "min_rr"
+        ],
+        "baseline_profit_factor": 0.9501,
+        "batch_id": "opt_strict_12144b72800b",
+        "total_trades": 3593,
+        "wins": 593,
+        "win_rate_pct": 16.5,
+        "net_pnl": -6815.05,
+        "profit_factor": 0.7978,
+        "max_drawdown_pct": 58.57
+      }
+    },
+    "4334392c8c67:medium": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "ca5030fee497",
+        "base_strategy_id": "4334392c8c67",
+        "base_name": "Supply/Demand Zone Strategy [Manual Build]",
+        "level": "medium",
+        "additions": [
+          "sl_distance"
+        ],
+        "baseline_profit_factor": 0.8626,
+        "batch_id": "opt_medium_ca5030fee497",
+        "total_trades": 193,
+        "wins": 72,
+        "win_rate_pct": 37.31,
+        "net_pnl": -187.9,
+        "profit_factor": 0.8626,
+        "max_drawdown_pct": 7.43
+      }
+    },
+    "480cc42075a4:medium": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "2cb794ae81ca",
+        "base_strategy_id": "480cc42075a4",
+        "base_name": "Asian Range London Sweep [Manual Build]",
+        "level": "medium",
+        "additions": [
+          "sl_distance"
+        ],
+        "baseline_profit_factor": 0.8316,
+        "batch_id": "opt_medium_2cb794ae81ca",
+        "total_trades": 3688,
+        "wins": 1263,
+        "win_rate_pct": 34.25,
+        "net_pnl": -4622.02,
+        "profit_factor": 0.8316,
+        "max_drawdown_pct": 39.4
+      }
+    },
+    "480cc42075a4:strict": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "00749e40c3ca",
+        "base_strategy_id": "480cc42075a4",
+        "base_name": "Asian Range London Sweep [Manual Build]",
+        "level": "strict",
+        "additions": [
+          "sl_distance",
+          "min_rr"
+        ],
+        "baseline_profit_factor": 0.8316,
+        "batch_id": "opt_strict_00749e40c3ca",
+        "total_trades": 3688,
+        "wins": 1263,
+        "win_rate_pct": 34.25,
+        "net_pnl": -4622.02,
+        "profit_factor": 0.8316,
+        "max_drawdown_pct": 39.4
+      }
+    },
+    "59978271c6ce:medium": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "d124c383d0fb",
+        "base_strategy_id": "59978271c6ce",
+        "base_name": "Liquidity Sweep Reversal Strategy [Manual Build]",
+        "level": "medium",
+        "additions": [
+          "sl_distance"
+        ],
+        "baseline_profit_factor": 1.1939,
+        "batch_id": "opt_medium_d124c383d0fb",
+        "total_trades": 4159,
+        "wins": 1652,
+        "win_rate_pct": 39.72,
+        "net_pnl": 3990.11,
+        "profit_factor": 1.1939,
+        "max_drawdown_pct": 91.54
+      }
+    },
+    "59978271c6ce:strict": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "3b3c7178ca72",
+        "base_strategy_id": "59978271c6ce",
+        "base_name": "Liquidity Sweep Reversal Strategy [Manual Build]",
+        "level": "strict",
+        "additions": [
+          "sl_distance",
+          "min_rr"
+        ],
+        "baseline_profit_factor": 1.1939,
+        "batch_id": "opt_strict_3b3c7178ca72",
+        "total_trades": 2849,
+        "wins": 911,
+        "win_rate_pct": 31.98,
+        "net_pnl": -5465.57,
+        "profit_factor": 0.7508,
+        "max_drawdown_pct": 53.07
+      }
+    },
+    "62e44ad0fa92:medium": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "dd33f6d1677e",
+        "base_strategy_id": "62e44ad0fa92",
+        "base_name": "Previous High/Low Reversal [Manual Build]",
+        "level": "medium",
+        "additions": [
+          "sl_distance"
+        ],
+        "baseline_profit_factor": 0.6691,
+        "batch_id": "opt_medium_dd33f6d1677e",
+        "total_trades": 18925,
+        "wins": 7510,
+        "win_rate_pct": 39.68,
+        "net_pnl": -28196.5,
+        "profit_factor": 0.6691,
+        "max_drawdown_pct": 96.43
+      }
+    },
+    "62e44ad0fa92:strict": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "9780977051f8",
+        "base_strategy_id": "62e44ad0fa92",
+        "base_name": "Previous High/Low Reversal [Manual Build]",
+        "level": "strict",
+        "additions": [
+          "sl_distance",
+          "min_rr"
+        ],
+        "baseline_profit_factor": 0.6691,
+        "batch_id": "opt_strict_9780977051f8",
+        "total_trades": 19470,
+        "wins": 6159,
+        "win_rate_pct": 31.63,
+        "net_pnl": -23070.36,
+        "profit_factor": 0.7922,
+        "max_drawdown_pct": 96.15
+      }
+    },
+    "6c9dddb14b67:medium": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "8398b164f7e2",
+        "base_strategy_id": "6c9dddb14b67",
+        "base_name": "Kotegawa Bear Market Reversal Strategy [Manual Build]",
+        "level": "medium",
+        "additions": [
+          "sl_distance"
+        ],
+        "baseline_profit_factor": 0.7988,
+        "batch_id": "opt_medium_8398b164f7e2",
+        "total_trades": 5581,
+        "wins": 1291,
+        "win_rate_pct": 23.13,
+        "net_pnl": -9206.9,
+        "profit_factor": 0.7988,
+        "max_drawdown_pct": 57.99
+      }
+    },
+    "6c9dddb14b67:strict": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "69c34f5bf0d5",
+        "base_strategy_id": "6c9dddb14b67",
+        "base_name": "Kotegawa Bear Market Reversal Strategy [Manual Build]",
+        "level": "strict",
+        "additions": [
+          "sl_distance",
+          "min_rr"
+        ],
+        "baseline_profit_factor": 0.7988,
+        "batch_id": "opt_strict_69c34f5bf0d5",
+        "total_trades": 5581,
+        "wins": 1291,
+        "win_rate_pct": 23.13,
+        "net_pnl": -9206.9,
+        "profit_factor": 0.7988,
+        "max_drawdown_pct": 57.99
+      }
+    },
+    "74c3a80238d4:medium": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "5d2a6762a435",
+        "base_strategy_id": "74c3a80238d4",
+        "base_name": "Equal Highs/Lows Reversal [Manual Build]",
+        "level": "medium",
+        "additions": [
+          "sl_distance"
+        ],
+        "baseline_profit_factor": 0.9822,
+        "batch_id": "opt_medium_5d2a6762a435",
+        "total_trades": 2474,
+        "wins": 628,
+        "win_rate_pct": 25.38,
+        "net_pnl": -300.86,
+        "profit_factor": 0.9822,
+        "max_drawdown_pct": 81.56
+      }
+    },
+    "74c3a80238d4:strict": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "e600af5c11e1",
+        "base_strategy_id": "74c3a80238d4",
+        "base_name": "Equal Highs/Lows Reversal [Manual Build]",
+        "level": "strict",
+        "additions": [
+          "sl_distance",
+          "min_rr"
+        ],
+        "baseline_profit_factor": 0.9822,
+        "batch_id": "opt_strict_e600af5c11e1",
+        "total_trades": 31238,
+        "wins": 14300,
+        "win_rate_pct": 45.78,
+        "net_pnl": -34666.34,
+        "profit_factor": 0.5345,
+        "max_drawdown_pct": 97.82
+      }
+    },
+    "798166a860a3:medium": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "632d8ce48ebb",
+        "base_strategy_id": "798166a860a3",
+        "base_name": "Fair Value Gap Reversal [Manual Build]",
+        "level": "medium",
+        "additions": [
+          "sl_distance"
+        ],
+        "baseline_profit_factor": 1.3735,
+        "batch_id": "opt_medium_632d8ce48ebb",
+        "total_trades": 1728,
+        "wins": 343,
+        "win_rate_pct": 19.85,
+        "net_pnl": 4830.76,
+        "profit_factor": 1.3735,
+        "max_drawdown_pct": 89.83
+      }
+    },
+    "798166a860a3:strict": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "da2cbe88135e",
+        "base_strategy_id": "798166a860a3",
+        "base_name": "Fair Value Gap Reversal [Manual Build]",
+        "level": "strict",
+        "additions": [
+          "sl_distance",
+          "min_rr"
+        ],
+        "baseline_profit_factor": 1.3735,
+        "batch_id": "opt_strict_da2cbe88135e",
+        "total_trades": 29153,
+        "wins": 14001,
+        "win_rate_pct": 48.03,
+        "net_pnl": -32601.4,
+        "profit_factor": 0.5382,
+        "max_drawdown_pct": 95.43
+      }
+    },
+    "79bda8dea533:medium": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "a701d6ee17f5",
+        "base_strategy_id": "79bda8dea533",
+        "base_name": "Dumb Money Concepts -- Blind Entry [Manual Build]",
+        "level": "medium",
+        "additions": [
+          "sl_distance"
+        ],
+        "baseline_profit_factor": 0.8064,
+        "batch_id": "opt_medium_a701d6ee17f5",
+        "total_trades": 2632,
+        "wins": 623,
+        "win_rate_pct": 23.67,
+        "net_pnl": -4153.17,
+        "profit_factor": 0.8064,
+        "max_drawdown_pct": 72.75
+      }
+    },
+    "79bda8dea533:strict": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "6587f55cd23a",
+        "base_strategy_id": "79bda8dea533",
+        "base_name": "Dumb Money Concepts -- Blind Entry [Manual Build]",
+        "level": "strict",
+        "additions": [
+          "sl_distance",
+          "min_rr"
+        ],
+        "baseline_profit_factor": 0.8064,
+        "batch_id": "opt_strict_6587f55cd23a",
+        "total_trades": 5047,
+        "wins": 715,
+        "win_rate_pct": 14.17,
+        "net_pnl": -11278.27,
+        "profit_factor": 0.758,
+        "max_drawdown_pct": 77.81
+      }
+    },
+    "84525b11cd18:medium": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "89336c051842",
+        "base_strategy_id": "84525b11cd18",
+        "base_name": "Richard Dennis Turtle Trader Strategy [Manual Build]",
+        "level": "medium",
+        "additions": [
+          "sl_distance"
+        ],
+        "baseline_profit_factor": 1.2596,
+        "batch_id": "opt_medium_89336c051842",
+        "total_trades": 1357,
+        "wins": 93,
+        "win_rate_pct": 6.85,
+        "net_pnl": 3119.36,
+        "profit_factor": 1.2257,
+        "max_drawdown_pct": 68.58
+      }
+    },
+    "84525b11cd18:strict": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "125a27fc0a6e",
+        "base_strategy_id": "84525b11cd18",
+        "base_name": "Richard Dennis Turtle Trader Strategy [Manual Build]",
+        "level": "strict",
+        "additions": [
+          "sl_distance",
+          "min_rr"
+        ],
+        "baseline_profit_factor": 1.2596,
+        "batch_id": "opt_strict_125a27fc0a6e",
+        "total_trades": 1357,
+        "wins": 93,
+        "win_rate_pct": 6.85,
+        "net_pnl": 3119.36,
+        "profit_factor": 1.2257,
+        "max_drawdown_pct": 68.58
+      }
+    },
+    "86ceac60820b:medium": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "7b328f19ca1b",
+        "base_strategy_id": "86ceac60820b",
+        "base_name": "9-20 EMA SMC Hybrid [Manual Build]",
+        "level": "medium",
+        "additions": [
+          "sl_distance"
+        ],
+        "baseline_profit_factor": 0.8171,
+        "batch_id": "opt_medium_7b328f19ca1b",
+        "total_trades": 771,
+        "wins": 279,
+        "win_rate_pct": 36.19,
+        "net_pnl": -1074.98,
+        "profit_factor": 0.8171,
+        "max_drawdown_pct": 27.54
+      }
+    },
+    "87c0c79ac0cb:medium": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "3bbe5c358da0",
+        "base_strategy_id": "87c0c79ac0cb",
+        "base_name": "Market Structure Shift Reversal [Manual Build]",
+        "level": "medium",
+        "additions": [
+          "sl_distance"
+        ],
+        "baseline_profit_factor": 0.8227,
+        "batch_id": "opt_medium_3bbe5c358da0",
+        "total_trades": 2445,
+        "wins": 541,
+        "win_rate_pct": 22.13,
+        "net_pnl": -3239.98,
+        "profit_factor": 0.8227,
+        "max_drawdown_pct": 81.13
+      }
+    },
+    "87c0c79ac0cb:strict": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "fa53f7c15a04",
+        "base_strategy_id": "87c0c79ac0cb",
+        "base_name": "Market Structure Shift Reversal [Manual Build]",
+        "level": "strict",
+        "additions": [
+          "sl_distance",
+          "min_rr"
+        ],
+        "baseline_profit_factor": 0.8227,
+        "batch_id": "opt_strict_fa53f7c15a04",
+        "total_trades": 21562,
+        "wins": 8927,
+        "win_rate_pct": 41.4,
+        "net_pnl": -27330.84,
+        "profit_factor": 0.5544,
+        "max_drawdown_pct": 96.62
+      }
+    },
+    "8b878a159ead:medium": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "92ba53d6b3c8",
+        "base_strategy_id": "8b878a159ead",
+        "base_name": "Order Block Reversal [Manual Build]",
+        "level": "medium",
+        "additions": [
+          "sl_distance"
+        ],
+        "baseline_profit_factor": 1.1686,
+        "batch_id": "opt_medium_92ba53d6b3c8",
+        "total_trades": 1449,
+        "wins": 231,
+        "win_rate_pct": 15.94,
+        "net_pnl": 2096.1,
+        "profit_factor": 1.1686,
+        "max_drawdown_pct": 75.95
+      }
+    },
+    "8b878a159ead:strict": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "92839a928a13",
+        "base_strategy_id": "8b878a159ead",
+        "base_name": "Order Block Reversal [Manual Build]",
+        "level": "strict",
+        "additions": [
+          "sl_distance",
+          "min_rr"
+        ],
+        "baseline_profit_factor": 1.1686,
+        "batch_id": "opt_strict_92839a928a13",
+        "total_trades": 26242,
+        "wins": 12124,
+        "win_rate_pct": 46.2,
+        "net_pnl": -20728.24,
+        "profit_factor": 0.7066,
+        "max_drawdown_pct": 98.07
+      }
+    },
+    "8d527d2e0861:medium": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "08b78d5274f1",
+        "base_strategy_id": "8d527d2e0861",
+        "base_name": "Candle Range Theory (CRT) Strategy 2.0 [Manual Build]",
+        "level": "medium",
+        "additions": [
+          "sl_distance"
+        ],
+        "baseline_profit_factor": 0.7329,
+        "batch_id": "opt_medium_08b78d5274f1",
+        "total_trades": 42013,
+        "wins": 14177,
+        "win_rate_pct": 33.74,
+        "net_pnl": -42192.2,
+        "profit_factor": 0.7329,
+        "max_drawdown_pct": 98.29
+      }
+    },
+    "8d527d2e0861:strict": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "f54df623a982",
+        "base_strategy_id": "8d527d2e0861",
+        "base_name": "Candle Range Theory (CRT) Strategy 2.0 [Manual Build]",
+        "level": "strict",
+        "additions": [
+          "sl_distance",
+          "min_rr"
+        ],
+        "baseline_profit_factor": 0.7329,
+        "batch_id": "opt_strict_f54df623a982",
+        "total_trades": 42013,
+        "wins": 14177,
+        "win_rate_pct": 33.74,
+        "net_pnl": -42192.2,
+        "profit_factor": 0.7329,
+        "max_drawdown_pct": 98.29
+      }
+    },
+    "99fbf2454f8a:medium": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "896b4834f95b",
+        "base_strategy_id": "99fbf2454f8a",
+        "base_name": "SMA-Alignment Strategy (Approximate - ZIP Indicator Excluded) [Manual Build]",
+        "level": "medium",
+        "additions": [
+          "sl_distance"
+        ],
+        "baseline_profit_factor": 0.8386,
+        "batch_id": "opt_medium_896b4834f95b",
+        "total_trades": 3287,
+        "wins": 1246,
+        "win_rate_pct": 37.91,
+        "net_pnl": -3255.74,
+        "profit_factor": 0.8386,
+        "max_drawdown_pct": 27.75
+      }
+    },
+    "99fbf2454f8a:strict": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "b9a9874567d5",
+        "base_strategy_id": "99fbf2454f8a",
+        "base_name": "SMA-Alignment Strategy (Approximate - ZIP Indicator Excluded) [Manual Build]",
+        "level": "strict",
+        "additions": [
+          "sl_distance",
+          "min_rr"
+        ],
+        "baseline_profit_factor": 0.8386,
+        "batch_id": "opt_strict_b9a9874567d5",
+        "total_trades": 3287,
+        "wins": 1246,
+        "win_rate_pct": 37.91,
+        "net_pnl": -3255.74,
+        "profit_factor": 0.8386,
+        "max_drawdown_pct": 27.75
+      }
+    },
+    "b36687e8401a:medium": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "909e02bad309",
+        "base_strategy_id": "b36687e8401a",
+        "base_name": "Daily Liquidity Scalping Strategy [Manual Build]",
+        "level": "medium",
+        "additions": [
+          "sl_distance"
+        ],
+        "baseline_profit_factor": 0.7853,
+        "batch_id": "opt_medium_909e02bad309",
+        "total_trades": 48947,
+        "wins": 22552,
+        "win_rate_pct": 46.07,
+        "net_pnl": -35020.05,
+        "profit_factor": 0.7853,
+        "max_drawdown_pct": 99.93
+      }
+    },
+    "b36687e8401a:strict": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "b397a95c9d43",
+        "base_strategy_id": "b36687e8401a",
+        "base_name": "Daily Liquidity Scalping Strategy [Manual Build]",
+        "level": "strict",
+        "additions": [
+          "sl_distance",
+          "min_rr"
+        ],
+        "baseline_profit_factor": 0.7853,
+        "batch_id": "opt_strict_b397a95c9d43",
+        "total_trades": 48947,
+        "wins": 22552,
+        "win_rate_pct": 46.07,
+        "net_pnl": -35020.05,
+        "profit_factor": 0.7853,
+        "max_drawdown_pct": 99.93
+      }
+    },
+    "b4caef4ee47d:medium": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "209fb6596dc3",
+        "base_strategy_id": "b4caef4ee47d",
+        "base_name": "Support/Resistance Breakout (Swing/Crypto Futures) [Manual Build]",
+        "level": "medium",
+        "additions": [
+          "sl_distance"
+        ],
+        "baseline_profit_factor": 1.0548,
+        "batch_id": "opt_medium_209fb6596dc3",
+        "total_trades": 4479,
+        "wins": 1748,
+        "win_rate_pct": 39.03,
+        "net_pnl": 1433.33,
+        "profit_factor": 1.0548,
+        "max_drawdown_pct": 89.33
+      }
+    },
+    "b4caef4ee47d:strict": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "8082cfffd06b",
+        "base_strategy_id": "b4caef4ee47d",
+        "base_name": "Support/Resistance Breakout (Swing/Crypto Futures) [Manual Build]",
+        "level": "strict",
+        "additions": [
+          "sl_distance",
+          "min_rr"
+        ],
+        "baseline_profit_factor": 1.0548,
+        "batch_id": "opt_strict_8082cfffd06b",
+        "total_trades": 3507,
+        "wins": 1174,
+        "win_rate_pct": 33.48,
+        "net_pnl": -5454.48,
+        "profit_factor": 0.8004,
+        "max_drawdown_pct": 41.83
+      }
+    },
+    "c502890cdef2:medium": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "feec1b3e58fa",
+        "base_strategy_id": "c502890cdef2",
+        "base_name": "Dumb Money Concepts -- Combined Confirmation [Manual Build]",
+        "level": "medium",
+        "additions": [
+          "sl_distance"
+        ],
+        "baseline_profit_factor": 0.8764,
+        "batch_id": "opt_medium_feec1b3e58fa",
+        "total_trades": 1867,
+        "wins": 537,
+        "win_rate_pct": 28.76,
+        "net_pnl": -1807.51,
+        "profit_factor": 0.8764,
+        "max_drawdown_pct": 64.44
+      }
+    },
+    "c502890cdef2:strict": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "f6b225c6ddd4",
+        "base_strategy_id": "c502890cdef2",
+        "base_name": "Dumb Money Concepts -- Combined Confirmation [Manual Build]",
+        "level": "strict",
+        "additions": [
+          "sl_distance",
+          "min_rr"
+        ],
+        "baseline_profit_factor": 0.8764,
+        "batch_id": "opt_strict_f6b225c6ddd4",
+        "total_trades": 2961,
+        "wins": 475,
+        "win_rate_pct": 16.04,
+        "net_pnl": -5055.48,
+        "profit_factor": 0.8201,
+        "max_drawdown_pct": 60.29
+      }
+    },
+    "d3e441733525:medium": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "ea65002241aa",
+        "base_strategy_id": "d3e441733525",
+        "base_name": "Double Confirmation CHoCH with Liquidity Trap [Manual Build]",
+        "level": "medium",
+        "additions": [
+          "sl_distance"
+        ],
+        "baseline_profit_factor": 0.8726,
+        "batch_id": "opt_medium_ea65002241aa",
+        "total_trades": 8011,
+        "wins": 2104,
+        "win_rate_pct": 26.26,
+        "net_pnl": -3452.69,
+        "profit_factor": 0.8726,
+        "max_drawdown_pct": 98.88
+      }
+    },
+    "d3e441733525:strict": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "4e796953a469",
+        "base_strategy_id": "d3e441733525",
+        "base_name": "Double Confirmation CHoCH with Liquidity Trap [Manual Build]",
+        "level": "strict",
+        "additions": [
+          "sl_distance",
+          "min_rr"
+        ],
+        "baseline_profit_factor": 0.8726,
+        "batch_id": "opt_strict_4e796953a469",
+        "total_trades": 4254,
+        "wins": 1273,
+        "win_rate_pct": 29.92,
+        "net_pnl": -10140.9,
+        "profit_factor": 0.6219,
+        "max_drawdown_pct": 73.06
+      }
+    },
+    "d62e5015a93b:medium": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "e117bb9c6b9b",
+        "base_strategy_id": "d62e5015a93b",
+        "base_name": "Lower Time Frame Liquidity Reversal Strategy [Manual Build]",
+        "level": "medium",
+        "additions": [
+          "sl_distance"
+        ],
+        "baseline_profit_factor": 0.7694,
+        "batch_id": "opt_medium_e117bb9c6b9b",
+        "total_trades": 14248,
+        "wins": 4665,
+        "win_rate_pct": 32.74,
+        "net_pnl": -23129.4,
+        "profit_factor": 0.7694,
+        "max_drawdown_pct": 89.65
+      }
+    },
+    "d62e5015a93b:strict": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "0607fcfab381",
+        "base_strategy_id": "d62e5015a93b",
+        "base_name": "Lower Time Frame Liquidity Reversal Strategy [Manual Build]",
+        "level": "strict",
+        "additions": [
+          "sl_distance",
+          "min_rr"
+        ],
+        "baseline_profit_factor": 0.7694,
+        "batch_id": "opt_strict_0607fcfab381",
+        "total_trades": 14248,
+        "wins": 4665,
+        "win_rate_pct": 32.74,
+        "net_pnl": -23129.4,
+        "profit_factor": 0.7694,
+        "max_drawdown_pct": 89.65
+      }
+    },
+    "b9884b3e5e5d:medium": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "80575fc09218",
+        "base_strategy_id": "b9884b3e5e5d",
+        "base_name": "HTF Key Level Engulfing Reversal [Manual Build]",
+        "level": "medium",
+        "additions": "sl_distance",
+        "baseline_profit_factor": 0.6832,
+        "batch_id": "opt_medium_80575fc09218",
+        "total_trades": 98556,
+        "wins": 32794,
+        "win_rate_pct": 33.27,
+        "net_pnl": -47318.47,
+        "profit_factor": 0.6832,
+        "max_drawdown_pct": 100.0
+      }
+    },
+    "b9884b3e5e5d:strict": {
+      "status": "skipped",
+      "result": {
+        "skipped_reason": "Take-profit is a fixed 1:2 RR multiple of its own stop-loss (not an independent structural target), so a min_risk_reward_filter would always read exactly 2.0 by construction and could never discard a trade -- not a real second corroborating condition. No other already-documented concept ingredient available to add."
+      }
+    },
+    "45a238de1868:medium": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "bd9e3962455e",
+        "base_strategy_id": "45a238de1868",
+        "base_name": "Sniper Headshot Entry [Manual Build]",
+        "level": "medium",
+        "additions": "sl_distance",
+        "baseline_profit_factor": 0.8393,
+        "batch_id": "opt_medium_bd9e3962455e",
+        "total_trades": 9082,
+        "wins": 2661,
+        "win_rate_pct": 29.3,
+        "net_pnl": -7491.65,
+        "profit_factor": 0.8393,
+        "max_drawdown_pct": 93.35
+      }
+    },
+    "45a238de1868:strict": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "382e25a266fd",
+        "base_strategy_id": "45a238de1868",
+        "base_name": "Sniper Headshot Entry [Manual Build]",
+        "level": "strict",
+        "additions": "sl_distance,min_rr",
+        "baseline_profit_factor": 0.8393,
+        "batch_id": "opt_strict_382e25a266fd",
+        "total_trades": 12764,
+        "wins": 3973,
+        "win_rate_pct": 31.13,
+        "net_pnl": -11420.41,
+        "profit_factor": 0.8447,
+        "max_drawdown_pct": 91.39
+      }
+    },
+    "7775cebf0fd3:medium": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "7446d45c67ba",
+        "base_strategy_id": "7775cebf0fd3",
+        "base_name": "PDH/PDL Multi-Timeframe Reversal [Manual Build]",
+        "level": "medium",
+        "additions": "sl_distance",
+        "baseline_profit_factor": 0.7385,
+        "batch_id": "opt_medium_7446d45c67ba",
+        "total_trades": 10701,
+        "wins": 2729,
+        "win_rate_pct": 25.5,
+        "net_pnl": -19944.3,
+        "profit_factor": 0.7385,
+        "max_drawdown_pct": 89.26
+      }
+    },
+    "7775cebf0fd3:strict": {
+      "status": "skipped",
+      "result": {
+        "skipped_reason": "Take-profit is a fixed 1:3 RR multiple of the stop-loss (not an independent structural target), so min_risk_reward_filter would always read exactly 3.0 by construction -- same reasoning as Strategy 1."
+      }
+    },
+    "f4bfea4e22e0:medium": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "ff86bccce8ba",
+        "base_strategy_id": "f4bfea4e22e0",
+        "base_name": "SAR + SMC (CISD Entry) [Manual Build]",
+        "level": "medium",
+        "additions": "sl_distance",
+        "baseline_profit_factor": 0.189,
+        "batch_id": "opt_medium_ff86bccce8ba",
+        "total_trades": 571,
+        "wins": 177,
+        "win_rate_pct": 31.0,
+        "net_pnl": -2090.42,
+        "profit_factor": 0.189,
+        "max_drawdown_pct": 17.38
+      }
+    },
+    "f4bfea4e22e0:strict": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "fd31c5362535",
+        "base_strategy_id": "f4bfea4e22e0",
+        "base_name": "SAR + SMC (CISD Entry) [Manual Build]",
+        "level": "strict",
+        "additions": "sl_distance,stricter_min_rr",
+        "baseline_profit_factor": 0.189,
+        "batch_id": "opt_strict_fd31c5362535",
+        "total_trades": 570,
+        "wins": 177,
+        "win_rate_pct": 31.05,
+        "net_pnl": -2079.86,
+        "profit_factor": 0.1898,
+        "max_drawdown_pct": 17.38
+      }
+    },
+    "53c80e6c5b6a:medium": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "53202c72f639",
+        "base_strategy_id": "53c80e6c5b6a",
+        "base_name": "4H Fractal Sweep Reversal [Manual Build]",
+        "level": "medium",
+        "additions": "sl_distance",
+        "baseline_profit_factor": 0.6611,
+        "batch_id": "opt_medium_53202c72f639",
+        "total_trades": 34221,
+        "wins": 11233,
+        "win_rate_pct": 32.82,
+        "net_pnl": -41154.65,
+        "profit_factor": 0.6611,
+        "max_drawdown_pct": 98.79
+      }
+    },
+    "53c80e6c5b6a:strict": {
+      "status": "skipped",
+      "result": {
+        "skipped_reason": "Take-profit is a fixed 1:2 RR multiple of the stop-loss (not an independent structural target), so min_risk_reward_filter would always read exactly 2.0 by construction -- same reasoning as Strategy 1."
+      }
+    },
+    "bddde91aee6d:medium": {
+      "status": "done",
+      "result": {
+        "n_trades": 14761,
+        "win_rate_pct": 39.65,
+        "profit_factor": 1.0245,
+        "net_pnl": 18300.02,
+        "additions": [
+          "sl_distance"
+        ],
+        "variant_strategy_id": "ff5eee6d928e"
+      }
+    },
+    "bddde91aee6d:strict": {
+      "status": "done",
+      "result": {
+        "n_trades": 19277,
+        "win_rate_pct": 25.81,
+        "profit_factor": 1.0027,
+        "net_pnl": 3426.16,
+        "additions": [
+          "sl_distance",
+          "min_rr"
+        ],
+        "variant_strategy_id": "35dd0d9db3e8"
+      }
+    },
+    "872544b77a57:medium": {
+      "status": "done",
+      "result": {
+        "n_trades": 14993,
+        "win_rate_pct": 58.55,
+        "profit_factor": 0.9483,
+        "net_pnl": -25666.85,
+        "additions": [
+          "sl_distance"
+        ],
+        "variant_strategy_id": "525dd3071e2a"
+      }
+    },
+    "872544b77a57:strict": {
+      "status": "done",
+      "result": {
+        "n_trades": 12000,
+        "win_rate_pct": 48.6,
+        "profit_factor": 1.0412,
+        "net_pnl": 23019.79,
+        "additions": [
+          "sl_distance",
+          "min_rr"
+        ],
+        "variant_strategy_id": "2a3e9253aecb"
+      }
+    },
+    "1e0a42397286:medium": {
+      "status": "done",
+      "result": {
+        "n_trades": 20253,
+        "win_rate_pct": 40.43,
+        "profit_factor": 1.0117,
+        "net_pnl": 12449.02,
+        "additions": [
+          "sl_distance"
+        ],
+        "variant_strategy_id": "37d24c769686"
+      }
+    },
+    "1e0a42397286:strict": {
+      "status": "done",
+      "result": {
+        "n_trades": 19882,
+        "win_rate_pct": 40.82,
+        "profit_factor": 1.0098,
+        "net_pnl": 10205.78,
+        "additions": [
+          "sl_distance",
+          "stricter_min_rr"
+        ],
+        "variant_strategy_id": "cf835208fb31"
+      }
+    },
+    "8a048e8a2224:medium": {
+      "status": "done",
+      "result": {
+        "profit_factor": 1.1174,
+        "net_pnl": 14073.54,
+        "win_rate_pct": 25.0,
+        "additions": {
+          "sl_distance_filter_pct": {
+            "min_pct": 0.6
+          }
+        },
+        "variant_strategy_id": "c97cdd681edb",
+        "batch_id": "20260831_070218_8d592c"
+      }
+    },
+    "8a048e8a2224:strict": {
+      "status": "done",
+      "result": {
+        "profit_factor": 0.6304,
+        "net_pnl": -64966.32,
+        "win_rate_pct": 32.71,
+        "additions": {
+          "min_risk_reward_filter": 2.0,
+          "risk_reward_filter_uses_take_profit": true
+        },
+        "variant_strategy_id": "49a282a0c3c6",
+        "batch_id": "20260831_070726_2eec01"
+      }
+    },
+    "45040c58cf5a:medium": {
+      "status": "done",
+      "result": {
+        "profit_factor": 1.3692,
+        "net_pnl": 61443.51,
+        "win_rate_pct": 26.34,
+        "additions": {
+          "sl_distance_filter_pct": {
+            "min_pct": 0.6
+          }
+        },
+        "variant_strategy_id": "ce7d2a42108a",
+        "batch_id": "20260831_080101_7f6a07"
+      }
+    },
+    "45040c58cf5a:strict": {
+      "status": "done",
+      "result": {
+        "profit_factor": 0.6239,
+        "net_pnl": -228605.51,
+        "win_rate_pct": 31.11,
+        "additions": {
+          "min_risk_reward_filter": 2.0,
+          "risk_reward_filter_uses_take_profit": true
+        },
+        "variant_strategy_id": "c9398aeb6e10",
+        "batch_id": "20260831_080410_5aac83"
+      }
+    },
+    "ecec74744ec1:medium": {
+      "status": "done",
+      "result": {
+        "profit_factor": 0.2614,
+        "net_pnl": -482971.64,
+        "win_rate_pct": 14.32,
+        "additions": {
+          "sl_distance_filter_pct": {
+            "min_pct": 0.6
+          }
+        },
+        "variant_strategy_id": "eb8339a631bc",
+        "batch_id": "20260831_081731_d01fd3"
+      }
+    },
+    "ecec74744ec1:strict": {
+      "status": "done",
+      "result": {
+        "profit_factor": 0.2302,
+        "net_pnl": -463625.04,
+        "win_rate_pct": 15.47,
+        "additions": {
+          "min_risk_reward_filter": 2.0,
+          "primary_target_lookback_bars": 50
+        },
+        "variant_strategy_id": "83f70596fb93",
+        "batch_id": "20260831_082734_73c8eb"
+      }
+    },
+    "e25028146948:medium": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "8a3e5cedea3c",
+        "base_strategy_id": "e25028146948",
+        "base_name": "Heikin Ashi Trend Reversal [Manual Build]",
+        "level": "medium",
+        "additions": [
+          "sl_distance"
+        ],
+        "baseline_profit_factor": 0.6799,
+        "batch_id": "20260831_110452_538b75",
+        "total_trades": 2232,
+        "wins": 896,
+        "win_rate_pct": 40.14,
+        "net_pnl": -4774.15,
+        "profit_factor": 0.6799
+      }
+    },
+    "e25028146948:strict": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "d614d4f320e9",
+        "base_strategy_id": "e25028146948",
+        "base_name": "Heikin Ashi Trend Reversal [Manual Build]",
+        "level": "strict",
+        "additions": [
+          "sl_distance",
+          "min_rr (3.0 -> 4.0)"
+        ],
+        "baseline_profit_factor": 0.6799,
+        "batch_id": "20260831_111452_0d324e",
+        "total_trades": 2094,
+        "wins": 852,
+        "win_rate_pct": 40.69,
+        "net_pnl": -4715.11,
+        "profit_factor": 0.6604
+      }
+    },
+    "e2d090ed4ff4:medium": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "5de9ade6fbec",
+        "base_strategy_id": "e2d090ed4ff4",
+        "base_name": "Fibonacci Golden Zone Retracement [Manual Build]",
+        "level": "medium",
+        "additions": [
+          "sl_distance"
+        ],
+        "baseline_profit_factor": 0.7384,
+        "batch_id": "20260831_112812_efd07f",
+        "total_trades": 5151,
+        "wins": 1571,
+        "win_rate_pct": 30.5,
+        "net_pnl": -7507.91,
+        "profit_factor": 0.7465
+      }
+    },
+    "e2d090ed4ff4:strict": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "50811e310b3f",
+        "base_strategy_id": "e2d090ed4ff4",
+        "base_name": "Fibonacci Golden Zone Retracement [Manual Build]",
+        "level": "strict",
+        "additions": [
+          "sl_distance",
+          "min_rr (2.0)"
+        ],
+        "baseline_profit_factor": 0.7384,
+        "batch_id": "20260831_112953_fb12af",
+        "total_trades": 19523,
+        "wins": 7007,
+        "win_rate_pct": 35.89,
+        "net_pnl": -32516.49,
+        "profit_factor": 0.6124
+      }
+    },
+    "3fef95339b15:medium": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "783e00b4c6a9",
+        "base_strategy_id": "3fef95339b15",
+        "base_name": "FRVP POC Reversal [Manual Build]",
+        "level": "medium",
+        "additions": [
+          "sl_distance"
+        ],
+        "baseline_profit_factor": 0.9939,
+        "batch_id": "20260831_113230_5460c2",
+        "total_trades": 7921,
+        "wins": 2887,
+        "win_rate_pct": 36.45,
+        "net_pnl": -281.6,
+        "profit_factor": 0.9939
+      }
+    },
+    "3fef95339b15:strict": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "9362d4e28a07",
+        "base_strategy_id": "3fef95339b15",
+        "base_name": "FRVP POC Reversal [Manual Build]",
+        "level": "strict",
+        "additions": [
+          "sl_distance",
+          "min_rr (2.0)"
+        ],
+        "baseline_profit_factor": 0.9939,
+        "batch_id": "20260831_113248_46ecea",
+        "total_trades": 9186,
+        "wins": 3006,
+        "win_rate_pct": 32.72,
+        "net_pnl": -13537.48,
+        "profit_factor": 0.7918
+      }
+    },
+    "143a732de079:medium": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "8d6b9231759c",
+        "base_strategy_id": "143a732de079",
+        "base_name": "FVG 50% Equilibrium Entry [Manual Build]",
+        "level": "medium",
+        "additions": [
+          "sl_distance"
+        ],
+        "baseline_profit_factor": 0.6354,
+        "batch_id": "20260831_113453_8ba1af",
+        "total_trades": 27543,
+        "wins": 10745,
+        "win_rate_pct": 39.01,
+        "net_pnl": -35017.81,
+        "profit_factor": 0.6354
+      }
+    },
+    "143a732de079:strict": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "6efdd4ca5de5",
+        "base_strategy_id": "143a732de079",
+        "base_name": "FVG 50% Equilibrium Entry [Manual Build]",
+        "level": "strict",
+        "additions": [
+          "sl_distance",
+          "min_rr (3.0 -> 4.0)"
+        ],
+        "baseline_profit_factor": 0.6354,
+        "batch_id": "20260831_113524_ebe965",
+        "total_trades": 27033,
+        "wins": 10625,
+        "win_rate_pct": 39.3,
+        "net_pnl": -34721.56,
+        "profit_factor": 0.6325
+      }
+    },
+    "0113516effdb:medium": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "f825023d91fd",
+        "base_strategy_id": "0113516effdb",
+        "base_name": "Donchian LWTI Volume Confluence [Manual Build]",
+        "level": "medium",
+        "additions": [
+          "sl_distance"
+        ],
+        "baseline_profit_factor": 0.9312,
+        "batch_id": "20260831_113915_6ab74f",
+        "total_trades": 2387,
+        "wins": 785,
+        "win_rate_pct": 32.89,
+        "net_pnl": -1000.15,
+        "profit_factor": 0.9312
+      }
+    },
+    "0113516effdb:strict": {
+      "status": "done",
+      "result": {
+        "variant_strategy_id": "b1e3a504718a",
+        "base_strategy_id": "0113516effdb",
+        "base_name": "Donchian LWTI Volume Confluence [Manual Build]",
+        "level": "strict",
+        "additions": [
+          "sl_distance",
+          "min_rr (2.0)"
+        ],
+        "baseline_profit_factor": 0.9312,
+        "batch_id": "20260831_114000_0d4f6c",
+        "total_trades": 1658,
+        "wins": 454,
+        "win_rate_pct": 27.38,
+        "net_pnl": -3976.66,
+        "profit_factor": 0.6965
+      }
+    }
+  }
+}

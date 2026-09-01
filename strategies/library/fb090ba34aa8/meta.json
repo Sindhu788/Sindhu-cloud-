@@ -1,0 +1,15 @@
+{
+  "id": "fb090ba34aa8",
+  "name": "Daily Liquidity Scalping Strategy -- Fixed 1:2 TP variant [Manual Build]",
+  "tags": [
+    "dual_tp_variant",
+    "source:b36687e8401a"
+  ],
+  "favourite": false,
+  "archived": true,
+  "created_at": "2026-08-25T19:36:26.625806+00:00",
+  "updated_at": "2026-08-25T19:36:26.707701+00:00",
+  "current_version": 1,
+  "safety_status": "ready",
+  "safety_reasons": []
+}

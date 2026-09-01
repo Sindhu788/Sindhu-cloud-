@@ -1,0 +1,95 @@
+{
+  "name": "FRVP POC Reversal [Manual Build] [Medium]",
+  "raw_text": "FRVP POC Reversal (New Batch 4, Strategy 3). Single timeframe: 1H (source's own '24-hour session volume profile' crypto-specific note). New concept: Fixed Range Volume Profile POC, drawn between the two most recent alternating confirmed swing points (own new reusable concept, concepts.fixed_range_volume_profile -- no existing Volume Profile/POC concept in this codebase used a swing-range window, only a fixed calendar-day window, so this genuinely needed a new function). Entry: price returns to an ATR-buffered POC zone (0.5x ATR14, own default) from above (long) or below (short), OR an immediate short on a clean breakdown through a POC acting as support. REQUIRED additional filter (source: 'do not trade FRVP in isolation'): a confirming Engulfing OR Hammer/pin_bar candle pattern (both existing concepts, reused directly) must fire on the SAME bar as the POC touch -- a hard AND. SL = slightly beyond the POC zone (0.65% buffer, cost_model-verified safe). TP = structure-based (swing-high/low) primary, 1:2 RR fallback (existing 'structure_or_rr' SLTP type, reused directly). Risk 1% default, no session restriction.",
+  "timeframes": {
+    "entry": "1h"
+  },
+  "indicators": [],
+  "concepts_used": [
+    "frvp_poc_reversal",
+    "engulfing",
+    "pin_bar",
+    "support",
+    "resistance"
+  ],
+  "entry_conditions": [],
+  "exit_conditions": [],
+  "confirmation_conditions": [],
+  "long_entry_conditions": [
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "frvp_poc_reversal",
+      "direction": "bullish",
+      "text": null,
+      "role": null,
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": null
+    }
+  ],
+  "short_entry_conditions": [
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "frvp_poc_reversal",
+      "direction": "bearish",
+      "text": null,
+      "role": null,
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": null
+    }
+  ],
+  "entry_rule_groups": [],
+  "stop_loss": {
+    "type": "structure",
+    "value": 0.65,
+    "level": null,
+    "atr_period": null
+  },
+  "take_profit": {
+    "type": "structure_or_rr",
+    "value": 2.0,
+    "level": null,
+    "atr_period": null
+  },
+  "risk_pct": 1.0,
+  "risk_reward": null,
+  "sl_distance_filter_pct": {
+    "min_pct": 0.6
+  },
+  "min_risk_reward_filter": null,
+  "primary_target_lookback_bars": null,
+  "risk_reward_filter_uses_take_profit": false,
+  "zone_params": {},
+  "session_filter": [],
+  "trend_filter": null,
+  "day_filter": [],
+  "breakeven_at_rr": null,
+  "entry_type": "market",
+  "long_entry_type": null,
+  "short_entry_type": null,
+  "entry_price_offset_pct": null,
+  "partial_take_profit": null,
+  "trailing_stop": null,
+  "time_exit_bars": null,
+  "tags": [],
+  "favourite": false,
+  "claimed_win_rate_pct": null,
+  "claimed_win_rate_source_text": null,
+  "missing": [],
+  "warnings": []
+}

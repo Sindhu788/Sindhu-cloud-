@@ -1,0 +1,18 @@
+{
+  "id": "1e0a42397286",
+  "name": "OTE Liquidity Sweep Reversal [Manual Build]",
+  "tags": [
+    "concept_based_strategy",
+    "manual_build",
+    "ote_liquidity_sweep_reversal",
+    "15m",
+    "1h"
+  ],
+  "favourite": false,
+  "archived": false,
+  "created_at": "2026-08-28T19:22:52.591406+00:00",
+  "updated_at": "2026-08-28T19:22:52.591406+00:00",
+  "current_version": 1,
+  "safety_status": "ready",
+  "safety_reasons": []
+}

@@ -1,0 +1,18 @@
+{
+  "id": "872544b77a57",
+  "name": "Liquidity Sweep + CISD (Pure Swing Variant) [Manual Build]",
+  "tags": [
+    "concept_based_strategy",
+    "manual_build",
+    "liquidity_sweep_cisd_swing",
+    "5m",
+    "1h"
+  ],
+  "favourite": false,
+  "archived": false,
+  "created_at": "2026-08-28T19:19:29.125903+00:00",
+  "updated_at": "2026-08-28T19:19:29.125903+00:00",
+  "current_version": 1,
+  "safety_status": "ready",
+  "safety_reasons": []
+}

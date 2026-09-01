@@ -1,6 +1,6 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from sindhu_web import broadcast, devices, session_guard
+from sindhu_web import auth, broadcast, devices, session_guard
 from sindhu_web.security import _is_lan_client
 
 router = APIRouter()
@@ -19,10 +19,27 @@ async def logs_ws(websocket: WebSocket):
     events, per-job progress updates, and sync events (strategy/lesson/
     settings changes) -- each message carries a "channel" field so the
     frontend can route it. Also registers this connection as a "connected
-    device" for the Control Center, for as long as the socket stays open."""
+    device" for the Control Center, for as long as the socket stays open.
+
+    SECURITY: sindhu_web.security.token_guard_middleware is an HTTP-only
+    middleware (`@app.middleware("http")`) -- Starlette never runs it for
+    a WebSocket upgrade, so the login-session gate that protects every
+    other page and API endpoint has never actually applied here. On the
+    local laptop this went unnoticed because the LAN check below already
+    limited this socket to the same WiFi network. Once SINDHU_CLOUD_MODE
+    bypasses that LAN check for a public cloud deployment (Railway),
+    relying on it alone here would leave this one socket reachable by
+    anyone on the internet with zero login required -- a live feed of
+    every trade, log line, and Telegram send. This explicit session check
+    is what actually closes that gap, on both the local app and the cloud
+    one, rather than depending on network topology to do a login gate's
+    job."""
     ip = websocket.client.host if websocket.client else None
     if not _is_lan_client(ip):
         await websocket.close(code=4403)
+        return
+    if not auth.is_valid_session(websocket.cookies.get(auth.SESSION_COOKIE)):
+        await websocket.close(code=4401)
         return
 
     device_id = websocket.query_params.get("device_id")

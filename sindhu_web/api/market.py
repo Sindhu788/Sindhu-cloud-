@@ -96,5 +96,12 @@ def get_market():
             })
         return rows
 
-    rows = cache.cached(f"market_{exchange_id}", 30, _compute)
+    # Non-blocking: get_tickers() is a live exchange API call that measured
+    # 60-130s in this environment. It's already pre-warmed at boot (see
+    # server._warm_caches), but a request landing before that warm-up
+    # finishes -- e.g. right after a restart -- used to block on the same
+    # 60-130s call itself. Same class of bug as the /api/home disk-walk
+    # hang: no user request should ever be the one to pay for a first
+    # compute this expensive.
+    rows = cache.cached_nonblocking(f"market_{exchange_id}", 30, _compute, [])
     return {"exchange": exchange_id, "quote": quote, "coins": rows}

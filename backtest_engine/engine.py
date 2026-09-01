@@ -13,6 +13,18 @@ or unconditionally at the very next bar's open (next_candle_open) -- never
 silently substituted for a different fill type.
 """
 
+# Requirement 20 emergency fallback: when a structure-based stop_loss is
+# invalidated post-fill (see _open_position below), the trade gets this
+# fixed-percentage stop from the real fill price instead of NO stop at all.
+# The invalidated zone was already validated against the correct side of
+# the raw SIGNAL price at computation time (_compute_stop_loss), so it only
+# flips sides here because slippage/spread nudged the real fill a hair past
+# it -- meaning the zone, and therefore a safe protective distance, is
+# always close by. 1% is tight enough to matter for the scalping-style
+# strategies this most affects, without being so tight it gets brushed by
+# ordinary noise on a bar that would have been fine under the original zone.
+EMERGENCY_STOP_PCT = 0.01
+
 
 def _ts_to_ms(ts):
     return int(ts.value // 1_000_000)
@@ -131,7 +143,8 @@ def _check_partial_take_profit(position, ptp_config, high, low):
     return None
 
 
-def _update_trailing_stop(position, trailing_config, price, high, low, current_atr=None):
+def _update_trailing_stop(position, trailing_config, price, high, low, current_atr=None,
+                           current_structure_support=None, current_structure_resistance=None):
     """Requirement 10 (Trailing Stop). Tracks the best price seen since
     entry (position["best_price"]) and, once it's moved far enough, tightens
     stop_loss toward it -- NEVER loosens an existing stop, and never moves
@@ -140,7 +153,24 @@ def _update_trailing_stop(position, trailing_config, price, high, low, current_a
     that config object can be reused across symbols/runs, so per-bar state
     must never be mutated onto it); with no ATR available on this bar it
     just updates best_price and leaves the stop untouched rather than
-    inventing a distance."""
+    inventing a distance.
+
+    "structure" (New Batch 3, Strategy 1 -- HTF Trend Trendline Breakout):
+    a GENERAL, reusable third trailing-stop type -- gap #12 in
+    ENGINE_GAP_TRACKER.md ("no structural trailing stop-loss... would need a
+    third trailing_stop.type") -- for a strategy that wants to "ride the
+    trend" by moving the stop to the most recently confirmed swing point in
+    the trade's favor, instead of a fixed %/ATR distance. `current_structure_
+    support`/`current_structure_resistance` are this bar's already-computed
+    entry_support/entry_resistance values (the SAME forward-filled swing-low/
+    swing-high series the existing "support"/"resistance" concept already
+    produces -- see concepts.support_resistance -- passed in by the caller
+    exactly like current_atr above, never read off config), so any strategy
+    that already declares "support"/"resistance" gets this trailing mode for
+    free with zero new columns. Never loosens, never moves against the
+    trade, and never trails the stop past the current price (a confirmed
+    swing point can occasionally sit on the wrong side of a fast intrabar
+    move; the price guard keeps the stop a real, fillable level)."""
     if trailing_config is None:
         return
     if position["side"] == "long":
@@ -151,6 +181,20 @@ def _update_trailing_stop(position, trailing_config, price, high, low, current_a
         best = position["best_price"]
 
     ts_type = trailing_config.get("type")
+
+    if ts_type == "structure":
+        if position["side"] == "long":
+            level = current_structure_support
+            if level is not None and level == level and level < price:  # NaN + price-side guard
+                if position["stop_loss"] is None or level > position["stop_loss"]:
+                    position["stop_loss"] = level
+        else:
+            level = current_structure_resistance
+            if level is not None and level == level and level > price:
+                if position["stop_loss"] is None or level < position["stop_loss"]:
+                    position["stop_loss"] = level
+        return
+
     value = trailing_config.get("value")
     if value is None:
         return
@@ -245,6 +289,13 @@ def run_backtest(df, strategy, settings, control=None, on_trade=None, knowledge_
     df = strategy.prepare(df)
 
     config = getattr(strategy, "config", None)
+    # Requirement 20 emergency fallback (see EMERGENCY_STOP_PCT / _open_
+    # position below) only applies when the strategy actually configured a
+    # real stop-loss mechanism -- "unknown" (the field's default) means the
+    # strategy never set one and is relying on exit_conditions instead, so
+    # forcing a stop onto it would be a genuine behavior change the CEO
+    # didn't ask for, not a safety fix.
+    stop_loss_type = getattr(getattr(config, "stop_loss", None), "type", None)
     entry_type = (getattr(config, "entry_type", None) or "market").strip().lower()
     # Batch 6, Task 4: per-direction override, None (the default) means
     # "use the shared entry_type" -- resolved per-signal below once `side`
@@ -285,6 +336,31 @@ def run_backtest(df, strategy, settings, control=None, on_trade=None, knowledge_
     opens = df["open"].values
     times = df.index
     atr_col = df["entry_atr_14"].values if "entry_atr_14" in df.columns else None
+    # For trailing_stop.type == "structure" -- see _update_trailing_stop's
+    # docstring. Precomputed once here, same pattern as atr_col above.
+    # Prefers a strategy's own dedicated "entry_trail_support"/
+    # "entry_trail_resistance" columns (a strategy can compute these with
+    # whatever swing lookback actually suits trailing -- see HTF Trend
+    # Trendline Breakout's own trail_support/trail_resistance, lookback=8,
+    # deliberately larger/less noisy than the lookback=2 columns most
+    # entry-trigger logic uses) and falls back to the plain entry_support/
+    # entry_resistance columns the existing "support"/"resistance" concept
+    # already produces for any strategy that doesn't provide dedicated
+    # trail columns -- so this stays a genuinely general, reusable
+    # mechanism, not hardcoded to one strategy's swing lookback. None (the
+    # common case: a strategy not using structural trailing) costs nothing.
+    if "entry_trail_support" in df.columns:
+        structure_support_col = df["entry_trail_support"].values
+    elif "entry_support" in df.columns:
+        structure_support_col = df["entry_support"].values
+    else:
+        structure_support_col = None
+    if "entry_trail_resistance" in df.columns:
+        structure_resistance_col = df["entry_trail_resistance"].values
+    elif "entry_resistance" in df.columns:
+        structure_resistance_col = df["entry_resistance"].values
+    else:
+        structure_resistance_col = None
 
     position = None
     pending = None  # a not-yet-filled Limit/Stop/Signal-Candle/Next-Open order
@@ -390,7 +466,7 @@ def run_backtest(df, strategy, settings, control=None, on_trade=None, knowledge_
             on_trade(trade)
         return net_pnl
 
-    def _open_position(side, raw_price, stop_loss, take_profit, reason, entry_type_used, bar_i):
+    def _open_position(side, raw_price, stop_loss, take_profit, reason, entry_type_used, bar_i, risk_multiplier=None):
         """Shared open path for a market fill and a pending-order fill --
         computes the entry-leg slippage/spread cost ONCE here (against the
         full size being opened), so _close() only ever needs to add its
@@ -421,12 +497,41 @@ def run_backtest(df, strategy, settings, control=None, on_trade=None, knowledge_
             wrong_side = (side == "long" and stop_loss >= fill_price) or (side == "short" and stop_loss <= fill_price)
             if wrong_side:
                 stop_loss = None
+        # Emergency fallback: a missing stop_loss (unlike a missing take_
+        # profit) doesn't just sit "honestly visible" -- it leaves the
+        # trade with ZERO downside protection until _check_forced_exit's
+        # stop check (which only fires when stop_loss is not None) has
+        # nothing left to check, and the position rides to forced
+        # end_of_data close, however far price has moved by then. This can
+        # happen two ways: discarded just above (wrong-side post-slippage),
+        # or never computed at all -- e.g. a "structure" stop-loss whose
+        # zone-priority search (order block / FVG / support-resistance)
+        # found no valid candidate on the signal bar. Confirmed on live
+        # data (Fabio Valentina's Models, ZECUSDT): the latter case, a
+        # trade with stop_loss=None from the moment it opened, stayed open
+        # over a year and closed at -1075% (then -1183% once the wrong-
+        # side branch above was independently fixed and re-run, since this
+        # trade was never wrong-side to begin with -- it simply never had
+        # a stop). Only applies when the strategy actually configured a
+        # real stop-loss mechanism (stop_loss_type not "unknown"/None) --
+        # a strategy that deliberately has no stop-loss and relies on
+        # exit_conditions instead is untouched. A discarded take_profit has
+        # no such failure mode (it only forfeits upside), so that branch
+        # below is unchanged.
+        if stop_loss is None and stop_loss_type not in (None, "unknown"):
+            stop_loss = fill_price * (1 - EMERGENCY_STOP_PCT) if side == "long" else fill_price * (1 + EMERGENCY_STOP_PCT)
         if take_profit is not None:
             wrong_side = (side == "long" and take_profit <= fill_price) or (side == "short" and take_profit >= fill_price)
             if wrong_side:
                 take_profit = None
 
-        size = _position_size(initial_balance, balance, fill_price, stop_loss, risk_pct, position_size_pct, leverage)
+        # New Batch 3, Strategy 1: an optional per-signal soft size
+        # reduction (Signal.risk_multiplier -- e.g. "half size on weekends /
+        # during a ranging HTF"), distinct from a hard skip. None (every
+        # signal from every strategy before this field existed) means 1.0x,
+        # byte-for-byte unchanged sizing.
+        effective_risk_pct = risk_pct * (risk_multiplier if risk_multiplier is not None else 1.0)
+        size = _position_size(initial_balance, balance, fill_price, stop_loss, effective_risk_pct, position_size_pct, leverage)
         if size <= 0:
             return None
         risk_distance = abs(fill_price - stop_loss) if stop_loss is not None else None
@@ -463,6 +568,14 @@ def run_backtest(df, strategy, settings, control=None, on_trade=None, knowledge_
         if atr_col is not None:
             raw_atr = atr_col[i]
             current_atr = raw_atr if raw_atr == raw_atr else None  # NaN check
+        current_structure_support = None
+        if structure_support_col is not None:
+            raw_sup = structure_support_col[i]
+            current_structure_support = raw_sup if raw_sup == raw_sup else None
+        current_structure_resistance = None
+        if structure_resistance_col is not None:
+            raw_res = structure_resistance_col[i]
+            current_structure_resistance = raw_res if raw_res == raw_res else None
 
         signal = strategy.on_bar(df, i, position)
 
@@ -474,7 +587,8 @@ def run_backtest(df, strategy, settings, control=None, on_trade=None, knowledge_
             # base Strategy.manage_position() is a no-op, so this has zero
             # effect on any strategy that doesn't override it.
             strategy.manage_position(df, i, position)
-            _update_trailing_stop(position, trailing_config, price, high, low, current_atr)
+            _update_trailing_stop(position, trailing_config, price, high, low, current_atr,
+                                   current_structure_support, current_structure_resistance)
 
             # Requirement 10: Time Exit -- checked before price-based exits
             # since it's a scheduling decision, not a price trigger; fires
@@ -517,6 +631,7 @@ def run_backtest(df, strategy, settings, control=None, on_trade=None, knowledge_
                 position = _open_position(
                     pending["side"], fill_price_raw, pending["stop_loss"], pending["take_profit"],
                     pending["reason"], pending["order_type"], i,
+                    risk_multiplier=pending.get("risk_multiplier"),
                 )
                 pending = None
             elif pending["order_type"] == "next_candle_open" and i > pending["created_bar"]:
@@ -562,12 +677,14 @@ def run_backtest(df, strategy, settings, control=None, on_trade=None, knowledge_
                     position = _open_position(
                         side, price, signal.stop_loss, signal.take_profit,
                         signal.reason, effective_entry_type, i,
+                        risk_multiplier=signal.risk_multiplier,
                     )
                 elif effective_entry_type == "next_candle_open":
                     pending = {
                         "side": side, "order_type": "next_candle_open", "trigger_price": None,
                         "stop_loss": signal.stop_loss, "take_profit": signal.take_profit,
                         "reason": signal.reason or "signal", "created_bar": i, "offset_pct": None,
+                        "risk_multiplier": signal.risk_multiplier,
                     }
                 elif effective_entry_type in ("limit", "stop"):
                     pending = {
@@ -575,6 +692,7 @@ def run_backtest(df, strategy, settings, control=None, on_trade=None, knowledge_
                         "offset_pct": entry_offset_pct,
                         "stop_loss": signal.stop_loss, "take_profit": signal.take_profit,
                         "reason": signal.reason or "signal", "created_bar": i,
+                        "risk_multiplier": signal.risk_multiplier,
                     }
                     pending["trigger_price"] = _pending_trigger_price(pending, price)
                 elif effective_entry_type in ("signal_candle_high", "signal_candle_low"):
@@ -588,6 +706,7 @@ def run_backtest(df, strategy, settings, control=None, on_trade=None, knowledge_
                         "offset_pct": None,
                         "stop_loss": signal.stop_loss, "take_profit": signal.take_profit,
                         "reason": signal.reason or "signal", "created_bar": i,
+                        "risk_multiplier": signal.risk_multiplier,
                     }
 
         if position is None:

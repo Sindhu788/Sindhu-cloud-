@@ -1,0 +1,17 @@
+{
+  "id": "12119ea3d3d3",
+  "name": "Dumb Money Concepts -- Confirmation Entry -- Confirmation Medium variant [Manual Build]",
+  "tags": [
+    "confirmation_optimizer_variant",
+    "level:medium",
+    "source:2d7299c7a197",
+    "additions:sl_distance"
+  ],
+  "favourite": false,
+  "archived": true,
+  "created_at": "2026-08-26T17:55:00.908033+00:00",
+  "updated_at": "2026-08-26T17:55:01.028074+00:00",
+  "current_version": 1,
+  "safety_status": "ready",
+  "safety_reasons": []
+}

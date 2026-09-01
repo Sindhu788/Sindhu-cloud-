@@ -8,12 +8,12 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
+from fastapi.responses import JSONResponse, FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from data_engine import storage
 from data_engine.logging_setup import log
-from sindhu_web import broadcast
+from sindhu_web import broadcast, auth
 from sindhu_web.security import token_guard_middleware, get_or_create_token
 from sindhu_web.api import (
     home, market, data, backtesting, reports, settings as settings_api, backup, jobs, ws,
@@ -22,7 +22,9 @@ from sindhu_web.api import (
     ai_integration as ai_integration_api, automation_pipeline as automation_pipeline_api,
     clarification as clarification_api, evolution as evolution_api, sindhu_strategy as sindhu_strategy_api,
     research as research_api, feature_control as feature_control_api, manager_chat as manager_chat_api,
-    strategy_lab as strategy_lab_api, wizard as wizard_api,
+    strategy_lab as strategy_lab_api, wizard as wizard_api, external_signals as external_signals_api,
+    project_status as project_status_api, strategy_lifecycle as strategy_lifecycle_api,
+    concepts_usage as concepts_usage_api, auth as auth_api,
 )
 
 _STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -69,19 +71,45 @@ def _warm_caches():
         exchange = _base_config.load_or_seed("exchanges.json", _base_config.DEFAULTS["exchanges.json"])["default"]
         return _cache.cached(f"portfolio_analytics_{exchange}", 60, lambda: _portfolio.compute_portfolio_analytics(exchange))
 
-    for label, fn in (
-        ("market", lambda: market.get_market()),
-        ("data", lambda: data.get_data_overview()),
-        ("home", lambda: home.get_home()),
-        ("correlation_warnings", _warm_correlation_warnings),
-        ("portfolio_analytics", _warm_portfolio_analytics),
-    ):
+    def _warm_strategy_summary():
+        # Master Task 2, Part 4.2: Compare and Strategy Lifecycle both read
+        # this same cached summary now instead of recomputing it themselves
+        # (measured 45-82s cold on this DB's current size) -- pre-warming it
+        # here means the first person to open either page after a restart
+        # gets the fast path too, not just the second visitor within 30s.
+        return _cache.cached("strategy_aggregate_summary", 30, home._compute_strategy_summary)
+
+    def _warm_one(label, fn):
         try:
             t0 = _time.perf_counter()
             fn()
             log(f"Cache warmed: {label} ({(_time.perf_counter() - t0) * 1000:.0f}ms)")
         except Exception as exc:
             log(f"Cache warm for {label} failed (non-fatal): {exc!r}")
+
+    # Each of these is independent (different cache keys, no shared state),
+    # and each was previously run one after another in this same thread --
+    # so a user's very first page load after a restart could be waiting
+    # behind the FULL SUM of every warm-up (market + data + home + ...,
+    # over 4 minutes measured here) even though /api/market only needed
+    # the "market" warm to finish. Running them in parallel threads instead
+    # means the wait is bounded by the SLOWEST single warm-up, not their
+    # total.
+    threads = [
+        threading.Thread(target=_warm_one, args=(label, fn), daemon=True)
+        for label, fn in (
+            ("market", lambda: market.get_market()),
+            ("data", lambda: data.get_data_overview()),
+            ("home", lambda: home.get_home()),
+            ("correlation_warnings", _warm_correlation_warnings),
+            ("portfolio_analytics", _warm_portfolio_analytics),
+            ("strategy_summary", _warm_strategy_summary),
+        )
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
 
 
 @asynccontextmanager
@@ -170,7 +198,8 @@ def create_app():
                    ai_integration_api.router, automation_pipeline_api.router, clarification_api.router,
                    evolution_api.router, sindhu_strategy_api.router, research_api.router,
                    feature_control_api.router, manager_chat_api.router, strategy_lab_api.router,
-                   wizard_api.router):
+                   wizard_api.router, external_signals_api.router, project_status_api.router,
+                   strategy_lifecycle_api.router, concepts_usage_api.router, auth_api.router):
         app.include_router(router)
 
     @app.get("/api/token")
@@ -179,8 +208,22 @@ def create_app():
 
     app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 
+    @app.get("/login")
+    def login_page(request: Request):
+        # Master Task 2, Part 5: reachable whether or not a session exists
+        # (security.py's middleware exempts this path) -- once already
+        # logged in, sends the person straight to the dashboard instead of
+        # showing the login form again.
+        session_token = request.cookies.get(auth.SESSION_COOKIE)
+        if auth.is_valid_session(session_token):
+            return RedirectResponse(url="/")
+        return FileResponse(os.path.join(_STATIC_DIR, "login.html"))
+
     @app.get("/")
-    def index():
+    def index(request: Request):
+        session_token = request.cookies.get(auth.SESSION_COOKIE)
+        if not auth.is_valid_session(session_token):
+            return RedirectResponse(url="/login")
         # Cache-bust app.js/app.css with each file's own mtime so a browser
         # (or an automated CDP session) can never serve a stale script/style
         # after a deploy -- every real change gets a genuinely new URL
@@ -246,8 +289,18 @@ def _dual_stack_socket(port):
         return sock
 
 
-def run(host="0.0.0.0", port=8420, open_browser=True):
+def run(host="0.0.0.0", port=None, open_browser=None):
+    """port/open_browser default from the environment when not passed, so
+    the same entrypoint works unchanged on a cloud host (which injects
+    $PORT and has no browser to open) as it does locally. Nothing about
+    local behaviour changes: with no environment set, this is still
+    port 8420 with the browser opening, exactly as before."""
     import uvicorn
+
+    if port is None:
+        port = int(os.environ.get("PORT", 8420))
+    if open_browser is None:
+        open_browser = os.environ.get("SINDHU_OPEN_BROWSER", "1") != "0"
 
     if open_browser:
         def _open():

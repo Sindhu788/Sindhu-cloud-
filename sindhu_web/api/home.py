@@ -1,9 +1,12 @@
+from datetime import datetime, timezone
+
 import psutil
 from fastapi import APIRouter
 
 from data_engine import storage, config
 from data_engine.paths import disk_usage_bytes
 from backtest_engine.reports import quick_batch_summary
+from backtest_engine import strategy_library
 from paper_trading.engine import engine as paper_engine
 from paper_trading import config as paper_config
 from sindhu_web import cache
@@ -25,6 +28,9 @@ NAV_ICONS = {
     "web_sourced_strategies": "news", "control_center": "ceo",
     "telegram_dashboard": "send", "evolution_history": "history",
     "signal_tracker": "target", "strategy_lab": "flask",
+    "clarification_center": "book", "external_signals": "send",
+    "compare": "mirror", "live_logs": "spark", "project_status": "news",
+    "strategy_lifecycle": "layers",
 }
 
 # Navigation Audit + Reorganization: every page now belongs to exactly one
@@ -33,12 +39,35 @@ NAV_ICONS = {
 # (Reflection, News, a separate disabled "Telegram" entry -- real
 # Telegram settings live inside Settings) have been removed outright
 # rather than just left disabled.
-NAV_GROUPS = ["Overview", "Strategies", "Backtesting", "Paper Trading", "Intelligence", "Strategy Lab", "Control", "Reports"]
+NAV_GROUPS = ["Overview", "Project", "Strategies", "Backtesting", "Paper Trading", "Intelligence", "Strategy Lab",
+              "External Signals", "Control", "Reports"]
 
 NAV_PAGES = [
     # Overview
     {"id": "ceo", "label": "SINDHU CEO", "enabled": True, "icon": NAV_ICONS["ceo"], "group": "Overview"},
     {"id": "home", "label": "Dashboard", "enabled": True, "icon": NAV_ICONS["home"], "group": "Overview"},
+
+    # Project: 3 consolidated views replacing the earlier scattered
+    # standalone pages (Strategy Optimizer, Project Overview) -- Compare
+    # (all 14 strategies side by side), Live Logs (running/queued/recent
+    # jobs), Project Status (what-changed log, summary, pending, feedback).
+    {"id": "compare", "label": "Compare", "enabled": True, "icon": NAV_ICONS["compare"], "group": "Project"},
+    {"id": "live_logs", "label": "Live Logs", "enabled": True, "icon": NAV_ICONS["live_logs"], "group": "Project"},
+    {"id": "project_status", "label": "Project Status", "enabled": True,
+     "icon": NAV_ICONS["project_status"], "group": "Project"},
+    # Strategy Lifecycle: one consolidated table -- every active strategy's
+    # backtest result, real computed why-win/why-loss summary (Part 1), and
+    # confirmation-strictness optimizer result (Part 2) in one place, with a
+    # gated "Move to paper trading" action per row. See
+    # sindhu_web/api/strategy_lifecycle.py.
+    {"id": "strategy_lifecycle", "label": "Strategy Lifecycle", "enabled": True,
+     "icon": NAV_ICONS["strategy_lifecycle"], "group": "Project"},
+    # Concepts Library is still a standalone static page (concepts.html),
+    # not ported into the SPA's hash-routed PAGES{} -- external_url makes
+    # app.js's renderNav() link straight to it instead of a `#hash`, so it's
+    # reachable by one click without touching the page's own content/logic.
+    {"id": "concepts", "label": "Concepts", "enabled": True, "icon": NAV_ICONS["knowledge"],
+     "group": "Project", "external_url": "/static/concepts.html"},
 
     # Strategies: everything about building, importing, and understanding a strategy
     {"id": "strategies", "label": "Strategies", "enabled": True, "icon": NAV_ICONS["strategies"], "group": "Strategies"},
@@ -49,6 +78,12 @@ NAV_PAGES = [
     {"id": "knowledge_compiler", "label": "Knowledge Compiler", "enabled": True,
      "icon": NAV_ICONS["knowledge_compiler"], "group": "Strategies"},
     {"id": "ai_center", "label": "AI Center", "enabled": True, "icon": NAV_ICONS["ai_center"], "group": "Strategies"},
+    # Clarification Page (Step 3, Part B): the dedicated place to resolve
+    # every strategy's unclear/unmapped items -- replaces the earlier
+    # inline modal-only flow (openClarifyBox) with a full page (progress
+    # counter, grouped-by-strategy list, Read Mode summary, etc.).
+    {"id": "clarification_center", "label": "Clarification", "enabled": True,
+     "icon": NAV_ICONS["clarification_center"], "group": "Strategies"},
 
     # Backtesting: running backtests and reviewing their raw results
     {"id": "backtesting", "label": "Backtesting", "enabled": True, "icon": NAV_ICONS["backtesting"], "group": "Backtesting"},
@@ -83,6 +118,15 @@ NAV_PAGES = [
     {"id": "strategy_lab", "label": "Strategy Lab", "enabled": True,
      "icon": NAV_ICONS["strategy_lab"], "group": "Strategy Lab"},
 
+    # External Signal Tracker: a COMPLETELY SEPARATE module from the
+    # CEO's own Paper Trading above -- external Telegram channels the CEO
+    # merely follows, paper-traded and scored in total isolation, never
+    # mixed with the CEO's own strategy results. Deliberately its own
+    # top-level nav group (not folded into "Paper Trading") so this
+    # separation is visible in the nav itself, not just in the data.
+    {"id": "external_signals", "label": "External Signal Tracker", "enabled": True,
+     "icon": NAV_ICONS["external_signals"], "group": "External Signals"},
+
     # Control: the one place to turn automated features on/off, plus account/app settings
     {"id": "control_center", "label": "Control Center", "enabled": True,
      "icon": NAV_ICONS["control_center"], "group": "Control"},
@@ -96,6 +140,83 @@ NAV_PAGES = [
 @router.get("/api/nav")
 def get_nav():
     return {"pages": [p for p in NAV_PAGES if p["enabled"]], "groups": NAV_GROUPS}
+
+
+@router.get("/api/strategy-summary")
+def get_strategy_summary():
+    """Read-only, cross-strategy aggregate summary for the Home dashboard --
+    same underlying data as the Strategy Comparison Board (each strategy's
+    latest completed batch), just aggregated. Cached briefly since the Home
+    page can poll this like every other topbar-driven card."""
+    return cache.cached("strategy_aggregate_summary", 30, _compute_strategy_summary)
+
+
+def _compute_strategy_summary():
+    rows = []
+    for s in strategy_library.list_all():
+        if s.get("archived"):
+            # Archived entries (duplicate-cleanup, or a draft comparison
+            # variant like the dual-TP strategies -- see Part 1/Part 2 of
+            # the 6-part task) never belong in the main roster's aggregate
+            # totals/profitable-count/leaderboard; they stay independently
+            # queryable via their own tags for whatever dedicated view
+            # needs them (e.g. /api/compare-strategies/dual-tp).
+            continue
+        batch_id = storage.latest_completed_batch_for_strategy_name(s["name"])
+        if not batch_id:
+            continue
+        results = storage.get_batch_results(batch_id)
+        if not results:
+            continue
+        total_trades = sum(r["metrics"]["total_trades"] for r in results)
+        if not total_trades:
+            continue
+        wins = sum(r["metrics"]["wins"] for r in results)
+        net = sum(r["metrics"]["net_profit"] for r in results)
+        gross_profit = sum(r["metrics"]["gross_profit"] for r in results)
+        gross_loss = sum(abs(r["metrics"]["gross_loss"]) for r in results)
+        pf = (gross_profit / gross_loss) if gross_loss else None
+        # Master Task 2, Part 4.2: computed here (reusing the `results` this
+        # loop already fetched) so /api/compare-strategies no longer needs
+        # its OWN second get_batch_results() call per strategy just for this
+        # one number -- that redundant per-strategy DB round trip (49
+        # strategies x 2 fetches instead of 1) was a real, fixable chunk of
+        # Compare's slowness, independent of Evolution Engine CPU load.
+        worst_dd = max((r["metrics"].get("max_drawdown_pct", 0) for r in results), default=None)
+        rows.append({
+            "id": s["id"], "name": s["name"],
+            "trades": total_trades, "win_rate": round(100 * wins / total_trades, 2),
+            "net_pnl": round(net, 2), "profit_factor": round(pf, 4) if pf else None,
+            "profitable": bool(pf and pf > 1.0), "batch_id": batch_id,
+            "worst_drawdown_pct": round(worst_dd, 2) if worst_dd is not None else None,
+        })
+
+    total_trades_all = sum(r["trades"] for r in rows)
+    weighted_win_rate = (
+        round(sum(r["win_rate"] * r["trades"] for r in rows) / total_trades_all, 2)
+        if total_trades_all else None
+    )
+    aggregate_net_pnl = round(sum(r["net_pnl"] for r in rows), 2)
+    profitable_count = sum(1 for r in rows if r["profitable"])
+
+    by_pf = sorted((r for r in rows if r["profit_factor"] is not None), key=lambda r: r["profit_factor"])
+    best = by_pf[-1] if by_pf else None
+    worst = by_pf[0] if by_pf else None
+
+    optimizer_running = any(
+        j.kind == "backtest" and j.status == "running" for j in job_manager.list_jobs()
+    )
+
+    return {
+        "total_strategies": len(rows),
+        "profitable_count": profitable_count,
+        "aggregate_trade_weighted_win_rate": weighted_win_rate,
+        "aggregate_net_pnl": aggregate_net_pnl,
+        "best": best, "worst": worst,
+        "strategies": sorted(rows, key=lambda r: -(r["profit_factor"] or -999)),
+        "optimizer_in_progress": optimizer_running,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 @router.get("/api/home")
@@ -150,7 +271,7 @@ def get_home():
         # uncached. /api/home is polled by every page's topbar, so paying
         # that on every single poll made the entire app feel frozen. Disk
         # usage changes slowly -- a 5-minute-old number is fine here.
-        "disk_usage_bytes": cache.cached("disk_usage_bytes", 300, disk_usage_bytes),
+        "disk_usage_bytes": cache.cached_nonblocking("disk_usage_bytes", 300, disk_usage_bytes, 0),
         "exchange": exchanges_cfg["default"],
         "latest_batch": account,
         "evolution_score": None,

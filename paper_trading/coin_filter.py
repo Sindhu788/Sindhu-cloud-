@@ -9,6 +9,7 @@ against the existing klines_1m table -- no new data source.
 import time
 
 from data_engine import storage
+from data_engine.logging_setup import log as default_log
 from data_engine.resample import get_ohlcv
 
 _LOOKBACK_HOURS = 72
@@ -76,21 +77,50 @@ def _coin_activity_score(exchange, symbol):
     return score
 
 
-def shortlist(exchange, symbols, top_n):
+def shortlist(exchange, symbols, top_n, log=default_log):
     """Returns the top_n symbols ranked by a simple, transparent activity
     score (volume rank + volatility rank + trend rank), each with its raw
     metrics attached so the rest of the pipeline (and the dashboard) can
-    show why a coin was picked."""
+    show why a coin was picked.
+
+    An empty return used to be completely silent: the per-symbol
+    `except Exception: s = None` swallowed every error, and a total
+    failure (e.g. every symbol's candle data too stale to score, which is
+    exactly what a 21-day-stale database produced) looked identical to a
+    healthy "no coin qualified today". The Paper Trading Engine then
+    ticked forever doing nothing, with nothing anywhere saying why. Errors
+    are now counted and logged, and a fully-empty shortlist explains
+    itself -- diagnosis only, the ranking/selection behaviour below is
+    byte-for-byte unchanged."""
     scored = []
+    errors = 0
+    first_error = None
+    unscorable = 0
     for symbol in symbols:
         try:
             s = _coin_activity_score(exchange, symbol)
-        except Exception:
+        except Exception as e:
+            errors += 1
+            if first_error is None:
+                first_error = f"{symbol}: {e!r}"
             s = None
         if s:
             scored.append(s)
+        elif errors == 0 or s is None:
+            # _coin_activity_score returns None (no exception) when the
+            # symbol has fewer than 10 usable candles in the lookback
+            # window -- a data-freshness problem, not a crash.
+            unscorable += 1
+
+    if errors:
+        log(f"[coin-filter] {errors} of {len(symbols)} symbols errored while scoring "
+            f"(first: {first_error})")
 
     if not scored:
+        log(f"[coin-filter] EMPTY SHORTLIST -- 0 of {len(symbols)} symbols could be scored "
+            f"({errors} errored, {unscorable - errors} had under 10 candles in the last "
+            f"{_LOOKBACK_HOURS}h). The Paper Trading Engine cannot open ANY position until "
+            f"this is resolved -- the usual cause is stale market data, so run a data download.")
         return []
 
     def _rank(key, reverse=True):

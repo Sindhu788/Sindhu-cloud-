@@ -288,6 +288,10 @@
     confluence_score: "How many independent signals (like trend direction, momentum, and market condition) all agree, out of everything the system checked for this trade. A high confluence score means many separate signals pointed the same way, not just one.",
     market_regime: "A simple label for what the market is currently doing: \"Trending\" means prices are moving clearly in one direction, \"Ranging\" means prices are bouncing sideways without a clear direction, and \"High Volatility\" means prices are moving fast and unpredictably. Strategies often perform very differently depending on which of these is happening.",
     correlation_warning: "A heads-up that two or more strategies have open trades on coins that tend to move together (e.g. two coins that usually rise and fall at the same time). It doesn't mean anything is wrong -- it just means your real risk may be more concentrated than it looks, since a single market move could affect several trades at once.",
+    profit_factor: "For every $1 this strategy lost, how many dollars it made. Above 1.00 means it made more than it lost; below 1.00 means it lost more than it made; exactly 1.00 means it broke even. This number comes from the backtest (the strategy tested against real past price history), not from live paper trading.",
+    risk_reward: "How much a typical trade made compared to how much it was risking. \"2R\" means the average trade made twice what it put at risk. Below 1R means the wins were smaller than the amount being risked, which is hard to stay profitable on unless you win very often.",
+    signal_freshness: "A trade signal goes out of date fast. If a signal is older than this many minutes, or the price has already moved away from the intended entry, the system refuses to send it rather than sending you a trade whose moment has already passed.",
+    delivery_status: "What actually happened to this signal. \"Sent\" means it genuinely reached Telegram. \"Withheld\" means the system deliberately held it back (usually because it went stale). \"Failed -- network blocked\" means the message never reached Telegram because the connection itself was blocked. \"Queued\" means the trade is still open and the system will check again whether to send it. Nothing is ever shown as sent unless it truly was.",
     pattern_reliability: "Before the system trusts a win rate as real (not just luck), it needs at least 25 trades for that exact strategy + coin + market condition combination, and a statistical check (a 95% confidence interval) confirming the true win rate is clearly above or below 50% -- not just close to a coin flip. Below 25 trades, or when the result is too close to call, nothing is applied automatically.",
   };
 
@@ -828,19 +832,25 @@
     // (Overview / Strategies / Backtesting / Paper Trading / Intelligence
     // / Control / Reports) instead of one long flat list -- falls back to
     // a flat list if an older /api/nav response has no `groups` field.
+    // A page with `external_url` (e.g. Concepts, still a standalone static
+    // page rather than a ported SPA route) links straight to that URL
+    // instead of a `#hash` -- a normal same-tab navigation away from the
+    // SPA, not routed through PAGES{}. Keeps concepts.html untouched while
+    // still making it reachable by a single click from the sidebar.
+    const navHref = p => p.external_url ? p.external_url : `#${p.id}`;
     if (groups && groups.length) {
       const byGroup = {};
       pages.forEach(p => { (byGroup[p.group] = byGroup[p.group] || []).push(p); });
       list.innerHTML = groups.filter(g => byGroup[g]).map(g => `
         <li class="nav-group-label">${esc(g)}</li>
         ${byGroup[g].map(p => `
-          <li><a href="#${p.id}" data-id="${p.id}" title="${esc(p.label)}">
+          <li><a href="${navHref(p)}" data-id="${p.id}" title="${esc(p.label)}">
             <svg viewBox="0 0 24 24">${NAV_ICONS[p.icon] || NAV_ICONS.dashboard}</svg>
             <span class="nav-label">${esc(p.label)}</span>
           </a></li>`).join("")}`).join("");
     } else {
       list.innerHTML = pages.map(p => `
-        <li><a href="#${p.id}" data-id="${p.id}" title="${esc(p.label)}">
+        <li><a href="${navHref(p)}" data-id="${p.id}" title="${esc(p.label)}">
           <svg viewBox="0 0 24 24">${NAV_ICONS[p.icon] || NAV_ICONS.dashboard}</svg>
           <span class="nav-label">${esc(p.label)}</span>
         </a></li>`).join("");
@@ -900,6 +910,708 @@
   window.__sindhuTableLabelObserver = new MutationObserver(debounce(stampTableLabels, 40));
   window.__sindhuTableLabelObserver.observe(content, { childList: true, subtree: true });
 
+  // ---------------------------------------------------------------- Compare
+  // Consolidates the earlier standalone Strategy Optimizer / Project
+  // Overview pages: all 14 strategies side by side, before/after where the
+  // recent tuning pass touched them. Pure presentation -- /api/compare-strategies
+  // reuses the same computation as the Home dashboard's aggregate summary.
+  function dualTpVerdictPill(v, en) {
+    if (v === "better") return `<span class="pill pill-up">&uarr; ${en ? "Better" : "Behtar"}</span>`;
+    if (v === "worse") return `<span class="pill pill-down">&darr; ${en ? "Worse" : "Kam"}</span>`;
+    if (v === "equivalent") return `<span class="pill pill-muted">&harr; ${en ? "Equivalent" : "Barabar"}</span>`;
+    return `<span class="muted">-</span>`;
+  }
+
+  // ------------------------------------------------------------ STRATEGY LIFECYCLE
+  function lifecyclePfSpan(pf) {
+    if (pf == null) return `<span class="muted">-</span>`;
+    const cls = pf >= 1.0 ? "positive" : "negative";
+    return `<span class="stat-hero ${cls}">${pf.toFixed(4)}</span>`;
+  }
+
+  function openPaperTradingConfirm(row, en, onDone) {
+    const pf = row.backtest.profit_factor;
+    const profitable = pf != null && pf >= 1.0;
+    const overlay = document.createElement("div");
+    overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;display:flex;align-items:center;justify-content:center;";
+    const pfText = pf != null ? pf.toFixed(4) : (en ? "unknown (no backtest data)" : "maloom nahi (backtest data nahi)");
+    overlay.innerHTML = `
+      <div style="background:var(--bg-elevated,#1a1f2b);color:inherit;border-radius:12px;padding:28px;max-width:480px;width:92%;box-shadow:0 20px 60px rgba(0,0,0,.4);">
+        <div class="section-title" style="margin-top:0;">${en ? "Move to Paper Trading?" : "Paper Trading Mein Bhejein?"}</div>
+        <p style="margin:0 0 6px;"><b>${esc(row.name)}</b></p>
+        <p style="margin:0 0 14px;">${en ? "Current Profit Factor" : "Abhi ka Profit Factor"}: <b>${pfText}</b></p>
+        ${profitable
+          ? `<div class="pill pill-up" style="display:inline-block;margin-bottom:14px;">${en ? "This strategy is profitable. Activate it in paper trading?" : "Ye strategy munafa mein hai. Paper trading mein activate karein?"}</div>`
+          : `<div class="pill pill-down" style="display:inline-block;margin-bottom:14px;">${en
+              ? `Warning: this strategy is currently losing (profit factor ${pfText}). Are you sure you want to activate it in paper trading anyway?`
+              : `Warning: ye strategy abhi nuqsaan mein hai (profit factor ${pfText}). Kya aap phir bhi ise paper trading mein activate karna chahte hain?`}</div>`}
+        <p class="muted" style="font-size:12px;margin:0 0 16px;">${en
+          ? "This only flips this strategy's paper-trading switch on. Every existing safety gate (Wilson score, Confluence threshold, Signal Freshness, Incomplete Lock) still applies before any real signal fires."
+          : "Ye sirf strategy ka paper-trading switch ON karta hai. Har existing safety gate (Wilson score, Confluence threshold, Signal Freshness, Incomplete Lock) ab bhi lagu rahega, kisi bhi signal se pehle."}</p>
+        <div class="btn-row" style="justify-content:flex-end;">
+          <button class="btn-ghost" id="lcCancelBtn">${en ? "Cancel" : "Cancel"}</button>
+          <button class="btn" id="lcConfirmBtn">${en ? "Yes, activate" : "Haan, activate karein"}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.onclick = (e) => { if (e.target === overlay) close(); };
+    document.getElementById("lcCancelBtn").onclick = close;
+    document.getElementById("lcConfirmBtn").onclick = async () => {
+      const btn = document.getElementById("lcConfirmBtn");
+      btn.disabled = true;
+      try {
+        const pc = row.paper_config || {};
+        await apiPost(`/api/paper-trading/strategy-config/${row.strategy_id}`, {
+          enabled: true,
+          priority: pc.priority != null ? pc.priority : 5,
+          supported_coins: pc.supported_coins || [],
+          supported_market_types: pc.supported_market_types || [],
+        });
+        close();
+        showToast({ title: en ? "Activated" : "Activate ho gaya", body: `${row.name} ${en ? "is now enabled in paper trading." : "ab paper trading mein enabled hai."}` });
+        if (onDone) onDone();
+      } catch (e) {
+        btn.disabled = false;
+        showToast({ title: en ? "Failed" : "Nakam", body: e.message, isError: true });
+      }
+    };
+  }
+
+  function lifecycleOptimizerCell(row, en) {
+    const opt = row.optimizer || {};
+    const base = row.backtest.profit_factor;
+    if (opt.medium == null && opt.strict == null) {
+      return `<span class="muted" style="font-size:12px;">${en ? "N/A" : "N/A"}</span>`;
+    }
+    const vals = [["Loose", base], ["Medium", opt.medium ? opt.medium.profit_factor : null], ["Strict", opt.strict ? opt.strict.profit_factor : null]]
+      .filter(([, v]) => v != null);
+    const bestVal = Math.max(...vals.map(([, v]) => v));
+    return vals.map(([label, v]) => `
+      <div style="font-size:12px;color:${v >= 1.0 ? "var(--green)" : "var(--red)"};${v === bestVal ? "font-weight:700;" : ""}">
+        ${label}: ${v.toFixed(3)}${v === bestVal ? " ★" : ""}
+      </div>`).join("");
+  }
+
+  // ------------------------------------------------ MASTER TASK 2, PART 2/3
+  // Strategy Comparison table shared by both the "Profitable" and "Under
+  // Evaluation" sections on the Paper Trading page -- same row renderer for
+  // both so neither section can ever end up with less detail than the
+  // other (a genuine transparency requirement, not cosmetic).
+  function strategyComparisonTableHtml(rows, pfById, cls) {
+    if (!rows.length) {
+      return `<div class="card muted">No strategies in this group yet.</div>`;
+    }
+    return `
+      <div class="table-wrap"><table>
+        <thead><tr>
+          <th><input type="checkbox" class="pt-select-all-section" style="width:auto;"></th>
+          <th>Strategy</th><th>Backtest PF</th><th>Trades</th><th>Wins</th><th>Losses</th>
+          <th>Win Ratio</th><th>PnL ($)</th><th>Current Balance</th>
+          <th>Confidence ${helpIcon("confidence_score")}</th><th>Streak</th><th></th>
+        </tr></thead>
+        <tbody>${rows.map(p => {
+          const pf = pfById[p.strategy_id];
+          const losses = p.closed_trades - p.win_count;
+          return `
+          <tr data-confidence="${p.confidence_score != null ? p.confidence_score : ""}">
+            <td><input type="checkbox" class="pt-bulk-select" data-id="${p.strategy_id}" style="width:auto;"></td>
+            <td style="max-width:200px;">${esc(p.strategy_name || p.strategy_id)}</td>
+            <td><span class="${pf != null ? (pf > 1.0 ? "positive" : "negative") : ""}">${pf != null ? pf.toFixed(4) : "-"}</span></td>
+            <td>${p.closed_trades}</td>
+            <td>${p.win_count}</td>
+            <td>${losses}</td>
+            <td>${Number(p.win_rate).toFixed(1)}%</td>
+            <td class="${p.total_pnl >= 0 ? "pill-up" : "pill-down"}">${p.total_pnl.toFixed(2)}</td>
+            <td>$${Number(p.balance).toFixed(2)}</td>
+            <td>${p.confidence_score != null ? p.confidence_score + "%" : "-"}</td>
+            <td>${p.streak && p.streak.count ? `<span class="pill ${p.streak.type === "win" ? "pill-bullish" : "pill-error"}">${p.streak.count} ${p.streak.type}</span>` : "-"}</td>
+            <td>
+              <div class="pt-action-group">
+                <button class="btn-ghost pt-strategy-periods" data-id="${p.strategy_id}" data-name="${esc(p.strategy_name || p.strategy_id)}">By Period</button>
+                <button class="btn-ghost pt-controls" data-id="${p.strategy_id}" data-name="${esc(p.strategy_name || p.strategy_id)}">Controls</button>
+                <button class="btn-ghost pt-override" data-id="${p.strategy_id}" data-active="${p.manual_alert ? "1" : "0"}">
+                  ${p.manual_alert ? "Flagged for Telegram" : "Flag for Telegram"}
+                </button>
+                <button class="btn-ghost pt-genealogy" data-id="${p.strategy_id}" data-name="${esc(p.strategy_name || p.strategy_id)}">History</button>
+                <button class="btn-ghost pt-readiness" data-id="${p.strategy_id}" data-name="${esc(p.strategy_name || p.strategy_id)}">Real-Trading Check</button>
+              </div>
+            </td>
+          </tr>`;
+        }).join("")}</tbody>
+      </table></div>`;
+  }
+
+  // Per-strategy drill-down: the SAME time-period breakdown the whole
+  // Paper Trading page offers, narrowed to one strategy's own independent
+  // book. One request returns all six periods at once, so every number in
+  // the table is from the same instant rather than from six separate
+  // moments as the reader clicks around.
+  function openStrategyPeriodsModal(strategyId, strategyName) {
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.innerHTML = `
+      <div class="modal-panel modal-wide">
+        <div class="modal-head">
+          <div>
+            <div class="modal-eyebrow">Strategy record</div>
+            <h3 class="modal-title">${esc(strategyName)}</h3>
+          </div>
+          <button class="btn-ghost" data-modal-close>Close</button>
+        </div>
+        <div id="spmBody" class="muted">Loading...</div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.onclick = (e) => { if (e.target === overlay) close(); };
+    overlay.querySelector("[data-modal-close]").onclick = close;
+
+    apiGet(`/api/paper-trading/strategy-periods/${strategyId}`).then(d => {
+      const body = overlay.querySelector("#spmBody");
+      const open = (d.periods[0] || {}).open_positions || 0;
+      body.innerHTML = `
+        <div class="modal-stat-row">
+          <div><span class="modal-stat-label">Balance right now</span><span class="modal-stat-value">$${Number(d.current_balance).toFixed(2)}</span></div>
+          <div><span class="modal-stat-label">Started from</span><span class="modal-stat-value">$${Number(d.initial_balance).toFixed(2)}</span></div>
+          <div><span class="modal-stat-label">Open right now</span><span class="modal-stat-value">${fmtNum(open)}</span></div>
+          <div><span class="modal-stat-label">Status</span><span class="modal-stat-value">${
+            !d.enabled ? '<span class="pill pill-muted">Off</span>'
+            : d.paused ? '<span class="pill pill-pending">Paused</span>'
+            : '<span class="pill pill-bullish">Running</span>'}</span></div>
+        </div>
+        <p class="muted plain-note">This is this strategy's own separate account. Its balance and results are never mixed with, or averaged against, any other strategy.</p>
+        <div class="table-wrap"><table>
+          <thead><tr>
+            <th>Period</th><th>Trades</th><th>Wins</th><th>Losses</th><th>Win Ratio</th><th>Profit / Loss</th>
+          </tr></thead>
+          <tbody>${d.periods.map(p => `
+            <tr>
+              <td><b>${esc(p.label)}</b></td>
+              <td>${fmtNum(p.closed_trades)}</td>
+              <td>${fmtNum(p.win_count)}</td>
+              <td>${fmtNum(p.loss_count)}</td>
+              <td>${p.closed_trades ? p.win_rate.toFixed(1) + "%" : '<span class="muted">-</span>'}</td>
+              <td>${p.closed_trades ? pnlSpan(p.total_pnl) : '<span class="muted">no trades</span>'}</td>
+            </tr>`).join("")}</tbody>
+        </table></div>
+        <p class="muted plain-note">Open trades are shown once, at the top, and are never counted as wins or losses &mdash; a trade that has not finished has no result yet.</p>
+        <div class="btn-row" style="margin-top:14px;">
+          <button class="btn-ghost" id="spmControls">Open this strategy's settings</button>
+        </div>`;
+      const ctrl = overlay.querySelector("#spmControls");
+      if (ctrl) ctrl.onclick = () => { close(); openStrategyControlsModal(strategyId, strategyName, () => {}); };
+    }).catch(e => {
+      overlay.querySelector("#spmBody").innerHTML = `<p class="muted">Couldn't load: ${esc(e.message)}</p>`;
+    });
+  }
+
+  // Any element carrying .pt-strategy-periods (with data-id/data-name)
+  // opens the drill-down above. Wired in one place so every table, card,
+  // and summary panel that lists a strategy gets the behaviour for free.
+  function wireStrategyPeriodDrilldowns(root) {
+    (root || document).querySelectorAll(".pt-strategy-periods").forEach(el => {
+      el.onclick = (e) => {
+        e.stopPropagation();
+        openStrategyPeriodsModal(el.dataset.id, el.dataset.name || el.dataset.id);
+      };
+    });
+  }
+
+  // Advanced per-strategy controls (Master Task 2, Part 3): ON/OFF,
+  // pause/resume, risk%/max-open-positions override, and a full stats
+  // reset that archives (never deletes) the previous numbers.
+  function openStrategyControlsModal(strategyId, strategyName, onDone) {
+    const overlay = document.createElement("div");
+    overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;display:flex;align-items:center;justify-content:center;";
+    overlay.innerHTML = `
+      <div style="background:var(--bg-elevated,#1a1f2b);color:inherit;border-radius:12px;padding:28px;max-width:480px;width:92%;box-shadow:0 20px 60px rgba(0,0,0,.4);max-height:85vh;overflow:auto;">
+        <div class="section-title" style="margin-top:0;">Strategy Controls</div>
+        <p style="margin:0 0 14px;"><b>${esc(strategyName)}</b></p>
+        <div id="scmBody" class="muted">Loading...</div>
+        <div class="btn-row" style="justify-content:flex-end;margin-top:16px;">
+          <button class="btn-ghost" id="scmClose">Close</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.onclick = (e) => { if (e.target === overlay) close(); };
+    document.getElementById("scmClose").onclick = close;
+
+    async function load() {
+      const [cfg, paused, history] = await Promise.all([
+        apiGet(`/api/paper-trading/strategy-config/${strategyId}`),
+        apiGet("/api/paper-trading/paused-strategies"),
+        apiGet(`/api/paper-trading/strategy-config/${strategyId}/reset-history`).catch(() => ({ archives: [] })),
+      ]);
+      const pausedEntry = (paused.paused || []).find(p => p.strategy_id === strategyId);
+      const body = document.getElementById("scmBody");
+      body.innerHTML = `
+        <div class="form-row" style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+          <label style="width:auto;margin:0;">Enabled (ON/OFF, manual override)</label>
+          <input type="checkbox" id="scmEnabled" style="width:auto;" ${cfg.enabled ? "checked" : ""}>
+        </div>
+        <div class="form-row" style="margin-bottom:10px;">
+          <label>Pause / Resume (new trades only -- open positions unaffected)</label>
+          ${pausedEntry
+            ? `<div class="pill pill-error" style="margin-bottom:6px;">Paused: ${esc(pausedEntry.reason || "-")}</div><button class="btn-ghost" id="scmResume">Resume</button>`
+            : `<button class="btn-ghost" id="scmPause">Pause</button>`}
+        </div>
+        <div class="form-row"><label>Risk % Override (blank = use global default)</label>
+          <input type="number" step="0.1" min="0" max="10" id="scmRiskPct" value="${cfg.risk_pct_override != null ? cfg.risk_pct_override : ""}" placeholder="global default">
+        </div>
+        <div class="form-row"><label>Max Open Positions Override (blank = use global default, 1-20)</label>
+          <input type="number" step="1" min="1" max="20" id="scmMaxOpen" value="${cfg.max_open_trades_override != null ? cfg.max_open_trades_override : ""}" placeholder="global default">
+        </div>
+        <div class="btn-row" style="margin:6px 0 14px;">
+          <button class="btn" id="scmSaveOverrides">Save Overrides</button>
+          <span id="scmOverrideStatus" class="muted"></span>
+        </div>
+        <div class="form-row"><label>Balance / Stats Reset</label>
+          <button class="btn-ghost" id="scmReset" style="border-color:var(--red,#c0392b);color:var(--red,#c0392b);">Reset This Strategy's Stats</button>
+        </div>
+        ${history.archives && history.archives.length ? `
+        <div style="margin-top:14px;">
+          <div class="muted" style="font-size:11px;margin-bottom:4px;">Reset history (archived, never deleted):</div>
+          ${history.archives.map(a => `<div class="muted" style="font-size:11px;">${esc((a.archived_at||"").slice(0,19).replace("T"," "))} -- previous PnL ${a.previous_realized_pnl_total.toFixed(2)}, ${a.previous_closed_count} trades</div>`).join("")}
+        </div>` : ""}
+      `;
+
+      document.getElementById("scmEnabled").onchange = async (e) => {
+        await apiPost(`/api/paper-trading/strategy-config/${strategyId}`, {
+          enabled: e.target.checked, priority: cfg.priority != null ? cfg.priority : 5,
+          supported_coins: cfg.supported_coins || [], supported_market_types: cfg.supported_market_types || [],
+        });
+        appendLog(`Strategy ${strategyId} ${e.target.checked ? "activated" : "deactivated"} manually.`);
+        if (onDone) onDone();
+      };
+      const pauseBtn = document.getElementById("scmPause");
+      if (pauseBtn) pauseBtn.onclick = async () => {
+        await apiPost(`/api/paper-trading/strategy-config/${strategyId}/pause`);
+        appendLog(`Strategy ${strategyId} paused manually.`);
+        load();
+      };
+      const resumeBtn = document.getElementById("scmResume");
+      if (resumeBtn) resumeBtn.onclick = async () => {
+        await apiPost(`/api/paper-trading/strategy-config/${strategyId}/resume`);
+        appendLog(`Strategy ${strategyId} resumed manually.`);
+        load();
+      };
+      document.getElementById("scmSaveOverrides").onclick = async () => {
+        const status = document.getElementById("scmOverrideStatus");
+        const riskVal = document.getElementById("scmRiskPct").value;
+        const maxVal = document.getElementById("scmMaxOpen").value;
+        status.textContent = "Saving...";
+        try {
+          await apiPost(`/api/paper-trading/strategy-config/${strategyId}/overrides`, {
+            risk_pct_override: riskVal === "" ? null : parseFloat(riskVal),
+            max_open_trades_override: maxVal === "" ? null : parseInt(maxVal, 10),
+          });
+          status.textContent = "Saved.";
+          appendLog(`Strategy ${strategyId} risk overrides updated.`);
+        } catch (e) {
+          status.textContent = `Failed: ${e.message}`;
+        }
+      };
+      document.getElementById("scmReset").onclick = async () => {
+        const preview = await apiGet(`/api/paper-trading/strategy-config/${strategyId}/reset-stats/preview`);
+        const msg = `Resetting this strategy's stats will do this:\n\n` +
+          `- Balance goes from $${preview.current_balance.toFixed(2)} back to the starting balance.\n` +
+          `- ${preview.current_closed_trades} closed trades (${preview.current_win_count} wins) will be ARCHIVED, not deleted -- viewable in this strategy's reset history.\n` +
+          (preview.open_positions_left_running > 0
+            ? `- ${preview.open_positions_left_running} open position(s) will KEEP RUNNING, not be closed.\n`
+            : `- There are no open positions right now.\n`) +
+          `\nConfirm?`;
+        if (!confirm(msg)) return;
+        await apiPost(`/api/paper-trading/strategy-config/${strategyId}/reset-stats`, { confirm: true });
+        appendLog(`Strategy ${strategyId} stats reset (archived, not deleted).`);
+        load();
+        if (onDone) onDone();
+      };
+    }
+    load();
+  }
+
+  async function renderStrategyLifecycle() {
+    const en = getLang() === "en";
+    const d = await apiGet("/api/strategy-lifecycle");
+    content.innerHTML = `
+      <div class="section-title">${en ? "Strategy Lifecycle" : "Strategy Lifecycle"}</div>
+      <div class="metric-explainer">
+        ${en
+          ? `The whole picture for every active strategy in one table: its real backtest result, WHY it wins or loses (Part 1's computed analysis), how a stricter confirmation filter changes it (Part 2's optimizer), and a gated switch to move it into paper trading.`
+          : `Har active strategy ki poori tasveer ek table mein: uska real backtest result, WHY jeet ya haar hoti hai (Part 1 ka computed analysis), stricter confirmation filter se kya farak padta hai (Part 2 ka optimizer), aur ek gated switch jo ise paper trading mein bhejta hai.`}
+      </div>
+      ${(d.part1_status || d.part2_status) ? `
+      <div class="grid">
+        ${d.part1_status ? cardClass(en ? "Why Win/Loss Analysis" : "Why Win/Loss Analysis", `${d.part1_status.done}/${d.part1_status.total}`, "positive") : ""}
+        ${d.part2_status ? cardClass(en ? "Optimizer Variants Built" : "Optimizer Variants Built", `${d.part2_status.done}/${d.part2_status.total}`, d.part2_status.done === d.part2_status.total ? "positive" : "") : ""}
+      </div>` : ""}
+      <div class="table-wrap"><table>
+        <thead><tr>
+          <th>${en ? "Strategy" : "Strategy"}</th>
+          <th>${en ? "Backtest PF" : "Backtest PF"}</th>
+          <th>${en ? "Why Win/Loss" : "Why Win/Loss"}</th>
+          <th>${en ? "Optimizer (Loose/Med/Strict)" : "Optimizer (Loose/Med/Strict)"}</th>
+          <th></th>
+        </tr></thead>
+        <tbody>${d.rows.map((r, i) => `
+          <tr>
+            <td style="max-width:220px;">${esc(r.name)}${r.paper_config && r.paper_config.enabled ? ` <span class="pill pill-up" style="font-size:10px;">${en ? "Live in Paper" : "Paper Mein Live"}</span>` : ""}</td>
+            <td>${lifecyclePfSpan(r.backtest.profit_factor)}</td>
+            <td style="max-width:320px;">
+              <span class="lc-why-text" id="lcWhy${i}" style="font-size:12.5px;display:inline-block;max-height:2.8em;overflow:hidden;">${esc(r.why_summary || (en ? "Not yet analyzed" : "Abhi analysis nahi hui"))}</span>
+              ${r.why_summary ? `<div><button class="btn-ghost" style="font-size:11px;padding:2px 6px;" data-lc-expand="${i}">${en ? "Show more" : "Aur Dekhein"}</button></div>` : ""}
+            </td>
+            <td style="max-width:150px;">${lifecycleOptimizerCell(r, en)}</td>
+            <td><button class="btn" style="font-size:12px;" data-lc-activate="${i}">${en ? "Move to paper trading" : "Paper Trading Mein Bhejein"}</button></td>
+          </tr>
+        `).join("")}</tbody>
+      </table></div>
+      <p class="muted" style="font-size:12px; margin-top:16px;">${en ? "Optimizer variants are archived drafts -- they never count toward the main strategy totals or roster." : "Optimizer variants archived drafts hain -- ye kabhi bhi main strategy totals ya roster mein shamil nahi hote."}</p>
+    `;
+    content.querySelectorAll("[data-lc-expand]").forEach(btn => {
+      btn.onclick = () => {
+        const i = btn.dataset.lcExpand;
+        const el = document.getElementById(`lcWhy${i}`);
+        el.style.maxHeight = el.style.maxHeight === "none" ? "2.8em" : "none";
+        btn.textContent = el.style.maxHeight === "none" ? (en ? "Show less" : "Kam Dekhein") : (en ? "Show more" : "Aur Dekhein");
+      };
+    });
+    content.querySelectorAll("[data-lc-activate]").forEach(btn => {
+      btn.onclick = () => {
+        const row = d.rows[Number(btn.dataset.lcActivate)];
+        openPaperTradingConfirm(row, en, () => renderStrategyLifecycle());
+      };
+    });
+  }
+
+  // "All / Profitable / Losing" filter on Compare's main table -- client-
+  // side only (the full list is already fetched), remembered per-tab-switch
+  // like the Project Status period tabs use the exact same pill pattern.
+  let compareFilter = "all";
+
+  function compareRowsHtml(rows, en) {
+    return rows.map(r => `
+      <tr class="${r.profitable ? "row-positive" : ""} compare-row-clickable" data-strategy-row="${esc(r.name)}" data-strategy-id="${esc(r.id)}">
+        <td>${esc(r.name)}${r.protected ? ` <span class="pill pill-muted">${en ? "Protected" : "Protected"}</span>` : ""}</td>
+        <td><span class="stat-hero ${r.profitable ? "positive" : "negative"}">${r.profit_factor != null ? r.profit_factor.toFixed(4) : "-"}</span></td>
+        <td>${r.profitable
+          ? `<span class="pill pill-up">${en ? "Profitable" : "Munafa"}</span>`
+          : `<span class="pill pill-down">${en ? "Losing" : "Nuqsaan"}</span>`}</td>
+        <td class="stat-secondary">${r.original ? r.original.pf.toFixed(4) : "-"}</td>
+        <td class="stat-secondary">${fmtNum(r.trades)}</td>
+        <td class="stat-secondary">${r.win_rate.toFixed(2)}%</td>
+        <td class="stat-secondary">${pnlSpan(r.net_pnl)}</td>
+        <td class="stat-secondary">${r.worst_drawdown_pct != null ? r.worst_drawdown_pct.toFixed(2) + "%" : "-"}</td>
+      </tr>
+      ${r.tuning_change ? `<tr><td colspan="8" class="muted" style="font-size:12px;">
+        ${en ? "Tuning change" : "Tuning change"}: ${esc(r.tuning_change)}${r.next_idea ? ` -- ${esc(r.next_idea)}` : ""}
+      </td></tr>` : ""}
+    `).join("");
+  }
+
+  function wireCompareRowClicks(root) {
+    // Compare -> Strategy Profile (the reverse of the Profile page's own
+    // "View on Compare page" link) -- reuses the exact same
+    // pendingProfileStrategyId hand-off the Strategies page's Balance
+    // History/Coin-Wise deep-links already use, so opening a Profile from
+    // here behaves identically to opening it from anywhere else.
+    root.querySelectorAll("tr[data-strategy-id]").forEach(row => {
+      row.style.cursor = "pointer";
+      row.title = getLang() === "en" ? "Open this strategy's profile" : "Is strategy ka profile kholein";
+      row.onclick = () => {
+        pendingProfileStrategyId = row.dataset.strategyId;
+        location.hash = "#strategies";
+      };
+    });
+  }
+
+  async function renderCompare() {
+    const en = getLang() === "en";
+    const [d, dtp] = await Promise.all([
+      apiGet("/api/compare-strategies"),
+      apiGet("/api/compare-strategies/dual-tp").catch(() => null),
+    ]);
+    const losingCount = d.total_strategies - d.profitable_count;
+    const best = d.strategies.find(r => r.profitable) || d.strategies[0] || null;
+
+    content.innerHTML = `
+      <div class="section-title">${en ? "Compare -- All Strategies Side by Side" : "Compare -- Saari Strategies Ek Saath"}</div>
+      <div class="metric-explainer">
+        ${en
+          ? `<b>What is Profit Factor (PF)?</b> Total money won &divide; total money lost, across every trade. Above <b>1.0</b> means the strategy made more than it lost overall (profitable); below 1.0 means it lost more than it made (losing). It's the single most important number below -- shown larger and bolder than everything else in each row on purpose.`
+          : `<b>Profit Factor (PF) kya hai?</b> Kul jeeta hua paisa &divide; kul haara hua paisa, sab trades milaakar. <b>1.0</b> se upar matlab strategy ne overall zyada kamaya (munafa mein); 1.0 se neeche matlab zyada nuqsaan hua. Yeh sabse zaroori number hai -- isliye har row mein sabse bada aur bold dikhaya gaya hai.`}
+      </div>
+      <div class="grid">
+        ${card(en ? "Total Strategies" : "Kul Strategies", fmtNum(d.total_strategies))}
+        ${cardClass(en ? "Genuinely Profitable" : "Genuinely Profitable", fmtNum(d.profitable_count), "positive")}
+        ${cardClass(en ? "Losing" : "Nuqsaan Mein", fmtNum(losingCount), losingCount > 0 ? "negative" : "")}
+        ${best ? cardClass(en ? "Best Performer" : "Sabse Behtareen", `${best.profit_factor != null ? best.profit_factor.toFixed(2) : "-"} PF`, best.profitable ? "positive" : "negative", esc(best.name)) : ""}
+      </div>
+
+      <div class="section-card">
+        <div class="section-title">${en ? "Main Strategies" : "Main Strategies"}</div>
+        <p class="muted" style="font-size:12.5px; margin:-4px 0 12px;">
+          ${en
+            ? `Every active strategy's real backtest result, best performer first. Click any row to open that strategy's full profile.`
+            : `Har active strategy ka asal backtest result, sabse behtareen sab se upar. Kisi bhi row pe click karke us strategy ki poori profile khulti hai.`}
+        </p>
+        <div class="period-tabs">
+          <button class="period-tab ${compareFilter === "all" ? "active" : ""}" data-compare-filter="all">${en ? "All" : "Sab"} (${d.strategies.length})</button>
+          <button class="period-tab ${compareFilter === "profitable" ? "active" : ""}" data-compare-filter="profitable">${en ? "Profitable" : "Munafa"} (${d.profitable_count})</button>
+          <button class="period-tab ${compareFilter === "losing" ? "active" : ""}" data-compare-filter="losing">${en ? "Losing" : "Nuqsaan"} (${losingCount})</button>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr>
+            <th>${en ? "Strategy" : "Strategy"}</th>
+            <th>${en ? "Profit Factor" : "Profit Factor"}</th>
+            <th>${en ? "Verdict" : "Verdict"}</th>
+            <th>${en ? "Original PF" : "Pehle PF"}</th>
+            <th>${en ? "Trades" : "Trades"}</th>
+            <th>${en ? "Win Rate" : "Win Rate"}</th>
+            <th>${en ? "Net PnL" : "Net PnL"}</th>
+            <th>${en ? "Worst Drawdown" : "Worst Drawdown"}</th>
+          </tr></thead>
+          <tbody id="compareMainRows">${compareRowsHtml(d.strategies, en)}</tbody>
+        </table></div>
+      </div>
+
+      ${dtp ? `
+      <div class="section-card compare-archived-section">
+        <div class="section-title">
+          ${en ? "Take-Profit Comparison" : "Take-Profit Comparison"}
+          <span class="pill pill-muted" style="font-size:11px; font-weight:600; margin-left:8px;">${en ? "Draft variants -- not in totals above" : "Draft variants -- upar ke totals mein shamil nahi"}</span>
+        </div>
+        <p class="muted" style="font-size:12.5px; margin:-4px 0 12px;">
+          ${en
+            ? `Original vs. Fixed 1:2 -- every strategy's normal take-profit rule, re-run with ONLY the take-profit swapped to a flat 1:2 risk-reward (everything else identical). These are archived draft comparisons, kept separate from the Main Strategies totals above. ${dtp.completed} of ${dtp.total} finished so far; the rest fill in as their batch completes.`
+            : `Original vs. Fixed 1:2 -- har strategy ka apna take-profit rule, sirf take-profit ko flat 1:2 se badal kar dobara chalaya gaya (baaki sab wahi hai). Yeh archived draft comparisons hain, upar ke Main Strategies totals se alag rakhi gayi hain. Abhi tak ${dtp.completed} mein se ${dtp.total} mukammal hue hain.`}
+        </p>
+        <div class="table-wrap"><table>
+          <thead><tr>
+            <th>${en ? "Strategy" : "Strategy"}</th>
+            <th>${en ? "Original TP" : "Original TP"}</th>
+            <th>${en ? "Original PF" : "Original PF"}</th>
+            <th>1:2 TP PF</th>
+            <th></th>
+            <th>${en ? "Original Trades" : "Original Trades"}</th>
+            <th>1:2 TP Trades</th>
+            <th>${en ? "Original Net PnL" : "Original Net PnL"}</th>
+            <th>1:2 TP Net PnL</th>
+          </tr></thead>
+          <tbody>${dtp.strategies.map(r => `
+            <tr>
+              <td>${esc(r.name)}</td>
+              <td class="stat-secondary">${esc(r.original_tp_label)}</td>
+              <td><span class="stat-hero">${r.original && r.original.profit_factor != null ? r.original.profit_factor.toFixed(4) : "-"}</span></td>
+              <td><span class="stat-hero ${r.verdict === "better" ? "positive" : r.verdict === "worse" ? "negative" : ""}">${r.variant && r.variant.profit_factor != null ? r.variant.profit_factor.toFixed(4) : `<span class="muted" style="font-size:12.5px;font-weight:400;">${esc(r.variant_status)}</span>`}</span></td>
+              <td>${dualTpVerdictPill(r.verdict, en)}</td>
+              <td class="stat-secondary">${r.original ? fmtNum(r.original.trades) : "-"}</td>
+              <td class="stat-secondary">${r.variant ? fmtNum(r.variant.trades) : "-"}</td>
+              <td class="stat-secondary">${r.original ? pnlSpan(r.original.net_pnl) : "-"}</td>
+              <td class="stat-secondary">${r.variant ? pnlSpan(r.variant.net_pnl) : "-"}</td>
+            </tr>
+          `).join("")}</tbody>
+        </table></div>
+      </div>
+      ` : ""}
+
+      <p class="muted" style="font-size:12px; margin-top:16px;">${en ? "Generated" : "Bana"}: ${esc(d.generated_at)}</p>
+    `;
+
+    wireCompareRowClicks(content);
+    content.querySelectorAll("[data-compare-filter]").forEach(btn => {
+      btn.onclick = () => {
+        compareFilter = btn.dataset.compareFilter;
+        content.querySelectorAll("[data-compare-filter]").forEach(b => b.classList.toggle("active", b === btn));
+        const filtered = compareFilter === "all" ? d.strategies
+          : compareFilter === "profitable" ? d.strategies.filter(r => r.profitable)
+          : d.strategies.filter(r => !r.profitable);
+        const tbody = document.getElementById("compareMainRows");
+        tbody.innerHTML = compareRowsHtml(filtered, en);
+        wireCompareRowClicks(tbody);
+      };
+    });
+
+    // Arrived here via a strategy's own Profile page's "View on Compare"
+    // link -- scroll to and briefly flash that exact row so the CEO doesn't
+    // have to hunt for it in a long table. One-shot: cleared immediately
+    // so a plain page revisit/refresh never re-triggers it.
+    const highlightName = sessionStorage.getItem("compareHighlightStrategy");
+    if (highlightName) {
+      sessionStorage.removeItem("compareHighlightStrategy");
+      const row = content.querySelector(`tr[data-strategy-row="${CSS.escape(highlightName)}"]`);
+      if (row) {
+        row.scrollIntoView({ behavior: "smooth", block: "center" });
+        row.classList.add("row-flash");
+      }
+    }
+  }
+
+  // -------------------------------------------------------------- Live Logs
+  // Read-only, three-tier view over the existing job_manager + activity_log
+  // -- no new tracking mechanism, just presentation. Auto-refreshes while
+  // this page is open so "Running Now" stays current without a manual reload.
+  function fmtElapsed(seconds) {
+    if (seconds == null) return "-";
+    const s = Math.floor(seconds);
+    if (s < 60) return `${s}s`;
+    if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`;
+    return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+  }
+
+  async function renderLiveLogs() {
+    const en = getLang() === "en";
+    async function load() {
+      const d = await apiGet("/api/live-logs");
+      content.innerHTML = `
+        <div class="section-title">${en ? "Live Logs" : "Live Logs"}</div>
+
+        <div class="section-title" style="font-size:13px;">${en ? "Running Now" : "Abhi Chal Raha Hai"}</div>
+        ${d.running_now.length ? `<div class="grid">${d.running_now.map(j => `
+          <div class="card">
+            <div class="label">${esc(j.kind)} -- ${esc(j.id)}</div>
+            <div class="value" style="font-size:15px;">${esc(j.stage)}${j.progress_pct != null ? ` (${j.progress_pct}%)` : ""}</div>
+            <div class="muted" style="font-size:12px;">${en ? "Elapsed" : "Guzra waqt"}: ${fmtElapsed(j.elapsed_seconds)}</div>
+            ${j.stalled ? `<div class="pill pill-down" style="margin-top:6px;">${en ? "Possibly stalled -- no update in a long time" : "Shayad ruk gaya hai -- lambe waqt se update nahi"}</div>` : ""}
+          </div>
+        `).join("")}</div>` : `<p class="muted">${en ? "Nothing running right now." : "Abhi kuch nahi chal raha."}</p>`}
+
+        <div class="section-title" style="font-size:13px;">${en ? "Queued" : "Queue Mein"}</div>
+        ${d.queued.length ? `<div class="grid">${d.queued.map(j => `<div class="card">${esc(j.kind)} -- ${esc(j.id)}</div>`).join("")}</div>`
+          : `<p class="muted">${en ? "Nothing queued -- backtests run one at a time, so there's no explicit queue today." : "Kuch queue mein nahi -- backtests ek waqt mein ek hi chalti hain."}</p>`}
+
+        <div class="section-title" style="font-size:13px;">${en ? "Recently Completed" : "Abhi Abhi Mukammal Hua"}</div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>${en ? "Kind" : "Kism"}</th><th>${en ? "Status" : "Status"}</th><th>${en ? "Started" : "Shuru"}</th><th>${en ? "Finished" : "Khatam"}</th><th>${en ? "Outcome" : "Nateeja"}</th></tr></thead>
+          <tbody>${d.recently_completed.map(j => `
+            <tr>
+              <td>${esc(j.kind)}</td>
+              <td><span class="pill ${j.status === "completed" ? "pill-up" : j.status === "error" ? "pill-down" : "pill-muted"}">${esc(j.status)}</span></td>
+              <td>${esc((j.started_at || "").replace("T", " ").slice(0, 19))}</td>
+              <td>${esc((j.finished_at || "").replace("T", " ").slice(0, 19))}</td>
+              <td>${esc(j.error || j.outcome || "-")}</td>
+            </tr>
+          `).join("") || `<tr><td colspan="5">${en ? "Nothing yet." : "Abhi kuch nahi."}</td></tr>`}</tbody>
+        </table></div>
+
+        <div class="section-title" style="font-size:13px;">${en ? "Recent Activity" : "Haal Ki Sargarmi"}</div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>${en ? "Entity" : "Entity"}</th><th>${en ? "Action" : "Action"}</th><th>${en ? "Message" : "Message"}</th><th>${en ? "When" : "Kab"}</th></tr></thead>
+          <tbody>${d.recent_activity.map(a => `
+            <tr><td>${esc(a.entity)}</td><td>${esc(a.action)}</td><td>${esc(a.message)}</td><td>${esc((a.created_at || "").replace("T", " ").slice(0, 19))}</td></tr>
+          `).join("") || `<tr><td colspan="4">${en ? "No activity logged yet." : "Abhi koi sargarmi nahi."}</td></tr>`}</tbody>
+        </table></div>
+      `;
+    }
+    await load();
+    autoRefresh(load, 8);
+  }
+
+  // ---------------------------------------------------------- Project Status
+  const PS_PERIOD_TABS = [
+    ["today", "Today"], ["yesterday", "Yesterday"], ["week", "This Week"],
+    ["month", "This Month"], ["all", "All-Time"],
+  ];
+
+  async function renderProjectStatus() {
+    const en = getLang() === "en";
+
+    async function loadFeedback() {
+      const fb = await apiGet("/api/feedback");
+      const list = document.getElementById("psFeedbackList");
+      if (!list) return;
+      list.innerHTML = fb.feedback.map(f => `
+        <div class="card" style="margin-bottom:8px;">
+          <div><span class="pill pill-muted">${esc(f.type)}</span> <span class="pill ${f.status === "addressed" ? "pill-up" : "pill-pending"}">${esc(f.status)}</span></div>
+          <div style="margin-top:6px;">${esc(f.text)}</div>
+          <div class="muted" style="font-size:11px;margin-top:4px;">${esc((f.created_at || "").replace("T", " ").slice(0, 19))}</div>
+        </div>
+      `).join("") || `<p class="muted">${en ? "No notes yet." : "Abhi koi note nahi."}</p>`;
+    }
+
+    async function load(period) {
+      const d = await apiGet(`/api/project-status?period=${period}`);
+      content.innerHTML = `
+        <div class="section-title">${en ? "Project Status" : "Project Status"}</div>
+
+        <div class="period-tabs">${PS_PERIOD_TABS.map(([id, label]) => `
+          <button class="period-tab ${id === period ? "active" : ""}" data-ps-period="${id}">${label}</button>
+        `).join("")}</div>
+
+        <div class="section-title" style="font-size:13px;">${en ? "What Changed" : "Kya Badla"}</div>
+        ${d.changelog.length ? d.changelog.map(c => `
+          <div class="card" style="margin-bottom:8px;">
+            <div><span class="pill pill-muted">${esc(c.category)}</span> <span class="muted" style="font-size:11px;">${esc(c.date)}</span></div>
+            <div style="font-weight:600;margin-top:6px;">${esc(c.title)}</div>
+            <div class="muted" style="font-size:13px;margin-top:4px;">${esc(c.detail)}</div>
+            <div style="margin-top:6px;font-size:13px;"><b>${en ? "Outcome" : "Nateeja"}:</b> ${esc(c.outcome)}</div>
+          </div>
+        `).join("") : `<p class="muted">${en ? "Nothing changed in this period." : "Is period mein kuch nahi badla."}</p>`}
+
+        <div class="section-title" style="font-size:13px;">${en ? "Quick Summary" : "Khulasa"}</div>
+        <div class="grid">
+          ${card("Total Strategies", fmtNum(d.summary.total_strategies))}
+          ${cardClass("Genuinely Profitable", fmtNum(d.summary.profitable_count), "positive")}
+          ${card("Aggregate Win Rate", d.summary.aggregate_win_rate != null ? d.summary.aggregate_win_rate.toFixed(2) + "%" : "-")}
+          ${cardClass("Aggregate Net PnL", `${d.summary.aggregate_net_pnl >= 0 ? "+" : ""}$${d.summary.aggregate_net_pnl.toFixed(2)}`, d.summary.aggregate_net_pnl >= 0 ? "positive" : "negative")}
+          ${card("Engine Gaps Found", fmtNum(d.summary.engine_gaps_found))}
+          ${card("Engine Gaps Fixed", fmtNum(d.summary.engine_gaps_fixed))}
+        </div>
+
+        <div class="section-title" style="font-size:13px;">${en ? "What's Pending" : "Kya Baaki Hai"}</div>
+        ${d.pending.map(p => `
+          <div class="card" style="margin-bottom:8px;">
+            <div><span class="pill ${p.status === "blocked" ? "pill-down" : p.status === "not started" ? "pill-muted" : "pill-pending"}">${esc(p.status)}</span> <b>${esc(p.item)}</b></div>
+            <div class="muted" style="font-size:13px;margin-top:4px;">${esc(p.detail)}</div>
+          </div>
+        `).join("")}
+
+        <div class="section-title" style="font-size:13px;">${en ? "Feedback / Requests" : "Feedback / Guzarish"}</div>
+        <div class="card">
+          <div class="form-row">
+            <select id="psFeedbackType">
+              <option value="Suggest">Suggest</option>
+              <option value="Add">Add</option>
+              <option value="Fix">Fix</option>
+              <option value="Wrong">Wrong</option>
+            </select>
+          </div>
+          <div class="form-row" style="margin-top:8px;">
+            <textarea id="psFeedbackText" rows="3" style="width:100%;" placeholder="${en ? "Type your note..." : "Apna note likhein..."}"></textarea>
+          </div>
+          <button class="btn" id="psFeedbackSubmit" style="margin-top:8px;">${en ? "Submit" : "Bhej Dein"}</button>
+        </div>
+        <div id="psFeedbackList" style="margin-top:12px;"></div>
+
+        <p class="muted" style="font-size:12px;">${en ? "Generated" : "Bana"}: ${esc(d.generated_at)}</p>
+      `;
+      content.querySelectorAll("[data-ps-period]").forEach(btn => {
+        btn.onclick = () => load(btn.dataset.psPeriod);
+      });
+      const submitBtn = document.getElementById("psFeedbackSubmit");
+      if (submitBtn) {
+        submitBtn.onclick = async () => {
+          const type = document.getElementById("psFeedbackType").value;
+          const text = document.getElementById("psFeedbackText").value.trim();
+          if (!text) return;
+          submitBtn.disabled = true;
+          try {
+            await apiPost("/api/feedback", { type, text });
+            document.getElementById("psFeedbackText").value = "";
+            await loadFeedback();
+          } catch (e) {
+            alert(`${en ? "Could not submit" : "Bhej nahi saka"}: ${e.message}`);
+          } finally {
+            submitBtn.disabled = false;
+          }
+        };
+      }
+      await loadFeedback();
+    }
+    await load("all");
+  }
+
   const PAGES = {
     home: renderHome, market: renderMarket, data: renderData,
     backtesting: renderBacktesting, reports: renderReports, settings: renderSettings,
@@ -914,6 +1626,10 @@
     control_center: renderControlCenter,
     telegram_dashboard: renderTelegramDashboard,
     ceo: renderCEO,
+    clarification_center: renderClarificationCenter,
+    external_signals: renderExternalSignals,
+    compare: renderCompare, live_logs: renderLiveLogs, project_status: renderProjectStatus,
+    strategy_lifecycle: renderStrategyLifecycle,
   };
   let refreshTimer = null;
   let pendingStrategyLoadId = null;
@@ -991,13 +1707,14 @@
     const myToken = activeRouteToken;
     const settings = await apiGet("/api/settings").catch(() => ({ refresh_speed_seconds: 10 }));
     const render = async () => {
-      const [h, net, act, bw, strats, tgAlert] = await Promise.all([
+      const [h, net, act, bw, strats, tgAlert, stratSummary] = await Promise.all([
         apiGet("/api/home"),
         apiGet("/api/network").catch(() => null),
         apiGet("/api/activity?limit=20").catch(() => ({ activity: [] })),
         apiGet("/api/reports/best-worst/strategies").catch(() => ({ ranking: [] })),
         apiGet("/api/backtesting/strategies").catch(() => ({ strategies: [] })),
         apiGet(`/api/paper-trading/telegram/alert-status?lang=${getLang()}`).catch(() => ({ stale: false })),
+        apiGet("/api/strategy-summary").catch(() => null),
       ]);
       if (isStaleRoute(myToken)) return;
 
@@ -1021,37 +1738,76 @@
 
       const lb = h.latest_batch;
       const pnlClass = lb ? (lb.profit_pct > 0 ? "positive" : lb.profit_pct < 0 ? "negative" : "") : "";
+      // The caption under "Overview" used to hardcode "there is no live Paper
+      // Trading yet, so this reflects the most recent backtest". That became
+      // untrue the moment Paper Trading started closing real trades -- the API
+      // already reports which source it used in latest_batch.strategy, so the
+      // note is now derived from that instead of asserted.
+      const isLiveSource = lb && /paper trading/i.test(String(lb.strategy || ""));
+      const sourceNote = isLiveSource
+        ? (getLang() === "en"
+            ? `Live <b>Paper Trading</b> account -- realized results only`
+            : `Live <b>Paper Trading</b> account -- sirf realized (band) trades`)
+        : (getLang() === "en"
+            ? `Latest completed <b>backtest</b>, not a live account`
+            : `Latest <b>backtest</b> ke numbers, live account ke nahi`);
 
       content.innerHTML = `
-        <div class="section-title">${t("Overview")}</div>
-        <div class="grid">
-          ${cardClass("Balance", lb ? `$${Number(lb.final_balance).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}` : "No backtests yet", "")}
-          ${cardClass("PnL", lb ? `${lb.profit_pct > 0 ? "+" : ""}${lb.profit_pct}%` : "-", pnlClass)}
-          ${cardClass("Win Rate", lb ? `${lb.win_rate}%` : "-", "")}
-          ${cardClass("Total Trades", lb ? fmtNum(lb.total_trades) : "-", "")}
-          ${cardClass("Knowledge Score", `${h.knowledge_score}%`, "")}
-          ${cardClass("Evolution Score", `<span class="muted">N/A</span>`, "")}
-          ${cardClass("Database Status", `<span class="pill pill-connected">${esc(h.database_status)}</span>`, "")}
-          ${cardClass("System Health", esc(h.system_health), "")}
+        <div class="section-head">
+          <div class="section-title">${t("Overview")}</div>
+          ${lb ? `<div class="section-sub">${sourceNote}</div>` : ""}
         </div>
-        ${lb ? `<div class="muted" style="margin:-12px 0 20px;font-size:12px;">Latest completed backtest: <b>${esc(lb.strategy)}</b> -- there is no live Paper Trading yet, so this reflects the most recent backtest, not a live account.</div>` : ""}
+        <div class="kpi-grid">
+          ${kpi("Balance", lb ? `$${Number(lb.final_balance).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}` : "--", "",
+                lb ? esc(lb.strategy) : (getLang() === "en" ? "No data yet" : "Abhi koi data nahi"))}
+          ${kpi("PnL", lb ? `${lb.profit_pct > 0 ? "+" : ""}${lb.profit_pct}%` : "--", pnlClass,
+                isLiveSource
+                  ? (getLang() === "en" ? "Realized, live account" : "Realized, live account")
+                  : (getLang() === "en" ? "Return over the backtest" : "Backtest ka return"))}
+          ${kpi("Win Rate", lb ? `${lb.win_rate}%` : "--", "",
+                lb ? (getLang() === "en" ? `across ${fmtNum(lb.total_trades)} closed trades` : `${fmtNum(lb.total_trades)} band trades par`) : "")}
+          ${kpi("Total Trades", lb ? fmtNum(lb.total_trades) : "--", "",
+                getLang() === "en" ? "Simulated fills" : "Simulated trades")}
+        </div>
+        <div class="status-strip">
+          ${statusChip("Knowledge Score", `${h.knowledge_score}%`, h.knowledge_score >= 100 ? "positive" : "")}
+          ${statusChip("Evolution Score", "N/A", "muted-v")}
+          ${statusChip("Database Status", esc(h.database_status),
+                       String(h.database_status).toLowerCase() === "connected" ? "positive" : "")}
+          ${statusChip("System Health", esc(h.system_health),
+                       String(h.system_health).toUpperCase() === "OK" ? "positive" : "")}
+        </div>
 
-        <div class="section-title">${t("System Maturity Level")}</div>
-        <div class="card">
-          <div style="font-size:28px;font-weight:700;">Level ${h.maturity.level} / 5 -- ${esc(h.maturity.level_name)}</div>
-          <div style="margin:8px 0;">${esc(h.maturity.criteria_text)}</div>
-          ${h.maturity.next_level ? `<div class="muted" style="font-size:13px;">${getLang() === "en" ? "To reach Level" : "Level"} ${h.maturity.next_level}${getLang() === "en" ? "" : " tak pahunchne ke liye"}: ${esc(h.maturity.next_level_criteria_text)}</div>` : `<div class="muted" style="font-size:13px;">${getLang() === "en" ? "Highest level reached." : "Sabse upar wala level haasil ho chuka hai."}</div>`}
-          <div class="muted" style="font-size:12px;margin-top:10px;border-top:1px solid var(--border,#333);padding-top:8px;">
-            ${h.maturity.metrics.strategies_with_25plus_trades}/${h.maturity.metrics.total_strategy_books} ${getLang() === "en" ? "strategies with 25+ real trades" : "strategies ne 25+ real trades poori ki hain"} &middot;
-            ${h.maturity.metrics.strategies_statistically_proven_positive} ${getLang() === "en" ? "statistically proven positive" : "statistically tor par positive saabit hui hain"} &middot;
-            ${h.maturity.metrics.evolution_gate_completions} ${getLang() === "en" ? "strategies completed the 100-trade Evolution gate" : "strategies ne 100-trade Evolution gate poora kiya"} &middot;
-            ${h.maturity.metrics.signals_sent_last_7_days} ${getLang() === "en" ? "signals sent in the last 7 days" : "signals pichle 7 dinon mein bheje gaye"}
+        <div class="section-head">
+          <div class="section-title">${t("System Maturity Level")}</div>
+          <div class="section-sub">${getLang() === "en" ? "Step" : "Step"} ${h.maturity.level} / 5</div>
+        </div>
+        <div class="card maturity-card">
+          <div class="maturity-top">
+            <div class="maturity-level"><span class="ml-num">Level ${h.maturity.level}</span> -- ${esc(h.maturity.level_name)}</div>
+            <div class="maturity-steps">
+              ${[1,2,3,4,5].map(n => `<div class="maturity-step${n <= h.maturity.level ? " on" : ""}"></div>`).join("")}
+            </div>
+          </div>
+          <div class="maturity-body">${esc(h.maturity.criteria_text)}</div>
+          ${h.maturity.next_level
+            ? `<div class="maturity-next"><b>${getLang() === "en" ? `To reach Level ${h.maturity.next_level}` : `Level ${h.maturity.next_level} tak pahunchne ke liye`}:</b> ${esc(h.maturity.next_level_criteria_text)}</div>`
+            : `<div class="maturity-next">${getLang() === "en" ? "Highest level reached." : "Sabse upar wala level haasil ho chuka hai."}</div>`}
+          <div class="maturity-metrics">
+            ${maturityMetric(`${h.maturity.metrics.strategies_with_25plus_trades}/${h.maturity.metrics.total_strategy_books}`,
+              getLang() === "en" ? "strategies with 25+ real trades" : "strategies ne 25+ real trades poori ki")}
+            ${maturityMetric(h.maturity.metrics.strategies_statistically_proven_positive,
+              getLang() === "en" ? "statistically proven positive" : "statistically positive saabit hui")}
+            ${maturityMetric(h.maturity.metrics.evolution_gate_completions,
+              getLang() === "en" ? "passed the 100-trade Evolution gate" : "100-trade Evolution gate poora kiya")}
+            ${maturityMetric(h.maturity.metrics.signals_sent_last_7_days,
+              getLang() === "en" ? "signals sent in the last 7 days" : "signals pichle 7 dinon mein bheje")}
           </div>
         </div>
 
         ${(zeroTradeAlerts.length || tgAlert.stale) ? `
         <div class="section-title">${t("System Alerts")}</div>
-        <div class="card" style="border-left:3px solid var(--negative, #e5484d);">
+        <div class="card" style="border-left:3px solid var(--red, #e5484d);">
           ${tgAlert.stale ? `<div>⚠ ${esc(tgAlert.message)} ${getLang() === "en" ? "Check the Telegram Signals page or Settings if this is unexpected." : "Agar yeh ummeed se zyada hai to Telegram Signals page ya Settings check karein."}</div>` : ""}
           ${zeroTradeAlerts.map(s => `<div>⚠ ${getLang() === "en"
             ? `Strategy <b>${esc(s.name)}</b> produced 0 trades on ${s.last_batch_result.symbols_tested || 0} coins -- check entry conditions (see Backtesting or Reports for the condition-hit breakdown).`
@@ -1063,8 +1819,54 @@
           <thead><tr><th>Strategy</th><th>Avg Profit %</th><th>Batches</th></tr></thead>
           <tbody>${topStrategies.map(t => `
             <tr><td>${esc(t.strategy)}</td><td class="${t.avg_profit_pct > 0 ? 'positive' : t.avg_profit_pct < 0 ? 'negative' : ''}">${t.avg_profit_pct}%</td><td>${t.batches}</td></tr>
-          `).join("") || '<tr><td colspan="3">No completed backtests yet</td></tr>'}</tbody>
+          `).join("") || `<tr><td colspan="3" class="empty-cell">${getLang() === "en"
+              ? "No completed backtests yet -- run one from the Backtesting page."
+              : "Abhi koi backtest mukammal nahi hui -- Backtesting page se ek chalayein."}</td></tr>`}</tbody>
         </table></div>
+
+        ${stratSummary ? `
+        <div class="section-title">${t("All Strategies -- Aggregate Performance")}</div>
+        ${stratSummary.optimizer_in_progress ? `
+        <div class="card" style="border-left:3px solid var(--accent, #4f7cff); margin-bottom:12px; font-size:12.5px;">
+          ${getLang() === "en"
+            ? "The Optimizer tuning pass is currently running in the background -- the figures below are the last completed backtest for each strategy (pre-optimization for whichever strategy is mid-run), not partial/draft optimizer results."
+            : "Optimizer tuning pass abhi background mein chal rahi hai -- neeche diye numbers har strategy ke aakhri complete backtest ke hain (jo strategy abhi tune ho rahi hai uske purane/pre-optimization numbers), koi adhoora/draft result nahi dikhaya ja raha."}
+        </div>` : ""}
+        <div class="kpi-grid">
+          ${kpi("Total Strategies", stratSummary.total_strategies, "",
+                getLang() === "en" ? "with a completed backtest" : "jinka backtest mukammal hai")}
+          ${kpi("Genuinely Profitable", `${stratSummary.profitable_count} / ${stratSummary.total_strategies}`,
+                stratSummary.profitable_count > 0 ? "positive" : "",
+                getLang() === "en" ? "profit factor above 1.0" : "profit factor 1.0 se upar")}
+          ${kpi("Aggregate Win Rate", stratSummary.aggregate_trade_weighted_win_rate !== null ? `${stratSummary.aggregate_trade_weighted_win_rate}%` : "--", "",
+                getLang() === "en" ? "weighted by trade count" : "trade count ke hisaab se weighted")}
+          ${kpi("Aggregate Net PnL", `${stratSummary.aggregate_net_pnl >= 0 ? "+" : ""}$${Number(stratSummary.aggregate_net_pnl).toLocaleString(undefined, {maximumFractionDigits: 0})}`,
+                stratSummary.aggregate_net_pnl >= 0 ? "positive" : "negative",
+                getLang() === "en" ? "every strategy combined" : "sab strategies mila kar")}
+        </div>
+        <div class="grid" style="grid-template-columns: repeat(2, 1fr); margin-top:8px;">
+          ${stratSummary.best ? `<div class="card" style="border-left:3px solid var(--green, #22c55e);">
+            <div class="muted" style="font-size:11px; text-transform:uppercase; letter-spacing:.04em;">${getLang() === "en" ? "Best Performer" : "Sabse Behtar"}</div>
+            <div style="font-weight:700; margin:4px 0;">${esc(stratSummary.best.name.replace(" [Manual Build]", ""))}</div>
+            <div class="muted" style="font-size:12.5px;">PF <b class="positive">${stratSummary.best.profit_factor}</b> &middot; ${stratSummary.best.trades.toLocaleString()} trades &middot; net ${stratSummary.best.net_pnl >= 0 ? "+" : ""}$${Number(stratSummary.best.net_pnl).toLocaleString(undefined, {maximumFractionDigits: 0})}</div>
+          </div>` : ""}
+          ${stratSummary.worst ? `<div class="card" style="border-left:3px solid var(--red, #e5484d);">
+            <div class="muted" style="font-size:11px; text-transform:uppercase; letter-spacing:.04em;">${getLang() === "en" ? "Worst Performer" : "Sabse Kam"}</div>
+            <div style="font-weight:700; margin:4px 0;">${esc(stratSummary.worst.name.replace(" [Manual Build]", ""))}</div>
+            <div class="muted" style="font-size:12.5px;">PF <b class="negative">${stratSummary.worst.profit_factor}</b> &middot; ${stratSummary.worst.trades.toLocaleString()} trades &middot; net ${stratSummary.worst.net_pnl >= 0 ? "+" : ""}$${Number(stratSummary.worst.net_pnl).toLocaleString(undefined, {maximumFractionDigits: 0})}</div>
+          </div>` : ""}
+        </div>
+        <div class="table-wrap" style="margin-top:12px;"><table>
+          <thead><tr><th>${getLang() === "en" ? "Strategy" : "Strategy"}</th><th>${getLang() === "en" ? "Trades" : "Trades"}</th><th>${getLang() === "en" ? "Win Rate" : "Win Rate"}</th><th>PF</th><th>${getLang() === "en" ? "Net PnL" : "Net PnL"}</th><th>${getLang() === "en" ? "Verdict" : "Verdict"}</th></tr></thead>
+          <tbody>${stratSummary.strategies.map(s => `
+            <tr><td>${esc(s.name.replace(" [Manual Build]", ""))}</td><td>${s.trades.toLocaleString()}</td><td>${s.win_rate}%</td>
+              <td class="${s.profitable ? "positive" : "negative"}">${s.profit_factor}</td>
+              <td class="${s.net_pnl >= 0 ? "positive" : "negative"}">${s.net_pnl >= 0 ? "+" : ""}$${Number(s.net_pnl).toLocaleString(undefined, {maximumFractionDigits: 0})}</td>
+              <td>${s.profitable ? `<span class="pill pill-completed">${getLang() === "en" ? "Profitable" : "Profitable"}</span>` : `<span class="pill pill-muted">${getLang() === "en" ? "Not Profitable" : "Not Profitable"}</span>`}</td>
+            </tr>`).join("")}</tbody>
+        </table></div>
+        <div class="muted" style="font-size:11px; margin-top:6px;">${getLang() === "en" ? "Last updated" : "Aakhri update"}: ${new Date(stratSummary.generated_at).toLocaleString()}</div>
+        ` : ""}
 
         <div class="section-title">${t("System Monitor")}</div>
         <div class="grid">
@@ -1135,8 +1937,36 @@
     return `<div class="card"><div class="label">${t(label)}</div><div class="value">${value}</div></div>`;
   }
 
-  function cardClass(label, value, valueClass) {
-    return `<div class="card"><div class="label">${t(label)}</div><div class="value ${valueClass || ""}">${value}</div></div>`;
+  function cardClass(label, value, valueClass, caption) {
+    // caption: optional small line under the value (e.g. Compare's "Best
+    // Performer" card showing which strategy). Omitted by every existing
+    // caller, so this stays a no-op unless a 4th argument is passed.
+    return `<div class="card"><div class="label">${t(label)}</div><div class="value ${valueClass || ""}">${value}</div>${caption ? `<div class="muted" style="font-size:11.5px;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${caption}</div>` : ""}</div>`;
+  }
+
+  // ---- Overview hierarchy helpers (see .kpi / .status-strip in app.css) ----
+  // cardClass() stays exactly as it is and every other page keeps using it;
+  // these exist so the Overview can express "headline number" vs "system
+  // state" as two different things instead of eight identical cards.
+  function kpi(label, value, valueClass, sub) {
+    const tone = valueClass === "positive" ? " is-positive"
+               : valueClass === "negative" ? " is-negative" : "";
+    return `<div class="kpi${tone}">
+      <div class="kpi-label">${t(label)}</div>
+      <div class="kpi-value ${valueClass || ""}">${value}</div>
+      ${sub ? `<div class="kpi-sub">${sub}</div>` : ""}
+    </div>`;
+  }
+
+  function statusChip(label, value, valueClass) {
+    return `<div class="status-chip">
+      <span class="sc-k">${t(label)}</span>
+      <span class="sc-v ${valueClass || ""}">${value}</span>
+    </div>`;
+  }
+
+  function maturityMetric(value, caption) {
+    return `<div class="maturity-metric"><div class="mm-v">${value}</div><div class="mm-k">${caption}</div></div>`;
   }
 
   function cardId(id, label, value) {
@@ -1150,7 +1980,7 @@
     overlay.id = "importChoiceOverlay";
     overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;display:flex;align-items:center;justify-content:center;";
     overlay.innerHTML = `
-      <div style="background:var(--panel-bg,#1a1f2b);color:inherit;border-radius:12px;padding:28px;max-width:460px;width:92%;box-shadow:0 20px 60px rgba(0,0,0,.4);">
+      <div style="background:var(--bg-elevated,#1a1f2b);color:inherit;border-radius:12px;padding:28px;max-width:460px;width:92%;box-shadow:0 20px 60px rgba(0,0,0,.4);">
         <div class="section-title" style="margin-top:0;">${en ? "Nayi Strategy Kaise Banayein?" : "Nayi Strategy Kaise Banayein?"}</div>
         <p class="muted">${en
           ? "Both ways end up in the same place -- pick whichever suits this strategy."
@@ -1179,14 +2009,22 @@
   // page and the SINDHU CEO Paper Trading card's expanded view (CEO-parity
   // rule), both backed by the same /api/paper-trading/analytics endpoint so
   // neither can show a number the other disagrees with.
+  // Mirrors PERIODS in sindhu_web/api/paper_trading.py -- the backend is
+  // the source of truth; this list must stay in step with it.
+  // "Last 7/15 Days" and "Last 1 Month" are ROLLING windows (today plus
+  // the N-1 days before it), which is what a person means by "last week"
+  // -- not "this calendar week", which resets to almost nothing every
+  // Monday morning.
   const PERIOD_TABS = [
-    ["today", "Today"], ["yesterday", "Yesterday"], ["week", "This Week"],
-    ["month", "This Month"], ["all", "All-Time"],
+    ["today", "Today"], ["yesterday", "Yesterday"], ["7d", "Last 7 Days"],
+    ["15d", "Last 15 Days"], ["30d", "Last 1 Month"], ["all", "All-Time"],
   ];
 
   function pnlSpan(pnl) {
     const v = Number(pnl || 0);
-    return `<span class="${v >= 0 ? "pill-up" : "pill-down"}">${v >= 0 ? "+" : ""}$${v.toFixed(2)}</span>`;
+    // Sign goes BEFORE the currency symbol ("-$2.73", not "$-2.73") --
+    // the latter reads as a malformed amount rather than a loss.
+    return `<span class="${v >= 0 ? "pill-up" : "pill-down"}">${v >= 0 ? "+" : "-"}$${Math.abs(v).toFixed(2)}</span>`;
   }
 
   function paperPeriodTabsHtml(idPrefix, activePeriod) {
@@ -1195,18 +2033,78 @@
     `).join("")}</div>`;
   }
 
+  // The three numbers a person actually opens this page to see, given
+  // their own row at the top at a size you cannot miss -- everything else
+  // is detail underneath. Deliberately not six equal-weight cards: when
+  // everything is emphasised, nothing is.
+  function paperHeroHtml(d) {
+    const s = d.summary;
+    const pnl = s.total_pnl;
+    const tone = pnl > 0 ? "up" : pnl < 0 ? "down" : "flat";
+    return `
+      <div class="headline-band">
+        <div class="headline-main tone-${tone}">
+          <div class="headline-label">Profit / Loss</div>
+          <div class="headline-value">${pnl >= 0 ? "+" : "-"}$${Math.abs(pnl).toFixed(2)}</div>
+          <div class="headline-sub">${fmtNum(s.closed_trades)} finished trades in this period</div>
+        </div>
+        <div class="headline-side">
+          <div class="headline-label">Win Ratio</div>
+          <div class="headline-value">${s.win_rate.toFixed(1)}%</div>
+          <div class="headline-sub">${fmtNum(s.win_count)} won &middot; ${fmtNum(d.loss_count != null ? d.loss_count : Math.max(s.closed_trades - s.win_count, 0))} lost</div>
+        </div>
+        <div class="headline-side">
+          <div class="headline-label">Open Right Now</div>
+          <div class="headline-value">${fmtNum(d.open_positions_count)}</div>
+          <div class="headline-sub">Still running &mdash; not counted above</div>
+        </div>
+      </div>`;
+  }
+
+  // Best / worst strategy IN THIS PERIOD. Both come from the backend,
+  // which only ever nominates a strategy that actually closed a trade in
+  // the window -- a strategy that has not traded yet is never labelled
+  // "worst" just because its $0.00 sorts below a losing one.
+  function periodLeaderCardHtml(row, kind) {
+    const isBest = kind === "best";
+    const title = isBest ? "Best Strategy This Period" : "Worst Strategy This Period";
+    if (!row) {
+      return `<div class="card lead-card">
+        <div class="label">${title}</div>
+        <div class="muted" style="font-size:12.5px;margin-top:6px;">No strategy closed a trade in this period yet, so there is nothing to rank.</div>
+      </div>`;
+    }
+    return `<div class="card lead-card ${isBest ? "lead-best" : "lead-worst"}">
+      <div class="label">${title}</div>
+      <div class="lead-name">${esc(row.strategy_name || row.strategy_id)}</div>
+      <div class="lead-meta">
+        ${pnlSpan(row.total_pnl)}
+        <span class="muted">${fmtNum(row.closed_trades)} trades &middot; ${Number(row.win_rate).toFixed(1)}% won</span>
+      </div>
+      <button class="btn-ghost pt-strategy-periods" data-id="${esc(row.strategy_id)}" data-name="${esc(row.strategy_name || row.strategy_id)}">See its full record</button>
+    </div>`;
+  }
+
   function paperAnalyticsSectionHtml(d) {
     const s = d.summary;
     const isAll = d.period === "all";
     return `
-      <div class="grid">
-        ${card("Closed Trades", fmtNum(s.closed_trades))}
-        ${card("Active Strategies", fmtNum(s.active_strategies))}
-        ${cardClass("Total PnL", `${s.total_pnl >= 0 ? "+" : ""}$${s.total_pnl.toFixed(2)}`, s.total_pnl > 0 ? "positive" : s.total_pnl < 0 ? "negative" : "")}
-        ${card("Win Rate", `${s.win_rate.toFixed(1)}%`)}
-        ${card("Avg Risk:Reward", s.avg_rr != null ? `${s.avg_rr.toFixed(2)}R` : "-")}
-        ${card("Open Positions (separate, all-time)", fmtNum(d.open_positions_count))}
+      ${paperHeroHtml(d)}
+
+      <div class="two-col">
+        ${periodLeaderCardHtml(d.best_strategy, "best")}
+        ${periodLeaderCardHtml(d.worst_strategy, "worst")}
       </div>
+
+      <div class="grid">
+        ${card("Current Balance (all books added up)", `$${Number(d.current_balance != null ? d.current_balance : 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}`)}
+        ${card("Total Trades Taken", fmtNum(s.closed_trades))}
+        ${card("Wins", fmtNum(s.win_count))}
+        ${card("Losses", fmtNum(d.loss_count != null ? d.loss_count : Math.max(s.closed_trades - s.win_count, 0)))}
+        ${card("Active Strategies", fmtNum(s.active_strategies))}
+        ${card(`Average Reward vs Risk ${helpIcon("risk_reward")}`, s.avg_rr != null ? `${s.avg_rr.toFixed(2)}R` : "-")}
+      </div>
+      <p class="muted plain-note">A balance is a right-now figure, so it reads the same whichever period you pick. Everything else above only counts trades that finished inside the selected period. Trades still open are never mixed in &mdash; they get their own count.</p>
 
       <div class="two-col">
         <div class="card">
@@ -1252,7 +2150,10 @@
       <div class="card strategy-card">
         <div class="strategy-card-header">
           <b>${esc(p.strategy_name || p.strategy_id)}</b>
-          <button class="btn-ghost strat-view-profile" data-id="${esc(p.strategy_id)}">${en ? "View Profile" : "Profile Dekhein"}</button>
+          <div class="pt-action-group">
+            <button class="btn-ghost pt-strategy-periods" data-id="${esc(p.strategy_id)}" data-name="${esc(p.strategy_name || p.strategy_id)}">${en ? "By Period" : "Period Ke Hisaab Se"}</button>
+            <button class="btn-ghost strat-view-profile" data-id="${esc(p.strategy_id)}">${en ? "View Profile" : "Profile Dekhein"}</button>
+          </div>
         </div>
         <div class="strategy-card-stats">
           <div><span class="muted">${en ? "Closed Trades" : "Band Trades"}</span><div class="value" style="font-size:17px;">${fmtNum(p.closed_trades)}</div></div>
@@ -1294,6 +2195,7 @@
     box.querySelectorAll(`[data-period-tab="${idPrefix}"]`).forEach(btn => {
       btn.onclick = () => loadPaperAnalytics(boxId, idPrefix, btn.dataset.period);
     });
+    wireStrategyPeriodDrilldowns(box);
     // Deep-links into that strategy's Profile popup (Balance History /
     // Coin-Wise Performance / Confluence Score Trend) on the Strategies
     // page, instead of leaving the CEO to find the same strategy again.
@@ -1361,12 +2263,12 @@
     }
 
     const lockBanner = v.locked
-      ? `<div class="card" style="border-left:3px solid var(--negative, #e5484d); margin-bottom:10px;">
+      ? `<div class="card" style="border-left:3px solid var(--red, #e5484d); margin-bottom:10px;">
            🔒 <b>${tu("Yeh strategy abhi test nahi ho sakti")}</b> -- ${tu("neeche jo rules \"Samajh Nahi Aaya\" hain, unki wajah se.")}<br>
            <button class="btn" id="extractionOverrideBtn" data-id="${esc(strategyId)}" data-value="true" style="margin-top:8px;">${tu("Phir Bhi Test Karein")}</button>
          </div>`
       : (v.overridden
-          ? `<div class="card" style="border-left:3px solid var(--warning, #e5a944); margin-bottom:10px;">
+          ? `<div class="card" style="border-left:3px solid var(--yellow, #e5a944); margin-bottom:10px;">
                ⚠ <b>${tu("Warning")}:</b> ${tu("Yeh strategy adhoori samajh ke saath test ho rahi hai (aapne \"Test Anyway\" dabaya tha) -- iske results poori tarah bharosemand nahi hain.")}<br>
                <button class="btn-ghost" id="extractionOverrideBtn" data-id="${esc(strategyId)}" data-value="false" style="margin-top:8px;">${tu("Lock Wapas Laga Dein")}</button>
              </div>`
@@ -1406,7 +2308,7 @@
     const en = getLang() === "en";
     const pnl = s.corrected_stats.realized_pnl_total;
     return `
-      <div class="card" style="border-left:3px solid var(--warning, #e5a944); margin-bottom:16px;">
+      <div class="card" style="border-left:3px solid var(--yellow, #e5a944); margin-bottom:16px;">
         <div style="font-weight:600;margin-bottom:6px;">⚠️ ${en ? "Old Data From Before A Correction" : "Purani Data -- Correction Se Pehle Ki"}</div>
         <div>${en
           ? `This strategy's understanding was corrected on ${esc((s.corrected_at || "").slice(0, 10))} `
@@ -1700,7 +2602,7 @@
           ${card("Downloaded Coins", fmtNum(d.total_coins))}
           ${card("Database Size", fmtBytes(d.database_size_bytes))}
           ${card("Missing Data", d.missing_data.length ? d.missing_data.join(", ") : "None")}
-          ${dq ? cardClass("Data Quality (separate from strategy performance)", `${dq.overall_score}/100`, dq.overall_score >= 90 ? "positive" : dq.overall_score >= 70 ? "" : "negative") : ""}
+          ${dq && dq.overall_score != null ? cardClass("Data Quality (separate from strategy performance)", `${dq.overall_score}/100`, dq.overall_score >= 90 ? "positive" : dq.overall_score >= 70 ? "" : "negative") : dq && dq.warming_up ? cardClass("Data Quality (separate from strategy performance)", "Warming up...", "") : ""}
         </div>
         ${dq && dq.symbols_with_issues ? `
         <div class="section-title">Data Quality Issues (${dq.symbols_with_issues} coin(s))</div>
@@ -1736,7 +2638,7 @@
   // strategies table, no jargon -- full explanation lives in Profile.
   function extractionLockBadge(s) {
     if (s.extraction_locked) return `<br><span class="pill pill-bearish" style="margin-top:4px;">🔒 Locked</span>`;
-    if (s.extraction_overridden) return `<br><span class="pill" style="margin-top:4px;background:var(--warning,#e5a944);">⚠ Adhoori Test</span>`;
+    if (s.extraction_overridden) return `<br><span class="pill" style="margin-top:4px;background:var(--yellow,#e5a944);">⚠ Adhoori Test</span>`;
     return "";
   }
 
@@ -1810,6 +2712,7 @@
           <td>
             ${s.archived ? `<button class="btn-ghost strat-unarchive" data-id="${s.id}" data-name="${esc(s.name)}">${t("Restore")}</button>` : `
             <button class="btn-ghost strat-profile" data-id="${s.id}" data-name="${esc(s.name)}">${t("Profile")}</button>
+            <button class="btn-ghost strat-claim-check" data-id="${s.id}" data-name="${esc(s.name)}">${t("Claim Check")}</button>
             <button class="btn-ghost strat-edit" data-id="${s.id}">${t("Edit")}</button>
             ${s.status !== "READY_FOR_BACKTEST" ? `<button class="btn-ghost strat-clarify" data-id="${s.id}" data-name="${esc(s.name)}">Clarify</button>` : ""}
             <button class="btn-ghost strat-fav" data-id="${s.id}" data-fav="${s.favourite}">${s.favourite ? "★" : "☆"}</button>
@@ -1835,16 +2738,21 @@
         <div id="versionHistoryBox" style="display:none;">
           <div class="section-title" id="versionHistoryTitle">Version History</div>
           <div class="table-wrap"><table>
-            <thead><tr><th>Version</th><th>Modified</th></tr></thead>
+            <thead><tr><th>Version</th><th>Modified</th><th>Reason</th><th></th></tr></thead>
             <tbody id="versionHistoryBody"></tbody>
           </table></div>
+          <div id="versionDiffBox" style="display:none;margin-top:8px;"></div>
         </div>
+        <div id="claimCheckBox" class="card" style="display:none;"></div>
         <div id="clarifyBox" style="display:none;">
           <div class="section-title" id="clarifyTitle">Clarification Needed</div>
           <div id="clarifyBody"></div>
         </div>
         <div id="strategyProfileBox" style="display:none;">
-          <div class="section-title" id="strategyProfileTitle">${t("Profile")}</div>
+          <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+            <span id="strategyProfileTitle">${t("Profile")}</span>
+            <button class="btn-ghost" id="strategyProfileCompareLink" style="font-size:12px;">${t("View on Compare page")} &rarr;</button>
+          </div>
           <div id="strategyProfileBody"></div>
         </div>
 
@@ -1948,6 +2856,10 @@
         const box = document.getElementById("strategyProfileBox");
         const body = document.getElementById("strategyProfileBody");
         document.getElementById("strategyProfileTitle").textContent = `Strategy Profile -- ${btn.dataset.name}`;
+        document.getElementById("strategyProfileCompareLink").onclick = () => {
+          sessionStorage.setItem("compareHighlightStrategy", btn.dataset.name);
+          location.hash = "#compare";
+        };
         body.innerHTML = `<p class="muted">Loading everything known about this strategy...</p>`;
         box.style.display = "block";
         box.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -2055,16 +2967,54 @@
       });
 
       document.querySelectorAll(".strat-versions").forEach(btn => btn.onclick = async () => {
-        const v = await apiGet(`/api/backtesting/strategies/${btn.dataset.id}/versions`).catch(() => ({ versions: [] }));
+        const strategyId = btn.dataset.id;
+        const v = await apiGet(`/api/backtesting/strategies/${strategyId}/versions`).catch(() => ({ versions: [] }));
         document.getElementById("versionHistoryTitle").textContent = `Version History -- ${btn.dataset.name}`;
-        document.getElementById("versionHistoryBody").innerHTML = (v.versions || []).slice().reverse().map(ver => `
-          <tr><td>V${ver.version}</td><td>${esc((ver.modified_at || "").slice(0, 19))}</td></tr>
-        `).join("") || '<tr><td colspan="2">No version history</td></tr>';
+        const versions = v.versions || [];
+        // Item 6: shows WHY each version was saved (never fabricated -- null
+        // for versions saved before this existed), and a "vs previous"
+        // diff button for every version after the first.
+        document.getElementById("versionHistoryBody").innerHTML = versions.slice().reverse().map(ver => `
+          <tr>
+            <td>V${ver.version}</td><td>${esc((ver.modified_at || "").slice(0, 19))}</td>
+            <td class="muted">${esc(ver.reason || "--")}</td>
+            <td>${ver.version > 1 ? `<button class="btn btn-ghost btn-version-diff" data-id="${esc(strategyId)}" data-a="${ver.version - 1}" data-b="${ver.version}">Compare to V${ver.version - 1}</button>` : ""}</td>
+          </tr>
+        `).join("") || '<tr><td colspan="4">No version history</td></tr>';
         document.getElementById("versionHistoryBox").style.display = "block";
+        document.getElementById("versionDiffBox").style.display = "none";
         document.getElementById("versionHistoryBox").scrollIntoView({ behavior: "smooth", block: "nearest" });
+
+        document.querySelectorAll(".btn-version-diff").forEach(dbtn => dbtn.onclick = async () => {
+          const diffBox = document.getElementById("versionDiffBox");
+          diffBox.style.display = "block";
+          diffBox.innerHTML = "Loading diff...";
+          const d = await apiGet(`/api/backtesting/strategies/${dbtn.dataset.id}/versions/${dbtn.dataset.a}/diff/${dbtn.dataset.b}`).catch(() => ({ changes: [] }));
+          diffBox.innerHTML = `
+            <div class="section-title">V${dbtn.dataset.a} vs V${dbtn.dataset.b}</div>
+            ${(d.changes || []).length ? `<div class="table-wrap"><table>
+              <thead><tr><th>Field</th><th>Before</th><th>After</th></tr></thead>
+              <tbody>${d.changes.map(c => `
+                <tr><td>${esc(c.label)}</td>
+                  <td class="muted" style="max-width:260px;word-break:break-word;">${esc(JSON.stringify(c.before))}</td>
+                  <td style="max-width:260px;word-break:break-word;">${esc(JSON.stringify(c.after))}</td>
+                </tr>`).join("")}</tbody>
+            </table></div>` : '<p class="muted">No differences.</p>'}`;
+        });
       });
       document.querySelectorAll(".strat-clarify").forEach(btn => btn.onclick = () => {
         openClarifyBox(btn.dataset.id, btn.dataset.name, render);
+      });
+      document.querySelectorAll(".strat-claim-check").forEach(btn => btn.onclick = async () => {
+        // Item 7 (Cross-Reference Validation): compares the source
+        // document's own performance claim against SINDHU's real, measured
+        // backtest result -- never trusting the document's number blindly.
+        const box = document.getElementById("claimCheckBox");
+        box.style.display = "block";
+        box.innerHTML = "Loading...";
+        const r = await apiGet(`/api/backtesting/strategies/${btn.dataset.id}/claim-check`).catch(() => ({ has_claim: false }));
+        box.innerHTML = claimCheckHtml(btn.dataset.name, r);
+        box.scrollIntoView({ behavior: "smooth", block: "nearest" });
       });
 
       if (pendingProfileStrategyId) {
@@ -2243,6 +3193,351 @@
     }
 
     await load();
+  }
+
+  // ------------------------------------------------------------ CLARIFICATION CENTER
+  // Step 3, Part B: the dedicated Clarification Page. Ten required
+  // features: (1) progress counter, (2) one-click suggested answers,
+  // (3) "answer later" skip, (4) a concrete example per question, (5) all
+  // strategies' pending questions grouped in one list, (6) an "(i)"
+  // tooltip explaining WHY the system is asking, (7) a mandatory
+  // confirm-back echo before any free-text answer is saved, (8) editing a
+  // previously-given answer, (9) a "this matters because..." hint, (10) a
+  // final Read Mode summary of the whole strategy in plain Roman Urdu
+  // before the real "Haan, ab backtest karo" confirmation. Reuses the
+  // same /clarify and /clarification endpoints openClarifyBox above uses
+  // -- this is a full page around the same safe, deterministic backend,
+  // not a parallel/duplicate resolution path.
+  const clarState = { skipped: new Set() };
+
+  async function renderClarificationCenter() {
+    const en = getLang() === "en";
+    content.innerHTML = `
+      <div class="page-header"><h2>${en ? "Clarification Center" : "Clarification Center"}</h2>
+        <div class="muted">${en
+          ? "Resolve every strategy's unclear items here -- one question at a time, or read the whole strategy back before confirming."
+          : "Har strategy ke unclear sawaalon ko yahan resolve karein -- ek-ek karke, ya poori strategy wapas parh kar confirm karein."}</div>
+      </div>
+      <div id="clarProgressWrap" class="card"></div>
+      <div id="clarGroups"></div>`;
+
+    async function load() {
+      const data = await apiGet("/api/backtesting/clarification/all").catch(() => ({ groups: [], total_issues: 0, strategy_count: 0 }));
+      renderProgress(data);
+      renderGroups(data.groups);
+    }
+
+    function renderProgress(data) {
+      const wrap = document.getElementById("clarProgressWrap");
+      const skippedCount = clarState.skipped.size;
+      const remaining = Math.max(0, data.total_issues - skippedCount);
+      const total = Math.max(1, data.total_issues);
+      const answeredThisView = Math.max(0, total - remaining);
+      const pct = Math.round((answeredThisView / total) * 100);
+      if (!data.total_issues) {
+        wrap.innerHTML = `<span class="pill pill-completed">${en ? "All clear" : "Sab saaf hai"}</span> ${en
+          ? "No strategy currently needs clarification."
+          : "Abhi koi strategy clarification ke liye nahi ruki hui."}`;
+        return;
+      }
+      wrap.innerHTML = `
+        <div><b>${remaining}</b> ${en ? "of" : "mein se"} <b>${data.total_issues}</b> ${en ? "questions remaining" : "sawaal baaki"}
+          ${skippedCount ? `<span class="muted">(${skippedCount} ${en ? "skipped this session" : "is session mein chode gaye"})</span>` : ""}
+          ${en ? "across" : ""} <b>${data.strategy_count}</b> ${en ? "strategies" : "strategies mein"}</div>
+        <div style="height:8px;border-radius:4px;background:var(--border,#333);margin-top:6px;overflow:hidden;">
+          <div style="height:100%;width:${pct}%;background:var(--accent,#4caf82);"></div>
+        </div>`;
+    }
+
+    function renderGroups(groups) {
+      const wrapEl = document.getElementById("clarGroups");
+      if (!groups.length) { wrapEl.innerHTML = ""; return; }
+      wrapEl.innerHTML = groups.map(g => `
+        <div class="card" data-strategy-id="${esc(g.strategy_id)}" style="margin-top:12px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <div><b>${esc(g.name)}</b> <span class="muted">(${g.issue_count} ${en ? "question(s)" : "sawaal"})</span></div>
+            <div class="btn-row">
+              <button class="btn btn-ghost btn-readmode" data-strategy-id="${esc(g.strategy_id)}" data-name="${esc(g.name)}">
+                ${en ? "Read Mode" : "Read Mode Mein Dekhein"}</button>
+              ${reextractFieldControlHtml(g.strategy_id, en)}
+            </div>
+          </div>
+          ${ambiguityOverviewHtml(g.ambiguity_overview, en)}
+          <div class="answer-log-wrap" data-strategy-id="${esc(g.strategy_id)}"></div>
+          <div class="issue-list" style="margin-top:8px;">
+            ${g.issues.filter(i => !clarState.skipped.has(i.id)).map(i => clarIssueCardHtml(g.strategy_id, i)).join("")
+              || `<div class="muted">${en ? "All questions skipped this session -- reload to see them again." : "Is session mein sab sawaal chode gaye -- dobara dekhne ke liye reload karein."}</div>`}
+          </div>
+        </div>`).join("");
+
+      groups.forEach(g => loadAnswerLog(g.strategy_id));
+      wireGroupEvents(load);
+    }
+
+    async function loadAnswerLog(strategyId) {
+      const data = await apiGet(`/api/backtesting/strategies/${strategyId}/clarification`).catch(() => null);
+      if (!data || !data.answer_log || !data.answer_log.length) return;
+      const el = content.querySelector(`.answer-log-wrap[data-strategy-id="${CSS.escape(strategyId)}"]`);
+      if (!el) return;
+      // Feature 8: previously-given answers, with a Reopen action for the
+      // most common one-click default (Manual Review) so it can genuinely
+      // be re-answered, not just viewed.
+      el.innerHTML = `<details style="margin-top:6px;"><summary class="muted">${en ? "Previous answers" : "Pichle jawab"} (${data.answer_log.length})</summary>
+        ${data.answer_log.map(a => `
+          <div style="padding:4px 0;border-top:1px solid var(--border,#333);">
+            <span class="muted">${new Date(a.at).toLocaleString()}:</span> ${esc(a.detail)}
+            ${a.action === "mark_manual_review" ? `<button class="btn btn-ghost btn-reopen-answer" data-strategy-id="${esc(strategyId)}" data-issue-id="${esc(a.id)}">${en ? "Reopen" : "Dobara Kholein"}</button>` : ""}
+          </div>`).join("")}
+      </details>`;
+      el.querySelectorAll(".btn-reopen-answer").forEach(btn => btn.onclick = async () => {
+        await apiPost(`/api/backtesting/strategies/${btn.dataset.strategyId}/clarify`, {
+          resolutions: [{ id: btn.dataset.issueId, action: "unmark_manual_review" }],
+        }).catch(() => null);
+        await load();
+      });
+    }
+
+    function wireGroupEvents(reload) {
+      // Feature 3: "Answer later" -- purely a local/session skip, the
+      // question is never sent to the backend so it's never blocked or
+      // lost, just hidden from view until reload.
+      content.querySelectorAll(".btn-skip-issue").forEach(btn => btn.onclick = () => {
+        clarState.skipped.add(btn.dataset.issueId);
+        reload();
+      });
+
+      // Feature 2: one-click suggested answers (Manual Review default for
+      // an unmapped rule, or a specific suggested_options value).
+      content.querySelectorAll(".btn-suggest-manual").forEach(btn => btn.onclick = async () => {
+        await applyResolution(btn.dataset.strategyId, { id: btn.dataset.issueId, action: "mark_manual_review" }, reload);
+      });
+      content.querySelectorAll(".btn-suggest-option").forEach(btn => btn.onclick = async () => {
+        const action = btn.dataset.action;
+        const value = btn.dataset.value ? JSON.parse(btn.dataset.value) : undefined;
+        await applyResolution(btn.dataset.strategyId, { id: btn.dataset.issueId, action, value }, reload);
+      });
+      content.querySelectorAll(".btn-reject-issue").forEach(btn => btn.onclick = async () => {
+        await applyResolution(btn.dataset.strategyId, { id: btn.dataset.issueId, action: "reject" }, reload);
+      });
+
+      // Feature 7 (CRITICAL SAFETY FEATURE): typed free text is NEVER sent
+      // straight to /clarify. It first goes to /clarify/preview (read-only,
+      // mutates nothing), the interpretation is echoed back, and only an
+      // explicit second click on "Haan, yeh sahi hai" actually saves it.
+      content.querySelectorAll(".btn-preview-text").forEach(btn => btn.onclick = async () => {
+        // .card[data-issue-id], not the bare attribute selector: the button
+        // itself also carries data-issue-id (for its own wiring), so
+        // .closest("[data-issue-id]") alone would match the button itself
+        // (closest() checks the starting element first) instead of walking
+        // up to the actual card that holds the sibling input/preview box.
+        const card = btn.closest(".card[data-issue-id]");
+        const input = card.querySelector(".clar-text-input");
+        const text = input.value.trim();
+        const previewBox = card.querySelector(".clar-preview-box");
+        if (!text) { previewBox.textContent = en ? "Type something first." : "Pehle kuch likhein."; return; }
+        const preview = await apiPost(
+          `/api/backtesting/strategies/${btn.dataset.strategyId}/clarify/preview`,
+          { id: btn.dataset.issueId, text },
+        ).catch(e => ({ understood_as: null, still_unclear: true, error: e.message }));
+        if (!preview.understood_as) {
+          previewBox.innerHTML = `<div class="muted">${en
+            ? "Still couldn't understand this -- try rephrasing."
+            : "Abhi bhi samajh nahi aaya -- dobara likhne ki koshish karein."}</div>`;
+          return;
+        }
+        previewBox.innerHTML = `
+          <div style="margin-top:6px;padding:8px;border:1px solid var(--border,#333);border-radius:6px;">
+            <div>${en ? "Here's how I understood this:" : "Maine ise aise samjha:"} <b>${esc(preview.understood_as)}</b></div>
+            <div class="muted" style="margin-top:2px;">${en ? "Is this correct?" : "Kya ye sahi hai?"}</div>
+            <div class="btn-row" style="margin-top:6px;">
+              <button class="btn btn-confirm-text" data-strategy-id="${btn.dataset.strategyId}" data-issue-id="${btn.dataset.issueId}">${en ? "Yes, correct" : "Haan, yeh sahi hai"}</button>
+              <button class="btn btn-ghost btn-retype-text">${en ? "No, let me retype" : "Nahi, dobara likhna hai"}</button>
+            </div>
+          </div>`;
+        previewBox.querySelector(".btn-confirm-text").onclick = async () => {
+          await applyResolution(btn.dataset.strategyId, { id: btn.dataset.issueId, action: "edit", text }, reload);
+        };
+        previewBox.querySelector(".btn-retype-text").onclick = () => { previewBox.innerHTML = ""; input.focus(); };
+      });
+
+      content.querySelectorAll(".btn-readmode").forEach(btn => btn.onclick = () => {
+        openReadMode(btn.dataset.strategyId, btn.dataset.name, reload);
+      });
+
+      content.querySelectorAll(".btn-reextract-field").forEach(btn => btn.onclick = async () => {
+        const strategyId = btn.dataset.strategyId;
+        const select = content.querySelector(`.reextract-field-select[data-strategy-id="${CSS.escape(strategyId)}"]`);
+        const statusEl = content.querySelector(`.reextract-status[data-strategy-id="${CSS.escape(strategyId)}"]`);
+        statusEl.textContent = en ? "Re-extracting..." : "Dobara nikal rahe hain...";
+        const result = await apiPost(`/api/backtesting/strategies/${strategyId}/reextract-field`, { field: select.value })
+          .catch(e => ({ success: false, note: e.message }));
+        statusEl.textContent = result.success
+          ? (en ? `Done -- other fields untouched.` : `Ho gaya -- baaki fields waise hi hain.`)
+          : `${en ? "Failed:" : "Nahi hua:"} ${result.note || ""}`;
+        if (result.success) await reload();
+      });
+    }
+
+    async function applyResolution(strategyId, resolution, reload) {
+      const result = await apiPost(`/api/backtesting/strategies/${strategyId}/clarify`, { resolutions: [resolution] }).catch(e => null);
+      if (result) await reload();
+    }
+
+    await load();
+  }
+
+  const REEXTRACT_FIELDS = [
+    { value: "entry_conditions", en: "Entry Conditions", ur: "Entry Conditions" },
+    { value: "exit_conditions", en: "Exit Conditions", ur: "Exit Conditions" },
+    { value: "stop_loss", en: "Stop-Loss", ur: "Stop-Loss" },
+    { value: "take_profit", en: "Take-Profit", ur: "Take-Profit" },
+  ];
+
+  function reextractFieldControlHtml(strategyId, en) {
+    // Item 5 (Partial Re-Extraction): redo ONE field from the strategy's
+    // own original source text -- much cheaper/faster than re-importing
+    // the whole document, and every other field stays untouched.
+    return `
+      <select class="reextract-field-select" data-strategy-id="${esc(strategyId)}" style="max-width:160px;">
+        ${REEXTRACT_FIELDS.map(f => `<option value="${f.value}">${en ? f.en : f.ur}</option>`).join("")}
+      </select>
+      <button class="btn btn-ghost btn-reextract-field" data-strategy-id="${esc(strategyId)}">
+        ${en ? "Re-extract this field" : "Yeh field dobara nikalein"}</button>
+      <span class="muted reextract-status" data-strategy-id="${esc(strategyId)}"></span>`;
+  }
+
+  function claimCheckHtml(name, r) {
+    // Item 7 (Cross-Reference Validation).
+    if (!r || !r.has_claim) {
+      return `<div class="section-title">Claim Check -- ${esc(name)}</div><p class="muted">This strategy's source document made no performance claim to check.</p>`;
+    }
+    if (!r.has_result) {
+      return `<div class="section-title">Claim Check -- ${esc(name)}</div>
+        <p>Source document claims a <b>${r.claimed_win_rate_pct}%</b> win rate${r.claim_source_text ? ` ("${esc(r.claim_source_text)}")` : ""}.</p>
+        <p class="muted">No completed real backtest yet -- nothing to compare it against.</p>`;
+    }
+    const badge = r.diverges
+      ? `<span class="pill pill-error">Diverges from real result${r.sample_reliable ? "" : " (small sample)"}</span>`
+      : `<span class="pill pill-completed">Matches real result</span>`;
+    return `<div class="section-title">Claim Check -- ${esc(name)}</div>
+      <p>Source document claims: <b>${r.claimed_win_rate_pct}%</b> win rate${r.claim_source_text ? ` ("${esc(r.claim_source_text)}")` : ""}</p>
+      <p>SINDHU's real measured result: <b>${r.actual_win_rate_pct}%</b> win rate over ${r.actual_trade_count} trades ${badge}</p>
+      ${!r.sample_reliable ? '<p class="muted">Fewer than 25 real trades so far -- this comparison isn\'t statistically reliable yet, even though it\'s shown honestly.</p>' : ""}`;
+  }
+
+  function ambiguityOverviewHtml(overview, en) {
+    // Item 8: a plain, colour-coded at-a-glance summary -- confidently
+    // understood vs still-uncertain vs genuinely-unresolved -- built purely
+    // from data already computed server-side (no new AI call). Complements
+    // the item-by-item Q&A list below it, doesn't replace it.
+    if (!overview) return "";
+    const dotColor = overview.status === "good" ? "#4caf82" : overview.status === "attention" ? "#e05252" : "#e0a828";
+    const pct = overview.confidence_pct != null ? overview.confidence_pct : 0;
+    return `
+      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:8px;padding:8px;border:1px solid var(--border,#333);border-radius:6px;">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span style="width:10px;height:10px;border-radius:50%;background:${dotColor};display:inline-block;"></span>
+          <b>${pct}%</b> <span class="muted">${en ? "confidently understood" : "confidently samjha gaya"}</span>
+        </div>
+        ${overview.uncertain_count ? `<span class="pill pill-pending">${overview.uncertain_count} ${en ? "uncertain (suggestion available)" : "uncertain (suggestion maujood)"}</span>` : ""}
+        ${overview.unresolved_count ? `<span class="pill pill-error">${overview.unresolved_count} ${en ? "unresolved (your input needed)" : "unresolved (aapka jawab chahiye)"}</span>` : ""}
+        ${!overview.uncertain_count && !overview.unresolved_count ? `<span class="pill pill-completed">${en ? "Nothing uncertain" : "Kuch bhi uncertain nahi"}</span>` : ""}
+      </div>`;
+  }
+
+  function clarIssueCardHtml(strategyId, issue) {
+    const en = getLang() === "en";
+    const question = issue.original_text
+      ? (en ? `This wasn't understood: "${issue.original_text}"` : `Yeh samajh nahi aaya: "${issue.original_text}"`)
+      : (en ? issue.reason : issue.reason);
+    // Feature 2: one-click suggested answer per kind.
+    let suggestButtons = "";
+    if (issue.kind === "raw_condition") {
+      suggestButtons = `<button class="btn btn-suggest-manual" data-strategy-id="${esc(strategyId)}" data-issue-id="${esc(issue.id)}">${en ? "Skip for now (Manual Review)" : "Filhaal Manual Review par rakhein"}</button>`;
+    } else if ((issue.suggested_options || []).length) {
+      // Item 3 (Contradiction Detection): each option can name its own
+      // action/value (e.g. "remove_condition" -> {bucket, index}) since a
+      // contradiction issue offers two different removal targets from one
+      // card -- falls back to the old per-kind default for every other
+      // issue kind, unchanged.
+      const defaultAction = issue.kind === "invalid_indicator" ? "replace_indicator" : "set_field";
+      suggestButtons = issue.suggested_options.map(o =>
+        `<button class="btn btn-suggest-option" data-strategy-id="${esc(strategyId)}" data-issue-id="${esc(issue.id)}" data-action="${o.action || defaultAction}" data-value='${esc(JSON.stringify(o.value))}'>${esc(o.label)}</button>`,
+      ).join("");
+    }
+    return `
+      <div class="card" data-issue-id="${esc(issue.id)}" style="margin-top:8px;">
+        <div style="display:flex;justify-content:space-between;gap:8px;">
+          <div><b>${esc(question)}</b>
+            <span class="tooltip-i" title="${esc(issue.why_asking || "")}">ⓘ</span>
+          </div>
+          <button class="btn btn-ghost btn-skip-issue" data-issue-id="${esc(issue.id)}">${en ? "Answer later" : "Baad mein"}</button>
+        </div>
+        ${issue.why_matters ? `<div class="muted" style="margin-top:4px;">${en ? "Why this matters:" : "Yeh isliye zaroori hai:"} ${esc(issue.why_matters)}</div>` : ""}
+        ${issue.example ? `<div class="muted" style="margin-top:2px;font-style:italic;">${esc(issue.example)}</div>` : ""}
+        <div class="btn-row" style="margin-top:8px;">
+          ${suggestButtons}
+          ${issue.can_reject ? `<button class="btn btn-ghost btn-reject-issue" data-strategy-id="${esc(strategyId)}" data-issue-id="${esc(issue.id)}">${en ? "Remove this rule" : "Yeh rule hata dein"}</button>` : ""}
+        </div>
+        <div class="form-row" style="margin-top:8px;"><label>${en ? "Or describe it yourself" : "Ya khud batayein"}</label>
+          <input class="clar-text-input" placeholder="${en ? "e.g. RSI 14 below 30" : "misaal: RSI 14, 30 se neeche"}">
+        </div>
+        <div class="btn-row"><button class="btn btn-ghost btn-preview-text" data-strategy-id="${esc(strategyId)}" data-issue-id="${esc(issue.id)}">${en ? "Check my answer" : "Mera jawab check karein"}</button></div>
+        <div class="clar-preview-box"></div>
+      </div>`;
+  }
+
+  async function openReadMode(strategyId, name, onDone) {
+    const en = getLang() === "en";
+    const data = await apiGet(`/api/backtesting/strategies/${strategyId}/read-mode`).catch(() => null);
+    if (!data) { showToast({ title: "Failed", body: "Could not load Read Mode.", isError: true }); return; }
+    // Feature 10: full strategy read back in plain Roman Urdu, one section
+    // at a time, each independently editable, before the real run-it
+    // confirmation. The Incomplete Lock is checked for real (a live call
+    // to /api/backtesting/run) rather than trusted from ready_for_backtest
+    // alone, so the gate can never be silently bypassed from this screen.
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.innerHTML = `
+      <div class="modal-box" style="max-width:640px;">
+        <div class="modal-header"><b>${en ? "Read Mode" : "Read Mode"} -- ${esc(name)}</b><button class="btn-ghost readmode-close">&times;</button></div>
+        <div class="modal-body">
+          ${data.sections.map(s => `
+            <div style="margin-bottom:10px;">
+              <div style="display:flex;justify-content:space-between;">
+                <b>${esc(s.title)}</b>
+                <button class="btn-ghost readmode-edit" data-section="${esc(s.id)}">${en ? "Edit" : "Edit Karein"}</button>
+              </div>
+              <div class="muted">${esc(s.text)}</div>
+            </div>`).join("")}
+          <div id="readModeRunStatus" class="muted"></div>
+        </div>
+        <div class="modal-footer btn-row">
+          <button class="btn readmode-run" ${data.ready_for_backtest ? "" : "disabled"}>${en ? "Yes, run backtest now" : "Haan, ab backtest karo"}</button>
+          <button class="btn btn-ghost readmode-close">${en ? "Close" : "Band Karein"}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    overlay.querySelectorAll(".readmode-close").forEach(b => b.onclick = () => overlay.remove());
+    overlay.querySelectorAll(".readmode-edit").forEach(b => b.onclick = () => {
+      overlay.remove();
+      const card = content.querySelector(`.card[data-strategy-id="${CSS.escape(strategyId)}"]`);
+      if (card) card.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    overlay.querySelector(".readmode-run").onclick = async () => {
+      const status = overlay.querySelector("#readModeRunStatus");
+      status.textContent = en ? "Starting backtest..." : "Backtest shuru ho raha hai...";
+      try {
+        const res = await apiPost("/api/backtesting/run", { strategy_id: strategyId });
+        status.textContent = en ? `Backtest started (job ${res.job_id}).` : `Backtest shuru ho gaya (job ${res.job_id}).`;
+      } catch (e) {
+        // Proves the Incomplete Lock is still genuinely enforced here --
+        // a locked strategy's 423 surfaces verbatim, never silently
+        // swallowed or bypassed by this screen.
+        status.textContent = `${en ? "Blocked:" : "Roka gaya:"} ${e.message}`;
+      }
+      if (onDone) onDone();
+    };
   }
 
   // ------------------------------------------------------------ BACKTESTING
@@ -3279,7 +4574,32 @@
     });
   }
 
-  // ------------------------------------------------------------ TELEGRAM DASHBOARD (Task C)
+  // ------------------------------------------------------------ TELEGRAM (signal log, honest delivery status, message preview)
+  // Every delivery status the backend can report (paper_trading/
+  // telegram_delivery.py STATUS_LABELS) mapped to its pill colour. The
+  // rule the whole page follows: a signal is ONLY ever shown as green/
+  // "Sent" when a real successful send was actually recorded for it.
+  // Withheld-by-a-gate is amber (the system did its job), a network
+  // failure is red (something is genuinely broken), queued is neutral.
+  const TG_STATUS_TONE = {
+    sent: "pill-bullish",
+    blocked_network: "pill-error",
+    failed_telegram: "pill-error",
+    not_configured: "pill-error",
+    withheld_stale: "pill-pending",
+    withheld_drift: "pill-pending",
+    withheld_switch: "pill-pending",
+    withheld_rate_limit: "pill-pending",
+    queued: "pill-muted",
+    never_sent: "pill-muted",
+  };
+
+  function tgStatusPill(row) {
+    const tone = TG_STATUS_TONE[row.delivery_status] || "pill-muted";
+    const title = row.delivery_detail ? ` title="${esc(row.delivery_detail)}"` : "";
+    return `<span class="pill ${tone}"${title}>${esc(row.delivery_label)}</span>`;
+  }
+
   function telegramOutcomePill(outcome) {
     if (outcome === "win") return `<span class="pill-up">Win</span>`;
     if (outcome === "loss") return `<span class="pill-down">Loss</span>`;
@@ -3288,161 +4608,372 @@
     return `<span class="muted">Unknown</span>`;
   }
 
-  function telegramWinRateText(summary) {
-    if (summary.win_rate_pct != null) return `${summary.win_rate_pct.toFixed(1)}%`;
-    return `Not enough closed signals yet (need ${summary.min_sample_size}, have ${summary.closed})`;
+  // The one panel that answers "is this actually reaching my phone right
+  // now, and if not, why". Deliberately reads recorded evidence rather
+  // than probing the network on page load -- Test Connection is the
+  // explicit live check.
+  function tgConnectionPanelHtml(cs) {
+    const map = {
+      working: ["ok", "Delivery is working"],
+      blocked: ["bad", "Delivery is blocked"],
+      failing: ["bad", "Delivery is failing"],
+      turned_off: ["warn", "Sending is switched off"],
+      not_configured: ["warn", "Not set up yet"],
+      unknown: ["warn", "Nothing to judge from yet"],
+    };
+    const [tone, headline] = map[cs.state] || map.unknown;
+    const s = cs.settings || {};
+    return `
+      <div class="conn-panel conn-${tone}">
+        <div class="conn-main">
+          <div class="conn-dot"></div>
+          <div>
+            <div class="conn-headline">${esc(headline)}</div>
+            <div class="conn-reason">${esc(cs.reason || "")}</div>
+          </div>
+        </div>
+        <div class="conn-facts">
+          <div><span class="muted">Bot set up</span><b>${s.token_configured ? "Yes" : "No"}</b></div>
+          <div><span class="muted">Channel set</span><b>${s.channel_id ? "Yes" : "No"}</b></div>
+          <div><span class="muted">Sending switch</span><b>${s.master_send_enabled ? "On" : "Off"}</b></div>
+          <div><span class="muted">Proxy</span><b>${cs.proxy_enabled ? (cs.proxy_configured ? "On" : "On, but empty") : "Off"}</b></div>
+          <div><span class="muted">Last success</span><b>${cs.last_success_at ? esc(cs.last_success_at.slice(0, 16).replace("T", " ")) : "Never"}</b></div>
+          <div><span class="muted">Last failure</span><b>${cs.last_failure_at ? esc(cs.last_failure_at.slice(0, 16).replace("T", " ")) : "None"}</b></div>
+        </div>
+        ${cs.last_failure_reason ? `<div class="conn-detail">Last recorded failure: ${esc(cs.last_failure_reason)}</div>` : ""}
+      </div>`;
+  }
+
+  // Shows the exact text that WOULD go out for one signal, built by the
+  // same formatter a real send uses -- so formatting can be checked long
+  // before delivery ever works.
+  function openTelegramPreviewModal(positionId) {
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.innerHTML = `
+      <div class="modal-panel">
+        <div class="modal-head">
+          <div>
+            <div class="modal-eyebrow">Message preview</div>
+            <h3 class="modal-title">Exactly what would be sent</h3>
+          </div>
+          <button class="btn-ghost" data-modal-close>Close</button>
+        </div>
+        <div id="tgPrevBody" class="muted">Loading...</div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.onclick = (e) => { if (e.target === overlay) close(); };
+    overlay.querySelector("[data-modal-close]").onclick = close;
+
+    // Longer than the default 15s: the very first preview for a signal
+    // has to score its confluence against live market data, which can
+    // legitimately take a while when an engine tick is holding the
+    // storage lock. Subsequent opens hit the server-side cache.
+    apiGet(`/api/paper-trading/telegram/preview/${positionId}`, 60000).then(p => {
+      overlay.querySelector("#tgPrevBody").innerHTML = `
+        <div class="modal-stat-row">
+          <div><span class="modal-stat-label">Coin</span><span class="modal-stat-value">${esc(p.symbol || "-")}</span></div>
+          <div><span class="modal-stat-label">Direction</span><span class="modal-stat-value">${esc((p.direction || "-").toUpperCase())}</span></div>
+          <div><span class="modal-stat-label">Grade</span><span class="modal-stat-value">${esc(p.quality_grade || "-")}</span></div>
+          <div><span class="modal-stat-label">Age</span><span class="modal-stat-value">${p.age_minutes != null ? p.age_minutes + " min" : "-"}</span></div>
+        </div>
+        ${p.would_be_withheld_as_stale
+          ? `<div class="notice notice-warn">This one would be held back right now: it is older than the ${p.freshness_limit_minutes}-minute freshness limit ${helpIcon("signal_freshness")}. The text below is still exactly how it would be formatted.</div>`
+          : `<div class="notice notice-ok">This one is fresh enough to go out right now (limit is ${p.freshness_limit_minutes} minutes) ${helpIcon("signal_freshness")}.</div>`}
+        <div class="tg-preview">${renderTelegramMessageHtml(p.message_text)}</div>
+        <p class="muted plain-note">This is a preview only &mdash; opening it never sends anything. The live "current price" line is the one field only a real send can fill in.</p>`;
+    }).catch(e => {
+      overlay.querySelector("#tgPrevBody").innerHTML = `<p class="muted">Couldn't build the preview: ${esc(e.message)}</p>`;
+    });
   }
 
   async function renderTelegramDashboard() {
     const myToken = activeRouteToken;
+    let activeTgTab = "log";
+    let activePeriod = "today";
 
-    async function load(period) {
-      document.getElementById("tgDashBox").innerHTML = `<p class="muted">Loading...</p>`;
-      let analytics, signalsRes, mirrorRes;
+    async function loadPeriod(period) {
+      activePeriod = period;
+      const box = document.getElementById("tgDashBox");
+      if (!box) return;
+      box.innerHTML = `<p class="muted">Loading...</p>`;
+      let delivery, analytics, mirrorRes;
       try {
-        [analytics, signalsRes, mirrorRes] = await Promise.all([
-          apiGet(`/api/paper-trading/telegram/analytics?period=${period}`),
-          apiGet(`/api/paper-trading/telegram/signals?period=${period}`),
+        [delivery, analytics, mirrorRes] = await Promise.all([
+          apiGet(`/api/paper-trading/telegram/delivery-log?period=${period}`),
+          apiGet(`/api/paper-trading/telegram/analytics?period=${period}`).catch(() => null),
           apiGet(`/api/paper-trading/telegram/log?limit=30`).catch(() => ({ messages: [] })),
         ]);
       } catch (e) {
         if (isStaleRoute(myToken)) return;
-        document.getElementById("tgDashBox").innerHTML = `<p class="muted">Couldn't load: ${esc(e.message)}</p>`;
+        box.innerHTML = `<p class="muted">Couldn't load: ${esc(e.message)}</p>`;
         return;
       }
       if (isStaleRoute(myToken)) return;
-      const s = analytics.summary;
-      const hp = analytics.hypothetical_pnl;
-      const signals = signalsRes.signals || [];
+
+      const sum = delivery.summary;
+      const signals = delivery.signals || [];
       const mirror = mirrorRes.messages || [];
-      const en = getLang() === "en";
+      const o = sum.outcomes;
 
-      document.getElementById("tgDashBox").innerHTML = `
-        <div class="grid">
-          ${card("Signals Sent", fmtNum(s.total_signals))}
-          ${card("Open / Pending", fmtNum(s.pending))}
-          ${card("Wins", fmtNum(s.wins))}
-          ${card("Losses", fmtNum(s.losses))}
-          ${card("Win Rate", telegramWinRateText(s))}
+      box.innerHTML = `
+        <div class="headline-band">
+          <div class="headline-main tone-flat">
+            <div class="headline-label">Signals Generated</div>
+            <div class="headline-value">${fmtNum(sum.total_generated)}</div>
+            <div class="headline-sub">Everything the system found in this period</div>
+          </div>
+          <div class="headline-side">
+            <div class="headline-label">Actually Delivered</div>
+            <div class="headline-value ${sum.delivered ? "tone-up" : ""}">${fmtNum(sum.delivered)}</div>
+            <div class="headline-sub">Confirmed as reaching Telegram</div>
+          </div>
+          <div class="headline-side">
+            <div class="headline-label">Held Back or Failed</div>
+            <div class="headline-value">${fmtNum(sum.withheld + sum.failed)}</div>
+            <div class="headline-sub">${fmtNum(sum.withheld)} withheld &middot; ${fmtNum(sum.failed)} failed</div>
+          </div>
         </div>
 
-        <div class="section-title">${getLang() === "en" ? `Hypothetical $${hp.hypothetical_capital.toFixed(0)} Account (Simulated)` : `Andaazi $${hp.hypothetical_capital.toFixed(0)} Account (Nakli)`}</div>
-        <p class="muted" style="margin-top:-8px;">Not a real account -- this shows what a $${hp.hypothetical_capital.toFixed(0)} balance would look like if every closed Telegram signal in this period had been risked at the platform's real configured risk-per-trade (${hp.risk_pct_used}%), using each trade's REAL recorded result. Trades still open contribute nothing yet.</p>
-        <div class="grid">
-          ${card("Trades Counted", fmtNum(hp.counted_trades))}
-          ${cardClass("Hypothetical PnL", `${hp.hypothetical_pnl >= 0 ? "+" : ""}$${hp.hypothetical_pnl.toFixed(2)}`, hp.hypothetical_pnl > 0 ? "positive" : hp.hypothetical_pnl < 0 ? "negative" : "")}
-          ${card("Hypothetical Balance", `$${hp.hypothetical_balance.toFixed(2)}`)}
+        <div class="section-title">Where Every Signal Ended Up ${helpIcon("delivery_status")}</div>
+        <div class="status-strip">
+          ${sum.by_status.length
+            ? sum.by_status.map(b => `
+              <div class="status-chip">
+                <span class="pill ${TG_STATUS_TONE[b.status] || "pill-muted"}">${esc(b.label)}</span>
+                <b>${fmtNum(b.count)}</b>
+              </div>`).join("")
+            : `<div class="muted">No signals were generated in this period.</div>`}
         </div>
 
-        <div class="section-title">${t("Per-Strategy Breakdown")}</div>
+        <div class="section-title">How Those Trades Actually Turned Out</div>
+        <div class="grid">
+          ${card("Won", fmtNum(o.win))}
+          ${card("Lost", fmtNum(o.loss))}
+          ${card("Still Open", fmtNum(o.pending))}
+          ${card("Win Ratio", sum.win_rate_pct != null ? `${sum.win_rate_pct.toFixed(1)}%` : "No finished trades yet")}
+        </div>
+        <p class="muted plain-note">These are the real results of the trades these signals belonged to, taken straight from Paper Trading. A trade still running always shows as open &mdash; never guessed at.</p>
+
+        <div class="section-title">Signal Log &mdash; Every Signal, Delivered Or Not</div>
         <div class="table-wrap"><table>
-          <thead><tr><th>Strategy</th><th>Signals</th><th>${t("Wins")}</th><th>${t("Losses")}</th><th>Open/Pending</th><th>${t("Win Rate")}</th></tr></thead>
-          <tbody>${analytics.strategy_breakdown.map(b => `
+          <thead><tr>
+            <th>When</th><th>Strategy</th><th>Coin</th><th>Direction</th>
+            <th>Entry</th><th>Stop-Loss</th><th>Take-Profit</th><th>Grade</th>
+            <th>Delivery ${helpIcon("delivery_status")}</th><th>Result</th><th></th>
+          </tr></thead>
+          <tbody>${signals.slice(0, 200).map(s => `
+            <tr>
+              <td>${esc((s.generated_at || "").slice(0, 16).replace("T", " "))}</td>
+              <td style="max-width:190px;">${esc(s.strategy_name || "-")}</td>
+              <td>${esc(s.symbol || "-")}</td>
+              <td><span class="pill ${s.direction === "long" ? "pill-bullish" : "pill-bearish"}">${esc((s.direction || "-").toUpperCase())}</span></td>
+              <td>${fmtPrice(s.entry_price)}</td>
+              <td>${fmtPrice(s.stop_loss)}</td>
+              <td>${fmtPrice(s.take_profit)}</td>
+              <td>${s.quality_grade ? esc(s.quality_grade) : (s.confidence != null ? Math.round(s.confidence) + "%" : "-")}</td>
+              <td>${tgStatusPill(s)}</td>
+              <td>${telegramOutcomePill(s.outcome)}</td>
+              <td><button class="btn-ghost tg-preview-btn" data-id="${esc(s.position_id)}">Preview</button></td>
+            </tr>`).join("") || `<tr><td colspan="11">No signals were generated in this period.</td></tr>`}</tbody>
+        </table></div>
+        ${signals.length > 200 ? `<p class="muted plain-note">Showing the 200 most recent of ${fmtNum(signals.length)} signals in this period.</p>` : ""}
+
+        ${analytics ? `
+        <div class="section-title">Per-Strategy &mdash; Delivered Signals Only</div>
+        <p class="muted plain-note">This table counts only signals that genuinely reached Telegram, so it will read lower than the log above whenever delivery is blocked.</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Strategy</th><th>Delivered</th><th>Wins</th><th>Losses</th><th>Still Open</th><th>Win Ratio</th></tr></thead>
+          <tbody>${(analytics.strategy_breakdown || []).map(b => `
             <tr>
               <td>${esc(b.strategy_name)}</td>
               <td>${fmtNum(b.total_signals)}</td>
               <td>${fmtNum(b.wins)}</td>
               <td>${fmtNum(b.losses)}</td>
               <td>${fmtNum(b.pending)}</td>
-              <td>${b.win_rate_pct != null ? b.win_rate_pct.toFixed(1) + "%" : `Needs ${s.min_sample_size}+ closed`}</td>
-            </tr>`).join("") || `<tr><td colspan="6">No signals sent yet in this period.</td></tr>`}</tbody>
-        </table></div>
+              <td>${b.win_rate_pct != null ? b.win_rate_pct.toFixed(1) + "%" : `Needs ${analytics.summary.min_sample_size}+ finished`}</td>
+            </tr>`).join("") || `<tr><td colspan="6">Nothing was delivered in this period.</td></tr>`}</tbody>
+        </table></div>` : ""}
 
-        <div class="section-title">${t("Signal Log")}</div>
-        <div class="table-wrap"><table>
-          <thead><tr><th>Sent</th><th>Coin</th><th>Direction</th><th>Entry</th><th>Stop-Loss</th><th>Take-Profit</th><th>Strategy</th><th>Outcome</th></tr></thead>
-          <tbody>${signals.map(sig => `
-            <tr>
-              <td>${esc((sig.sent_at || "").slice(0, 16).replace("T", " "))}</td>
-              <td>${esc(sig.symbol || "-")}</td>
-              <td>${esc((sig.direction || "-").toUpperCase())}</td>
-              <td>${fmtPrice(sig.entry_price)}</td>
-              <td>${fmtPrice(sig.stop_loss)}</td>
-              <td>${fmtPrice(sig.take_profit)}</td>
-              <td>${esc(sig.strategy_name || "-")}</td>
-              <td>${telegramOutcomePill(sig.outcome)}</td>
-            </tr>`).join("") || `<tr><td colspan="8">No signals sent yet in this period.</td></tr>`}</tbody>
-        </table></div>
-
-        <div class="section-title">${en ? "Signal Mirror -- Exactly What Was Sent" : "Signal Mirror -- Bilkul Wahi Jo Bheja Gaya"}</div>
-        <p class="muted" style="font-size:12px;margin-top:-8px;">${en
-          ? "The real message text stored at the moment each was sent -- not a re-generated preview, so this always matches Telegram exactly."
-          : "Yeh asli message text hai jo har send ke waqt store hua tha -- dobara banaya hua andaza nahi, isliye yeh hamesha Telegram se bilkul match karta hai."}</p>
-        <div style="display:flex;flex-direction:column;gap:10px;">
+        <div class="section-title">Signal Mirror &mdash; Exactly What Was Sent</div>
+        <p class="muted plain-note">The real message text stored at the moment each send was attempted &mdash; not a re-generated guess, so this always matches what Telegram actually received.</p>
+        <div class="mirror-list">
           ${mirror.map(m => `
-            <div class="card">
-              <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px;">
+            <div class="card mirror-card">
+              <div class="mirror-head">
                 <div>
-                  <b>${esc(m.strategy_name || (en ? "Unknown Strategy" : "Pata Nahi Strategy"))}</b>
-                  <span class="muted" style="font-size:12px;"> -- ${esc(m.trigger_type)} -- ${esc((m.sent_at || "").slice(0, 16).replace("T", " "))}</span>
+                  <b>${esc(m.strategy_name || "Unknown strategy")}</b>
+                  <span class="muted" style="font-size:12px;"> &mdash; ${esc(m.trigger_type)} &mdash; ${esc((m.sent_at || "").slice(0, 16).replace("T", " "))}</span>
                 </div>
-                ${m.success
-                  ? `<span class="pill pill-bullish">${en ? "Sent" : "Bhej Diya"}</span>`
-                  : `<span class="pill pill-bearish" title="${esc(m.error || "")}">${(m.error || "").includes("too stale")
-                      ? (en ? "Withheld -- Freshness Gate" : "Roka Gaya -- Freshness Gate")
-                      : (en ? "Failed" : "Nakaam")}</span>`}
+                ${tgStatusPill({
+                  delivery_status: m.success ? "sent" : "blocked_network",
+                  delivery_label: m.success ? "Sent" : "Not delivered",
+                  delivery_detail: m.error,
+                })}
               </div>
               ${m.message_text
-                ? `<div style="white-space:pre-wrap;font-size:13px;line-height:1.5;background:var(--card-2,rgba(127,127,127,0.08));padding:10px;border-radius:6px;">${renderTelegramMessageHtml(m.message_text)}</div>`
-                : `<div class="muted" style="font-size:12px;">${en ? "No message text (blocked before formatting, e.g. master switch off)." : "Koi message text nahi (formatting se pehle hi ruk gaya, jaise master switch off)."} ${esc(m.error || "")}</div>`}
-            </div>`).join("") || `<p class="muted">${en ? "No Telegram send attempts yet." : "Abhi tak koi Telegram send attempt nahi hua."}</p>`}
+                ? `<div class="tg-preview">${renderTelegramMessageHtml(m.message_text)}</div>`
+                : `<div class="muted" style="font-size:12px;">No message text &mdash; it was stopped before the message was even written. ${esc(m.error || "")}</div>`}
+            </div>`).join("") || `<p class="muted">No send has been attempted yet.</p>`}
         </div>
       `;
+      box.querySelectorAll(".tg-preview-btn").forEach(btn => {
+        btn.onclick = () => openTelegramPreviewModal(btn.dataset.id);
+      });
     }
 
-    const [tgSettings, tgAlert] = await Promise.all([
-      apiGet("/api/paper-trading/telegram/settings").catch(() => ({ master_send_enabled: true })),
+    const [cs, tgAlert] = await Promise.all([
+      apiGet("/api/paper-trading/telegram/connection-status").catch(() => ({ state: "unknown", reason: "Status unavailable.", settings: {} })),
       apiGet(`/api/paper-trading/telegram/alert-status?lang=${getLang()}`).catch(() => ({ stale: false })),
     ]);
     if (isStaleRoute(myToken)) return;
+    const s = cs.settings || {};
 
     content.innerHTML = `
-      <div class="section-title">${t("Telegram Signals")}</div>
-      <p class="muted">Everything sent to the Telegram channel, in one place -- how many signals went out, how they're doing, and a full log. Win/loss comes straight from each trade's real recorded outcome in Paper Trading; a trade that hasn't closed yet always shows as Open/Pending, never guessed at.</p>
-
-      ${tgAlert.stale ? `
-      <div class="card" style="border-left:3px solid var(--negative, #e5484d); max-width:480px;">
-        ⚠ ${esc(tgAlert.message)}
-      </div>` : ""}
-
-      <div class="card" style="max-width:480px;">
-        <label style="display:flex;align-items:center;gap:10px;width:auto;">
-          <input type="checkbox" id="tgMasterSwitch" ${tgSettings.master_send_enabled ? "checked" : ""} style="width:auto;">
-          <span><b>Send Signals to Telegram</b><br><span class="muted" style="font-size:12px;">When off, nothing is sent to Telegram at all -- no manual send, no automatic high-confidence signal -- no matter how confident the system is.</span></span>
-        </label>
-        <span id="tgMasterStatus" class="muted"></span>
+      <div class="page-head">
+        <div>
+          <div class="page-eyebrow">Paper Trading</div>
+          <h2 class="page-title">Telegram</h2>
+          <p class="page-lede">Every signal the system produced, and honestly what happened to each one. Nothing here is shown as sent unless it truly reached Telegram.</p>
+        </div>
       </div>
 
-      ${paperPeriodTabsHtml("tgdash", "today")}
-      <div id="tgDashBox"><p class="muted">Loading...</p></div>
+      ${tgAlert.stale ? `<div class="notice notice-warn">${esc(tgAlert.message)}</div>` : ""}
+
+      ${tgConnectionPanelHtml(cs)}
+
+      <div class="pill-tabs">
+        <button class="pill-tab active" data-tg-tab="log">Signal Log</button>
+        <button class="pill-tab" data-tg-tab="settings">Settings</button>
+      </div>
+
+      <div data-tg-panel="log">
+        ${paperPeriodTabsHtml("tgdash", "today")}
+        <div id="tgDashBox"><p class="muted">Loading...</p></div>
+      </div>
+
+      <div data-tg-panel="settings" style="display:none;">
+        <div class="section-title">Delivery</div>
+        <div class="card settings-card">
+          <label class="switch-row">
+            <input type="checkbox" id="tgMasterSwitch" ${s.master_send_enabled ? "checked" : ""}>
+            <span><b>Send signals to Telegram</b><br><span class="muted">When this is off, nothing at all goes out &mdash; not a manual send, not an automatic one &mdash; no matter how strong a signal looks.</span></span>
+          </label>
+          <label class="switch-row">
+            <input type="checkbox" id="tgAutoSwitch" ${s.auto_send_enabled ? "checked" : ""}>
+            <span><b>Send strong signals automatically</b><br><span class="muted">When on, the system checks each open trade on its own and sends the ones that clear its confidence bar. It never lowers that bar.</span></span>
+          </label>
+          <span id="tgSettingsStatus" class="muted"></span>
+        </div>
+
+        <div class="section-title">Connection (for when the block is lifted)</div>
+        <div class="card settings-card">
+          <p class="muted plain-note">Telegram is blocked on this internet connection, so messages cannot get through directly. A working proxy, or running this on a cloud server, fixes that. Fill these in and everything above starts delivering on its own &mdash; nothing else needs rebuilding.</p>
+          <label class="switch-row">
+            <input type="checkbox" id="tgProxyEnabled" ${s.proxy_enabled ? "checked" : ""}>
+            <span><b>Route through a proxy</b></span>
+          </label>
+          <div class="form-row">
+            <label>Proxy address</label>
+            <input id="tgProxyUrl" placeholder="${s.proxy_configured ? "•••••• (one is already saved)" : "socks5://user:pass@host:1080"}">
+          </div>
+          <div class="btn-row">
+            <button class="btn" id="tgSaveProxy">Save connection settings</button>
+            <button class="btn-ghost" id="tgTestProxy">Test the proxy only</button>
+            <button class="btn-ghost" id="tgTestSend">Send a real test message</button>
+          </div>
+          <span id="tgProxyStatus" class="muted"></span>
+        </div>
+
+        <div class="section-title">Safety Gate</div>
+        <div class="card settings-card">
+          <div class="settings-readonly">
+            <div><span class="muted">Freshness limit ${helpIcon("signal_freshness")}</span><b>${s.signal_freshness_minutes != null ? s.signal_freshness_minutes + " minutes" : "-"}</b></div>
+            <div><span class="muted">Price-drift limit</span><b>${s.signal_price_drift_pct != null ? s.signal_price_drift_pct + "%" : "-"}</b></div>
+            <div><span class="muted">Most messages per hour</span><b>${s.rate_limit_per_hour != null ? s.rate_limit_per_hour : "-"}</b></div>
+          </div>
+          <p class="muted plain-note">Shown here so you can see the rule that is protecting you, but deliberately not editable from this screen &mdash; this is the gate that stops an out-of-date signal from ever being sent, and it is not something a stray click should be able to weaken.</p>
+        </div>
+      </div>
     `;
 
+
+    content.querySelectorAll("[data-tg-tab]").forEach(btn => {
+      btn.onclick = () => {
+        activeTgTab = btn.dataset.tgTab;
+        content.querySelectorAll("[data-tg-tab]").forEach(b => b.classList.toggle("active", b === btn));
+        content.querySelectorAll("[data-tg-panel]").forEach(panel => {
+          panel.style.display = panel.dataset.tgPanel === activeTgTab ? "" : "none";
+        });
+      };
+    });
+
+    const setStatus = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
+
     document.getElementById("tgMasterSwitch").addEventListener("change", async (e) => {
-      const statusEl = document.getElementById("tgMasterStatus");
-      statusEl.textContent = "Saving...";
+      setStatus("tgSettingsStatus", "Saving...");
       try {
         await apiPost("/api/paper-trading/telegram/settings", { master_send_enabled: e.target.checked });
-        statusEl.textContent = e.target.checked ? "Telegram sending is ON." : "Telegram sending is OFF -- nothing will be sent.";
+        setStatus("tgSettingsStatus", e.target.checked ? "Sending is on." : "Sending is off -- nothing will go out.");
         appendLog(`[Telegram] Sending turned ${e.target.checked ? "ON" : "OFF"}.`);
       } catch (err) {
-        statusEl.textContent = "Save failed -- try again.";
+        setStatus("tgSettingsStatus", "Save failed -- try again.");
         e.target.checked = !e.target.checked;
       }
     });
+    document.getElementById("tgAutoSwitch").addEventListener("change", async (e) => {
+      setStatus("tgSettingsStatus", "Saving...");
+      try {
+        await apiPost("/api/paper-trading/telegram/settings", { auto_send_enabled: e.target.checked });
+        setStatus("tgSettingsStatus", e.target.checked ? "Automatic sending is on." : "Automatic sending is off.");
+        appendLog(`[Telegram] Auto-send turned ${e.target.checked ? "ON" : "OFF"}.`);
+      } catch (err) {
+        setStatus("tgSettingsStatus", "Save failed -- try again.");
+        e.target.checked = !e.target.checked;
+      }
+    });
+    document.getElementById("tgSaveProxy").onclick = async () => {
+      setStatus("tgProxyStatus", "Saving...");
+      const body = { proxy_enabled: document.getElementById("tgProxyEnabled").checked };
+      const url = document.getElementById("tgProxyUrl").value.trim();
+      if (url) body.proxy_url = url;
+      try {
+        await apiPost("/api/paper-trading/telegram/settings", body);
+        setStatus("tgProxyStatus", "Saved.");
+      } catch (e) { setStatus("tgProxyStatus", `Failed: ${e.message}`); }
+    };
+    document.getElementById("tgTestProxy").onclick = async () => {
+      setStatus("tgProxyStatus", "Testing the proxy (this can take a moment)...");
+      try {
+        const r = await apiPost("/api/paper-trading/telegram/test-proxy", {}, 120000);
+        setStatus("tgProxyStatus", r.ok
+          ? `The proxy works. It reaches the internet as ${r.exit_ip}.`
+          : `The proxy did not work: ${r.error}`);
+      } catch (e) { setStatus("tgProxyStatus", `Failed: ${e.message}`); }
+    };
+    document.getElementById("tgTestSend").onclick = async () => {
+      setStatus("tgProxyStatus", "Sending a real test message (this can take a moment)...");
+      try {
+        const r = await apiPost("/api/paper-trading/telegram/test", {}, 120000);
+        setStatus("tgProxyStatus", r.ok
+          ? "It worked -- check your Telegram channel."
+          : `It did not get through: ${r.error}`);
+      } catch (e) { setStatus("tgProxyStatus", `Failed: ${e.message}`); }
+    };
 
-    await load("today");
+    await loadPeriod("today");
     content.querySelectorAll('[data-period-tab="tgdash"]').forEach(btn => {
       btn.onclick = () => {
         content.querySelectorAll('[data-period-tab="tgdash"]').forEach(b => b.classList.remove("active"));
         btn.classList.add("active");
-        load(btn.dataset.period).catch(console.error);
+        loadPeriod(btn.dataset.period).catch(console.error);
       };
     });
 
     onLive((msg) => {
       if (msg.channel === "job" || msg.channel === "sync") {
-        const active = content.querySelector('[data-period-tab="tgdash"].active');
-        if (active) load(active.dataset.period).catch(console.error);
+        loadPeriod(activePeriod).catch(console.error);
       }
     });
   }
@@ -4289,6 +5820,228 @@
     }
   }
 
+  // ------------------------------------------------------------ EXTERNAL SIGNAL TRACKER
+  // A COMPLETELY SEPARATE module from the CEO's own Paper Trading /
+  // Signal Tracker above -- external Telegram channels, isolated tables,
+  // never averaged with the CEO's own strategy results. See
+  // external_signals/ (Python) and sindhu_web/api/external_signals.py.
+  async function renderExternalSignals() {
+    const myToken = activeRouteToken;
+    const en = getLang() === "en";
+
+    async function render() {
+      const [channelsRes, comparisonRes, settingsRes] = await Promise.all([
+        apiGet("/api/external-signals/channels").catch(() => ({ channels: [] })),
+        apiGet("/api/external-signals/comparison").catch(() => ({ channels: [] })),
+        apiGet("/api/external-signals/settings").catch(() => ({})),
+      ]);
+      if (isStaleRoute(myToken)) return;
+
+      content.innerHTML = `
+        <div class="page-header"><h2>${en ? "External Signal Tracker" : "External Signal Tracker"}</h2>
+          <div class="muted">${en
+            ? "Tracks signals from Telegram channels you follow -- completely separate fake-money book from your own Paper Trading. Never mixed, never averaged together."
+            : "Un Telegram channels ke signals track karta hai jinhein aap follow karte hain -- yeh aapki apni Paper Trading se bilkul alag, nakli paise ka hisaab hai. Kabhi mix nahi hota."}</div>
+        </div>
+
+        <div class="card" style="margin-bottom:16px;">
+          <div class="section-title">${en ? "Add a Channel" : "Channel Add Karein"}</div>
+          <div class="form-row"><label>${en ? "Name (for your own reference)" : "Naam (sirf aapke liye)"}</label>
+            <input id="extAddName" placeholder="${en ? "e.g. Crypto VIP Signals" : "misaal: Crypto VIP Signals"}"></div>
+          <div class="form-row"><label>${en ? "Telegram username or id you're a member of" : "Telegram username ya id jiske aap member hain"}</label>
+            <input id="extAddHandle" placeholder="@channel_username"></div>
+          <button class="btn" id="extAddBtn">${en ? "Add Channel" : "Channel Add Karein"}</button>
+          <div class="muted" id="extAddResult" style="margin-top:6px;"></div>
+        </div>
+
+        <div class="section-title">${en ? "Your Channels" : "Aapke Channels"}</div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>${en ? "Name" : "Naam"}</th><th>${en ? "Source Label" : "Source Label"}</th>
+            <th>${en ? "Status" : "Status"}</th><th>${en ? "Proving Progress" : "Proving Progress"}</th>
+            <th>${en ? "Result" : "Natija"}</th><th></th></tr></thead>
+          <tbody>${(channelsRes.channels || []).map(c => {
+            const comp = (comparisonRes.channels || []).find(r => r.channel_id === c.id) || {};
+            return `
+            <tr>
+              <td>${esc(c.name)}</td>
+              <td><span class="pill pill-muted">${esc(c.forwarding_source_label || "-")}</span></td>
+              <td>${c.enabled
+                ? `<span class="pill pill-bullish">${en ? "Enabled" : "Chalu"}</span>`
+                : `<span class="pill pill-muted">${en ? "Disabled" : "Band"}</span>`}</td>
+              <td>${comp.proving_progress ?? 0}/${comp.proving_required ?? 30}</td>
+              <td>${comp.honest_label ? esc(comp.honest_label) : (en ? "No trades yet" : "Abhi koi trade nahi")}</td>
+              <td>
+                <button class="btn-ghost ext-view" data-id="${esc(c.id)}" data-name="${esc(c.name)}">${en ? "View" : "Dekhein"}</button>
+                ${c.enabled
+                  ? `<button class="btn-ghost ext-disable" data-id="${esc(c.id)}">${en ? "Disable" : "Band Karein"}</button>`
+                  : `<button class="btn-ghost ext-enable" data-id="${esc(c.id)}">${en ? "Enable" : "Chalu Karein"}</button>`}
+                <button class="btn-ghost ext-remove" data-id="${esc(c.id)}" data-name="${esc(c.name)}">${en ? "Remove" : "Hatayein"}</button>
+              </td>
+            </tr>`;
+          }).join("") || `<tr><td colspan="6">${en ? "No channels added yet." : "Abhi koi channel add nahi hua."}</td></tr>`}</tbody>
+        </table></div>
+
+        <div id="extChannelDetail" style="margin-top:16px;"></div>
+
+        <div class="card" style="margin-top:16px;">
+          <div class="section-title">${en ? "Telegram Reading Connection" : "Telegram Padhne Ka Connection"}</div>
+          <p class="muted">${en
+            ? "Reading channels you're a member of needs your OWN Telegram login (not a bot) -- see the setup guide below."
+            : "Jin channels ke aap member hain unhein padhne ke liye aapka apna Telegram login chahiye (bot nahi) -- neeche guide dekhein."}</p>
+          <div class="form-row"><label>api_id (my.telegram.org)</label><input id="extApiId" placeholder="1234567" value="${settingsRes.telegram_api_id || ""}"></div>
+          <div class="form-row"><label>api_hash (my.telegram.org)</label><input id="extApiHash" placeholder="${settingsRes.telegram_api_hash === "SET" ? "•••••• (already saved)" : "abcdef0123456789..."}"></div>
+          <button class="btn" id="extSaveCreds">${en ? "Save Credentials" : "Credentials Save Karein"}</button>
+          <div class="muted" id="extCredsResult" style="margin-top:6px;"></div>
+          <details style="margin-top:10px;">
+            <summary>${en ? "How do I get api_id / api_hash? (step by step)" : "api_id / api_hash kaise milega? (ek-ek step)"}</summary>
+            <ol style="margin-top:8px;line-height:1.7;">
+              <li>${en ? "Apne phone/computer se my.telegram.org kholein." : "Apne phone/computer se my.telegram.org kholein."}</li>
+              <li>${en ? "Apna wahi phone number daalein jo aapke Telegram account mein hai, phir Telegram par aane wala code daalein." : "Apna wahi phone number daalein jo aapke Telegram account mein hai, phir Telegram par aane wala code daalein."}</li>
+              <li>${en ? "'API development tools' par click karein." : "'API development tools' par click karein."}</li>
+              <li>${en ? "Ek form aayega -- 'App title' aur 'Short name' mein kuch bhi likh dein (misaal: SINDHU), baaki khaali chod sakte hain." : "Ek form aayega -- 'App title' aur 'Short name' mein kuch bhi likh dein (misaal: SINDHU), baaki khaali chod sakte hain."}</li>
+              <li>${en ? "'Create application' dabayein -- ab aapko api_id (numbers) aur api_hash (letters+numbers) dikhega." : "'Create application' dabayein -- ab aapko api_id (numbers) aur api_hash (letters+numbers) dikhega."}</li>
+              <li>${en ? "Yeh dono values yahan upar copy-paste kar dein aur Save Credentials dabayein." : "Yeh dono values yahan upar copy-paste kar dein aur Save Credentials dabayein."}</li>
+              <li>${en ? "Yeh sirf AAPKE apne Telegram account tak access deta hai -- kisi aur ke saath share na karein." : "Yeh sirf AAPKE apne Telegram account tak access deta hai -- kisi aur ke saath share na karein."}</li>
+            </ol>
+            <p class="muted">${en
+              ? "Login (phone number + code, and a session) is a separate one-time step done together in a live session, since Telegram sends the code straight to your phone -- ask to set this up when you're ready."
+              : "Login (phone number + code, aur session banana) ek alag, sirf-ek-baar wala step hai jo live session mein saath milkar karte hain, kyunke Telegram code seedha aapke phone par bhejta hai -- jab ready hon to bata dein."}</p>
+          </details>
+        </div>
+
+        <div class="card" style="margin-top:16px;">
+          <div class="section-title">${en ? "Forwarding Settings" : "Forwarding Settings"}</div>
+          <p class="muted">${en
+            ? "Once a channel proves itself (30 closed trades AND profitable), its NEW signals get forwarded here in real time -- the source is never named, only a stable label like \"Source A\"."
+            : "Jab koi channel khud ko saabit kar de (30 band trades AUR profitable), to uske NAYE signals yahan real-time forward hote hain -- source ka naam kabhi nahi batata, sirf ek stable label jaise \"Source A\"."}</p>
+          <div class="form-row"><label>${en ? "Forwarding Bot Token" : "Forwarding Bot Token"}</label>
+            <input id="extBotToken" placeholder="${settingsRes.forward_bot_token === "SET" ? "•••••• (already saved)" : "123456:ABC-DEF..."}"></div>
+          <div class="form-row"><label>${en ? "Destination Channel/Chat ID" : "Destination Channel/Chat ID"}</label>
+            <input id="extForwardChatId" placeholder="-1001234567890"></div>
+          <button class="btn" id="extSaveForwarding">${en ? "Save Forwarding Settings" : "Forwarding Settings Save Karein"}</button>
+          <div class="muted" id="extForwardingResult" style="margin-top:6px;"></div>
+        </div>
+      `;
+
+      document.getElementById("extAddBtn").onclick = async () => {
+        const name = document.getElementById("extAddName").value.trim();
+        const handle = document.getElementById("extAddHandle").value.trim();
+        const resultEl = document.getElementById("extAddResult");
+        if (!name || !handle) {
+          resultEl.textContent = en ? "Name and Telegram handle are both required." : "Naam aur Telegram handle dono zaroori hain.";
+          return;
+        }
+        try {
+          await apiPost("/api/external-signals/channels", { name, telegram_identifier: handle });
+          resultEl.textContent = en ? "Added!" : "Add ho gaya!";
+          await render();
+        } catch (e) {
+          resultEl.textContent = `${en ? "Failed" : "Nahi hua"}: ${e.message}`;
+        }
+      };
+
+      content.querySelectorAll(".ext-enable").forEach(btn => btn.onclick = async () => {
+        await apiPost(`/api/external-signals/channels/${btn.dataset.id}/enable`);
+        await render();
+      });
+      content.querySelectorAll(".ext-disable").forEach(btn => btn.onclick = async () => {
+        await apiPost(`/api/external-signals/channels/${btn.dataset.id}/disable`);
+        await render();
+      });
+      content.querySelectorAll(".ext-remove").forEach(btn => btn.onclick = async () => {
+        if (!confirm(en ? `Remove "${btn.dataset.name}"? Its trade history is kept, only the channel entry is removed.` : `"${btn.dataset.name}" hatayein? Trade history rehti hai, sirf channel entry hatti hai.`)) return;
+        await apiDelete(`/api/external-signals/channels/${btn.dataset.id}`);
+        await render();
+      });
+      content.querySelectorAll(".ext-view").forEach(btn => btn.onclick = () => renderChannelDetail(btn.dataset.id, btn.dataset.name));
+
+      document.getElementById("extSaveCreds").onclick = async () => {
+        const telegram_api_id = document.getElementById("extApiId").value.trim();
+        const telegram_api_hash = document.getElementById("extApiHash").value.trim();
+        const resultEl = document.getElementById("extCredsResult");
+        try {
+          await apiPost("/api/external-signals/settings", {
+            ...(telegram_api_id ? { telegram_api_id } : {}),
+            ...(telegram_api_hash ? { telegram_api_hash } : {}),
+          });
+          resultEl.textContent = en ? "Saved." : "Save ho gaya.";
+        } catch (e) {
+          resultEl.textContent = `${en ? "Failed" : "Nahi hua"}: ${e.message}`;
+        }
+      };
+
+      document.getElementById("extSaveForwarding").onclick = async () => {
+        const forward_bot_token = document.getElementById("extBotToken").value.trim();
+        const forward_channel_id = document.getElementById("extForwardChatId").value.trim();
+        const resultEl = document.getElementById("extForwardingResult");
+        try {
+          await apiPost("/api/external-signals/settings", {
+            ...(forward_bot_token ? { forward_bot_token } : {}),
+            ...(forward_channel_id ? { forward_channel_id } : {}),
+          });
+          resultEl.textContent = en ? "Saved." : "Save ho gaya.";
+        } catch (e) {
+          resultEl.textContent = `${en ? "Failed" : "Nahi hua"}: ${e.message}`;
+        }
+      };
+    }
+
+    async function renderChannelDetail(channelId, channelName) {
+      const [report, signalsRes, positionsRes] = await Promise.all([
+        apiGet(`/api/external-signals/channels/${channelId}/report`).catch(() => null),
+        apiGet(`/api/external-signals/channels/${channelId}/signals?limit=20`).catch(() => ({ signals: [] })),
+        apiGet(`/api/external-signals/channels/${channelId}/positions`).catch(() => ({ positions: [] })),
+      ]);
+      if (!report) return;
+      const box = document.getElementById("extChannelDetail");
+      box.innerHTML = `
+        <div class="card">
+          <div class="section-title">${esc(channelName)} -- ${en ? "Real Results" : "Asli Natija"}</div>
+          <div class="stats-row" style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:10px;">
+            <div><div class="muted">${en ? "Balance" : "Balance"}</div><div style="font-size:20px;font-weight:700;">$${report.balance}</div></div>
+            <div><div class="muted">${en ? "Closed / Open / Pending" : "Band / Khula / Pending"}</div><div style="font-size:20px;font-weight:700;">${report.closed_trades} / ${report.open_trades} / ${report.pending_trades}</div></div>
+            <div><div class="muted">${en ? "Win Rate" : "Win Rate"}</div><div style="font-size:20px;font-weight:700;">${report.win_rate_pct != null ? report.win_rate_pct + "%" : "-"}</div></div>
+            <div><div class="muted">${en ? "Total PnL" : "Total PnL"}</div><div style="font-size:20px;font-weight:700;">$${report.total_pnl}</div></div>
+            <div><div class="muted">${en ? "Avg R:R Achieved" : "Avg R:R"}</div><div style="font-size:20px;font-weight:700;">${report.avg_rr ?? "-"}</div></div>
+            <div><div class="muted">${en ? "Best Coin" : "Best Coin"}</div><div style="font-size:20px;font-weight:700;">${report.best_coin ? esc(report.best_coin.symbol) : "-"}</div></div>
+            <div><div class="muted">${en ? "Worst Coin" : "Worst Coin"}</div><div style="font-size:20px;font-weight:700;">${report.worst_coin ? esc(report.worst_coin.symbol) : "-"}</div></div>
+          </div>
+          <div style="height:8px;border-radius:4px;background:var(--border,#333);overflow:hidden;max-width:400px;">
+            <div style="height:100%;width:${Math.min(100, (report.proving_progress / report.proving_required) * 100)}%;background:var(--accent,#4caf82);"></div>
+          </div>
+          <div class="muted" style="margin-top:4px;">${report.proving_progress}/${report.proving_required} ${en ? "trades toward the proving threshold" : "trades proving threshold ki taraf"}${!report.is_proven_sample_size ? (en ? " -- numbers still unproven, can change a lot" : " -- abhi numbers saabit nahi, kaafi badal sakte hain") : ""}</div>
+
+          <div class="section-title" style="margin-top:14px;">${en ? "Recent Signals" : "Haal Ke Signals"}</div>
+          <div class="table-wrap"><table>
+            <thead><tr><th>${en ? "Coin" : "Coin"}</th><th>${en ? "Direction" : "Direction"}</th><th>${en ? "Entries" : "Entries"}</th><th>${en ? "Status" : "Status"}</th></tr></thead>
+            <tbody>${(signalsRes.signals || []).map(s => `
+              <tr>
+                <td>${esc(s.symbol || "-")}</td>
+                <td>${s.direction ? esc(s.direction) : "-"}</td>
+                <td>${(s.entries || []).map(e => e.price).join(", ") || "-"}</td>
+                <td>${s.is_signal
+                  ? `<span class="pill pill-bullish">${en ? "Parsed" : "Samjha Gaya"}</span>`
+                  : `<span class="pill pill-muted" title="${esc(s.reject_reason || "")}">${en ? "Not a signal" : "Signal Nahi"}</span>`}</td>
+              </tr>`).join("") || `<tr><td colspan="4">${en ? "No signals yet." : "Abhi koi signal nahi."}</td></tr>`}</tbody>
+          </table></div>
+
+          <div class="section-title" style="margin-top:14px;">${en ? "Positions" : "Positions"}</div>
+          <div class="table-wrap"><table>
+            <thead><tr><th>${en ? "Coin" : "Coin"}</th><th>${en ? "Direction" : "Direction"}</th><th>${en ? "Avg Entry" : "Avg Entry"}</th><th>${en ? "Filled %" : "Filled %"}</th><th>${en ? "Status" : "Status"}</th><th>${en ? "PnL" : "PnL"}</th></tr></thead>
+            <tbody>${(positionsRes.positions || []).map(p => `
+              <tr>
+                <td>${esc(p.symbol)}</td><td>${esc(p.direction)}</td>
+                <td>${p.avg_entry_price ?? "-"}</td><td>${p.filled_size_pct}%</td>
+                <td>${p.status}</td><td>${p.pnl != null ? "$" + p.pnl.toFixed(2) : "-"}</td>
+              </tr>`).join("") || `<tr><td colspan="6">${en ? "No positions yet." : "Abhi koi position nahi."}</td></tr>`}</tbody>
+          </table></div>
+        </div>`;
+      box.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+
+    await render();
+  }
+
   // ------------------------------------------------------------ SIGNAL TRACKER (Batch 6, Task 5)
   async function renderSignalTracker() {
     const myToken = activeRouteToken;
@@ -4493,7 +6246,7 @@
           <tbody>${listRes.strategies.map(s => `
             <tr>
               <td>${esc(s.strategy_name || s.strategy_id)}</td>
-              <td><span class="pill ${s.safety_status === "safe" ? "pill-bullish" : s.safety_status ? "pill-error" : "pill-muted"}">${esc(s.safety_status || "unknown")}</span></td>
+              <td><span class="pill ${s.safety_status === "ready" ? "pill-bullish" : s.safety_status ? "pill-error" : "pill-muted"}">${esc(s.safety_status || "unknown")}</span></td>
               <td><span class="pill pill-neutral">${esc(s.source)}</span></td>
               <td><a href="${esc(s.source_url)}" target="_blank" rel="noopener noreferrer">${esc(s.source_domain)}</a></td>
               <td style="max-width:260px;">${esc(s.document_title || "-")}</td>
@@ -4596,22 +6349,25 @@
   // every existing element id and event handler wiring completely
   // unchanged, since all elements still exist in the DOM at all times.
   const PT_TABS = [
-    ["overview", "Overview"], ["portfolio", "Portfolio & Risk"],
-    ["analytics", "Analytics"], ["history", "Trade History"], ["settings", "Settings"],
+    ["overview", "Overview"], ["analytics", "Analytics"],
+    ["challenge", "Challenge"], ["portfolio", "Portfolio & Risk"],
+    ["history", "Trade History"], ["settings", "Settings"],
   ];
   function ptTabBarHtml(active) {
-    return `<div class="period-tabs">${PT_TABS.map(([id, label]) => `
-      <button class="period-tab ${id === active ? "active" : ""}" data-pt-tab-btn="${id}">${label}</button>
+    return `<div class="pill-tabs">${PT_TABS.map(([id, label]) => `
+      <button class="pill-tab ${id === active ? "active" : ""}" data-pt-tab-btn="${id}">${label}</button>
     `).join("")}</div>`;
   }
 
   async function renderPaperTrading() {
     const myToken = activeRouteToken;
     let activePtTab = "overview";
+    let ptStrategySectionFilter = "profitable";
     const render = async () => {
       const [status, positionsRes, tradesRes, decisionsRes, stratPerfRes, lessonPerfRes,
              settings, strategiesRes, lessonsRes, allTimeAnalytics, alertsRes, sessionsRes,
-             candidatesRes, portfolioRes, riskScoreRes, exposureRes, corrWarningsRes, patternReliabilityRes] = await Promise.all([
+             candidatesRes, portfolioRes, riskScoreRes, exposureRes, corrWarningsRes, patternReliabilityRes,
+             lifecycleRes, configsRes, pausedRes] = await Promise.all([
         apiGet("/api/paper-trading/status"),
         apiGet("/api/paper-trading/positions"),
         apiGet("/api/paper-trading/trades?limit=50"),
@@ -4630,8 +6386,17 @@
         apiGet("/api/paper-trading/coin-exposure").catch(() => ({ exposure: [] })),
         apiGet("/api/paper-trading/correlation-warnings").catch(() => ({ warnings: [] })),
         apiGet("/api/paper-trading/pattern-reliability").catch(() => ({ min_sample_size: 25, patterns: [] })),
+        apiGet("/api/strategy-lifecycle").catch(() => ({ rows: [] })),
+        apiGet("/api/paper-trading/strategy-configs").catch(() => ({ configs: {} })),
+        apiGet("/api/paper-trading/paused-strategies").catch(() => ({ paused: [] })),
       ]);
       if (isStaleRoute(myToken)) return;
+
+      // Per-strategy settings state, keyed by strategy id for O(1) lookup
+      // while rendering the settings table.
+      const paperConfigs = configsRes.configs || {};
+      const pausedIds = {};
+      (pausedRes.paused || []).forEach(x => { pausedIds[x.strategy_id] = x; });
 
       // Overview cards use the real all-time totals (allTimeAnalytics), not
       // just the 50 most-recently-fetched trades -- with 700+ trades in a
@@ -4647,6 +6412,19 @@
       const goalProgress = Math.min(Math.max((todaysPnlPct / goalPct) * 100, 0), 100);
 
       const runningLessons = (lessonsRes.lessons || []).filter(l => l.apply_paper_trading);
+
+      // Master Task 2, Part 2: split every currently-enabled strategy into
+      // "Profitable" (real backtest PF > 1.0, same threshold the Compare
+      // page already uses) vs "Under Evaluation" (everything else) --
+      // classification comes from the real backtest result
+      // (strategy-lifecycle), never from live paper-trading PnL (a
+      // profitable strategy can have a losing streak in paper trading
+      // without becoming "unprofitable" by this definition, and vice versa).
+      const backtestPfById = {};
+      (lifecycleRes.rows || []).forEach(r => { backtestPfById[r.strategy_id] = r.backtest.profit_factor; });
+      const allStrategyRows = allTimeAnalytics.per_strategy || [];
+      const profitableRows = allStrategyRows.filter(p => backtestPfById[p.strategy_id] != null && backtestPfById[p.strategy_id] > 1.0);
+      const evaluationRows = allStrategyRows.filter(p => !(backtestPfById[p.strategy_id] != null && backtestPfById[p.strategy_id] > 1.0));
 
       content.innerHTML = `
         <div class="section-title">${t("Paper Trading")}</div>
@@ -4678,7 +6456,11 @@
             </div>`).join("")}
         </div>` : ""}
 
-        <div class="section-title">${getLang() === "en" ? "Challenge Mode" : "Challenge Mode"}</div>
+        </div>
+
+        <div class="pt-tab-panel" data-pt-tab="challenge">
+        <div class="section-title">Challenge Mode</div>
+        <p class="muted plain-note">Set a starting amount, a target, and a number of days. Instead of one blended guess across everything, the system checks each strategy on each coin separately against its own real trade history and tells you honestly which single combination &mdash; if any &mdash; has actually been performing fast enough to get there.</p>
         <div id="challengeBox"><p class="muted">Loading...</p></div>
         </div>
 
@@ -4740,10 +6522,18 @@
           <label style="display:flex;align-items:center;gap:6px;width:auto;">
             <input type="checkbox" id="ptDryRun" ${settings.dry_run ? "checked" : ""} style="width:auto;"> Dry Run Mode
           </label>
-          <button class="btn-ghost" id="ptResetBalance" style="border-color:var(--negative,#c0392b);color:var(--negative,#c0392b);">${t("Reset Balance")}</button>
+          <button class="btn-ghost" id="ptResetBalance" style="border-color:var(--red,#c0392b);color:var(--red,#c0392b);">${t("Reset Balance")}</button>
           <span id="ptStatusMsg" class="muted"></span>
         </div>
-        ${status.running ? `<div class="muted" style="font-size:12px;">Started ${esc((status.started_at||"").slice(0,19))} -- tick #${status.tick_count}, last at ${esc((status.last_tick_at||"-").slice(11,19))}</div>` : ""}
+        ${status.running ? `<div class="muted pt-engine-status-line" style="font-size:12px;">Started ${esc((status.started_at||"").slice(0,19))} -- tick #${status.tick_count}${
+          /* `last at ${(last_tick_at||"-").slice(11,19)}` rendered a dangling
+             "last at " with nothing after it before the first tick completes:
+             slicing a 1-character "-" at [11,19] yields an empty string. A
+             full 50-coin x 18-strategy pass takes many minutes, so that
+             half-sentence is what the CEO sees for the whole first tick.
+             Now the clause only appears once there IS a last tick. */
+          status.last_tick_at ? `, last at ${esc(String(status.last_tick_at).slice(11,19))}` : ` (first tick still running)`
+        }</div>` : ""}
         </div>
 
         <div class="pt-tab-panel" data-pt-tab="settings">
@@ -4774,6 +6564,49 @@
         <div class="grid">
           ${card("Strategies Available", fmtNum((strategiesRes.strategies || []).length))}
           ${card("Lessons Available (active)", fmtNum(runningLessons.length))}
+        </div>
+
+        <div class="section-title">Per-Strategy Controls</div>
+        <p class="muted plain-note">Every strategy runs its own separate account, so every one of these settings applies to that strategy alone and changes nothing about any other. "Controls" opens the on/off switch, pause and resume, its own risk % and open-position limits, and a stats reset that archives the old numbers rather than deleting them.</p>
+        <div class="table-wrap"><table>
+          <thead><tr>
+            <th>Strategy</th><th>Backtest PF ${helpIcon("profit_factor")}</th><th>Running</th>
+            <th>Risk % Used</th><th>Max Open</th><th>Open Now</th><th></th>
+          </tr></thead>
+          <tbody>${allStrategyRows.map(p => {
+            const cfg = paperConfigs[p.strategy_id] || {};
+            const pf = backtestPfById[p.strategy_id];
+            const pausedEntry = pausedIds[p.strategy_id];
+            return `
+            <tr>
+              <td style="max-width:230px;">${esc(p.strategy_name || p.strategy_id)}</td>
+              <td><span class="${pf != null ? (pf > 1.0 ? "positive" : "negative") : ""}">${pf != null ? pf.toFixed(3) : "-"}</span></td>
+              <td>${cfg.enabled === false
+                ? '<span class="pill pill-muted">Off</span>'
+                : pausedEntry
+                  ? `<span class="pill pill-pending" title="${esc(pausedEntry.reason || "")}">Paused</span>`
+                  : '<span class="pill pill-bullish">Running</span>'}</td>
+              <td>${cfg.risk_pct_override != null
+                ? `${cfg.risk_pct_override}% <span class="muted">(its own)</span>`
+                : `${settings.risk_pct_default}% <span class="muted">(shared default)</span>`}</td>
+              <td>${cfg.max_open_trades_override != null
+                ? `${cfg.max_open_trades_override} <span class="muted">(its own)</span>`
+                : `${settings.max_open_trades} <span class="muted">(shared default)</span>`}</td>
+              <td>${fmtNum(p.open_positions)}</td>
+              <td>
+                <div class="pt-action-group">
+                  <button class="btn-ghost pt-strategy-periods" data-id="${esc(p.strategy_id)}" data-name="${esc(p.strategy_name || p.strategy_id)}">By Period</button>
+                  <button class="btn-ghost pt-controls" data-id="${esc(p.strategy_id)}" data-name="${esc(p.strategy_name || p.strategy_id)}">Controls</button>
+                </div>
+              </td>
+            </tr>`;
+          }).join("") || '<tr><td colspan="7">No strategies are active in paper trading yet.</td></tr>'}</tbody>
+        </table></div>
+
+        <div class="section-title">Telegram</div>
+        <div class="card settings-card">
+          <p class="muted plain-note">Turning signals on or off, the proxy settings for when the network block is lifted, and the freshness rule all live on the Telegram page, next to the log of what actually got delivered.</p>
+          <a class="btn-ghost" href="#telegram_dashboard">Open Telegram settings</a>
         </div>
         </div>
 
@@ -4835,36 +6668,27 @@
         </div>
 
         <div class="pt-tab-panel" data-pt-tab="analytics">
-        <div class="section-title">Strategy Comparison (side-by-side)</div>
+        <div class="section-title">Strategy Comparison -- Profitable vs. Under Evaluation</div>
+        <p class="muted" style="font-size:12.5px; margin:-4px 0 12px;">
+          Every strategy currently active in paper trading, split by its real backtest result (Profit Factor &gt; 1.0 = Profitable).
+          Both groups below show the exact same fields -- nothing is hidden or given less detail because a strategy is still under evaluation.
+        </p>
         <div class="btn-row">
           <button class="btn-ghost" id="ptBulkFlag">Flag Selected for Telegram</button>
           <button class="btn-ghost" id="ptBulkUnflag">Unflag Selected</button>
           <button class="btn-ghost" id="ptExportComparison">Export to Excel</button>
           <span id="ptBulkStatus" class="muted"></span>
         </div>
-        <div class="table-wrap"><table>
-          <thead><tr><th><input type="checkbox" id="ptSelectAll" style="width:auto;"></th><th>Strategy</th><th>Balance</th><th>Trades</th><th>Win Rate</th><th>PnL</th><th>Confidence ${helpIcon("confidence_score")}</th><th>Streak</th><th>Alert</th></tr></thead>
-          <tbody>${(allTimeAnalytics.per_strategy || []).map(p => `
-            <tr data-confidence="${p.confidence_score != null ? p.confidence_score : ""}">
-              <td><input type="checkbox" class="pt-bulk-select" data-id="${p.strategy_id}" style="width:auto;"></td>
-              <td>${esc(p.strategy_name || p.strategy_id)}</td>
-              <td>$${Number(p.balance).toFixed(2)}</td>
-              <td>${p.closed_trades}</td>
-              <td>${Number(p.win_rate).toFixed(1)}%</td>
-              <td class="${p.total_pnl >= 0 ? "pill-up" : "pill-down"}">${p.total_pnl.toFixed(2)}</td>
-              <td>${p.confidence_score != null ? p.confidence_score + "%" : "-"}</td>
-              <td>${p.streak && p.streak.count ? `<span class="pill ${p.streak.type === "win" ? "pill-bullish" : "pill-error"}">${p.streak.count} ${p.streak.type}</span>` : "-"}</td>
-              <td>
-                <div class="pt-action-group">
-                  <button class="btn-ghost pt-override" data-id="${p.strategy_id}" data-active="${p.manual_alert ? "1" : "0"}">
-                    ${p.manual_alert ? "Flagged for Telegram" : "Flag for Telegram"}
-                  </button>
-                  <button class="btn-ghost pt-genealogy" data-id="${p.strategy_id}" data-name="${esc(p.strategy_name || p.strategy_id)}">History</button>
-                  <button class="btn-ghost pt-readiness" data-id="${p.strategy_id}" data-name="${esc(p.strategy_name || p.strategy_id)}">Real-Trading Check</button>
-                </div>
-              </td>
-            </tr>`).join("") || '<tr><td colspan="9">No data yet.</td></tr>'}</tbody>
-        </table></div>
+        <div class="period-tabs" style="margin:12px 0;">
+          <button class="period-tab ${ptStrategySectionFilter === "profitable" ? "active" : ""}" data-pt-section-filter="profitable">Profitable Strategies (${profitableRows.length})</button>
+          <button class="period-tab ${ptStrategySectionFilter === "evaluation" ? "active" : ""}" data-pt-section-filter="evaluation">Under Evaluation (${evaluationRows.length})</button>
+        </div>
+        <div data-pt-section="profitable" style="display:${ptStrategySectionFilter === "profitable" ? "" : "none"};">
+          ${strategyComparisonTableHtml(profitableRows, backtestPfById, "positive")}
+        </div>
+        <div data-pt-section="evaluation" style="display:${ptStrategySectionFilter === "evaluation" ? "" : "none"};">
+          ${strategyComparisonTableHtml(evaluationRows, backtestPfById, "negative")}
+        </div>
         <div id="ptStrategyDetail" class="card" style="display:none;white-space:pre-wrap;font-family:Consolas,monospace;font-size:12px;"></div>
 
         <div class="two-col">
@@ -4932,6 +6756,23 @@
       content.querySelectorAll("[data-pt-tab-btn]").forEach(btn => {
         btn.onclick = () => applyPtTab(btn.dataset.ptTabBtn);
       });
+
+      // Master Task 2, Part 2: Profitable / Under Evaluation toggle -- both
+      // sections are already in the DOM (identical row detail either way),
+      // this just shows/hides which one is visible, no re-fetch needed.
+      content.querySelectorAll("[data-pt-section-filter]").forEach(btn => {
+        btn.onclick = () => {
+          ptStrategySectionFilter = btn.dataset.ptSectionFilter;
+          content.querySelectorAll("[data-pt-section-filter]").forEach(b => b.classList.toggle("active", b === btn));
+          content.querySelectorAll("[data-pt-section]").forEach(section => {
+            section.style.display = section.dataset.ptSection === ptStrategySectionFilter ? "" : "none";
+          });
+        };
+      });
+      content.querySelectorAll(".pt-controls").forEach(btn => {
+        btn.onclick = () => openStrategyControlsModal(btn.dataset.id, btn.dataset.name, () => render());
+      });
+      wireStrategyPeriodDrilldowns(content);
 
       loadPaperAnalytics("ptAnalyticsBox", "pt", "today");
       loadChallenge();
@@ -5043,12 +6884,15 @@
       // looped, so no backend change is needed and every safety check that
       // endpoint already does (real telegram_send_result, honest failure
       // reporting) still applies to each one individually.
-      const selectAllBox = document.getElementById("ptSelectAll");
-      if (selectAllBox) {
+      // Two sections (Profitable / Under Evaluation) each have their own
+      // "select all" checkbox now -- each only selects rows within its own
+      // section, matching what's actually visible to the person clicking it.
+      content.querySelectorAll(".pt-select-all-section").forEach(selectAllBox => {
         selectAllBox.onchange = () => {
-          document.querySelectorAll(".pt-bulk-select").forEach(cb => { cb.checked = selectAllBox.checked; });
+          const section = selectAllBox.closest("table");
+          section.querySelectorAll(".pt-bulk-select").forEach(cb => { cb.checked = selectAllBox.checked; });
         };
-      }
+      });
       function selectedStrategyIds() {
         return [...document.querySelectorAll(".pt-bulk-select:checked")].map(cb => cb.dataset.id);
       }
@@ -5151,12 +6995,76 @@
       const en = getLang() === "en";
       const c = await apiGet("/api/paper-trading/challenge").catch(() => ({ configured: false }));
 
+      function confidencePill(conf) {
+        if (!conf) return "";
+        if (!conf.reliable) return `<span class="pill pill-muted">${en ? "Unproven" : "Saabit Nahi"} (${conf.sample_size}/${conf.min_sample_size})</span>`;
+        if (conf.status === "reliable_good") return `<span class="pill pill-bullish">${en ? "Statistically Confirmed" : "Aamaar Ke Mutabiq Tasdeeq Shuda"}</span>`;
+        if (conf.status === "reliable_bad") return `<span class="pill pill-bearish">${en ? "Confirmed Weak" : "Kamzor Tasdeeq Shuda"}</span>`;
+        return `<span class="pill pill-muted">${en ? "Inconclusive" : "Wazeh Nahi"}</span>`;
+      }
+      function consistencyPill(cons) {
+        if (!cons || !cons.checked) return `<span class="pill pill-muted">${en ? "Not enough history" : "Kaafi History Nahi"}</span>`;
+        return cons.concentrated
+          ? `<span class="pill pill-bearish">${en ? "Concentrated (possible fluke)" : "Ek Hi Waqt Mein Sameta (Fluke Ho Sakta)"}</span>`
+          : `<span class="pill pill-bullish">${en ? "Consistent Over Time" : "Waqt Ke Saath Consistent"}</span>`;
+      }
+
+      // ---- Recommended-paths / What-If explorer (Level 2 + Level 3) ----
+      async function renderRecommendations(container, start_amount, target_amount, days) {
+        container.innerHTML = `<p class="muted">${en ? "Analyzing real trade history..." : "Real trade history dekh rahe hain..."}</p>`;
+        let result;
+        try {
+          result = await apiPost("/api/paper-trading/challenge/recommend", { start_amount, target_amount, days });
+        } catch (e) {
+          container.innerHTML = `<p class="muted">${en ? "Could not compute recommendations." : "Recommendations nahi ban sakin."}</p>`;
+          return;
+        }
+        if (!result.paths.length) {
+          container.innerHTML = `<p class="muted">${en
+            ? "No strategy-coin combination has any closed trades yet -- start paper trading first."
+            : "Abhi tak kisi strategy-coin combination ka koi trade band nahi hua -- pehle paper trading shuru karein."}</p>`;
+          return;
+        }
+        const fallbackHtml = (!result.any_achievable && result.fallback) ? `
+          <div class="card" style="border-color:var(--yellow,#c9a227);">
+            <p><b>${en ? "This exact target isn't realistic yet from any real combination." : "Yeh target kisi bhi real combination se abhi realistic nahi hai."}</b></p>
+            <p>${en
+              ? `But based on "${esc(result.fallback.based_on_strategy_name)}" on ${esc(result.fallback.based_on_symbol)} (${result.fallback.based_on_sample_size} real trades), a realistic amount in the same ${days} days would be ~$${result.fallback.realistic_amount_in_same_days.toFixed(2)}${result.fallback.days_needed_for_original_target ? `, or reaching your original target would realistically take ~${result.fallback.days_needed_for_original_target.toFixed(0)} days.` : "."}`
+              : `Lekin "${esc(result.fallback.based_on_strategy_name)}" (${esc(result.fallback.based_on_symbol)}, ${result.fallback.based_on_sample_size} real trades) ke mutabiq, isi ${days} din mein ek realistic amount ~$${result.fallback.realistic_amount_in_same_days.toFixed(2)} ban sakta hai${result.fallback.days_needed_for_original_target ? `, ya aap ka asal target ~${result.fallback.days_needed_for_original_target.toFixed(0)} din mein realistically mumkin hai.` : "."}`}</p>
+          </div>` : "";
+
+        container.innerHTML = fallbackHtml + result.paths.map(p => `
+          <div class="card" style="max-width:680px;">
+            <p><b>${esc(p.strategy_name)}</b> -- ${esc(p.symbol)}
+              ${p.achievable_at_this_pace ? `<span class="pill pill-bullish">${en ? "Achievable" : "Mumkin"}</span>` : `<span class="pill pill-muted">${en ? "Below required pace" : "Zaroori Pace Se Kam"}</span>`}
+              ${confidencePill(p.confidence)} ${consistencyPill(p.consistency)}
+            </p>
+            <p class="muted">${en ? "Win rate" : "Win Rate"}: ${p.win_rate_pct}% (${p.sample_size} ${en ? "trades" : "trades"}) --
+              ${en ? "profit factor" : "Profit Factor"}: ${p.profit_factor != null ? p.profit_factor : "-"} --
+              ${en ? "max drawdown" : "Max Drawdown"}: $${p.max_drawdown} --
+              ${en ? "demonstrated pace" : "Demonstrated Pace"}: ${p.demonstrated_daily_rate_pct.toFixed(2)}%/${en ? "day" : "din"}
+              ${p.projected_days_to_target ? ` -- ${en ? "projected" : "andaza"}: ${p.projected_days_to_target.toFixed(0)} ${en ? "days" : "din"}` : ""}</p>
+            <p class="muted" style="font-size:12px;">${esc(p.confidence.conclusion)}${p.consistency.note ? " -- " + esc(p.consistency.note) : ""}</p>
+            <button class="btn-ghost ch-start-path" data-sid="${esc(p.strategy_id)}" data-sym="${esc(p.symbol)}">${en ? "Start This Challenge" : "Yeh Challenge Shuru Karein"}</button>
+          </div>`).join("");
+
+        container.querySelectorAll(".ch-start-path").forEach(btn => {
+          btn.onclick = async () => {
+            await apiPost("/api/paper-trading/challenge", {
+              start_amount, target_amount, days,
+              scope_strategy_id: btn.dataset.sid, scope_symbol: btn.dataset.sym,
+            });
+            loadChallenge();
+          };
+        });
+      }
+
       if (!c.configured) {
         box.innerHTML = `
           <div class="card" style="max-width:480px;">
             <p class="muted">${en
-              ? "No challenge set. Enter your own starting amount, target amount, and days -- the system will track real progress and tell you honestly whether the pace is realistic."
-              : "Abhi koi challenge set nahi hai. Apna starting amount, target amount, aur din khud daaliye -- system real progress track karega aur sach batayega ke pace realistic hai ya nahi."}</p>
+              ? "No challenge set. Enter your own starting amount, target amount, and days -- the system will show real, per-strategy-per-coin recommendations with honest confidence levels, not one blended guess."
+              : "Abhi koi challenge set nahi hai. Apna starting amount, target amount, aur din daaliye -- system har real strategy-coin combination ke liye alag, honest recommendations dikhayega, sirf ek andaza nahi."}</p>
             <label>${en ? "Starting Amount ($)" : "Shuru Ka Amount ($)"}<input type="number" id="chStart" step="0.01" min="0.01"></label>
             <label>${en ? "Target Amount ($)" : "Target Amount ($)"}<input type="number" id="chTarget" step="0.01" min="0.01"></label>
             <label>${en ? "Time Period (days)" : "Time Period (din)"}<input type="number" id="chDays" step="1" min="1"></label>
@@ -5164,14 +7072,31 @@
               <input type="checkbox" id="chTelegram" style="width:auto;">
               <span>${en ? "Include in Daily Telegram Report" : "Daily Telegram Report Mein Shamil Karein"}</span>
             </label>
-            <button class="btn" id="chSave">${en ? "Start Challenge" : "Challenge Shuru Karein"}</button>
+            <div class="btn-row">
+              <button class="btn" id="chAnalyze">${en ? "See Real Recommendations" : "Real Recommendations Dekhein"}</button>
+              <button class="btn-ghost" id="chSave">${en ? "Start Blended (System-Wide)" : "System-Wide Challenge Shuru Karein"}</button>
+            </div>
             <span id="chMsg" class="muted"></span>
-          </div>`;
+          </div>
+          <div id="chRecommendations"></div>`;
+        const readInputs = () => ({
+          start_amount: parseFloat(document.getElementById("chStart").value),
+          target_amount: parseFloat(document.getElementById("chTarget").value),
+          days: parseInt(document.getElementById("chDays").value, 10),
+        });
+        document.getElementById("chAnalyze").onclick = async () => {
+          const { start_amount, target_amount, days } = readInputs();
+          const msgEl = document.getElementById("chMsg");
+          if (!start_amount || !target_amount || !days) {
+            msgEl.textContent = en ? "All three fields are required." : "Teeno fields zaroori hain.";
+            return;
+          }
+          msgEl.textContent = "";
+          await renderRecommendations(document.getElementById("chRecommendations"), start_amount, target_amount, days);
+        };
         document.getElementById("chSave").onclick = async () => {
           const msgEl = document.getElementById("chMsg");
-          const start_amount = parseFloat(document.getElementById("chStart").value);
-          const target_amount = parseFloat(document.getElementById("chTarget").value);
-          const days = parseInt(document.getElementById("chDays").value, 10);
+          const { start_amount, target_amount, days } = readInputs();
           const telegram_report_enabled = document.getElementById("chTelegram").checked;
           if (!start_amount || !target_amount || !days) {
             msgEl.textContent = en ? "All three fields are required." : "Teeno fields zaroori hain.";
@@ -5195,8 +7120,20 @@
       const pacePill = c.ahead_of_pace
         ? `<span class="pill pill-bullish">${en ? "Ahead of Pace" : "Pace Se Aage"}</span>`
         : `<span class="pill pill-bearish">${en ? "Behind Pace" : "Pace Se Peeche"}</span>`;
+      const scopeLine = c.scope_strategy_id
+        ? `<p class="muted">${en ? "Tracking a specific combination" : "Ek khaas combination track ho raha hai"}: <b>${esc(c.scope_strategy_id)}</b> / <b>${esc(c.scope_symbol)}</b></p>`
+        : `<p class="muted">${en ? "Tracking system-wide (all strategies blended)" : "Poore system ki blended pace track ho rahi hai"}</p>`;
+      const driftBanner = (c.drift && c.drift.checked && c.drift.drifted) ? `
+        <div class="card" style="border-color:var(--red,#c0392b);">
+          <p><b>⚠️ ${en ? "Performance Drift Warning" : "Performance Drift Warning"}</b></p>
+          <p>${esc(c.drift.note)}</p>
+        </div>` : "";
+      const finishLine = c.projected_finish_date
+        ? `<p class="muted">${en ? "Projected finish (at real realized pace)" : "Andaazan mukammal hone ki tareekh (real pace ke mutabiq)"}: ${new Date(c.projected_finish_date).toLocaleDateString()}</p>`
+        : "";
 
       box.innerHTML = `
+        ${driftBanner}
         <div class="grid">
           ${card(en ? "Starting Amount" : "Shuru Ka Amount", `$${c.start_amount.toFixed(2)}`)}
           ${card(en ? "Target Amount" : "Target Amount", `$${c.target_amount.toFixed(2)}`)}
@@ -5207,11 +7144,14 @@
           ${cardClass(en ? "Realistic?" : "Realistic?", realisticPill, "")}
         </div>
         <div class="card" style="max-width:640px;">
+          ${scopeLine}
           <p><b>${en ? "Required pace" : "Zaroori Pace"}:</b> ${c.required_daily_rate_pct.toFixed(2)}%/${en ? "day" : "din"}
           ${c.real_demonstrated_daily_rate_pct != null
-            ? ` -- <b>${en ? "system's real demonstrated pace" : "system ki real pace"}:</b> ${c.real_demonstrated_daily_rate_pct.toFixed(2)}%/${en ? "day" : "din"} (${c.closed_trades_used_for_baseline} ${en ? "real closed trades" : "real closed trades"})`
+            ? ` -- <b>${en ? "real demonstrated pace" : "real pace"}:</b> ${c.real_demonstrated_daily_rate_pct.toFixed(2)}%/${en ? "day" : "din"} (${c.closed_trades_used_for_baseline} ${en ? "real closed trades" : "real closed trades"})`
             : ""}</p>
+          ${finishLine}
           <p>${esc(c.honest_note)}</p>
+          <p class="muted" style="font-size:12px;">${en ? "Note: Challenge Mode is tracking/analysis only -- starting or updating it never changes risk %, position sizing, or any trading behavior." : "Note: Challenge Mode sirf tracking/analysis hai -- ise shuru ya update karne se risk %, position sizing, ya koi bhi trading behavior kabhi nahi badalta."}</p>
         </div>
         <button class="btn-ghost" id="chClear">${en ? "Clear Challenge" : "Challenge Hataayein"}</button>
       `;
@@ -5952,7 +7892,7 @@
           <span id="aiTextStatus" class="muted"></span>
         </div>
         <div class="form-row" style="margin-top:10px;"><label>Or upload a file (PDF, DOCX, TXT, MD)</label>
-          <input type="file" id="aiFile" accept=".pdf,.docx,.txt,.md">
+          <input type="file" id="aiFile" accept=".pdf,.docx,.txt,.md,.csv,.xlsx">
         </div>
         <div class="btn-row">
           <button class="btn" id="btnAiImportFile">Import File</button>
@@ -6353,18 +8293,19 @@
   // uses -- this is a new way to reach existing functionality (a single
   // in-place command center), not a reimplementation of any backend logic.
   const CEO_MODULES = [
-    "home", "feature_control", "market", "data", "strategies", "knowledge", "knowledge_compiler",
-    "ai_center", "backtesting", "backtest_history", "pipeline_history", "paper_trading",
-    "evolution", "sindhu_strategy", "web_sourced_strategies", "reports", "settings",
+    "home", "feature_control", "market", "data", "strategies", "clarification_center", "knowledge", "knowledge_compiler",
+    "ai_center", "backtesting", "backtest_history", "pipeline_history", "paper_trading", "challenge_mode",
+    "evolution", "sindhu_strategy", "web_sourced_strategies", "external_signals", "reports", "settings",
   ];
   const CEO_LABELS = {
     home: "Dashboard", feature_control: "Control Center",
     market: "Market", data: "Data", strategies: "Strategies",
+    clarification_center: "Clarification",
     knowledge: "Knowledge", knowledge_compiler: "Knowledge Compiler", ai_center: "AI Center",
     backtesting: "Backtesting", backtest_history: "Backtest History",
     pipeline_history: "Pipeline History",
-    paper_trading: "Paper Trading", evolution: "Evolution", sindhu_strategy: "SINDHU Strategy",
-    web_sourced_strategies: "Web-Sourced Strategies",
+    paper_trading: "Paper Trading", challenge_mode: "Challenge Mode", evolution: "Evolution", sindhu_strategy: "SINDHU Strategy",
+    web_sourced_strategies: "Web-Sourced Strategies", external_signals: "External Signal Tracker",
     reports: "Reports", settings: "Settings",
   };
   const FEATURE_CATEGORY_ORDER = ["Risk & Safety", "Self-Learning", "Signals", "Other"];
@@ -6455,7 +8396,8 @@
       const [home, market, data, strategies, knowledgeReport, lessons, kcDocs, aiDash,
              history, paperStatus, paperPositions, paperAnalytics, bestWorst, settings, jobsRes,
              pipelineHistoryRes, evolutionStatus, evolutionChampions, evolutionStrategies,
-             sindhuDailyLog, sindhuCandidates, featureControl] = await Promise.all([
+             sindhuDailyLog, sindhuCandidates, featureControl, clarificationAll, challenge,
+             externalSignalsComparison] = await Promise.all([
         apiGet("/api/home").catch(() => null),
         apiGet("/api/market").catch(() => ({ coins: [], exchange: "-" })),
         apiGet("/api/data").catch(() => ({ coins: [], total_coins: 0, missing_data: [] })),
@@ -6478,6 +8420,9 @@
         apiGet("/api/sindhu-strategy/daily-log").catch(() => ({ candidates_generated: 0, ai_calls_used: 0 })),
         apiGet("/api/sindhu-strategy/candidates").catch(() => ({ candidates: [] })),
         apiGet("/api/feature-control/state").catch(() => ({ master_pause_all: false, features: [] })),
+        apiGet("/api/backtesting/clarification/all").catch(() => ({ groups: [], total_issues: 0, strategy_count: 0 })),
+        apiGet("/api/paper-trading/challenge").catch(() => ({ configured: false })),
+        apiGet("/api/external-signals/comparison").then(r => r.channels || []).catch(() => []),
       ]);
       return {
         home, market, data, strategies: strategies.strategies || [],
@@ -6488,7 +8433,7 @@
         evolutionStatus, evolutionChampions: evolutionChampions.champions || [],
         evolutionStrategies: evolutionStrategies.strategies || [],
         sindhuDailyLog, sindhuCandidates: sindhuCandidates.candidates || [],
-        featureControl,
+        featureControl, clarificationAll, challenge, externalSignalsComparison,
       };
     }
 
@@ -6504,6 +8449,15 @@
             text: d.home
               ? `${fmtNum(d.home.total_coins)} coins, ${fmtNum(d.home.total_candles)} candles -- CPU ${d.home.cpu_percent}%, RAM ${d.home.ram_percent}%`
               : "Could not load.",
+          };
+        }
+        case "clarification_center": {
+          const ca = d.clarificationAll || { total_issues: 0, strategy_count: 0 };
+          return {
+            level: ca.total_issues ? "attention" : "idle",
+            text: ca.total_issues
+              ? `${ca.total_issues} question(s) waiting across ${ca.strategy_count} strategy(ies)`
+              : "Nothing waiting -- all strategies clear.",
           };
         }
         case "feature_control": {
@@ -6547,9 +8501,11 @@
           return { level: "idle", text: `${d.kcDocs.length} document(s) compiled` };
         case "ai_center": {
           const pending = d.aiDash.pending_imports || 0;
+          const learned = d.aiDash.learned_correction_patterns || 0;
           return {
             level: pending ? "active" : (d.aiDash.failed_imports ? "attention" : "idle"),
-            text: `${d.aiDash.total_strategies ?? 0} strategies, ${d.aiDash.total_lessons ?? 0} lessons imported${pending ? `, ${pending} pending` : ""}`,
+            text: `${d.aiDash.total_strategies ?? 0} strategies, ${d.aiDash.total_lessons ?? 0} lessons imported${pending ? `, ${pending} pending` : ""}`
+              + (learned ? ` -- ${learned} question type(s) auto-answered from learned patterns` : ""),
           };
         }
         case "backtesting": {
@@ -6587,6 +8543,27 @@
             text: s.running
               ? `Balance $${Number(s.balance).toFixed(2)}, ${s.open_trades} open, ${a ? `${a.active_strategies} strategies, ${a.win_rate.toFixed(1)}% win rate all-time` : ""}`
               : "Engine stopped",
+          };
+        }
+        case "challenge_mode": {
+          const c = d.challenge;
+          if (!c || !c.configured) return { level: "idle", text: "No challenge set -- tracking/analysis only, never touches trading behavior" };
+          const drifted = c.drift && c.drift.checked && c.drift.drifted;
+          return {
+            level: drifted ? "attention" : (c.ahead_of_pace ? "active" : "idle"),
+            text: drifted
+              ? `⚠️ Drift detected on ${c.scope_strategy_id || "combo"}/${c.scope_symbol || ""}`
+              : `${c.progress_pct.toFixed(1)}% progress -- $${c.current_amount.toFixed(2)} of $${c.target_amount.toFixed(2)} -- ${c.ahead_of_pace ? "ahead of pace" : "behind pace"}`,
+          };
+        }
+        case "external_signals": {
+          const rows = d.externalSignalsComparison || [];
+          if (!rows.length) return { level: "idle", text: "No channels added yet -- completely separate from your own Paper Trading" };
+          const eligible = rows.filter(r => r.is_proven_sample_size && r.total_pnl > 0).length;
+          const totalTrades = rows.reduce((s, r) => s + (r.closed_trades || 0), 0);
+          return {
+            level: eligible ? "active" : "idle",
+            text: `${rows.length} channel(s) tracked, ${totalTrades} closed trades so far${eligible ? `, ${eligible} eligible for forwarding` : ""}`,
           };
         }
         case "evolution": {
@@ -6691,7 +8668,7 @@
       // Cards for pages that are ALREADY their own real top-level page
       // (not an in-CEO "expand" panel) just link straight there, instead
       // of duplicating a second implementation inside this file.
-      const CEO_DIRECT_LINK_CARDS = { feature_control: "control_center", web_sourced_strategies: "web_sourced_strategies" };
+      const CEO_DIRECT_LINK_CARDS = { feature_control: "control_center", web_sourced_strategies: "web_sourced_strategies", clarification_center: "clarification_center", challenge_mode: "paper_trading" };
       document.querySelectorAll("[data-ceo-card]").forEach(el => {
         const directTarget = CEO_DIRECT_LINK_CARDS[el.dataset.ceoCard];
         el.onclick = () => directTarget ? (location.hash = `#${directTarget}`) : showExpanded(el.dataset.ceoCard);

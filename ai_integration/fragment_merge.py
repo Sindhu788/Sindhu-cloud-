@@ -17,6 +17,28 @@ def merge_list(*lists):
     return out
 
 
+def _merge_entry_rule_groups(existing_groups, new_groups):
+    """Unions two entry_rule_groups lists by `label` (exact match) rather
+    than first-wins -- a group with a label already present has its
+    `conditions` unioned in; a genuinely new label is appended as its own
+    group. See merge_fragment_additive's entry_rule_groups call site."""
+    existing_groups = list(existing_groups or [])
+    if not new_groups:
+        return existing_groups
+    by_label = {g.get("label"): g for g in existing_groups if g.get("label")}
+    for g in new_groups:
+        label = g.get("label")
+        if label and label in by_label:
+            by_label[label]["conditions"] = merge_list(
+                by_label[label].get("conditions"), g.get("conditions"),
+            )
+        else:
+            existing_groups.append(dict(g))
+            if label:
+                by_label[label] = existing_groups[-1]
+    return existing_groups
+
+
 def merge_fragment_additive(existing, fragment):
     """Merges `fragment` INTO `existing` -- additive only. A field
     `existing` already resolved is never overwritten by `fragment` (list
@@ -30,8 +52,16 @@ def merge_fragment_additive(existing, fragment):
     merged["entry_conditions"] = merge_list(existing.get("entry_conditions"), fragment.get("entry_conditions"))
     merged["long_entry_conditions"] = merge_list(existing.get("long_entry_conditions"), fragment.get("long_entry_conditions"))
     merged["short_entry_conditions"] = merge_list(existing.get("short_entry_conditions"), fragment.get("short_entry_conditions"))
-    if not existing.get("entry_rule_groups"):
-        merged["entry_rule_groups"] = fragment.get("entry_rule_groups") or existing.get("entry_rule_groups") or []
+    # Extraction Pipeline Improvements (gap 1): entry_rule_groups used to be
+    # first-wins (only the FIRST fragment that had any groups kept them --
+    # every later fragment's groups were silently discarded, exactly the
+    # kind of loss this whole feature exists to prevent). Now merged by
+    # `label`: a later fragment whose group has the same label as one
+    # already merged has its conditions unioned into that group; a new
+    # label becomes a new group. Order preserved (existing groups first).
+    merged["entry_rule_groups"] = _merge_entry_rule_groups(
+        existing.get("entry_rule_groups"), fragment.get("entry_rule_groups"),
+    )
     merged["exit_conditions"] = merge_list(existing.get("exit_conditions"), fragment.get("exit_conditions"))
     merged["confirmation_conditions"] = merge_list(existing.get("confirmation_conditions"), fragment.get("confirmation_conditions"))
 

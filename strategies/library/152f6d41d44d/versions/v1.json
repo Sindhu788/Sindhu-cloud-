@@ -1,0 +1,95 @@
+{
+  "name": "4-Hour Range Breakout-Retest -- Fixed 1:2 TP variant [Manual Build]",
+  "raw_text": "4-Hour Range Breakout-Retest -- see conversation source document.",
+  "timeframes": {
+    "entry": "5m"
+  },
+  "indicators": [],
+  "concepts_used": [
+    "four_hour_range_reentry"
+  ],
+  "entry_conditions": [],
+  "exit_conditions": [],
+  "confirmation_conditions": [],
+  "long_entry_conditions": [
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "four_hour_range_reentry",
+      "direction": "bullish",
+      "text": null,
+      "role": null,
+      "lookback_bars": 1,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": null
+    }
+  ],
+  "short_entry_conditions": [
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "four_hour_range_reentry",
+      "direction": "bearish",
+      "text": null,
+      "role": null,
+      "lookback_bars": 1,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": null
+    }
+  ],
+  "entry_rule_groups": [],
+  "stop_loss": {
+    "type": "signal_candle",
+    "value": 1.5,
+    "level": null,
+    "atr_period": null
+  },
+  "take_profit": {
+    "type": "rr",
+    "value": 2.0,
+    "level": null,
+    "atr_period": null
+  },
+  "risk_pct": 1.0,
+  "risk_reward": null,
+  "sl_distance_filter_pct": null,
+  "min_risk_reward_filter": null,
+  "primary_target_lookback_bars": null,
+  "risk_reward_filter_uses_take_profit": false,
+  "zone_params": {},
+  "session_filter": [],
+  "trend_filter": null,
+  "day_filter": [],
+  "breakeven_at_rr": null,
+  "entry_type": "market",
+  "long_entry_type": null,
+  "short_entry_type": null,
+  "entry_price_offset_pct": null,
+  "partial_take_profit": null,
+  "trailing_stop": null,
+  "time_exit_bars": null,
+  "tags": [
+    "concept_based_strategy",
+    "manual_build",
+    "sequence_ordering",
+    "5m",
+    "range_breakout"
+  ],
+  "favourite": false,
+  "claimed_win_rate_pct": null,
+  "claimed_win_rate_source_text": null,
+  "missing": [],
+  "warnings": []
+}

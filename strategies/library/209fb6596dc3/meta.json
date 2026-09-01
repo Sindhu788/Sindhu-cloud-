@@ -1,0 +1,17 @@
+{
+  "id": "209fb6596dc3",
+  "name": "Support/Resistance Breakout (Swing/Crypto Futures) -- Confirmation Medium variant [Manual Build]",
+  "tags": [
+    "confirmation_optimizer_variant",
+    "level:medium",
+    "source:b4caef4ee47d",
+    "additions:sl_distance"
+  ],
+  "favourite": false,
+  "archived": true,
+  "created_at": "2026-08-27T09:22:00.821064+00:00",
+  "updated_at": "2026-08-27T09:22:00.845861+00:00",
+  "current_version": 1,
+  "safety_status": "ready",
+  "safety_reasons": []
+}

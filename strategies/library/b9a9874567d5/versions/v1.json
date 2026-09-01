@@ -1,0 +1,608 @@
+{
+  "name": "SMA-Alignment Strategy (Approximate - ZIP Indicator Excluded) -- Confirmation Strict variant [Manual Build]",
+  "raw_text": "SMA-Alignment Strategy -- ZIP-indicator source strategy with the proprietary ZIP signal excluded. See conversation source document.",
+  "timeframes": {
+    "daily": "1d",
+    "4h": "4h",
+    "entry": "1h"
+  },
+  "indicators": [
+    {
+      "name": "sma",
+      "params": {
+        "period": 20
+      },
+      "role": "daily"
+    },
+    {
+      "name": "sma",
+      "params": {
+        "period": 20
+      },
+      "role": "4h"
+    },
+    {
+      "name": "sma",
+      "params": {
+        "period": 20
+      },
+      "role": "entry"
+    },
+    {
+      "name": "sma",
+      "params": {
+        "period": 50
+      },
+      "role": "daily"
+    },
+    {
+      "name": "sma",
+      "params": {
+        "period": 50
+      },
+      "role": "4h"
+    },
+    {
+      "name": "sma",
+      "params": {
+        "period": 50
+      },
+      "role": "entry"
+    },
+    {
+      "name": "sma",
+      "params": {
+        "period": 100
+      },
+      "role": "daily"
+    },
+    {
+      "name": "sma",
+      "params": {
+        "period": 100
+      },
+      "role": "4h"
+    },
+    {
+      "name": "sma",
+      "params": {
+        "period": 100
+      },
+      "role": "entry"
+    },
+    {
+      "name": "sma",
+      "params": {
+        "period": 200
+      },
+      "role": "daily"
+    },
+    {
+      "name": "sma",
+      "params": {
+        "period": 200
+      },
+      "role": "4h"
+    },
+    {
+      "name": "sma",
+      "params": {
+        "period": 200
+      },
+      "role": "entry"
+    }
+  ],
+  "concepts_used": [],
+  "entry_conditions": [],
+  "exit_conditions": [],
+  "confirmation_conditions": [],
+  "long_entry_conditions": [
+    {
+      "type": "price_compare",
+      "indicator": "sma",
+      "params": {
+        "period": 20
+      },
+      "op": ">",
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": null,
+      "role": "daily",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": null
+    },
+    {
+      "type": "price_compare",
+      "indicator": "sma",
+      "params": {
+        "period": 20
+      },
+      "op": ">",
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": null,
+      "role": "4h",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": null
+    },
+    {
+      "type": "price_compare",
+      "indicator": "sma",
+      "params": {
+        "period": 20
+      },
+      "op": ">",
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": null,
+      "role": "entry",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": null
+    },
+    {
+      "type": "price_compare",
+      "indicator": "sma",
+      "params": {
+        "period": 50
+      },
+      "op": ">",
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": null,
+      "role": "daily",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": null
+    },
+    {
+      "type": "price_compare",
+      "indicator": "sma",
+      "params": {
+        "period": 50
+      },
+      "op": ">",
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": null,
+      "role": "4h",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": null
+    },
+    {
+      "type": "price_compare",
+      "indicator": "sma",
+      "params": {
+        "period": 50
+      },
+      "op": ">",
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": null,
+      "role": "entry",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": null
+    },
+    {
+      "type": "price_compare",
+      "indicator": "sma",
+      "params": {
+        "period": 100
+      },
+      "op": ">",
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": null,
+      "role": "daily",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": null
+    },
+    {
+      "type": "price_compare",
+      "indicator": "sma",
+      "params": {
+        "period": 100
+      },
+      "op": ">",
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": null,
+      "role": "4h",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": null
+    },
+    {
+      "type": "price_compare",
+      "indicator": "sma",
+      "params": {
+        "period": 100
+      },
+      "op": ">",
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": null,
+      "role": "entry",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": null
+    },
+    {
+      "type": "price_compare",
+      "indicator": "sma",
+      "params": {
+        "period": 200
+      },
+      "op": ">",
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": null,
+      "role": "daily",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": null
+    },
+    {
+      "type": "price_compare",
+      "indicator": "sma",
+      "params": {
+        "period": 200
+      },
+      "op": ">",
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": null,
+      "role": "4h",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": null
+    },
+    {
+      "type": "price_compare",
+      "indicator": "sma",
+      "params": {
+        "period": 200
+      },
+      "op": ">",
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": null,
+      "role": "entry",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": null
+    }
+  ],
+  "short_entry_conditions": [
+    {
+      "type": "price_compare",
+      "indicator": "sma",
+      "params": {
+        "period": 20
+      },
+      "op": "<",
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": null,
+      "role": "daily",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": null
+    },
+    {
+      "type": "price_compare",
+      "indicator": "sma",
+      "params": {
+        "period": 20
+      },
+      "op": "<",
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": null,
+      "role": "4h",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": null
+    },
+    {
+      "type": "price_compare",
+      "indicator": "sma",
+      "params": {
+        "period": 20
+      },
+      "op": "<",
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": null,
+      "role": "entry",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": null
+    },
+    {
+      "type": "price_compare",
+      "indicator": "sma",
+      "params": {
+        "period": 50
+      },
+      "op": "<",
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": null,
+      "role": "daily",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": null
+    },
+    {
+      "type": "price_compare",
+      "indicator": "sma",
+      "params": {
+        "period": 50
+      },
+      "op": "<",
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": null,
+      "role": "4h",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": null
+    },
+    {
+      "type": "price_compare",
+      "indicator": "sma",
+      "params": {
+        "period": 50
+      },
+      "op": "<",
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": null,
+      "role": "entry",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": null
+    },
+    {
+      "type": "price_compare",
+      "indicator": "sma",
+      "params": {
+        "period": 100
+      },
+      "op": "<",
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": null,
+      "role": "daily",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": null
+    },
+    {
+      "type": "price_compare",
+      "indicator": "sma",
+      "params": {
+        "period": 100
+      },
+      "op": "<",
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": null,
+      "role": "4h",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": null
+    },
+    {
+      "type": "price_compare",
+      "indicator": "sma",
+      "params": {
+        "period": 100
+      },
+      "op": "<",
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": null,
+      "role": "entry",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": null
+    },
+    {
+      "type": "price_compare",
+      "indicator": "sma",
+      "params": {
+        "period": 200
+      },
+      "op": "<",
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": null,
+      "role": "daily",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": null
+    },
+    {
+      "type": "price_compare",
+      "indicator": "sma",
+      "params": {
+        "period": 200
+      },
+      "op": "<",
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": null,
+      "role": "4h",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": null
+    },
+    {
+      "type": "price_compare",
+      "indicator": "sma",
+      "params": {
+        "period": 200
+      },
+      "op": "<",
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": null,
+      "role": "entry",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": null
+    }
+  ],
+  "entry_rule_groups": [],
+  "stop_loss": {
+    "type": "signal_candle",
+    "value": 1.5,
+    "level": null,
+    "atr_period": null
+  },
+  "take_profit": {
+    "type": "rr",
+    "value": 2.0,
+    "level": null,
+    "atr_period": null
+  },
+  "risk_pct": 1.0,
+  "risk_reward": null,
+  "sl_distance_filter_pct": {
+    "min_pct": 0.6
+  },
+  "min_risk_reward_filter": 1.5,
+  "primary_target_lookback_bars": null,
+  "risk_reward_filter_uses_take_profit": true,
+  "zone_params": {},
+  "session_filter": [
+    "ny"
+  ],
+  "trend_filter": null,
+  "day_filter": [],
+  "breakeven_at_rr": null,
+  "entry_type": "market",
+  "long_entry_type": null,
+  "short_entry_type": null,
+  "entry_price_offset_pct": null,
+  "partial_take_profit": null,
+  "trailing_stop": null,
+  "time_exit_bars": 36,
+  "tags": [
+    "concept_based_strategy",
+    "manual_build",
+    "knowingly_incomplete",
+    "sma_alignment",
+    "1h",
+    "4h",
+    "1d"
+  ],
+  "favourite": false,
+  "claimed_win_rate_pct": null,
+  "claimed_win_rate_source_text": null,
+  "missing": [],
+  "warnings": []
+}

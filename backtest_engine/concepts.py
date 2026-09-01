@@ -38,6 +38,42 @@ def macd(series, fast=12, slow=26, signal=9):
     return macd_line, signal_line, histogram
 
 
+def macd_signal_crossover(macd_line, signal_line):
+    """Edge-triggered MACD-line/signal-line crossover: True on ONLY the bar
+    the MACD line crosses from at-or-below the signal line to strictly
+    above it (bullish) or vice versa (bearish) -- not "is currently above",
+    which would stay True for the whole trend leg instead of firing once at
+    the actual cross."""
+    diff = macd_line - signal_line
+    prev_diff = diff.shift(1)
+    bullish = ((prev_diff <= 0) & (diff > 0)).fillna(False)
+    bearish = ((prev_diff >= 0) & (diff < 0)).fillna(False)
+    return bullish, bearish
+
+
+def macd_zero_crossover(macd_line):
+    """Edge-triggered MACD-line/zero-line crossover, same edge-triggered
+    convention as macd_signal_crossover()."""
+    prev = macd_line.shift(1)
+    bullish = ((prev <= 0) & (macd_line > 0)).fillna(False)
+    bearish = ((prev >= 0) & (macd_line < 0)).fillna(False)
+    return bullish, bearish
+
+
+def rolling_high(series, period):
+    """Highest value of the PRECEDING `period` bars, not including the
+    current bar -- shift(1) after the rolling window makes this causal, so
+    "close breaks above the previous high zone" never compares a bar's own
+    high against a window that includes itself."""
+    return series.rolling(period).max().shift(1)
+
+
+def rolling_low(series, period):
+    """Lowest value of the PRECEDING `period` bars, not including the
+    current bar -- see rolling_high()."""
+    return series.rolling(period).min().shift(1)
+
+
 def atr(df, period=14):
     high, low, close = df["high"], df["low"], df["close"]
     prev_close = close.shift(1)
@@ -119,6 +155,42 @@ def session_high_low(df):
     running_high = df.groupby(group_id)["high"].cummax()
     running_low = df.groupby(group_id)["low"].cummin()
     return running_high, running_low
+
+
+def previous_session_high_low(df, session_name="asian"):
+    """The most recently CLOSED session of type `session_name`'s high/low,
+    held constant (forward-filled) from the moment that session ends --
+    e.g. the Asian session's range, available during the following London
+    session for a liquidity-sweep-of-the-Asian-range setup (Asian Range
+    London Sweep). Causal: only ever reflects a session that has fully
+    closed, unlike session_high_low() above (the CURRENT, still-forming
+    session)."""
+    session = session_column(df)
+    running_high, running_low = session_high_low(df)
+    is_target = (session == session_name)
+    prev_high = running_high.where(is_target).ffill()
+    prev_low = running_low.where(is_target).ffill()
+    return prev_high, prev_low
+
+
+def session_sweep_reclaim(df, session_name="asian"):
+    """Sweep-then-reclaim of a named prior session's range: price sweeps
+    below/above the most recently closed `session_name` session's low/high
+    (wick or close beyond is enough for the sweep itself), then a LATER
+    bar's CLOSE reclaims back inside (edge-triggered -- fires only on the
+    bar price transitions back inside, not every bar it stays there).
+    Returns (bull_sweep, bear_sweep, bull_reclaim, bear_reclaim) as four
+    boolean Series for the caller to compose with sequential_event() to
+    enforce the reclaim happening strictly AFTER the sweep."""
+    prev_high, prev_low = previous_session_high_low(df, session_name)
+    low, high, close = df["low"], df["high"], df["close"]
+    bull_sweep = (low < prev_low).fillna(False)
+    bear_sweep = (high > prev_high).fillna(False)
+    was_below_low = (close.shift(1) <= prev_low.shift(1)).fillna(False)
+    was_above_high = (close.shift(1) >= prev_high.shift(1)).fillna(False)
+    bull_reclaim = ((close > prev_low) & was_below_low).fillna(False)
+    bear_reclaim = ((close < prev_high) & was_above_high).fillna(False)
+    return bull_sweep, bear_sweep, bull_reclaim, bear_reclaim
 
 
 def session_open_price(df):
@@ -224,6 +296,163 @@ def order_blocks(df, lookback=2):
     return bull_low, bull_high, bear_low, bear_high
 
 
+def consolidation_impulse_zones(df, consolidation_bars=5, tightness_mult=1.5,
+                                 impulse_atr_mult=1.5, atr_period=14):
+    """Demand/supply zone: a multi-bar sideways/basing range immediately
+    followed by a sharp directional break away from it -- the "consolidation
+    then impulse" pattern real supply/demand strategy documents describe,
+    which is a genuinely different (and wider) concept than order_blocks()/
+    mitigation_blocks() (both anchored to a SINGLE origin candle, not a
+    multi-bar range).
+
+    "Tight" is a real, testable measure, not eyeballed: the `consolidation_bars`
+    window's own (high-low) range must be no more than `tightness_mult` times
+    the AVERAGE SINGLE-bar (high-low) range over the trailing `atr_period`
+    bars -- i.e. several bars packed together barely exceed what one normal
+    bar's range would be, which is what "sideways" actually means (real
+    overlap between bars), as opposed to a tight staircase that is still
+    trending.
+
+    "Sharp"/impulsive is likewise real and testable: the very next bar's
+    close-to-close move must be at least `impulse_atr_mult` x ATR(atr_period)
+    in one direction, AND that bar's close must actually clear the
+    consolidation window's high (bullish) or low (bearish) -- a big bar that
+    doesn't even escape the range isn't an impulse away from it.
+
+    The zone marked is the consolidation window's own low-to-high (the
+    source document's "candle right before the impulse move," generalized
+    from a single candle to the whole basing window since this pattern is
+    inherently multi-bar).
+
+    Returns (demand_low, demand_high, supply_low, supply_high), each
+    forward-filled from the most recently confirmed zone -- NaN until the
+    first one forms. Demand = consolidation before an UP impulse (support
+    zone below future price). Supply = consolidation before a DOWN impulse
+    (resistance zone above future price)."""
+    high, low, close = df["high"], df["low"], df["close"]
+    atr_val = atr(df, atr_period)
+    avg_single_bar_range = (high - low).rolling(atr_period).mean()
+
+    window_high = high.rolling(consolidation_bars).max()
+    window_low = low.rolling(consolidation_bars).min()
+    window_range = window_high - window_low
+    is_tight = (window_range <= tightness_mult * avg_single_bar_range).fillna(False)
+
+    move = close - close.shift(1)
+    # The consolidation window is evaluated as of the PREVIOUS bar (it must
+    # have already finished being tight before the impulse bar breaks away
+    # from it) -- shift(1) on both the tightness flag and the window
+    # boundaries keeps this causal: bar i's zone only ever uses information
+    # confirmed by the close of bar i-1.
+    prior_tight = is_tight.shift(1).fillna(False)
+    prior_window_high = window_high.shift(1)
+    prior_window_low = window_low.shift(1)
+
+    is_impulse_up = (move >= impulse_atr_mult * atr_val) & (close > prior_window_high)
+    is_impulse_down = ((-move) >= impulse_atr_mult * atr_val) & (close < prior_window_low)
+
+    demand_trigger = (prior_tight & is_impulse_up.fillna(False))
+    supply_trigger = (prior_tight & is_impulse_down.fillna(False))
+
+    demand_low = prior_window_low.where(demand_trigger).ffill()
+    demand_high = prior_window_high.where(demand_trigger).ffill()
+    supply_low = prior_window_low.where(supply_trigger).ffill()
+    supply_high = prior_window_high.where(supply_trigger).ffill()
+    return demand_low, demand_high, supply_low, supply_high
+
+
+def valid_structure_trend(df, lookback=2):
+    """"Valid low/high" structural trend: a swing low only becomes
+    structurally VALID once price subsequently closes above the swing high
+    that existed before it formed; the trend is only considered to have
+    flipped once that specific valid low is later broken by a close below
+    it -- NOT on every minor lower low that never actually broke a prior
+    high. Symmetric for valid highs breaking a prior valid low to flip back
+    up.
+
+    This is a genuinely sequential, stateful rule -- whether a given low
+    "counts" depends on a specific LATER event (a break of the specific
+    high that predates it), which cannot be expressed with the
+    where()/ffill() vectorization every other concept in this module uses
+    (those only ever look at each bar's own recent window, never "the next
+    time a specific earlier reference level gets broken"). This is
+    deliberately a plain, per-bar Python loop instead of a vectorized
+    one -- correct sequential state, not a vectorized approximation of it.
+    Cost is linear in the number of bars, which is fine at the bar counts
+    this engine actually backtests (thousands to tens of thousands of
+    1h/15m/5m bars per symbol).
+
+    Returns a single pandas Series of "up" / "down" / None per bar
+    (forward-implied by the state machine, not literally forward-filled --
+    None only before the very first valid low or high has ever formed)."""
+    swing_high, swing_low = swing_points(df, lookback)
+    high, low, close = df["high"].values, df["low"].values, df["close"].values
+    sh, sl = swing_high.values, swing_low.values
+    n = len(df)
+
+    trend = None
+    valid_low = None
+    valid_high = None
+    pending_low = None
+    pending_low_break_level = None
+    pending_high = None
+    pending_high_break_level = None
+    last_swing_high = None
+    last_swing_low = None
+
+    out = [None] * n
+    for i in range(n):
+        c = close[i]
+
+        # 1. Did this bar's close break the currently-active valid low/high?
+        #    (checked BEFORE this bar's own swing-point bookkeeping, since a
+        #    flip and a new pending point can legitimately happen on the
+        #    same bar.)
+        if trend == "up" and valid_low is not None and c < valid_low:
+            trend = "down"
+            valid_low = None
+            valid_high = None
+        elif trend == "down" and valid_high is not None and c > valid_high:
+            trend = "up"
+            valid_high = None
+            valid_low = None
+
+        # 2. Track the most recent swing points seen so far, and open a
+        #    "pending" validation slot for a fresh swing low/high -- it only
+        #    becomes VALID once a later close breaks the opposite swing
+        #    level that existed at the moment this one formed.
+        #    swing_points() marks sl[i]/sh[i] True `lookback` bars AFTER the
+        #    actual pivot bar (it needs that many bars on both sides to
+        #    confirm the pivot) -- the real price belongs to bar i-lookback,
+        #    not to bar i itself.
+        if sl[i]:
+            pivot = i - lookback
+            pending_low = low[pivot]
+            pending_low_break_level = last_swing_high
+            last_swing_low = low[pivot]
+        if sh[i]:
+            pivot = i - lookback
+            pending_high = high[pivot]
+            pending_high_break_level = last_swing_low
+            last_swing_high = high[pivot]
+
+        # 3. Does this bar's close confirm a pending low/high as VALID?
+        if pending_low is not None and pending_low_break_level is not None and c > pending_low_break_level:
+            valid_low = pending_low
+            pending_low = None
+            if trend is None:
+                trend = "up"
+        if pending_high is not None and pending_high_break_level is not None and c < pending_high_break_level:
+            valid_high = pending_high
+            pending_high = None
+            if trend is None:
+                trend = "down"
+
+        out[i] = trend
+
+    return pd.Series(out, index=df.index, dtype=object)
+
+
 def liquidity_sweep(df, lookback=2):
     """Generic liquidity sweep / stop hunt: price wicks beyond the most
     recently confirmed swing support/resistance level then closes back on
@@ -234,6 +463,231 @@ def liquidity_sweep(df, lookback=2):
     bullish_sweep = ((low < support) & (close > support)).fillna(False)
     bearish_sweep = ((high > resistance) & (close < resistance)).fillna(False)
     return bullish_sweep, bearish_sweep
+
+
+def sequential_event(event_a, event_b, max_gap=None, reset_key=None):
+    """Genuine event ORDERING, not co-occurrence: True at bar j only if
+    event_b fires at j AND event_a fired at some STRICTLY EARLIER bar i < j
+    (optionally within max_gap bars), with no requirement that a fires
+    again for every b -- the most recent a "carries forward" the same way
+    valid_structure_trend()'s state does. This is the primitive the old
+    window-based concept check (ConfiguredStrategy._eval()'s _within(),
+    which only asks "did THIS SAME event happen anywhere in the last N
+    bars", independently per condition, with no ordering between two
+    DIFFERENT conditions) cannot express: b-then-a in the same window would
+    incorrectly pass a co-occurrence check but must NOT pass this one.
+
+    reset_key: optional per-bar grouping key Series (e.g. a trading-day
+    date, for a strategy whose own rules require "setups and re-entries
+    must occur within the same day" -- 4-Hour Range Breakout-Retest).
+    When provided, an earlier event_a occurrence only counts if it shares
+    the SAME key as the current bar j -- an event_a from a previous
+    day/session can never pair with a later day's event_b. None (default,
+    every caller before this parameter existed -- CRT 2.0, Double
+    Confirmation CHoCH) means no reset, exactly the original behavior.
+
+    A real per-bar loop (not a vectorized shift/ffill trick) so the
+    ordering logic is impossible to get subtly backwards -- same
+    conservative choice as valid_structure_trend() after its own indexing
+    bug was found there."""
+    a = event_a.fillna(False).to_numpy()
+    b = event_b.fillna(False).to_numpy()
+    keys = reset_key.to_numpy() if reset_key is not None else None
+    n = len(a)
+    out = [False] * n
+    last_a_idx = None
+    last_a_key = None
+    for i in range(n):
+        # Check b[i] against the state as of the END of the PREVIOUS bar,
+        # before this bar's own a[i] can update it -- event_a and event_b
+        # are not always mutually exclusive (e.g. a single candle can both
+        # sweep AND reclaim at once), so updating last_a_idx first would
+        # let bar i's own a[i]=True silently overwrite a genuinely earlier,
+        # still-valid event_a -- checked before this fix and confirmed on
+        # real Asian Range London Sweep data: a legitimate sweep at bar 200
+        # failed to pair with its reclaim at bar 229 purely because bar
+        # 229 ALSO happened to satisfy event_a, clobbering the reference to
+        # bar 200 one line too early.
+        if b[i] and last_a_idx is not None and i > last_a_idx:
+            if keys is None or keys[i] == last_a_key:
+                if max_gap is None or (i - last_a_idx) <= max_gap:
+                    out[i] = True
+        if a[i]:
+            last_a_idx = i
+            if keys is not None:
+                last_a_key = keys[i]
+    return pd.Series(out, index=event_a.index, dtype=bool)
+
+
+def sweep_invalidation_state(bull_event, bear_event):
+    """State machine for "setup active on one side until the OPPOSITE event
+    invalidates it": long_setup_active is True from the bar after a
+    bull_event fires until a bear_event fires (which flips to
+    short_setup_active instead), and vice versa -- exactly the CRT 2.0
+    invalidation rule ("sweeps the bottom and closes inside, but then
+    sweeps the top and closes inside before entry triggers -> setup is
+    invalid, wait for a new candle"). A bull and bear event on the SAME bar
+    is a genuinely contradictory bar (like _eval_long_short/_eval_rule_
+    groups elsewhere in this codebase) -- treated as invalidating whatever
+    was pending rather than arbitrarily picking a side."""
+    bull = bull_event.fillna(False).to_numpy()
+    bear = bear_event.fillna(False).to_numpy()
+    n = len(bull)
+    state = None
+    out = [None] * n
+    for i in range(n):
+        if bull[i] and bear[i]:
+            state = None
+        elif bull[i]:
+            state = "long"
+        elif bear[i]:
+            state = "short"
+        out[i] = state
+    result = pd.Series(out, index=bull_event.index, dtype=object)
+    return result == "long", result == "short"
+
+
+def level_sweep_reclaim(df, lookback=2):
+    """Generic sweep-then-reclaim of the nearest swing support/resistance
+    level (same anchor as liquidity_sweep() above), but -- unlike
+    liquidity_sweep(), which requires the wick-beyond AND close-back-inside
+    on the SAME bar -- allows the reclaim on a LATER bar (Liquidity Sweep
+    Reversal Strategy's explicit "the sweep alone is NOT a signal; a
+    subsequent candle must reclaim"). Returns (bull_sweep, bear_sweep,
+    bull_reclaim, bear_reclaim) for the caller to compose with
+    sequential_event() to enforce strict ordering."""
+    support, resistance = support_resistance(df, lookback)
+    low, high, close = df["low"], df["high"], df["close"]
+    bull_sweep = (low < support).fillna(False)
+    bear_sweep = (high > resistance).fillna(False)
+    was_below = (close.shift(1) <= support.shift(1)).fillna(False)
+    was_above = (close.shift(1) >= resistance.shift(1)).fillna(False)
+    bull_reclaim = ((close > support) & was_below).fillna(False)
+    bear_reclaim = ((close < resistance) & was_above).fillna(False)
+    return bull_sweep, bear_sweep, bull_reclaim, bear_reclaim
+
+
+def ema_no_touch_trigger(df, ema):
+    """"Trigger candle" for the Laxman Rekha 5-EMA strategy: a candle where
+    NEITHER the high nor the low touches the EMA line -- forms entirely
+    below it (bullish trigger) or entirely above it (bearish trigger).
+    Candle colour is deliberately irrelevant to this definition (the source
+    only describes the candle's position relative to the EMA, not its
+    open/close relationship)."""
+    below = ((df["high"] < ema) & (df["low"] < ema)).fillna(False)
+    above = ((df["low"] > ema) & (df["high"] > ema)).fillna(False)
+    return below, above
+
+
+def reaction_at_level(df, support_level, resistance_level):
+    """Wick beyond a given EXTERNAL support/resistance level (already
+    aligned onto this frame's index, typically a higher-timeframe level
+    merged via MultiTimeframeContext) with the candle's close failing to
+    sustain beyond it -- the "reaction" event used by Dumb Money Concepts'
+    Confirmation entry (reaction, then a later retest of the same level).
+    Same wick-vs-close shape as liquidity_sweep(), but that function derives
+    its level from THIS frame's own swing points; this one takes an
+    already-known external level instead, since DMC's levels come from a
+    higher timeframe (Monthly/Weekly/Daily) than its 4H reaction/entry
+    timeframe."""
+    low, high, close = df["low"], df["high"], df["close"]
+    bullish_reaction = ((low < support_level) & (close > support_level)).fillna(False)
+    bearish_reaction = ((high > resistance_level) & (close < resistance_level)).fillna(False)
+    return bullish_reaction, bearish_reaction
+
+
+def next_prior_swing_level(df, lookback=2):
+    """For each bar, the swing low/high value that was confirmed BEFORE the
+    current active one -- i.e. "the next level further out" behind the
+    current support/resistance. Used for Dumb Money Concepts' stop-loss
+    ("behind the next level behind" the entry level). Same swing-point
+    anchor as support_resistance()/swing_points(), just one occurrence
+    further back: the sparse series of swing-low/high VALUES (not the
+    per-bar forward-filled one) is shifted by one occurrence, then
+    forward-filled back onto every bar."""
+    swing_high, swing_low = swing_points(df, lookback)
+    low_at_swings = df["low"].where(swing_low).dropna()
+    high_at_swings = df["high"].where(swing_high).dropna()
+
+    prev_low = pd.Series(index=df.index, dtype=float)
+    prev_low.loc[low_at_swings.index] = low_at_swings.shift(1)
+    prev_low = prev_low.ffill()
+
+    prev_high = pd.Series(index=df.index, dtype=float)
+    prev_high.loc[high_at_swings.index] = high_at_swings.shift(1)
+    prev_high = prev_high.ffill()
+    return prev_low, prev_high
+
+
+def move_origin_target(df, lookback=2):
+    """A representable stand-in for "the origin of the move that brought
+    price to this level" (Dumb Money Concepts' primary take-profit target):
+    the OPPOSING structural level that was active at the exact moment the
+    current active support/resistance was itself confirmed -- for a support
+    level, this is the resistance value in effect when that swing low
+    formed (the high the down-move came FROM); mirrored for resistance.
+    Own default: the source's own definition of "origin" is a discretionary
+    chart-reading judgment with no mechanical rule given, so this uses the
+    nearest opposing confirmed swing structure at that moment as the
+    closest honestly-representable equivalent, rather than guessing at a
+    more elaborate rule the source never actually specifies."""
+    swing_high, swing_low = swing_points(df, lookback)
+    support, resistance = support_resistance(df, lookback)
+    origin_for_support = resistance.where(swing_low).ffill()
+    origin_for_resistance = support.where(swing_high).ffill()
+    return origin_for_support, origin_for_resistance
+
+
+def level_touch(df, support_level, resistance_level):
+    """Immediate touch of an external support/resistance level -- no wick-
+    vs-close reaction required (contrast with reaction_at_level(), which
+    also requires the close to fail beyond the level). Dumb Money Concepts'
+    "Blind Entry" variant: enter the instant price first reaches an
+    untested level, with no confirmation candle at all."""
+    low, high = df["low"], df["high"]
+    bull_touch = (low <= support_level).fillna(False)
+    bear_touch = (high >= resistance_level).fillna(False)
+    return bull_touch, bear_touch
+
+
+def within_level_zone(df, level_series, atr_series, frac=0.25):
+    """Whether the candle's close falls within a small ATR-scaled buffer
+    band around an external level -- a single-entry approximation of Dumb
+    Money Concepts' "DCA zone" (top/bottom of a zone around the level).
+    This does NOT implement actual multi-entry/DCA averaging (see
+    ENGINE_GAP_TRACKER.md gap #14, still excluded); it only widens the
+    single retest-entry trigger from "exactly at the level" to "within a
+    band around it," a own-default approximation since the source gives no
+    exact zone width -- frac=0.25 (a quarter of ATR) is this builder's own
+    default for a "small" band."""
+    buf = atr_series * frac
+    close = df["close"]
+    return ((close >= level_series - buf) & (close <= level_series + buf)).fillna(False)
+
+
+def first_signal_per_level(signal_event, level_series):
+    """A signal event only counts the FIRST time it fires while
+    `level_series` holds a given value -- once used (whether the resulting
+    trade wins or loses), that exact level is retired: later signal_event
+    firings against the SAME level value are suppressed until level_series
+    changes to a genuinely new value. Dumb Money Concepts' "once-tested"
+    rule ("each specific level can only trigger one trade"). Exact float
+    equality is safe here since level_series only ever carries forward the
+    SAME stored value via ffill (see support_resistance()), never
+    recomputes it -- there is no floating-point drift to worry about."""
+    sig = signal_event.fillna(False).to_numpy()
+    levels = level_series.to_numpy()
+    n = len(sig)
+    out = [False] * n
+    used_level = None
+    for i in range(n):
+        lvl = levels[i]
+        if not sig[i] or lvl is None or (isinstance(lvl, float) and np.isnan(lvl)):
+            continue
+        if lvl != used_level:
+            out[i] = True
+            used_level = lvl
+    return pd.Series(out, index=signal_event.index, dtype=bool)
 
 
 def candle_break(df):
@@ -675,6 +1129,59 @@ def _first_window_range(df, window_minutes):
     return win_high, win_low
 
 
+def _first_window_range_tz(df, window_minutes, tz="America/New_York"):
+    """Same mechanism as _first_window_range(), but the day boundary and
+    "minutes since midnight" are computed in `tz` instead of UTC -- needed
+    for a strategy whose own rules require a specific non-UTC session (e.g.
+    4-Hour Range Breakout-Retest: "set chart timezone to New York time to
+    identify the correct first candle of the day"). Requires a tz-aware
+    index (true for this engine's real OHLCV data, which is UTC-localized).
+    UTC's own _first_window_range() is unaffected/unchanged -- this is a
+    separate function, not a modification of it."""
+    local_index = df.index.tz_convert(tz)
+    day_key = pd.Series(local_index.date, index=df.index)
+    minutes_since_midnight = local_index.hour * 60 + local_index.minute
+    in_window = minutes_since_midnight < window_minutes
+    win_high = df["high"].where(in_window).groupby(day_key).cummax().groupby(day_key).ffill()
+    win_low = df["low"].where(in_window).groupby(day_key).cummin().groupby(day_key).ffill()
+    return win_high, win_low
+
+
+def four_hour_range(df, tz="America/New_York"):
+    """The high/low of the FIRST 4-hour candle of the trading day, in `tz`
+    (default New York, matching this strategy's own explicit requirement).
+    window_minutes=240 = 4 hours."""
+    return _first_window_range_tz(df, 240, tz)
+
+
+def four_hour_range_breakout(df, tz="America/New_York"):
+    """Bull/bear breakout beyond four_hour_range(): a bar's CLOSE (never a
+    mere wick -- matches the source's explicit "wicks alone do not count,
+    a full candle body close beyond the range is required") beyond the
+    range, only AFTER the 4-hour window has fully closed for that day (a
+    still-forming range can't be broken yet) -- same convention as
+    opening_range_breakout()."""
+    range_high, range_low = four_hour_range(df, tz)
+    local_index = df.index.tz_convert(tz)
+    minutes_since_midnight = local_index.hour * 60 + local_index.minute
+    window_closed = minutes_since_midnight >= 240
+    bull_break = (window_closed & (df["close"] > range_high)).fillna(False)
+    bear_break = (window_closed & (df["close"] < range_low)).fillna(False)
+    return bull_break, bear_break
+
+
+def range_reentry_event(df, range_high, range_low):
+    """Edge-triggered "closed back inside the range" event: True only on
+    the bar price transitions from outside to inside [range_low,
+    range_high] -- not every bar it happens to still be inside (which
+    would make concepts.sequential_event() match on every subsequent bar
+    instead of just the actual re-entry moment)."""
+    close = df["close"]
+    in_range = (close >= range_low) & (close <= range_high)
+    was_inside = in_range.shift(1).fillna(False).astype(bool)
+    return (in_range & ~was_inside).fillna(False)
+
+
 def opening_range(df, range_minutes=30):
     """Opening Range: the high/low established in the first `range_minutes`
     minutes of each UTC trading day -- the range an Opening Range Breakout
@@ -764,6 +1271,70 @@ def in_kill_zone(df):
 
 # ------------------------------------------------------------ price action
 
+def doji_pattern(df, max_body_pct=10.0):
+    """Doji: a candle whose body is at most max_body_pct of its own full
+    high-low range -- "very small" from the source, no exact number given
+    (own default, flagged by the caller). Not inherently directional; a
+    single boolean, the same shape as inside_bar()."""
+    body = (df["close"] - df["open"]).abs()
+    rng = (df["high"] - df["low"]).replace(0, np.nan)
+    body_pct = (body / rng * 100)
+    return (body_pct <= max_body_pct).fillna(False)
+
+
+def morning_evening_star(df, small_body_max_pct=30.0):
+    """Morning Star (bullish): a large red candle, then a small-bodied
+    indecision candle, then a large green candle -- self-confirming
+    three-candle reversal (no separate confirmation candle needed, unlike
+    Doji/Hammer/Shooting Star). Evening Star mirrors it. "Large" candle =
+    body_pct > small_body_max_pct (the same threshold, inverted, as the
+    middle candle's own smallness test)."""
+    body = (df["close"] - df["open"]).abs()
+    rng = (df["high"] - df["low"]).replace(0, np.nan)
+    body_pct = (body / rng * 100)
+    is_small_body = (body_pct <= small_body_max_pct).fillna(False)
+    is_large_body = (body_pct > small_body_max_pct).fillna(False)
+    bearish = df["close"] < df["open"]
+    bullish = df["close"] > df["open"]
+
+    c1_bearish_large = (bearish & is_large_body).shift(2).fillna(False)
+    c1_bullish_large = (bullish & is_large_body).shift(2).fillna(False)
+    c2_small = is_small_body.shift(1).fillna(False)
+    c3_bullish_large = bullish & is_large_body
+    c3_bearish_large = bearish & is_large_body
+
+    morning_star = (c1_bearish_large & c2_small & c3_bullish_large).fillna(False)
+    evening_star = (c1_bullish_large & c2_small & c3_bearish_large).fillna(False)
+    return morning_star, evening_star
+
+
+def candle_pattern_confirmation(pattern_event, df, direction):
+    """Generic "a candlestick pattern fires, THEN a later candle confirms
+    by closing beyond the PATTERN candle's own high (bullish) or low
+    (bearish)" -- used for Doji/Hammer/Shooting Star (Engulfing/Star
+    patterns are self-confirming and don't need this). The pattern
+    candle's own extreme is carried forward (where+ffill, same convention
+    as fvg_zone()/order_blocks()) so a LATER bar can compare against the
+    SPECIFIC pattern candle's level, not just "any recent candle's" --
+    then concepts.sequential_event() enforces the confirmation happening
+    strictly AFTER the pattern bar, not on/before it."""
+    if direction == "bullish":
+        pending_level = df["high"].where(pattern_event).ffill()
+        raw_confirm = (df["close"] > pending_level).fillna(False)
+    else:
+        pending_level = df["low"].where(pattern_event).ffill()
+        raw_confirm = (df["close"] < pending_level).fillna(False)
+    # Edge-triggered (fires only the FIRST bar price closes beyond the
+    # pattern's level, not every subsequent bar it stays there) -- without
+    # this, sequential_event()'s state-carries-forward semantics would
+    # re-signal "confirmed" on every later bar too, the same over-trading
+    # bug found and fixed for CRT 2.0's FVG re-entry check earlier this
+    # session.
+    was_confirmed = raw_confirm.shift(1).fillna(False).astype(bool)
+    raw_confirm_edge = raw_confirm & ~was_confirmed
+    return sequential_event(pattern_event, raw_confirm_edge)
+
+
 def engulfing_candle(df):
     """Bullish engulfing: a bearish candle immediately followed by a
     bullish candle whose body fully contains the previous candle's body.
@@ -843,3 +1414,438 @@ def breakeven_stop(entry_price, original_stop, current_price, direction, trigger
     if unrealized >= trigger_rr * risk:
         return entry_price
     return None
+
+
+# ------------------------------------------------------------ New Batch 3 (3 strategies)
+
+def trend_regime(df, ema_period=50, atr_period=14, sideways_atr_mult=0.5):
+    """3-way trend classification -- "up" / "down" / "sideways" -- for
+    strategies that need to explicitly SKIP a genuinely unclear/ranging
+    market, which trend_filter() above (a plain 2-way close-vs-EMA split,
+    always either "up" or "down", never neutral) cannot express.
+
+    Own default (no source gives an exact numeric rule for "sideways"):
+    price sitting within `sideways_atr_mult` x ATR of its own EMA is
+    "hugging the average" -- no clear directional edge over current
+    volatility -- classified "sideways" regardless of which side of the EMA
+    it's technically on. Outside that band, "up"/"down" by which side of
+    the EMA price is on, same as trend_filter(). Reuses ema()/atr()
+    directly, no new primitive invented for either half of the calculation."""
+    ma = ema(df["close"], ema_period)
+    atr_val = atr(df, atr_period)
+    diff = df["close"] - ma
+    band = sideways_atr_mult * atr_val
+    state = np.where(diff.abs() <= band, "sideways", np.where(diff > 0, "up", "down"))
+    return pd.Series(state, index=df.index, dtype=object)
+
+
+def order_block_validity(df, lookback=2):
+    """Whether each bar's currently-active bull/bear Order Block (from
+    order_blocks()) is still VALID, or has already been invalidated by
+    price closing back through it before any trade used it -- "if price
+    moves past a marked Order Block before an entry occurs, that OB becomes
+    invalid" (New Batch 3, Strategy 3's own explicit mitigation rule).
+
+    Reuses the EXACT same close-through-the-zone trigger breaker_blocks()
+    above already computes for the OB->breaker polarity flip -- this just
+    exposes it as a plain per-bar valid/invalid flag instead of a new
+    breaker zone, so no invalidation logic is duplicated. An invalidation
+    clears automatically the instant a NEW Order Block replaces the old one
+    (a fresh BOS), since that is a genuinely different zone becoming
+    active, not the same one becoming valid again -- tracked via a block-id
+    that increments each time the active OB's own edge value changes, so
+    `groupby(...).cummax()` only accumulates "has THIS specific zone ever
+    been breached" within its own lifetime. Fully vectorized (no per-bar
+    Python loop needed, unlike the genuinely sequential concepts above)."""
+    bull_low, bull_high, bear_low, bear_high = order_blocks(df, lookback)
+    close = df["close"]
+
+    bull_trigger = (bull_low.notna() & (close < bull_low))
+    bear_trigger = (bear_high.notna() & (close > bear_high))
+
+    bull_block_id = (bull_low != bull_low.shift(1)).cumsum()
+    bear_block_id = (bear_high != bear_high.shift(1)).cumsum()
+
+    bull_invalidated = bull_trigger.groupby(bull_block_id).cummax().fillna(False).astype(bool)
+    bear_invalidated = bear_trigger.groupby(bear_block_id).cummax().fillna(False).astype(bool)
+
+    bull_valid = (bull_low.notna() & ~bull_invalidated).fillna(False)
+    bear_valid = (bear_high.notna() & ~bear_invalidated).fillna(False)
+    return bull_valid, bear_valid
+
+
+def trendline_breakout(df, lookback=2):
+    """New Batch 3, Strategy 1 (HTF Trend Trendline Breakout) -- a genuinely
+    NEW concept this codebase didn't have: connects the two most recently
+    CONFIRMED swing lows (for a bullish break) or swing highs (for a
+    bearish break) into a straight line, projects it forward bar-by-bar,
+    and edge-triggers the first bar whose CLOSE crosses beyond that
+    projected line -- the classic "internal/corrective trendline break as a
+    trend-continuation entry" pattern.
+
+    Own default (the source says "connect at least 2 swing points" with no
+    mechanical rule for WHICH two): always the two MOST RECENT confirmed
+    pivots of the relevant type, in chronological order -- the shortest-
+    term, most current trendline a chart reader would actually draw, rather
+    than searching further back for a "better fit" line (no mechanical
+    definition of "better fit" is given, so none is invented here). A fresh
+    pivot redraws the line immediately and clears any stale "already beyond
+    the old line" state, so a break can only ever fire against the CURRENT
+    two-point line, never a stale one.
+
+    Deliberately a plain per-bar Python loop, same justification as
+    valid_structure_trend()/sweep_invalidation_state() above: which two
+    pivots are "the most recent" is genuinely sequential state that changes
+    only at specific earlier bars, not a fixed rolling window. Zero
+    look-ahead: a pivot only enters the state once swing_points() has
+    already confirmed it (`lookback` bars after the fact, its real pivot
+    bar), and the projected line is only ever evaluated at or after the
+    bar its second anchor point was confirmed.
+
+    Returns two boolean Series: bullish_break (close crosses above the
+    ascending/descending lows-trendline), bearish_break (close crosses
+    below the highs-trendline)."""
+    swing_high, swing_low = swing_points(df, lookback)
+    high = df["high"].values
+    low = df["low"].values
+    close = df["close"].values
+    sh = swing_high.values
+    sl = swing_low.values
+    n = len(df)
+
+    bullish = [False] * n
+    bearish = [False] * n
+
+    low_pivots = []   # [(bar_index, price), ...] chronological, max len 2
+    high_pivots = []
+
+    # Measured on real 60-90 day BTCUSDT 15m data: a stateful "was the LAST
+    # bar under this same still-active 2-point line below it" check fired
+    # ZERO times across tens of thousands of bars, at every lookback tried
+    # (2/3/5/8). Root cause, confirmed by direct instrumentation: with
+    # swing_points() this sensitive, any bar where price actually trades
+    # below the current lows-line almost always gets confirmed as a BRAND
+    # NEW (lower) swing low just `lookback` bars later -- which replaces
+    # the pivot pair and resets the state before price can ever recover
+    # back above the OLD line to complete a same-line cross. Real trendline
+    # breaks in this style of data happen "the line gets redrawn slightly
+    # steeper/shallower each time, and price is now on the other side of
+    # wherever it CURRENTLY sits" rather than "the identical 2-point line
+    # persists for many bars." So the cross is evaluated statelessly
+    # against the CURRENT pivot pair's own line, comparing this bar to the
+    # bar immediately before it (both extrapolated from the SAME two
+    # anchors) -- no persistent flag, so a just-updated pivot pair doesn't
+    # need any bar of "history" under itself before a cross can register.
+    for i in range(n):
+        if sl[i]:
+            pivot_i = i - lookback
+            low_pivots.append((pivot_i, low[pivot_i]))
+            if len(low_pivots) > 2:
+                low_pivots.pop(0)
+        if sh[i]:
+            pivot_i = i - lookback
+            high_pivots.append((pivot_i, high[pivot_i]))
+            if len(high_pivots) > 2:
+                high_pivots.pop(0)
+
+        if len(low_pivots) == 2 and i > 0:
+            (i1, p1), (i2, p2) = low_pivots
+            if i2 > i1 and i >= i2:
+                slope = (p2 - p1) / (i2 - i1)
+                line_now = p2 + slope * (i - i2)
+                line_prev = p2 + slope * (i - 1 - i2)
+                if close[i] > line_now and close[i - 1] <= line_prev:
+                    bullish[i] = True
+
+        if len(high_pivots) == 2 and i > 0:
+            (i1, p1), (i2, p2) = high_pivots
+            if i2 > i1 and i >= i2:
+                slope = (p2 - p1) / (i2 - i1)
+                line_now = p2 + slope * (i - i2)
+                line_prev = p2 + slope * (i - 1 - i2)
+                if close[i] < line_now and close[i - 1] >= line_prev:
+                    bearish[i] = True
+
+    return pd.Series(bullish, index=df.index), pd.Series(bearish, index=df.index)
+
+
+def range_breakout_volume_confirm(df, range_bars=25, volume_avg_period=20,
+                                   breakout_volume_mult=1.8, large_candle_atr_mult=1.5,
+                                   atr_period=14):
+    """New Batch 3, Strategy 2 (Range Breakout Volume Confirmation) -- a
+    generic, non-proprietary equivalent (no branded/copyrighted indicator
+    reproduced): detects a genuine consolidation (a trailing `range_bars`
+    high/low band, own default 25 per the strategy's own "~25-30 candles"
+    wording), a CLOSE beyond that band (not a wick), REQUIRES a real volume
+    spike on the breakout candle relative to its own trailing average (a
+    breakout with no volume behind it is treated as a fakeout and produces
+    NO signal at all -- a hard filter, not a scoring adjustment), and
+    classifies the breakout candle's size via an ATR-multiple threshold: a
+    "standard" candle confirms on the VERY NEXT bar; a "very large" candle
+    instead arms a retest -- the confirm only fires once price actually
+    comes back to touch the broken level.
+
+    Own defaults (source gives no exact numbers): breakout_volume_mult=1.8
+    for "a CLEAR volume spike" -- deliberately stricter than the existing
+    plain "volume" concept's own 1.5x default (volume_filter()), since this
+    is explicitly a hard fakeout filter, not a soft quality signal.
+    large_candle_atr_mult=1.5x ATR(14) for "very large" -- the same
+    large-candle threshold already used elsewhere in this codebase (e.g.
+    consolidation_impulse_zones' impulse_atr_mult default). A retest that
+    never arrives is abandoned once price closes back fully through the
+    ORIGINAL opposite side of the range -- own default for "this breakout
+    failed, nothing left to retest."
+
+    Deliberately a plain per-bar Python loop (like valid_structure_trend
+    and sweep_invalidation_state above): whether THIS bar is "the very next
+    candle after a standard breakout" or "a retest of a level broken
+    several bars ago" is genuinely sequential state, not a vectorized
+    rolling-window check. Zero look-ahead: the range/volume rolling windows
+    are shifted by 1 (always "before this bar," never including it), and a
+    freshly-resolved bar's OWN state change is never re-evaluated for a
+    brand-new breakout within that same bar (a resolution and a fresh
+    detection never both happen at bar i).
+
+    Returns two boolean Series: bull_confirm, bear_confirm -- the exact bar
+    an entry should fire, already carrying both the volume-fakeout filter
+    and the standard/retest branching."""
+    high = df["high"].values
+    low = df["low"].values
+    close = df["close"].values
+    volume = df["volume"].values
+    n = len(df)
+
+    atr_vals = atr(df, atr_period).values
+    # Both rolling stats end at the bar BEFORE the one being classified --
+    # "the range/volume seen so far," never including the candle itself.
+    range_high_s = pd.Series(high).rolling(range_bars).max().shift(1).values
+    range_low_s = pd.Series(low).rolling(range_bars).min().shift(1).values
+    avg_volume_s = pd.Series(volume).rolling(volume_avg_period).mean().shift(1).values
+
+    bull_confirm = [False] * n
+    bear_confirm = [False] * n
+    # sl_ref_*: the breakout/breakdown candle's OWN opposite extreme (its
+    # low for a bull setup, high for a bear setup) -- "stop-loss ... or the
+    # extreme of the breakout/breakdown candle" -- carried from the
+    # breakout bar to whichever later bar actually confirms the entry, so
+    # ConfiguredStrategy can read a real stop-loss reference at the exact
+    # signal bar without re-deriving which candle the breakout happened on.
+    sl_ref_bull = [None] * n
+    sl_ref_bear = [None] * n
+
+    mode = None            # None | "next_bar_bull" | "next_bar_bear" | "retest_bull" | "retest_bear"
+    retest_level = None    # the broken range boundary a retest must touch
+    abandon_level = None   # the OPPOSITE boundary -- closing back beyond this cancels the setup
+    pending_sl_ref = None  # the breakout candle's own opposite extreme, held until confirm fires
+
+    for i in range(n):
+        if mode == "next_bar_bull":
+            bull_confirm[i] = True
+            sl_ref_bull[i] = pending_sl_ref
+            mode = None
+            continue
+        if mode == "next_bar_bear":
+            bear_confirm[i] = True
+            sl_ref_bear[i] = pending_sl_ref
+            mode = None
+            continue
+        if mode == "retest_bull":
+            if low[i] <= retest_level <= high[i]:
+                bull_confirm[i] = True
+                sl_ref_bull[i] = pending_sl_ref
+                mode = None
+            elif close[i] < abandon_level:
+                mode = None
+            continue
+        if mode == "retest_bear":
+            if low[i] <= retest_level <= high[i]:
+                bear_confirm[i] = True
+                sl_ref_bear[i] = pending_sl_ref
+                mode = None
+            elif close[i] > abandon_level:
+                mode = None
+            continue
+
+        # Only reached when mode was already None at the START of this bar
+        # -- a bar that just resolved a pending confirm never ALSO opens a
+        # fresh detection window on itself.
+        rh, rl, av, cur_atr = range_high_s[i], range_low_s[i], avg_volume_s[i], atr_vals[i]
+        if rh == rh and rl == rl and av == av:  # NaN guards -- windows not yet full
+            has_volume_spike = volume[i] > av * breakout_volume_mult
+            candle_range = high[i] - low[i]
+            is_large = (cur_atr == cur_atr) and candle_range >= large_candle_atr_mult * cur_atr
+
+            if close[i] > rh and has_volume_spike:
+                if is_large:
+                    mode, retest_level, abandon_level = "retest_bull", rh, rl
+                else:
+                    mode = "next_bar_bull"
+                pending_sl_ref = low[i]
+            elif close[i] < rl and has_volume_spike:
+                if is_large:
+                    mode, retest_level, abandon_level = "retest_bear", rl, rh
+                else:
+                    mode = "next_bar_bear"
+                pending_sl_ref = high[i]
+
+    return (pd.Series(bull_confirm, index=df.index), pd.Series(bear_confirm, index=df.index),
+            pd.Series(sl_ref_bull, index=df.index, dtype=float), pd.Series(sl_ref_bear, index=df.index, dtype=float))
+
+
+# ------------------------------------------------------ New Batch 4 concepts
+
+def heikin_ashi(df):
+    """Standard Heikin Ashi smoothed-candle recalculation -- a well-known,
+    non-proprietary charting technique (not a branded/copyrighted
+    indicator). ha_close = OHLC4; ha_open = midpoint of the PREVIOUS HA
+    candle's own open/close (first bar seeds from the real candle's own
+    open/close -- the standard convention, since there is no prior HA
+    candle yet); ha_high/ha_low extend to also include the real bar's own
+    high/low. Inherently sequential (each ha_open depends on the previous
+    bar's ha_open/ha_close), so this is a per-bar loop rather than
+    vectorized -- same style as trendline_breakout/
+    range_breakout_volume_confirm above. Returns four Series:
+    ha_open, ha_high, ha_low, ha_close."""
+    o, h, l, c = df["open"].values, df["high"].values, df["low"].values, df["close"].values
+    n = len(df)
+    ha_open = np.empty(n)
+    ha_close = (o + h + l + c) / 4.0
+    ha_high = np.empty(n)
+    ha_low = np.empty(n)
+    for i in range(n):
+        if i == 0:
+            ha_open[i] = (o[i] + c[i]) / 2.0
+        else:
+            ha_open[i] = (ha_open[i - 1] + ha_close[i - 1]) / 2.0
+        ha_high[i] = max(h[i], ha_open[i], ha_close[i])
+        ha_low[i] = min(l[i], ha_open[i], ha_close[i])
+    return (pd.Series(ha_open, index=df.index), pd.Series(ha_high, index=df.index),
+            pd.Series(ha_low, index=df.index), pd.Series(ha_close, index=df.index))
+
+
+def fibonacci_retracement_zone(df, lookback=2):
+    """Fibonacci retracement levels (38.2/61.8/50%) for the most recent
+    alternating swing leg -- reuses swing_points()/support_resistance()
+    directly, no new pivot logic. direction="up" when the most recently
+    confirmed swing event was a HIGH following an earlier LOW (the
+    source's "swing-low-to-swing-high draw" for an uptrend); "down"
+    mirrors it (swing-high-to-swing-low). The leg's own start/end anchor
+    prices are just the current support/resistance values (already causal,
+    ffill'd) -- support_resistance()'s ffill guarantees whichever of the
+    two updated most recently is the "end" of the active leg, so no extra
+    per-bar loop is needed. Returns (fib_618, fib_50, fib_382, direction)
+    as per-bar Series -- the 0%/100% levels are just support/resistance
+    themselves, not separately returned. NOTE: for an "up" leg, prices sit
+    low < fib_618 < fib_50 < fib_382 < high (a deeper retracement is a
+    LOWER price); for a "down" leg the same three levels sit in the
+    mirrored order low < fib_382 < fib_50 < fib_618 < high (a deeper
+    retracement is a HIGHER price) -- both are the standard convention."""
+    swing_high, swing_low = swing_points(df, lookback)
+    support, resistance = support_resistance(df, lookback)
+
+    last_event = pd.Series(
+        np.where(swing_high.values, "high", np.where(swing_low.values, "low", None)),
+        index=df.index,
+    ).ffill()
+    direction = last_event.map({"high": "up", "low": "down"})
+
+    is_up = (direction == "up").values
+    leg_high = resistance.values
+    leg_low = support.values
+    rng = leg_high - leg_low
+
+    fib_382 = np.where(is_up, leg_high - 0.382 * rng, leg_low + 0.382 * rng)
+    fib_50 = np.where(is_up, leg_high - 0.5 * rng, leg_low + 0.5 * rng)
+    fib_618 = np.where(is_up, leg_high - 0.618 * rng, leg_low + 0.618 * rng)
+
+    return (pd.Series(fib_618, index=df.index), pd.Series(fib_50, index=df.index),
+            pd.Series(fib_382, index=df.index), direction)
+
+
+def fixed_range_volume_profile(df, lookback=2, bins=24, min_bars=5):
+    """Fixed Range Volume Profile (FRVP) Point of Control -- volume-at-price
+    profile computed over the range between the two most recent
+    ALTERNATING confirmed swing points (swing_points()), re-drawn every
+    time a new swing point confirms. Deliberately NOT a fixed calendar
+    window like volume_profile_previous_day() -- this is the "plot from
+    swing-low to swing-high" construction the source describes. Direction
+    follows naturally from which swing came last: swing-low then
+    swing-high = up-leg (per the source's "uptrend: low-to-high"); the
+    mirror is a down-leg. A leg shorter than `min_bars` is skipped (too few
+    candles for a meaningful profile) -- the previous leg's POC keeps
+    carrying forward until a genuinely usable new leg confirms. Deliberately
+    a per-bar Python loop (like heikin_ashi/trendline_breakout above): the
+    active range's start/end bar index changes only at discrete swing
+    events, not something a rolling window expresses. Zero look-ahead: a
+    leg's profile is only computed once BOTH its endpoints are already
+    confirmed swing points, and only ever uses bars up to and including the
+    bar where that confirmation became known. Returns (poc, direction) as
+    two per-bar Series."""
+    swing_high, swing_low = swing_points(df, lookback)
+    high, low = df["high"].values, df["low"].values
+    close, volume = df["close"].values, df["volume"].values
+    sh, sl = swing_high.values, swing_low.values
+    n = len(df)
+
+    poc = np.full(n, np.nan)
+    direction = np.array([None] * n, dtype=object)
+
+    last_low_i = last_high_i = None
+    range_dir = None
+    cached_poc = None
+
+    for i in range(n):
+        new_leg = False
+        leg_start_i = leg_end_i = None
+        if sl[i]:
+            last_low_i = i
+            if last_high_i is not None and last_high_i < last_low_i:
+                leg_start_i, leg_end_i, this_dir = last_high_i, last_low_i, "down"
+                new_leg = True
+        if sh[i]:
+            last_high_i = i
+            if last_low_i is not None and last_low_i < last_high_i:
+                leg_start_i, leg_end_i, this_dir = last_low_i, last_high_i, "up"
+                new_leg = True
+        if new_leg and (leg_end_i - leg_start_i) >= min_bars:
+            seg_high = high[leg_start_i:leg_end_i + 1]
+            seg_low = low[leg_start_i:leg_end_i + 1]
+            seg_close = close[leg_start_i:leg_end_i + 1]
+            seg_vol = volume[leg_start_i:leg_end_i + 1]
+            lo, hi = seg_low.min(), seg_high.max()
+            if hi > lo and seg_vol.sum() > 0:
+                edges = np.linspace(lo, hi, bins + 1)
+                bucket_idx = np.clip(np.digitize(seg_close, edges) - 1, 0, bins - 1)
+                bucket_volume = np.zeros(bins)
+                np.add.at(bucket_volume, bucket_idx, seg_vol)
+                centers = (edges[:-1] + edges[1:]) / 2
+                poc_i = int(np.argmax(bucket_volume))
+                cached_poc = centers[poc_i]
+                range_dir = this_dir
+        poc[i] = cached_poc if cached_poc is not None else np.nan
+        direction[i] = range_dir
+
+    return pd.Series(poc, index=df.index), pd.Series(direction, index=df.index)
+
+
+def lwti(df, period=25, smoothing=20):
+    """LWTI (Linear Weighted Trend Indicator) -- New Batch 4, Strategy 5.
+    A standard, publicly-documented (non-proprietary/non-branded) momentum
+    oscillator, but multiple slightly different community implementations
+    exist and the source gives no exact formula matching its own "+50/-50"
+    banding -- this is ONE deterministic, reasonable reconstruction,
+    explicitly flagged as a builder default rather than a byte-exact
+    reproduction of any specific published script: a linear-weighted-
+    moving-average's own momentum (this bar's WMA minus the previous bar's),
+    normalized against its OWN recent rolling volatility (not ATR -- a
+    25-period WMA's bar-to-bar change is naturally much smaller than the raw
+    ATR, which measured against real data made +/-100 essentially
+    unreachable, only 0.03% of bars) so that 1 std dev of recent momentum
+    maps to +/-50 and 2 std devs caps at +/-100 -- a genuinely reachable,
+    meaningful band -- then smoothed with an EMA. Returns one Series."""
+    weights = np.arange(1, period + 1, dtype=float)
+    wma = df["close"].rolling(period).apply(lambda x: np.dot(x, weights) / weights.sum(), raw=True)
+    momentum = wma - wma.shift(1)
+    rolling_std = momentum.rolling(period).std().replace(0, np.nan)
+    normalized = (momentum / rolling_std).clip(-2, 2) * 50
+    return normalized.ewm(span=smoothing, adjust=False).mean()

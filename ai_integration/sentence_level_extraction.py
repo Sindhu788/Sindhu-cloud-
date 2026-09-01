@@ -27,17 +27,88 @@ Incomplete Lock (Batch 3, Task 3) already handles correctly.
 from ai_integration import config as ai_config
 from ai_integration import schema
 from ai_integration.deep_understanding import call_provider_chain_generic
-from ai_integration.deterministic_rules import count_candidate_rules
+from ai_integration.deterministic_rules import count_candidate_rules, detect_model_sections, extract_document_preambles
 from ai_integration.fragment_merge import merge_fragment_additive
 
 MAX_RETRIES = 3
 
 
-def _call_one_statement(statement_text, prompt, chain, endpoint_label):
+def _context_prefix(model_label, section_label):
+    """Extraction Pipeline Improvements (gap 1) + Two-Focused-Day Push
+    (Part 1): builds the light, purely-informational context line
+    prepended to an isolated statement before it's sent to the AI.
+
+    model_label (a detected "Model N:" heading) and section_label (the
+    nearest heading of ANY kind, e.g. "Short Entry (Sell)") are
+    independent signals -- a document can have one, the other, both, or
+    neither. Real-world documents like a single-model strategy split into
+    "Entry Rules" / "Stop Loss Rules" / "Take Profit Rules" sections have
+    ONLY a section_label, which previously got no context at all (that
+    tracking only ever ran for 2+-model documents) -- this is the fix for
+    an isolated statement like "place the SL slightly above the high
+    created by the sweep" losing track of which section (and therefore
+    which side of the trade) it belongs to.
+
+    Neither label changes the schema or vocabulary; both are hints, never
+    a routing decision (routing stays keyed on model_label alone, in
+    _route_labeled_fragment)."""
+    if model_label and section_label and section_label != model_label:
+        return f"[This statement is part of: {model_label} > {section_label}]"
+    if model_label:
+        return f"[This statement is part of: {model_label}]"
+    if section_label:
+        return f"[This statement is under the section: {section_label}]"
+    return None
+
+
+def _call_one_statement(statement_text, prompt, chain, endpoint_label, model_label=None, section_label=None,
+                         document_preamble=None):
+    prefix = _context_prefix(model_label, section_label)
+    text = statement_text if not prefix else f"{prefix}\n{statement_text}"
+    if document_preamble:
+        # Part 1 (Two-Focused-Day Push): the document's own opening/setup
+        # content -- see deterministic_rules.extract_document_preamble --
+        # so a statement that backward-references something defined
+        # earlier ("the marked 4H high level") has a chance to resolve it.
+        # Labeled distinctly from the statement itself so the AI never
+        # mistakes preamble text for part of THIS statement to judge.
+        text = f"[Document background, for context only -- not part of this statement: {document_preamble}]\n{text}"
     parsed, provider_name, err = call_provider_chain_generic(
-        statement_text, chain, prompt, endpoint_label, schema.parse_statement_response,
+        text, chain, prompt, endpoint_label, schema.parse_statement_response,
     )
     return parsed, provider_name, err
+
+
+def _route_labeled_fragment(fragment, model_label):
+    """When a statement belongs to a detected model/setup section, its
+    conditions must land in that model's OWN entry_rule_groups entry, not
+    the flat entry_conditions/long_entry_conditions/short_entry_conditions
+    lists -- merging those flat lists across models is exactly gap 1 (two
+    distinct trading models silently collapsed into one generic setup).
+    Returns a new fragment dict with the flat entry-condition lists moved
+    into labeled entry_rule_groups; every other field passes through
+    unchanged (session_filter, stop_loss, exit_conditions, etc. are not
+    model-specific structure the same way, and stay as-is)."""
+    if not model_label:
+        return fragment
+    long_conds = fragment.get("long_entry_conditions") or []
+    short_conds = fragment.get("short_entry_conditions") or []
+    generic_conds = fragment.get("entry_conditions") or []
+    if not (long_conds or short_conds or generic_conds):
+        return fragment
+    groups = []
+    if long_conds:
+        groups.append({"label": f"{model_label} (long)", "direction": "bullish", "conditions": long_conds})
+    if short_conds:
+        groups.append({"label": f"{model_label} (short)", "direction": "bearish", "conditions": short_conds})
+    if generic_conds:
+        groups.append({"label": model_label, "direction": None, "conditions": generic_conds})
+    routed = dict(fragment)
+    routed["long_entry_conditions"] = []
+    routed["short_entry_conditions"] = []
+    routed["entry_conditions"] = []
+    routed["entry_rule_groups"] = groups
+    return routed
 
 
 def run_sentence_level_extraction(raw_text, source_hint=None, content_type=None, max_retries=MAX_RETRIES):
@@ -59,11 +130,14 @@ def run_sentence_level_extraction(raw_text, source_hint=None, content_type=None,
     call (every statement gets its own call regardless of category)."""
     chain = ai_config.provider_fallback_chain()
     inventory = count_candidate_rules(raw_text)
+    model_sections = detect_model_sections(raw_text)
+    document_preambles = extract_document_preambles(raw_text)
     empty = {
         "result": None, "provider": None, "call_count": 0,
         "rule_inventory": inventory,
         "comparison": {"expected_count": inventory["count"], "captured_count": 0, "rules": []},
         "retry_count": 0, "error": None,
+        "model_sections": model_sections,
     }
     if not chain or not inventory["candidates"]:
         return empty
@@ -76,8 +150,11 @@ def run_sentence_level_extraction(raw_text, source_hint=None, content_type=None,
     pending_retry = []  # candidate dicts still unresolved after this pass
 
     for cand in inventory["candidates"]:
+        model_label = cand.get("model_label")
+        section_label = cand.get("section_label")
         parsed, provider_name, err = _call_one_statement(
-            cand["text"], prompt, chain, f"/ai/import/statement-{cand['id']}",
+            cand["text"], prompt, chain, f"/ai/import/statement-{cand['id']}", model_label, section_label,
+            document_preambles.get(model_label, ""),
         )
         call_count += 1
         if provider_name:
@@ -104,7 +181,8 @@ def run_sentence_level_extraction(raw_text, source_hint=None, content_type=None,
                            "status": "missing", "captured_as": None})
             pending_retry.append(cand)
             continue
-        merged_strategy = merge_fragment_additive(merged_strategy, fragment)
+        routed_fragment = _route_labeled_fragment(fragment, model_label)
+        merged_strategy = merge_fragment_additive(merged_strategy, routed_fragment)
         rules.append({"id": cand["id"], "text": cand["text"], "category": category,
                        "status": "captured", "captured_as": _describe_fragment(fragment)})
 
@@ -116,8 +194,11 @@ def run_sentence_level_extraction(raw_text, source_hint=None, content_type=None,
         retry_count += 1
         still_pending = []
         for cand in pending_retry:
+            model_label = cand.get("model_label")
+            section_label = cand.get("section_label")
             parsed, provider_name, err = _call_one_statement(
                 cand["text"], prompt, chain, f"/ai/import/statement-retry-{retry_count}-{cand['id']}",
+                model_label, section_label, document_preambles.get(model_label, ""),
             )
             call_count += 1
             if provider_name:
@@ -133,7 +214,8 @@ def run_sentence_level_extraction(raw_text, source_hint=None, content_type=None,
             if not fragment:
                 still_pending.append(cand)
                 continue
-            merged_strategy = merge_fragment_additive(merged_strategy, fragment)
+            routed_fragment = _route_labeled_fragment(fragment, model_label)
+            merged_strategy = merge_fragment_additive(merged_strategy, routed_fragment)
             rules[idx] = {**rules[idx], "status": "captured", "captured_as": _describe_fragment(fragment)}
         pending_retry = still_pending
 
@@ -158,6 +240,10 @@ def run_sentence_level_extraction(raw_text, source_hint=None, content_type=None,
         "result": result, "provider": last_provider, "call_count": call_count,
         "rule_inventory": inventory, "comparison": comparison,
         "retry_count": retry_count, "error": error,
+        # Extraction Pipeline Improvements (gap 1): {"labels": [...], "ambiguous": bool,
+        # "reason": str|None} -- callers (importer.py) route "ambiguous"
+        # into the clarification flow instead of guessing a split.
+        "model_sections": model_sections,
     }
 
 

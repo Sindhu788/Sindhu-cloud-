@@ -38,7 +38,7 @@ from datetime import datetime, timezone
 from data_engine import paths
 from backtest_engine import validator
 from backtest_engine import strategy_safety_check as safety
-from backtest_engine.strategy_config import Condition
+from backtest_engine.strategy_config import Condition, SLTPSpec
 
 _TELEMETRY_PATH = os.path.join(paths.HISTORY_DIR, "self_correction_stats.json")
 
@@ -330,6 +330,67 @@ def _repair_dead_entry_buckets(config):
     ]
 
 
+def _all_condition_buckets(config):
+    for name in _entry_bucket_names():
+        yield name, getattr(config, name)
+    yield "exit_conditions", config.exit_conditions
+    yield "confirmation_conditions", config.confirmation_conditions
+    for idx, group in enumerate(config.entry_rule_groups):
+        yield f"entry_rule_groups[{idx}]", group.get("conditions") or []
+
+
+def _repair_known_term_aliases(config):
+    """Item 4 (Terminology Learning) -- read side of the Self-Building
+    Dictionary loop. If an indicator_compare/concept condition names
+    something NOT in validator._KNOWN_INDICATORS but a user previously
+    clarified that exact name as an alias of an already-known one (see
+    ai_integration.dictionary_builder.save_learned_alias, written from
+    Clarification Page's replace_indicator resolution), substitute the
+    known name automatically -- a mechanical lookup of a fact the CEO
+    already established once, never a fresh guess, so it belongs in Level
+    1 alongside the other structural repairs, not Level 2/3."""
+    from ai_integration import dictionary_builder
+    repairs = []
+    for bucket_name, bucket in _all_condition_buckets(config):
+        for cond in bucket:
+            if cond.type == "indicator_compare" and cond.indicator not in validator._KNOWN_INDICATORS:
+                known = dictionary_builder.resolve_alias(cond.indicator)
+                if known:
+                    repairs.append(
+                        f"'{bucket_name}': recognized '{cond.indicator}' as '{known}' -- "
+                        f"a term already clarified in a previous import, so it wasn't asked about again."
+                    )
+                    cond.indicator = known
+            elif cond.type == "concept" and cond.name not in validator._KNOWN_INDICATORS:
+                known = dictionary_builder.resolve_alias(cond.name)
+                if known:
+                    repairs.append(
+                        f"'{bucket_name}': recognized '{cond.name}' as '{known}' -- "
+                        f"a term already clarified in a previous import, so it wasn't asked about again."
+                    )
+                    cond.name = known
+    return repairs
+
+
+def _repair_learned_field_corrections(config):
+    """Item 10 (User Correction Learning) -- read side of the loop. If the
+    CEO has consistently answered the SAME recurring missing-field
+    question (entry_timeframe, risk_pct, risk_reward -- never stop_loss,
+    which stays always-explicit) the same way across multiple past
+    strategies, fill it in automatically instead of asking again. See
+    ai_integration.correction_learning for the unambiguity/audit
+    safeguards -- this only ever calls that module's own decision, never
+    re-implements the pattern-matching itself."""
+    from ai_integration import correction_learning
+    applied = correction_learning.apply_learned_corrections(config)
+    return [
+        f"'{a['field']}' set to {a['value']} -- you've answered this exact question the same way "
+        f"{a['based_on']} times before across different strategies, so it wasn't asked about again. "
+        f"Change it any time via Edit Strategy."
+        for a in applied
+    ]
+
+
 def auto_repair(config):
     """LEVEL 1 (enforcing half): every deterministic, AI-free repair, applied
     in place. Returns a list of plain-language descriptions of what was
@@ -340,6 +401,8 @@ def auto_repair(config):
     repairs += _repair_duplicate_exit_clauses(config)
     repairs += _repair_unreachable_exit_gate(config)
     repairs += _repair_dead_entry_buckets(config)
+    repairs += _repair_known_term_aliases(config)
+    repairs += _repair_learned_field_corrections(config)
     return repairs
 
 
@@ -512,6 +575,135 @@ def targeted_ai_fix(config, issues, use_ai=True):
         return True, str(patch.get("explanation") or "Repaired by a targeted follow-up AI check.")
     except Exception as exc:
         return False, f"The targeted repair step could not run ({exc})."
+
+
+# ------------------------------------------------------------ Item 5: Partial Re-Extraction
+
+# User-triggered, on an ALREADY-SAVED strategy (unlike Level 2 above, which
+# only ever fires automatically during the initial import to fix a detected
+# defect). Same small-scoped-AI-call shape as Level 2 -- one field only,
+# never the whole document -- so it stays cheap and rate-limit-friendly on
+# the free Groq tier, and every OTHER field on the strategy is provably
+# untouched (only the one requested attribute is ever assigned).
+PARTIAL_REEXTRACT_FIELDS = {
+    "entry_conditions": "entry conditions (when to open a trade)",
+    "exit_conditions": "exit conditions (rule-based conditions that close a trade -- separate from stop-loss/take-profit)",
+    "stop_loss": "the stop-loss rule",
+    "take_profit": "the take-profit rule",
+}
+
+_PARTIAL_REEXTRACT_SYSTEM_PROMPT = (
+    "You are re-reading ONE part of an already-extracted trading strategy, because the user asked to "
+    "redo just that part -- not the whole strategy. Everything else about this strategy stays exactly as "
+    "it already is; do not comment on or try to change anything else.\n\n"
+    "Return ONLY a JSON object (no prose, no code fence) containing ONLY the ONE key you were asked for:\n"
+    '{"entry_conditions": [<condition>], "explanation": "one short sentence"} OR\n'
+    '{"exit_conditions": [<condition>], "explanation": "..."} OR\n'
+    '{"stop_loss": {"type": "fixed_pct"|"atr_multiple"|"structure"|"signal_candle", "value": number}, "explanation": "..."} OR\n'
+    '{"take_profit": {"type": "fixed_pct"|"atr_multiple"|"rr"|"level", "value": number, "level": "pdh"|"pdl"|null}, "explanation": "..."}\n\n'
+    "Condition vocabulary (unchanged): {\"type\": \"indicator_compare\"|\"price_compare\"|"
+    "\"indicator_vs_indicator\"|\"concept\"|\"session\"|\"trend\"|\"raw\", \"indicator\": name, "
+    "\"params\": {\"period\": N}, \"op\": \">\"|\"<\", \"value\": number, \"name\": concept name, "
+    "\"direction\": \"bullish\"|\"bearish\"|null}.\n"
+    "Never invent a rule the original source text does not support."
+)
+
+
+def _build_partial_reextract_prompt(config, field):
+    label = PARTIAL_REEXTRACT_FIELDS[field]
+    return (
+        f"STRATEGY: {config.name}\n\n"
+        f"RE-EXTRACT ONLY: {label}\n\n"
+        f"FULL ORIGINAL SOURCE TEXT:\n{(config.raw_text or '')[:6000]}\n\n"
+        f"Everything else about this strategy (other rules, risk settings, timeframes) must be left "
+        f"exactly as it already is -- return ONLY the '{field}' key."
+    )
+
+
+def partial_reextract(config, field, use_ai=True):
+    """Item 5 (Partial Re-Extraction): re-extracts ONE field of an
+    already-saved strategy from its own original raw_text, without
+    re-running the whole document through the import pipeline. Mutates
+    `config` in place ONLY on success, and only ever assigns the single
+    requested field -- every other attribute is provably untouched.
+    Returns (succeeded: bool, note: str). Never raises."""
+    if field not in PARTIAL_REEXTRACT_FIELDS:
+        return False, f"'{field}' is not a re-extractable field."
+    if not use_ai:
+        return False, "AI is disabled, so partial re-extraction is unavailable."
+    if not (config.raw_text or "").strip():
+        return False, "This strategy has no original source text to re-extract from."
+    try:
+        from ai_integration import config as ai_config
+        from ai_integration import providers as ai_providers
+        from ai_integration.schema import _clean_condition, _CODE_FENCE_RE
+        from ai_integration.strategy_builder import build_condition
+
+        chain = ai_config.provider_fallback_chain()
+        if not chain:
+            return False, "No AI provider is configured."
+
+        prompt = _build_partial_reextract_prompt(config, field)
+        raw = None
+        for provider_name in chain:
+            try:
+                settings = ai_config.get_provider_settings(provider_name)
+                provider = ai_providers.get_provider(provider_name, settings)
+                result = provider.chat(prompt, system=_PARTIAL_REEXTRACT_SYSTEM_PROMPT)
+                try:
+                    from data_engine import storage
+                    storage.save_ai_usage_log(
+                        provider_name, settings.get("model"), "/ai/import/partial-reextract",
+                        "success" if result.ok else "error", _now_iso(),
+                        tokens_in=result.tokens_in, tokens_out=result.tokens_out,
+                        latency_ms=result.latency_ms,
+                        error_message=None if result.ok else result.error,
+                    )
+                except Exception:
+                    pass
+                if result.ok and (result.text or "").strip():
+                    raw = result.text
+                    break
+            except Exception:
+                continue
+        if raw is None:
+            return False, "Every AI provider failed during partial re-extraction."
+
+        cleaned = _CODE_FENCE_RE.sub("", raw).strip()
+        start, end = cleaned.find("{"), cleaned.rfind("}")
+        if start == -1 or end == -1:
+            return False, "The response was not usable JSON."
+        patch = json.loads(cleaned[start:end + 1])
+
+        if field in ("entry_conditions", "exit_conditions"):
+            raw_conditions = patch.get(field)
+            if not isinstance(raw_conditions, list) or not raw_conditions:
+                return False, "The response contained no usable conditions for this field."
+            built = []
+            for entry in raw_conditions:
+                cleaned_cond = _clean_condition(entry)
+                if not cleaned_cond:
+                    continue
+                cond = build_condition(cleaned_cond)
+                if cond:
+                    built.append(cond)
+            if not built:
+                return False, "None of the returned conditions could be understood."
+            setattr(config, field, built)
+            return True, str(patch.get("explanation") or f"{field} re-extracted.")
+
+        if field in ("stop_loss", "take_profit"):
+            spec = patch.get(field)
+            if not isinstance(spec, dict) or not spec.get("type"):
+                return False, "The response contained no usable stop-loss/take-profit rule."
+            setattr(config, field, SLTPSpec(
+                type=str(spec["type"]), value=spec.get("value"), level=spec.get("level"),
+            ))
+            return True, str(patch.get("explanation") or f"{field} re-extracted.")
+
+        return False, "Unhandled field."
+    except Exception as exc:
+        return False, f"Partial re-extraction could not run ({exc})."
 
 
 # ------------------------------------------------------------ Level 3

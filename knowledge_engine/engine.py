@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 
 from data_engine import storage
 from knowledge_engine.lesson import from_storage_dict
-from knowledge_engine.condition_eval import evaluate_condition
+from knowledge_engine.condition_eval import evaluate_condition, condition_is_executable
 
 _PRIORITY_RANK = {"Critical": 4, "High": 3, "Medium": 2, "Low": 1}
 
@@ -74,7 +74,23 @@ class KnowledgeEngine:
             if lesson.direction and lesson.direction != direction:
                 continue
 
-            condition_true = all(evaluate_condition(df, i, c, self._arr_cache) for c in lesson.conditions)
+            # Full A-to-Z Audit, Phase 4: is_enforceable() (above) correctly
+            # gates a lesson on having AT LEAST ONE dispatchable condition,
+            # specifically so a lesson made ENTIRELY of raw/unrecognized
+            # conditions doesn't silently evaluate all()->False forever. But
+            # evaluating ALL conditions here -- including non-dispatchable
+            # ones, which evaluate_condition() always resolves False -- meant
+            # a lesson with a MIX of one real condition and one broken one
+            # still hit the exact bug is_enforceable() was written to
+            # prevent: for require_if_true, the broken condition poisons
+            # all() to False regardless of the real condition, so the lesson
+            # blocks every trade unconditionally; for block_if_true (the
+            # default), it does the opposite -- the lesson silently never
+            # enforces. Filtering to dispatchable conditions here mirrors
+            # is_enforceable()'s own logic, which already guarantees this
+            # list is non-empty for any lesson that reaches this point.
+            real_conditions = [c for c in lesson.conditions if condition_is_executable(c)]
+            condition_true = all(evaluate_condition(df, i, c, self._arr_cache) for c in real_conditions)
             triggered = condition_true if lesson.rule_type == "block_if_true" else not condition_true
 
             outcome = "rejected" if triggered else "approved"

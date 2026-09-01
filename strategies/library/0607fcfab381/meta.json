@@ -1,0 +1,17 @@
+{
+  "id": "0607fcfab381",
+  "name": "Lower Time Frame Liquidity Reversal Strategy -- Confirmation Strict variant [Manual Build]",
+  "tags": [
+    "confirmation_optimizer_variant",
+    "level:strict",
+    "source:d62e5015a93b",
+    "additions:sl_distance,min_rr"
+  ],
+  "favourite": false,
+  "archived": true,
+  "created_at": "2026-08-27T09:33:57.570329+00:00",
+  "updated_at": "2026-08-27T09:33:57.587272+00:00",
+  "current_version": 1,
+  "safety_status": "ready",
+  "safety_reasons": []
+}

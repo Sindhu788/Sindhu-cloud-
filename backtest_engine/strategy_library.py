@@ -78,18 +78,28 @@ def create(config, tags=None):
     return strategy_id
 
 
-def save_version(strategy_id, config):
-    """Appends a new version to an existing strategy (edit history)."""
+def save_version(strategy_id, config, reason=None):
+    """Appends a new version to an existing strategy (edit history).
+    `reason` (Item 6, optional, never required -- every existing caller
+    that doesn't pass one keeps working exactly as before) is a short
+    plain-language note of WHY this version was saved (e.g. "Clarification
+    applied", "Re-extracted 'stop_loss'"), kept forever in meta.json's
+    version_log so version_history() can show not just THAT something
+    changed but why -- never deleted, only appended to."""
     meta = _read_meta(strategy_id)
     new_version = meta["current_version"] + 1
     with open(os.path.join(_versions_dir(strategy_id), f"v{new_version}.json"), "w", encoding="utf-8") as f:
         json.dump(config.to_dict(), f, indent=2)
     safety = run_safety_check(config)
+    now = _now_iso()
     meta["current_version"] = new_version
-    meta["updated_at"] = _now_iso()
+    meta["updated_at"] = now
     meta["name"] = config.name
     meta["safety_status"] = safety["status"]
     meta["safety_reasons"] = safety["reasons"]
+    version_log = list(meta.get("version_log") or [])
+    version_log.append({"version": new_version, "reason": reason, "at": now})
+    meta["version_log"] = version_log
     _write_meta(strategy_id, meta)
     return new_version
 
@@ -264,11 +274,52 @@ def version_history(strategy_id):
     vdir = _versions_dir(strategy_id)
     if not os.path.isdir(vdir):
         return versions
+    reason_by_version = {}
+    try:
+        meta = _read_meta(strategy_id)
+        reason_by_version = {e["version"]: e.get("reason") for e in (meta.get("version_log") or [])}
+    except FileNotFoundError:
+        pass
     for fname in sorted(os.listdir(vdir), key=lambda n: int(n[1:-5])):
         version_num = int(fname[1:-5])
         mtime = os.path.getmtime(os.path.join(vdir, fname))
         versions.append({
             "version": version_num,
             "modified_at": datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat(),
+            "reason": reason_by_version.get(version_num),  # None for v1 and pre-Item-6 versions -- never fabricated
         })
     return versions
+
+
+# Fields worth calling out by name in a diff -- everything else still
+# shows up as a generic "field changed" entry, this just gives the common
+# ones a plain-language label instead of the raw StrategyConfig attribute
+# name.
+_DIFF_FIELD_LABELS = {
+    "entry_conditions": "Entry Conditions", "long_entry_conditions": "Long Entry Conditions",
+    "short_entry_conditions": "Short Entry Conditions", "entry_rule_groups": "Entry Rule Groups",
+    "exit_conditions": "Exit Conditions", "confirmation_conditions": "Confirmation Conditions",
+    "stop_loss": "Stop-Loss", "take_profit": "Take-Profit",
+    "risk_pct": "Risk %", "risk_reward": "Risk:Reward", "timeframes": "Timeframes", "name": "Name",
+}
+
+
+def diff_versions(strategy_id, version_a, version_b):
+    """Item 6 (Extraction History/Versioning) -- a field-level diff between
+    two saved versions of the same strategy. Both versions are full
+    snapshots (never deleted, per the project's standing no-deletion
+    rule), so this reads two existing files and compares them; it never
+    mutates anything. Returns a list of {field, label, before, after} for
+    every top-level StrategyConfig field that actually differs."""
+    a = load(strategy_id, version_a).to_dict()
+    b = load(strategy_id, version_b).to_dict()
+    changes = []
+    for key in sorted(set(a) | set(b)):
+        if key == "raw_text":
+            continue  # the source document itself never changes between versions of the same strategy
+        if a.get(key) != b.get(key):
+            changes.append({
+                "field": key, "label": _DIFF_FIELD_LABELS.get(key, key.replace("_", " ").title()),
+                "before": a.get(key), "after": b.get(key),
+            })
+    return changes

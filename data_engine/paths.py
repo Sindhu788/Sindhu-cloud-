@@ -8,7 +8,13 @@ import os
 import shutil
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_DIR = os.path.join(BASE_DIR, "data")
+# SINDHU_DATA_DIR lets a process point at a different data/ folder entirely
+# -- unset (the default, always true for the local laptop app), this is
+# byte-for-byte the same path it always was. Used by the lightweight cloud
+# runner's own isolated verification runs (see cloud_runtime/) so they can
+# prove the app starts and operates without the real local data/ present,
+# without ever touching it.
+DATA_DIR = os.environ.get("SINDHU_DATA_DIR") or os.path.join(BASE_DIR, "data")
 
 DATABASE_DIR = os.path.join(DATA_DIR, "database")
 MARKET_DATA_DIR = os.path.join(DATA_DIR, "market_data")
@@ -17,10 +23,11 @@ REPORTS_DIR = os.path.join(DATA_DIR, "reports")
 SETTINGS_DIR = os.path.join(DATA_DIR, "settings")
 HISTORY_DIR = os.path.join(DATA_DIR, "history")
 CONFIG_DIR = os.path.join(DATA_DIR, "config")
+EXTERNAL_SIGNALS_MEDIA_DIR = os.path.join(DATA_DIR, "external_signals_media")
 
 ALL_DIRS = [
     DATABASE_DIR, MARKET_DATA_DIR, LOGS_DIR, REPORTS_DIR,
-    SETTINGS_DIR, HISTORY_DIR, CONFIG_DIR,
+    SETTINGS_DIR, HISTORY_DIR, CONFIG_DIR, EXTERNAL_SIGNALS_MEDIA_DIR,
 ]
 
 DB_PATH = os.path.join(DATABASE_DIR, "sindhu.db")

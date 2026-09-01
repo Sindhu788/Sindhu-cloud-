@@ -1,0 +1,94 @@
+{
+  "name": "FVG 50% Equilibrium Entry [Manual Build] [Medium]",
+  "raw_text": "FVG 50% Equilibrium Entry (New Batch 4, Strategy 4). Single timeframe: 1H (per the source). Reuses fair_value_gap()/fvg_zone() entirely -- no new detection logic. Entry: price retraces to the 50% equilibrium level of an FVG -- long on bullish FVG, short on bearish FVG. Filter: skip small/low-quality gaps (gap size < 0.1x ATR14, own default). SL = slightly beyond the FVG zone; if the FVG-producing (impulse) candle is small (< 1.5x ATR14, own default, mirrors New Batch 3 Strategy 3's opposite-direction check), use that candle's own high/low instead (0.65% buffer, cost_model-verified safe). TP = structure-based (recent high/low) -- HARD FILTER: min 1:3 RR required, skip if not met. Position sizing: standard 1% risk default (source's own 2-5%/capital-split suggestions ignored -- portfolio management, not signal logic). No session restriction.",
+  "timeframes": {
+    "entry": "1h"
+  },
+  "indicators": [],
+  "concepts_used": [
+    "fvg_equilibrium_entry",
+    "fvg",
+    "support",
+    "resistance"
+  ],
+  "entry_conditions": [],
+  "exit_conditions": [],
+  "confirmation_conditions": [],
+  "long_entry_conditions": [
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "fvg_equilibrium_entry",
+      "direction": "bullish",
+      "text": null,
+      "role": null,
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": null
+    }
+  ],
+  "short_entry_conditions": [
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "fvg_equilibrium_entry",
+      "direction": "bearish",
+      "text": null,
+      "role": null,
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": null
+    }
+  ],
+  "entry_rule_groups": [],
+  "stop_loss": {
+    "type": "structure",
+    "value": 0.65,
+    "level": null,
+    "atr_period": null
+  },
+  "take_profit": {
+    "type": "structure",
+    "value": null,
+    "level": null,
+    "atr_period": null
+  },
+  "risk_pct": 1.0,
+  "risk_reward": null,
+  "sl_distance_filter_pct": {
+    "min_pct": 0.6
+  },
+  "min_risk_reward_filter": 3.0,
+  "primary_target_lookback_bars": null,
+  "risk_reward_filter_uses_take_profit": true,
+  "zone_params": {},
+  "session_filter": [],
+  "trend_filter": null,
+  "day_filter": [],
+  "breakeven_at_rr": null,
+  "entry_type": "market",
+  "long_entry_type": null,
+  "short_entry_type": null,
+  "entry_price_offset_pct": null,
+  "partial_take_profit": null,
+  "trailing_stop": null,
+  "time_exit_bars": null,
+  "tags": [],
+  "favourite": false,
+  "claimed_win_rate_pct": null,
+  "claimed_win_rate_source_text": null,
+  "missing": [],
+  "warnings": []
+}

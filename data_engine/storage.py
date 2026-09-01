@@ -3,7 +3,9 @@ import sqlite3
 import os
 import statistics
 from contextlib import contextmanager
+from datetime import datetime, timezone
 
+from data_engine import db_backend
 from data_engine.paths import DB_PATH, DATABASE_DIR, ensure_folders
 
 DEFAULT_EXCHANGE = "binance"
@@ -69,7 +71,8 @@ CREATE TABLE IF NOT EXISTS backtest_results (
     status TEXT NOT NULL DEFAULT 'pending',
     metrics_json TEXT,
     completed_at TEXT,
-    PRIMARY KEY (batch_id, symbol, timeframe)
+    PRIMARY KEY (batch_id, symbol, timeframe),
+    FOREIGN KEY (batch_id) REFERENCES backtest_batches(batch_id)
 );
 
 CREATE TABLE IF NOT EXISTS backtest_trades (
@@ -91,7 +94,8 @@ CREATE TABLE IF NOT EXISTS backtest_trades (
     risk_amount REAL,
     reward_amount REAL,
     entry_reason TEXT,
-    PRIMARY KEY (batch_id, symbol, timeframe, trade_num)
+    PRIMARY KEY (batch_id, symbol, timeframe, trade_num),
+    FOREIGN KEY (batch_id) REFERENCES backtest_batches(batch_id)
 );
 
 -- This table reaches tens of millions of rows (15.6M measured). Lookups by
@@ -168,6 +172,18 @@ CREATE TABLE IF NOT EXISTS activity_log (
     created_at TEXT NOT NULL
 );
 
+-- Project Status page's Feedback/Request box: a durable notes list the
+-- user can leave notes on (Suggest/Add/Fix/Wrong) for Claude Code to read
+-- back in future sessions. Deliberately does NOT trigger any automatic
+-- action -- just persisted and displayed.
+CREATE TABLE IF NOT EXISTS user_feedback (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    type TEXT NOT NULL,
+    text TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open',
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS paper_positions (
     id TEXT PRIMARY KEY,
     exchange TEXT NOT NULL,
@@ -233,6 +249,22 @@ CREATE TABLE IF NOT EXISTS paper_balance_resets (
     open_positions_left_running INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_paper_balance_resets_strategy ON paper_balance_resets(strategy_id, reset_at DESC);
+
+-- Master Task 2, Part 3 (Advanced Controls): per-strategy full stats reset
+-- (balance + closed_count + win_count), distinct from the system-wide,
+-- balance-only paper_balance_resets above. Archive-not-delete: every reset
+-- writes one row here with the pre-reset numbers before zeroing
+-- paper_account_state, so the history is never lost.
+CREATE TABLE IF NOT EXISTS paper_strategy_stat_archives (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    strategy_id TEXT NOT NULL,
+    archived_at TEXT NOT NULL,
+    previous_realized_pnl_total REAL NOT NULL,
+    previous_closed_count INTEGER NOT NULL,
+    previous_win_count INTEGER NOT NULL,
+    open_positions_left_running INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_paper_strategy_stat_archives_strategy ON paper_strategy_stat_archives(strategy_id, archived_at DESC);
 
 CREATE TABLE IF NOT EXISTS paper_decision_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -796,6 +828,89 @@ CREATE TABLE IF NOT EXISTS daily_generation_log (
     candidates_generated INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL
 );
+
+-- ================================================================
+-- External Signal Tracker -- COMPLETELY SEPARATE from every paper_* /
+-- bot_strategies / evolution_* table above. Every table here is prefixed
+-- external_ and keyed by channel_id (never strategy_id), so nothing here
+-- is reachable by paper_trading/guards.py's book_key(), evolution_engine's
+-- storage queries, or any existing dashboard aggregate. See
+-- external_signals/README.md for the full isolation write-up.
+
+CREATE TABLE IF NOT EXISTS external_channels (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,                 -- CEO's own label for this channel
+    telegram_identifier TEXT NOT NULL,  -- @username or numeric chat id the CEO is a member of
+    enabled INTEGER NOT NULL DEFAULT 1,
+    forwarding_source_label TEXT,       -- stable "Source A"/"Source B" identifier, assigned once, never the real name
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS external_messages (
+    id TEXT PRIMARY KEY,
+    channel_id TEXT NOT NULL,
+    telegram_message_id TEXT,
+    content_type TEXT NOT NULL,   -- text | image | voice
+    raw_text TEXT,                -- original text, or transcribed/OCR'd text once available
+    raw_media_path TEXT,          -- stored image/voice file, if any -- original is NEVER deleted
+    received_at TEXT NOT NULL,
+    processed INTEGER NOT NULL DEFAULT 0,
+    process_error TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_external_messages_channel ON external_messages(channel_id, received_at DESC);
+CREATE INDEX IF NOT EXISTS idx_external_messages_unprocessed ON external_messages(processed);
+
+CREATE TABLE IF NOT EXISTS external_signals (
+    id TEXT PRIMARY KEY,
+    message_id TEXT NOT NULL,
+    channel_id TEXT NOT NULL,
+    is_signal INTEGER NOT NULL,     -- 0 = deliberately rejected (chat/commentary/update), never guessed into a trade
+    reject_reason TEXT,
+    symbol TEXT,
+    direction TEXT,                 -- long | short
+    entries_json TEXT,              -- [{"price":, "size_pct":}, ...] -- DCA-capable from the start, size_pct sums to 100
+    stop_loss REAL,
+    take_profit_json TEXT,          -- [price, ...] -- one or more targets
+    leverage REAL,
+    parsed_by TEXT,                 -- "deterministic" | "ai"
+    parsed_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_external_signals_channel ON external_signals(channel_id, parsed_at DESC);
+
+CREATE TABLE IF NOT EXISTS external_positions (
+    id TEXT PRIMARY KEY,
+    channel_id TEXT NOT NULL,
+    signal_id TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    entries_json TEXT NOT NULL,     -- planned entries: [{"price":, "size_pct":, "filled": bool, "filled_at": iso|null}]
+    avg_entry_price REAL,           -- recomputed as staged entries fill
+    filled_size_pct REAL NOT NULL DEFAULT 0,
+    stop_loss REAL,
+    take_profit_json TEXT,
+    exit_price REAL,
+    pnl REAL,
+    pnl_pct REAL,
+    exit_reason TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',  -- pending (no entry filled yet) | open | closed
+    opened_at TEXT,
+    closed_at TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_external_positions_channel_status ON external_positions(channel_id, status);
+
+CREATE TABLE IF NOT EXISTS external_channel_performance (
+    channel_id TEXT PRIMARY KEY,
+    balance REAL NOT NULL DEFAULT 1000.0,
+    trades INTEGER NOT NULL DEFAULT 0,
+    wins INTEGER NOT NULL DEFAULT 0,
+    losses INTEGER NOT NULL DEFAULT 0,
+    total_pnl REAL NOT NULL DEFAULT 0,
+    total_rr_sum REAL NOT NULL DEFAULT 0,   -- sum of realized R-multiples, for avg_rr = total_rr_sum / trades
+    updated_at TEXT
+);
 """
 
 _COMPILED_DOCUMENT_V6_COLUMNS = {
@@ -873,6 +988,12 @@ _PAPER_STRATEGY_CONFIG_PAUSE_COLUMNS = {
     # Sharpe Ratio -- 1.0 (unchanged) until enough trade history exists.
     "capital_multiplier": "REAL NOT NULL DEFAULT 1.0",
     "capital_multiplier_reason": "TEXT",
+    # Master Task 2, Part 3 (Advanced Controls): NULL means "use the global
+    # paper_trading setting" for that strategy -- these only ever narrow or
+    # widen ONE strategy's own book, read by risk_manager.evaluate() before
+    # it falls back to the global default.
+    "risk_pct_override": "REAL",
+    "max_open_trades_override": "INTEGER",
 }
 
 
@@ -1179,6 +1300,22 @@ def _migrate_trade_history_columns(conn):
 # Governor.clear_queue().
 @contextmanager
 def get_conn():
+    # Lightweight cloud runner support: when DATABASE_URL is set, every
+    # existing caller of get_conn() (every function in this file) is
+    # transparently redirected to Postgres instead of SQLite -- see
+    # data_engine/db_backend.py for why this needs no changes to any of
+    # this file's actual query text. When DATABASE_URL is unset (the local
+    # laptop, always, unless deliberately configured otherwise) this branch
+    # is never taken and behavior is byte-for-byte what it always was.
+    if db_backend.IS_POSTGRES:
+        conn = db_backend.get_postgres_conn()
+        try:
+            yield conn
+            conn.commit()
+        finally:
+            conn.close()
+        return
+
     ensure_folders()
     conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.execute("PRAGMA journal_mode=WAL;")
@@ -1196,6 +1333,13 @@ def get_conn():
     # failing outright.
     conn.execute("PRAGMA synchronous=NORMAL;")
     conn.execute("PRAGMA busy_timeout=10000;")
+    # Master Task 2, Part 4.1: SQLite does not enforce FOREIGN KEY
+    # constraints by default on any given connection, even when the schema
+    # declares them -- this must be set on every connection for the
+    # backtest_results/backtest_trades -> backtest_batches constraint
+    # (added by _migrate_backtest_fk_constraints) to actually reject an
+    # orphaned write instead of silently allowing it.
+    conn.execute("PRAGMA foreign_keys=ON;")
     try:
         yield conn
         conn.commit()
@@ -1289,7 +1433,105 @@ def _migrate_add_exchange_column(conn):
         conn.execute("DROP TABLE download_progress_old")
 
 
+def _migrate_backtest_fk_constraints(conn):
+    """Master Task 2, Part 4.1 (orphan rows -- permanent fix, not another
+    clean-up). Root cause investigation (this session): every save_result/
+    save_trades() call lives in backtest_engine/runner.py, and in both
+    run_batch and run_mtf_batch, storage.create_batch() always executes,
+    synchronously, before any worker is spawned -- workers never touch
+    storage directly (confirmed: zero storage references in mtf_worker.py).
+    No in-code race was found that lets a child row get written without its
+    parent already having committed -- matching two prior audits' own
+    "bounded investigation, cause not found" conclusion. What WAS confirmed
+    missing: backtest_results/backtest_trades never had a FOREIGN KEY on
+    batch_id, so nothing at the database level stops a child row from being
+    written or surviving without its parent, regardless of how one gets
+    orphaned (an interrupted process, an OS-level crash mid-write, or a
+    mechanism no amount of application-level tracing can see from the
+    outside). This closes it at the layer that can actually guarantee it:
+    SQLite itself now rejects any backtest_results/backtest_trades write
+    whose batch_id doesn't exist in backtest_batches -- an orphan literally
+    cannot be created going forward, silently or otherwise.
+
+    Existing orphans are NEVER deleted (global "never delete data" rule):
+    each orphaned batch_id still present at migration time gets ONE
+    synthesized row inserted into backtest_batches first (status
+    'orphan_recovered', clearly labeled) so its results/trades become
+    reachable/archived instead of being dropped by the rebuild below.
+
+    Runs once (idempotent -- checked via PRAGMA foreign_key_list, same
+    pattern every other migration in this file uses); a fresh database
+    gets the FK from _SCHEMA directly and never touches this function's
+    rebuild path at all."""
+    existing = {r[0] for r in
+                conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "backtest_results" not in existing or "backtest_trades" not in existing:
+        return
+    if conn.execute("PRAGMA foreign_key_list(backtest_results)").fetchall():
+        return  # already migrated
+
+    orphan_ids = {r[0] for r in conn.execute(
+        "SELECT DISTINCT batch_id FROM backtest_results WHERE batch_id NOT IN (SELECT batch_id FROM backtest_batches)"
+    ).fetchall()}
+    orphan_ids |= {r[0] for r in conn.execute(
+        "SELECT DISTINCT batch_id FROM backtest_trades WHERE batch_id NOT IN (SELECT batch_id FROM backtest_batches)"
+    ).fetchall()}
+    now_iso = datetime.now(timezone.utc).isoformat()
+    for batch_id in sorted(orphan_ids):
+        earliest = conn.execute(
+            "SELECT MIN(completed_at) FROM backtest_results WHERE batch_id=?", (batch_id,)
+        ).fetchone()[0]
+        conn.execute(
+            """INSERT OR IGNORE INTO backtest_batches
+               (batch_id, strategy_name, exchange, settings_json, status, created_at, updated_at)
+               VALUES (?, ?, ?, ?, 'orphan_recovered', ?, ?)""",
+            (batch_id, "[Recovered orphan -- original batch record lost]", "unknown", "{}",
+             earliest or now_iso, now_iso),
+        )
+
+    def _rebuild_with_batch_fk(table, pk_cols):
+        # Reads the table's REAL current columns from the live database
+        # (PRAGMA table_info) rather than a hardcoded schema string -- this
+        # table has picked up extra columns over time via other additive
+        # migrations (_migrate_trade_history_columns), and a stale hardcoded
+        # column list would silently drop/misalign real trade data.
+        col_rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+        col_defs = []
+        for _cid, name, ctype, notnull, dflt, _pk in col_rows:
+            d = f"{name} {ctype}"
+            if notnull:
+                d += " NOT NULL"
+            if dflt is not None:
+                d += f" DEFAULT {dflt}"
+            col_defs.append(d)
+        old_name = f"{table}_old_pre_fk"
+        conn.execute(f"ALTER TABLE {table} RENAME TO {old_name}")
+        conn.execute(
+            f"CREATE TABLE {table} ({', '.join(col_defs)}, "
+            f"PRIMARY KEY ({', '.join(pk_cols)}), "
+            f"FOREIGN KEY (batch_id) REFERENCES backtest_batches(batch_id))"
+        )
+        conn.execute(f"INSERT INTO {table} SELECT * FROM {old_name}")
+        conn.execute(f"DROP TABLE {old_name}")
+
+    _rebuild_with_batch_fk("backtest_results", ["batch_id", "symbol", "timeframe"])
+    _rebuild_with_batch_fk("backtest_trades", ["batch_id", "symbol", "timeframe", "trade_num"])
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_backtest_trades_entry_time ON backtest_trades(entry_time DESC)")
+
+
 def init_db():
+    if db_backend.IS_POSTGRES:
+        # A fresh Postgres database is created with its FINAL curated shape
+        # directly (see db_backend.POSTGRES_SCHEMA's own docstring) -- none
+        # of the SQLite-specific `_migrate_*` functions below apply (they
+        # exist to evolve an old SQLite file's shape forward one column at
+        # a time; a brand-new Postgres database has no old shape to
+        # migrate FROM). The local SQLite path below is completely
+        # unaffected by this branch.
+        with get_conn() as conn:
+            db_backend.init_postgres_schema(conn)
+        return
+
     with get_conn() as conn:
         _migrate_add_exchange_column(conn)
         conn.executescript(_SCHEMA)
@@ -1309,6 +1551,7 @@ def init_db():
         _migrate_backtest_batch_extraction_warning_column(conn)
         _migrate_telegram_log_explanation_column(conn)
         _migrate_telegram_log_grade_columns(conn)
+        _migrate_backtest_fk_constraints(conn)
 
 
 def save_symbols(exchange, symbols, now_iso):
@@ -2051,6 +2294,32 @@ def list_activity(limit=50):
     ]
 
 
+def save_feedback(fb_type, text, now_iso):
+    with get_conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO user_feedback (type, text, status, created_at) VALUES (?, ?, 'open', ?)",
+            (fb_type, text, now_iso),
+        )
+        return cur.lastrowid
+
+
+def list_feedback(limit=200):
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, type, text, status, created_at FROM user_feedback ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    return [
+        {"id": r[0], "type": r[1], "text": r[2], "status": r[3], "created_at": r[4]}
+        for r in rows
+    ]
+
+
+def set_feedback_status(feedback_id, status):
+    with get_conn() as conn:
+        conn.execute("UPDATE user_feedback SET status = ? WHERE id = ?", (status, feedback_id))
+
+
 def get_knowledge_report():
     # Reads the running totals in lesson_stats_summary (one row per lesson,
     # kept in sync incrementally at write time) rather than aggregating
@@ -2250,6 +2519,65 @@ def reset_paper_balance(now_iso):
     }
 
 
+def reset_strategy_stats(strategy_id, now_iso):
+    """Master Task 2, Part 3 (Advanced Controls) -- full per-strategy reset:
+    unlike reset_paper_balance() (system-wide, zeroes realized_pnl_total
+    only), this zeroes realized_pnl_total, closed_count, AND win_count for
+    ONE strategy's book, so its dashboard numbers genuinely start fresh.
+    Archive-not-delete: the pre-reset numbers are written to
+    paper_strategy_stat_archives first. paper_positions (the real trade
+    history) is never touched -- those rows remain a permanent record;
+    only this book's live aggregate counters reset. Open positions are
+    left running, same as reset_paper_balance()."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT realized_pnl_total, closed_count, win_count FROM paper_account_state WHERE strategy_id=?",
+            (strategy_id,),
+        ).fetchone()
+        previous_pnl, previous_closed, previous_wins = row if row else (0.0, 0, 0)
+        open_count = conn.execute(
+            "SELECT COUNT(*) FROM paper_positions WHERE strategy_id=? AND status='open'",
+            (strategy_id,),
+        ).fetchone()[0]
+        conn.execute(
+            """INSERT INTO paper_strategy_stat_archives
+               (strategy_id, archived_at, previous_realized_pnl_total, previous_closed_count,
+                previous_win_count, open_positions_left_running)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (strategy_id, now_iso, previous_pnl, previous_closed, previous_wins, open_count),
+        )
+        conn.execute(
+            """INSERT INTO paper_account_state (strategy_id, realized_pnl_total, closed_count, win_count, updated_at)
+               VALUES (?, 0, 0, 0, ?)
+               ON CONFLICT(strategy_id) DO UPDATE SET
+                 realized_pnl_total=0, closed_count=0, win_count=0, updated_at=excluded.updated_at""",
+            (strategy_id, now_iso),
+        )
+    return {
+        "strategy_id": strategy_id, "previous_realized_pnl_total": previous_pnl,
+        "previous_closed_count": previous_closed, "previous_win_count": previous_wins,
+        "open_positions_left_running": open_count, "reset_at": now_iso,
+    }
+
+
+def list_strategy_stat_archives(strategy_id, limit=20):
+    """The "clearly marked historical record" a per-strategy reset leaves
+    behind -- most recent first."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT archived_at, previous_realized_pnl_total, previous_closed_count,
+                      previous_win_count, open_positions_left_running
+               FROM paper_strategy_stat_archives WHERE strategy_id=?
+               ORDER BY archived_at DESC LIMIT ?""",
+            (strategy_id, limit),
+        ).fetchall()
+    return [
+        {"archived_at": r[0], "previous_realized_pnl_total": r[1], "previous_closed_count": r[2],
+         "previous_win_count": r[3], "open_positions_left_running": r[4]}
+        for r in rows
+    ]
+
+
 def get_last_balance_reset_at(strategy_id):
     key = "__lessons__" if strategy_id is None else strategy_id
     with get_conn() as conn:
@@ -2421,6 +2749,52 @@ def list_closed_paper_trades_since(since_iso):
             (since_iso,),
         ).fetchall()
     return [{"pnl": r[0], "risk_amount": r[1]} for r in rows]
+
+
+def get_paper_strategy_period_stats(strategy_id, since_iso=None, until_iso=None):
+    """One strategy's own closed-trade record inside [since_iso, until_iso).
+
+    Deliberately scoped to a SINGLE strategy's independent book -- every
+    strategy in paper trading keeps its own balance/PnL/positions and they
+    are never merged, so this never aggregates across strategies. Open
+    positions are returned as their own separate count and are never
+    folded into closed_trades.
+    """
+    query = ("SELECT COUNT(*), COALESCE(SUM(pnl),0), "
+             "SUM(CASE WHEN pnl>0 THEN 1 ELSE 0 END), "
+             "SUM(CASE WHEN pnl<0 THEN 1 ELSE 0 END) "
+             "FROM paper_positions "
+             "WHERE status='closed' AND pnl IS NOT NULL AND strategy_id = ?")
+    params = [strategy_id]
+    if since_iso:
+        query += " AND closed_at >= ?"
+        params.append(since_iso)
+    if until_iso:
+        query += " AND closed_at < ?"
+        params.append(until_iso)
+    with get_conn() as conn:
+        row = conn.execute(query, params).fetchone()
+        open_row = conn.execute(
+            "SELECT COUNT(*) FROM paper_positions WHERE status='open' AND strategy_id = ?",
+            (strategy_id,),
+        ).fetchone()
+    closed, pnl, wins, losses = row
+    closed = closed or 0
+    wins = wins or 0
+    losses = losses or 0
+    return {
+        "closed_trades": closed,
+        "total_pnl": round(pnl or 0.0, 2),
+        "win_count": wins,
+        "loss_count": losses,
+        # A trade that closed exactly at breakeven is neither -- reported
+        # rather than silently counted as a loss.
+        "breakeven_count": max(closed - wins - losses, 0),
+        "win_rate": round(wins / closed * 100, 2) if closed else 0.0,
+        # Always a CURRENT figure (a position is open now or it isn't) --
+        # never period-filtered, and never mixed into closed_trades.
+        "open_positions": open_row[0] if open_row else 0,
+    }
 
 
 def list_paper_coin_stats(since_iso=None, until_iso=None):
@@ -2627,7 +3001,8 @@ def list_paper_lesson_performance():
 def get_paper_strategy_config(strategy_id):
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT strategy_id, enabled, priority, supported_coins_json, supported_market_types_json, updated_at "
+            "SELECT strategy_id, enabled, priority, supported_coins_json, supported_market_types_json, updated_at, "
+            "risk_pct_override, max_open_trades_override "
             "FROM paper_strategy_config WHERE strategy_id=?", (strategy_id,),
         ).fetchone()
     if not row:
@@ -2639,19 +3014,22 @@ def get_paper_strategy_config(strategy_id):
         # (previously the pipeline's only_strategy_id scoping masked this
         # default, since exactly one strategy was ever active regardless).
         return {"strategy_id": strategy_id, "enabled": False, "priority": 5,
-                "supported_coins": [], "supported_market_types": []}
+                "supported_coins": [], "supported_market_types": [],
+                "risk_pct_override": None, "max_open_trades_override": None}
     return {
         "strategy_id": row[0], "enabled": bool(row[1]), "priority": row[2],
         "supported_coins": json.loads(row[3]) if row[3] else [],
         "supported_market_types": json.loads(row[4]) if row[4] else [],
         "updated_at": row[5],
+        "risk_pct_override": row[6], "max_open_trades_override": row[7],
     }
 
 
 def list_paper_strategy_configs():
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT strategy_id, enabled, priority, supported_coins_json, supported_market_types_json, updated_at "
+            "SELECT strategy_id, enabled, priority, supported_coins_json, supported_market_types_json, updated_at, "
+            "risk_pct_override, max_open_trades_override "
             "FROM paper_strategy_config"
         ).fetchall()
     return {
@@ -2660,11 +3038,17 @@ def list_paper_strategy_configs():
             "supported_coins": json.loads(r[3]) if r[3] else [],
             "supported_market_types": json.loads(r[4]) if r[4] else [],
             "updated_at": r[5],
+            "risk_pct_override": r[6], "max_open_trades_override": r[7],
         } for r in rows
     }
 
 
 def save_paper_strategy_config(strategy_id, enabled, priority, supported_coins, supported_market_types, now_iso):
+    # Deliberately does NOT touch risk_pct_override/max_open_trades_override
+    # (set via set_strategy_risk_overrides) -- same pattern as
+    # paused/capital_multiplier already used here: a plain ON/OFF or
+    # priority save must never silently wipe an override set through a
+    # different control.
     with get_conn() as conn:
         conn.execute(
             """INSERT INTO paper_strategy_config
@@ -2677,6 +3061,25 @@ def save_paper_strategy_config(strategy_id, enabled, priority, supported_coins, 
                  updated_at=excluded.updated_at""",
             (strategy_id, int(enabled), priority, json.dumps(supported_coins or []),
              json.dumps(supported_market_types or []), now_iso),
+        )
+
+
+def set_strategy_risk_overrides(strategy_id, risk_pct_override, max_open_trades_override, now_iso):
+    """Master Task 2, Part 3: per-strategy risk %/max-open-positions
+    override. None means "use the global paper_trading default" for that
+    field -- explicitly setting one field never disturbs the other, and
+    neither disturbs enabled/priority/paused/capital_multiplier, each of
+    which has its own dedicated setter."""
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO paper_strategy_config
+               (strategy_id, enabled, priority, risk_pct_override, max_open_trades_override, updated_at)
+               VALUES (?, 1, 5, ?, ?, ?)
+               ON CONFLICT(strategy_id) DO UPDATE SET
+                 risk_pct_override=excluded.risk_pct_override,
+                 max_open_trades_override=excluded.max_open_trades_override,
+                 updated_at=excluded.updated_at""",
+            (strategy_id, risk_pct_override, max_open_trades_override, now_iso),
         )
 
 
@@ -3129,6 +3532,65 @@ def list_confluence_history(strategy_id, limit=100):
             (strategy_id, limit),
         ).fetchall()
     return [{"confluence_ratio": r[0], "created_at": r[1]} for r in rows]
+
+
+def list_generated_signals_with_delivery(since_iso=None, until_iso=None):
+    """EVERY signal the system generated in [since_iso, until_iso), whether
+    or not it was ever delivered to Telegram -- bucketed by when the signal
+    FIRED (paper_positions.created_at, i.e. when the position opened).
+
+    Deliberately driven off paper_positions, NOT off telegram_message_log:
+    a log row only exists once a send was attempted, so a log-driven query
+    can only ever show signals that were attempted, and would silently hide
+    every signal that was generated but never delivered -- which, while
+    Telegram is network-blocked, is most of them. Each row carries its own
+    delivery attempts (newest first, empty list if none) so the caller can
+    state honestly what happened rather than inferring it.
+
+    Read-only. Never sends, re-sends, opens, or closes anything."""
+    query = (
+        "SELECT id, symbol, direction, entry_price, stop_loss, take_profit, "
+        "strategy_id, strategy_name, confidence, status, pnl, created_at, closed_at, "
+        "entry_time, session, market_state, exchange, timeframe "
+        "FROM paper_positions WHERE 1=1"
+    )
+    params = []
+    if since_iso:
+        query += " AND created_at >= ?"
+        params.append(since_iso)
+    if until_iso:
+        query += " AND created_at < ?"
+        params.append(until_iso)
+    query += " ORDER BY created_at DESC"
+    cols = ["id", "symbol", "direction", "entry_price", "stop_loss", "take_profit",
+            "strategy_id", "strategy_name", "confidence", "status", "pnl", "created_at",
+            "closed_at", "entry_time", "session", "market_state", "exchange", "timeframe"]
+    with get_conn() as conn:
+        rows = conn.execute(query, params).fetchall()
+        signals = [dict(zip(cols, r)) for r in rows]
+        if not signals:
+            return []
+        # One query for every attempt across the whole page rather than one
+        # per signal -- same reason the analytics endpoint batches its own
+        # aggregates (see sindhu_web/api/paper_trading._compute_analytics).
+        ids = [s["id"] for s in signals]
+        placeholders = ",".join("?" * len(ids))
+        att_rows = conn.execute(
+            f"SELECT position_id, trigger_type, success, error, sent_at, message_text, "
+            f"quality_grade, grade_reason FROM telegram_message_log "
+            f"WHERE position_id IN ({placeholders}) AND trigger_type IN ('manual','automatic') "
+            f"ORDER BY sent_at DESC",
+            ids,
+        ).fetchall()
+    att_cols = ["position_id", "trigger_type", "success", "error", "sent_at",
+                "message_text", "quality_grade", "grade_reason"]
+    by_pos = {}
+    for r in att_rows:
+        d = dict(zip(att_cols, r))
+        by_pos.setdefault(d["position_id"], []).append(d)
+    for s in signals:
+        s["attempts"] = by_pos.get(s["id"], [])
+    return signals
 
 
 def has_telegram_signal_for_position(position_id):
@@ -4588,3 +5050,296 @@ def increment_daily_candidates_generated(date, now_iso, by=1):
             "UPDATE daily_generation_log SET candidates_generated = candidates_generated + ?, updated_at = ? WHERE date = ?",
             (by, now_iso, date),
         )
+
+
+# ================================================================
+# External Signal Tracker -- reads/writes ONLY the external_* tables
+# declared in _SCHEMA above. Never touches paper_positions,
+# paper_account_state, paper_strategy_performance, bot_strategies, or any
+# other existing table -- isolation is enforced simply by every function
+# below only ever mentioning external_* table names.
+
+def save_external_channel(channel_id, name, telegram_identifier, forwarding_source_label, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO external_channels (id, name, telegram_identifier, enabled, forwarding_source_label, created_at, updated_at)
+               VALUES (?, ?, ?, 1, ?, ?, ?)""",
+            (channel_id, name, telegram_identifier, forwarding_source_label, now_iso, now_iso),
+        )
+
+
+def list_external_channels(enabled_only=False):
+    with get_conn() as conn:
+        query = "SELECT id, name, telegram_identifier, enabled, forwarding_source_label, created_at, updated_at FROM external_channels"
+        if enabled_only:
+            query += " WHERE enabled = 1"
+        query += " ORDER BY created_at ASC"
+        rows = conn.execute(query).fetchall()
+    cols = ["id", "name", "telegram_identifier", "enabled", "forwarding_source_label", "created_at", "updated_at"]
+    return [dict(zip(cols, r)) for r in rows]
+
+
+def get_external_channel(channel_id):
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT id, name, telegram_identifier, enabled, forwarding_source_label, created_at, updated_at "
+            "FROM external_channels WHERE id = ?",
+            (channel_id,),
+        ).fetchone()
+    if not row:
+        return None
+    cols = ["id", "name", "telegram_identifier", "enabled", "forwarding_source_label", "created_at", "updated_at"]
+    return dict(zip(cols, row))
+
+
+def set_external_channel_enabled(channel_id, enabled, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE external_channels SET enabled = ?, updated_at = ? WHERE id = ?",
+            (1 if enabled else 0, now_iso, channel_id),
+        )
+
+
+def rename_external_channel(channel_id, name, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE external_channels SET name = ?, updated_at = ? WHERE id = ?",
+            (name, now_iso, channel_id),
+        )
+
+
+def delete_external_channel(channel_id):
+    """Removes the channel row only -- every message/signal/position it
+    ever produced stays in external_messages/external_signals/
+    external_positions forever (standing no-deletion-of-trade-history
+    rule), just no longer attached to an active channel row."""
+    with get_conn() as conn:
+        conn.execute("DELETE FROM external_channels WHERE id = ?", (channel_id,))
+
+
+def save_external_message(message_id, channel_id, telegram_message_id, content_type, raw_text, raw_media_path, received_at, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO external_messages
+               (id, channel_id, telegram_message_id, content_type, raw_text, raw_media_path, received_at, processed, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)""",
+            (message_id, channel_id, telegram_message_id, content_type, raw_text, raw_media_path, received_at, now_iso),
+        )
+
+
+def list_unprocessed_external_messages(limit=200):
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT id, channel_id, telegram_message_id, content_type, raw_text, raw_media_path, received_at
+               FROM external_messages WHERE processed = 0 ORDER BY received_at ASC LIMIT ?""",
+            (limit,),
+        ).fetchall()
+    cols = ["id", "channel_id", "telegram_message_id", "content_type", "raw_text", "raw_media_path", "received_at"]
+    return [dict(zip(cols, r)) for r in rows]
+
+
+def mark_external_message_processed(message_id, raw_text_update=None, process_error=None):
+    """raw_text_update: pass the OCR/transcribed text to fill in raw_text
+    for an image/voice message without ever touching raw_media_path (the
+    original file is never overwritten or deleted)."""
+    with get_conn() as conn:
+        if raw_text_update is not None:
+            conn.execute(
+                "UPDATE external_messages SET processed = 1, process_error = ?, raw_text = ? WHERE id = ?",
+                (process_error, raw_text_update, message_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE external_messages SET processed = 1, process_error = ? WHERE id = ?",
+                (process_error, message_id),
+            )
+
+
+def list_external_messages(channel_id=None, limit=100):
+    with get_conn() as conn:
+        if channel_id:
+            rows = conn.execute(
+                """SELECT id, channel_id, telegram_message_id, content_type, raw_text, raw_media_path,
+                          received_at, processed, process_error
+                   FROM external_messages WHERE channel_id = ? ORDER BY received_at DESC LIMIT ?""",
+                (channel_id, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT id, channel_id, telegram_message_id, content_type, raw_text, raw_media_path,
+                          received_at, processed, process_error
+                   FROM external_messages ORDER BY received_at DESC LIMIT ?""",
+                (limit,),
+            ).fetchall()
+    cols = ["id", "channel_id", "telegram_message_id", "content_type", "raw_text", "raw_media_path",
+            "received_at", "processed", "process_error"]
+    return [dict(zip(cols, r)) for r in rows]
+
+
+def save_external_signal(signal_id, message_id, channel_id, is_signal, reject_reason, symbol, direction,
+                          entries, stop_loss, take_profit_list, leverage, parsed_by, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO external_signals
+               (id, message_id, channel_id, is_signal, reject_reason, symbol, direction, entries_json,
+                stop_loss, take_profit_json, leverage, parsed_by, parsed_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (signal_id, message_id, channel_id, 1 if is_signal else 0, reject_reason, symbol, direction,
+             json.dumps(entries or []), stop_loss, json.dumps(take_profit_list or []), leverage, parsed_by, now_iso),
+        )
+
+
+def list_external_signals(channel_id=None, is_signal=None, limit=200):
+    with get_conn() as conn:
+        query = ("SELECT id, message_id, channel_id, is_signal, reject_reason, symbol, direction, entries_json, "
+                  "stop_loss, take_profit_json, leverage, parsed_by, parsed_at FROM external_signals WHERE 1=1")
+        params = []
+        if channel_id:
+            query += " AND channel_id = ?"
+            params.append(channel_id)
+        if is_signal is not None:
+            query += " AND is_signal = ?"
+            params.append(1 if is_signal else 0)
+        query += " ORDER BY parsed_at DESC LIMIT ?"
+        params.append(limit)
+        rows = conn.execute(query, params).fetchall()
+    cols = ["id", "message_id", "channel_id", "is_signal", "reject_reason", "symbol", "direction", "entries_json",
+            "stop_loss", "take_profit_json", "leverage", "parsed_by", "parsed_at"]
+    out = []
+    for r in rows:
+        d = dict(zip(cols, r))
+        d["entries"] = json.loads(d.pop("entries_json") or "[]")
+        d["take_profit"] = json.loads(d.pop("take_profit_json") or "[]")
+        d["is_signal"] = bool(d["is_signal"])
+        out.append(d)
+    return out
+
+
+def open_external_position(position_id, channel_id, signal_id, symbol, direction, entries, stop_loss,
+                            take_profit_list, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO external_positions
+               (id, channel_id, signal_id, symbol, direction, entries_json, avg_entry_price, filled_size_pct,
+                stop_loss, take_profit_json, status, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, NULL, 0, ?, ?, 'pending', ?)""",
+            (position_id, channel_id, signal_id, symbol, direction, json.dumps(entries), stop_loss,
+             json.dumps(take_profit_list or []), now_iso),
+        )
+
+
+def get_external_position(position_id):
+    with get_conn() as conn:
+        row = conn.execute(
+            """SELECT id, channel_id, signal_id, symbol, direction, entries_json, avg_entry_price, filled_size_pct,
+                      stop_loss, take_profit_json, exit_price, pnl, pnl_pct, exit_reason, status, opened_at,
+                      closed_at, created_at
+               FROM external_positions WHERE id = ?""",
+            (position_id,),
+        ).fetchone()
+    if not row:
+        return None
+    return _row_to_external_position(row)
+
+
+def _row_to_external_position(row):
+    cols = ["id", "channel_id", "signal_id", "symbol", "direction", "entries_json", "avg_entry_price",
+            "filled_size_pct", "stop_loss", "take_profit_json", "exit_price", "pnl", "pnl_pct", "exit_reason",
+            "status", "opened_at", "closed_at", "created_at"]
+    d = dict(zip(cols, row))
+    d["entries"] = json.loads(d.pop("entries_json") or "[]")
+    d["take_profit"] = json.loads(d.pop("take_profit_json") or "[]")
+    return d
+
+
+def list_external_positions(channel_id=None, status=None, limit=500):
+    with get_conn() as conn:
+        query = ("SELECT id, channel_id, signal_id, symbol, direction, entries_json, avg_entry_price, "
+                  "filled_size_pct, stop_loss, take_profit_json, exit_price, pnl, pnl_pct, exit_reason, status, "
+                  "opened_at, closed_at, created_at FROM external_positions WHERE 1=1")
+        params = []
+        if channel_id:
+            query += " AND channel_id = ?"
+            params.append(channel_id)
+        if status:
+            query += " AND status = ?"
+            params.append(status)
+        query += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
+        rows = conn.execute(query, params).fetchall()
+    return [_row_to_external_position(r) for r in rows]
+
+
+def update_external_position_entries(position_id, entries, avg_entry_price, filled_size_pct, status, opened_at=None):
+    with get_conn() as conn:
+        if opened_at is not None:
+            conn.execute(
+                """UPDATE external_positions SET entries_json = ?, avg_entry_price = ?, filled_size_pct = ?,
+                   status = ?, opened_at = ? WHERE id = ?""",
+                (json.dumps(entries), avg_entry_price, filled_size_pct, status, opened_at, position_id),
+            )
+        else:
+            conn.execute(
+                """UPDATE external_positions SET entries_json = ?, avg_entry_price = ?, filled_size_pct = ?,
+                   status = ? WHERE id = ?""",
+                (json.dumps(entries), avg_entry_price, filled_size_pct, status, position_id),
+            )
+
+
+def update_external_position_stop_loss(position_id, stop_loss):
+    with get_conn() as conn:
+        conn.execute("UPDATE external_positions SET stop_loss = ? WHERE id = ?", (stop_loss, position_id))
+
+
+def close_external_position(position_id, exit_price, pnl, pnl_pct, exit_reason, closed_at):
+    with get_conn() as conn:
+        conn.execute(
+            """UPDATE external_positions SET exit_price = ?, pnl = ?, pnl_pct = ?, exit_reason = ?,
+               status = 'closed', closed_at = ? WHERE id = ?""",
+            (exit_price, pnl, pnl_pct, exit_reason, closed_at, position_id),
+        )
+
+
+def get_external_channel_performance(channel_id):
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT channel_id, balance, trades, wins, losses, total_pnl, total_rr_sum, updated_at "
+            "FROM external_channel_performance WHERE channel_id = ?",
+            (channel_id,),
+        ).fetchone()
+    if not row:
+        return {"channel_id": channel_id, "balance": 1000.0, "trades": 0, "wins": 0, "losses": 0,
+                "total_pnl": 0.0, "total_rr_sum": 0.0, "updated_at": None}
+    cols = ["channel_id", "balance", "trades", "wins", "losses", "total_pnl", "total_rr_sum", "updated_at"]
+    return dict(zip(cols, row))
+
+
+def update_external_channel_performance(channel_id, balance, trade_closed, pnl, r_multiple, now_iso):
+    """Called once per CLOSED external position. trade_closed=True always
+    increments trades/wins-or-losses; r_multiple may be None (unknown risk
+    basis) and is simply not added to total_rr_sum in that case."""
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO external_channel_performance (channel_id, balance, trades, wins, losses, total_pnl, total_rr_sum, updated_at)
+               VALUES (?, ?, 1, ?, ?, ?, ?, ?)
+               ON CONFLICT(channel_id) DO UPDATE SET
+                 balance = excluded.balance,
+                 trades = external_channel_performance.trades + 1,
+                 wins = external_channel_performance.wins + excluded.wins,
+                 losses = external_channel_performance.losses + excluded.losses,
+                 total_pnl = external_channel_performance.total_pnl + excluded.total_pnl,
+                 total_rr_sum = external_channel_performance.total_rr_sum + excluded.total_rr_sum,
+                 updated_at = excluded.updated_at""",
+            (channel_id, balance, 1 if pnl > 0 else 0, 1 if pnl <= 0 else 0, pnl, r_multiple or 0.0, now_iso),
+        )
+
+
+def external_channel_coin_breakdown(channel_id):
+    """Per-coin closed PnL for this channel, best/worst-coin-ready."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT symbol, COUNT(*), SUM(pnl) FROM external_positions
+               WHERE channel_id = ? AND status = 'closed' GROUP BY symbol""",
+            (channel_id,),
+        ).fetchall()
+    return [{"symbol": r[0], "trades": r[1], "total_pnl": r[2] or 0.0} for r in rows]

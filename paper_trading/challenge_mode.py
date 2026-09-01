@@ -17,7 +17,8 @@ system has ever actually shown, that is stated plainly rather than
 presented as achievable.
 """
 
-from datetime import datetime, timezone
+import math
+from datetime import datetime, timedelta, timezone
 
 from data_engine import config as base_config, storage
 from paper_trading import config as pt_config
@@ -30,6 +31,17 @@ _DEFAULTS = {
     "days": None,
     "started_at": None,
     "telegram_report_enabled": False,
+    # Level 3 (one-click start from a recommended path): when set, this
+    # challenge tracks ONE specific real strategy-coin combination's own
+    # trades instead of the system-wide blended pace -- the exact fix for
+    # the original single-aggregate design flaw. None/None (the default)
+    # preserves the original system-wide behavior for anyone who never
+    # touches this. baseline_win_rate_pct is captured once at start time
+    # so later drift can be judged against what was true when the CEO
+    # actually started the challenge, not a constantly-shifting number.
+    "scope_strategy_id": None,
+    "scope_symbol": None,
+    "baseline_win_rate_pct": None,
 }
 
 # A required daily pace more than this many times the system's own real
@@ -50,10 +62,18 @@ def save(settings):
     base_config.save_config(_SETTINGS_FILE, settings)
 
 
-def set_challenge(start_amount, target_amount, days, telegram_report_enabled=False, now_iso=None):
+def set_challenge(start_amount, target_amount, days, telegram_report_enabled=False, now_iso=None,
+                   scope_strategy_id=None, scope_symbol=None):
     """Every number here is chosen by the CEO -- nothing hardcoded.
     Starting a new challenge always resets started_at to now, discarding
-    any prior challenge's progress (a fresh target needs a fresh clock)."""
+    any prior challenge's progress (a fresh target needs a fresh clock).
+
+    scope_strategy_id/scope_symbol (Level 3 -- one-click start from a
+    recommended path): optional. When both are given, this challenge
+    tracks that ONE real strategy-coin combination's own trades instead
+    of the system-wide blended pace. Starting a challenge -- scoped or
+    not -- NEVER alters risk_pct, position sizing, or any trading
+    behavior; it only changes what this tracking layer reads."""
     if start_amount is None or target_amount is None or days is None:
         raise ValueError("start_amount, target_amount, and days are all required")
     start_amount = float(start_amount)
@@ -61,10 +81,21 @@ def set_challenge(start_amount, target_amount, days, telegram_report_enabled=Fal
     days = int(days)
     if start_amount <= 0 or days <= 0:
         raise ValueError("start_amount and days must both be positive")
+
+    baseline_win_rate_pct = None
+    if scope_strategy_id and scope_symbol:
+        from paper_trading import challenge_analysis
+        rows = challenge_analysis._closed_rows(scope_strategy_id, scope_symbol)
+        if rows:
+            wins = sum(1 for r in rows if r["pnl"] > 0)
+            baseline_win_rate_pct = round(wins / len(rows) * 100, 2)
+
     settings = {
         "enabled": True, "start_amount": start_amount, "target_amount": target_amount,
         "days": days, "started_at": now_iso or _now_iso(),
         "telegram_report_enabled": bool(telegram_report_enabled),
+        "scope_strategy_id": scope_strategy_id, "scope_symbol": scope_symbol,
+        "baseline_win_rate_pct": baseline_win_rate_pct,
     }
     save(settings)
     return settings
@@ -125,6 +156,62 @@ def _current_amount(start_amount, started_at):
     return start_amount + total_pnl, counted
 
 
+def _scoped_daily_rate(scope_strategy_id, scope_symbol):
+    """Same shape as _real_demonstrated_daily_rate(), but for ONE specific
+    real strategy-coin combination instead of the system-wide blend --
+    the Level 3 "one-click start from a recommended path" tracking mode.
+    Returns (daily_rate_or_None, closed_trades, baseline_win_rate_pct)."""
+    from paper_trading import challenge_analysis
+    daily_rate, _avg_r, _tpd = challenge_analysis._combo_daily_rate(scope_strategy_id, scope_symbol)
+    rows = challenge_analysis._closed_rows(scope_strategy_id, scope_symbol)
+    closed_trades = len(rows)
+    win_rate_pct = round(sum(1 for r in rows if r["pnl"] > 0) / closed_trades * 100, 2) if closed_trades else None
+    return daily_rate, closed_trades, win_rate_pct
+
+
+def _scoped_current_amount(start_amount, started_at, scope_strategy_id, scope_symbol):
+    """Same real-R-multiple rescaling as _current_amount(), restricted to
+    ONE real strategy-coin combination's own closed trades since the
+    challenge started. list_closed_paper_trades_since() only returns
+    pnl/risk_amount (no strategy_id/symbol), so this reuses
+    challenge_analysis._closed_rows() (full rows, already strategy/coin
+    filtered) and applies the since-started_at filter itself."""
+    from paper_trading import challenge_analysis
+    risk_pct = pt_config.load().get("risk_pct_default", 1.0) / 100.0
+    risk_per_trade = start_amount * risk_pct
+    trades = [
+        t for t in challenge_analysis._closed_rows(scope_strategy_id, scope_symbol)
+        if t.get("closed_at") and t["closed_at"] >= started_at
+    ]
+    total_pnl = 0.0
+    counted = 0
+    for t in trades:
+        if not t.get("risk_amount"):
+            continue
+        r_multiple = t["pnl"] / t["risk_amount"]
+        total_pnl += r_multiple * risk_per_trade
+        counted += 1
+    return start_amount + total_pnl, counted
+
+
+def _projected_finish_date(start_amount, target_amount, current_amount, elapsed_days, now):
+    """Level 3: projected finish date based on the REAL realized pace
+    observed so far (current_amount's actual growth over elapsed_days),
+    not the original required-pace assumption. Returns (iso_date_or_None,
+    realized_daily_rate_or_None). None when there isn't yet a meaningful
+    realized rate to extrapolate from (too little elapsed time, or no
+    net growth yet)."""
+    if elapsed_days < 1.0 or current_amount <= start_amount or start_amount <= 0:
+        return None, None
+    if current_amount >= target_amount:
+        return now.isoformat(), None
+    realized_daily_rate = (current_amount / start_amount) ** (1.0 / elapsed_days) - 1.0
+    if realized_daily_rate <= 0:
+        return None, realized_daily_rate
+    additional_days = math.log(target_amount / current_amount) / math.log(1 + realized_daily_rate)
+    return (now + timedelta(days=additional_days)).isoformat(), realized_daily_rate
+
+
 def _honest_note(required_daily_rate, real_daily_rate, closed_trades, realistic):
     if real_daily_rate is None:
         return ("Abhi tak paper trading mein koi trade band nahi hua, isliye system ki real pace se "
@@ -172,11 +259,18 @@ def compute_progress(now_iso=None):
     elapsed_days = max(0.0, (now - started).total_seconds() / 86400)
     remaining_days = max(0.0, days - elapsed_days)
 
-    required_daily_rate = _required_daily_rate(start_amount, target_amount, days)
-    real_daily_rate, closed_trades, _earliest = _real_demonstrated_daily_rate()
-    realistic = None if real_daily_rate is None else required_daily_rate <= real_daily_rate * UNREALISTIC_MULTIPLE
+    scope_strategy_id = settings.get("scope_strategy_id")
+    scope_symbol = settings.get("scope_symbol")
+    scoped = bool(scope_strategy_id and scope_symbol)
 
-    current_amount, trades_counted = _current_amount(start_amount, started_at)
+    required_daily_rate = _required_daily_rate(start_amount, target_amount, days)
+    if scoped:
+        real_daily_rate, closed_trades, _win_rate = _scoped_daily_rate(scope_strategy_id, scope_symbol)
+        current_amount, trades_counted = _scoped_current_amount(start_amount, started_at, scope_strategy_id, scope_symbol)
+    else:
+        real_daily_rate, closed_trades, _earliest = _real_demonstrated_daily_rate()
+        current_amount, trades_counted = _current_amount(start_amount, started_at)
+    realistic = None if real_daily_rate is None else required_daily_rate <= real_daily_rate * UNREALISTIC_MULTIPLE
 
     span = target_amount - start_amount
     if span == 0:
@@ -186,6 +280,14 @@ def compute_progress(now_iso=None):
 
     expected_amount_by_now = start_amount * ((1 + required_daily_rate) ** elapsed_days)
     ahead_of_pace = current_amount >= expected_amount_by_now
+
+    projected_finish_date, realized_daily_rate = _projected_finish_date(
+        start_amount, target_amount, current_amount, elapsed_days, now)
+
+    drift = None
+    if scoped and settings.get("baseline_win_rate_pct") is not None:
+        from paper_trading import challenge_analysis
+        drift = challenge_analysis.check_drift(scope_strategy_id, scope_symbol, settings["baseline_win_rate_pct"])
 
     return {
         "start_amount": start_amount, "target_amount": target_amount, "days": days,
@@ -201,4 +303,10 @@ def compute_progress(now_iso=None):
         "expected_amount_by_now": round(expected_amount_by_now, 2),
         "honest_note": _honest_note(required_daily_rate, real_daily_rate, closed_trades, realistic),
         "telegram_report_enabled": settings.get("telegram_report_enabled", False),
+        # Level 3 additions -- always present (None when not applicable),
+        # never breaking the original unscoped shape above.
+        "scope_strategy_id": scope_strategy_id, "scope_symbol": scope_symbol,
+        "projected_finish_date": projected_finish_date,
+        "realized_daily_rate_pct": round(realized_daily_rate * 100, 4) if realized_daily_rate is not None else None,
+        "drift": drift,
     }

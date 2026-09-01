@@ -36,7 +36,12 @@ def get_data_overview():
                 })
         return rows
 
-    rows = cache.cached(f"data_overview_{exchange}", 60, _compute)
+    # Non-blocking for the same reason as /api/market and /api/home's
+    # disk_usage_bytes: a per-symbol COUNT(*) pass can queue up behind
+    # other concurrent DB work (e.g. the boot-time cache warmers, now
+    # running in parallel) and there's no reason a user's request thread
+    # should be the one stuck waiting for it.
+    rows = cache.cached_nonblocking(f"data_overview_{exchange}", 60, _compute, [])
     missing = [r["symbol"] for r in rows if r["candles"] == 0]
 
     return {
@@ -59,7 +64,15 @@ def get_data_quality():
 
     def _compute():
         return data_quality_score.score_all_tracked_symbols(exchange)
-    return cache.cached(f"data_quality_{exchange}", 300, _compute)
+    # Non-blocking: this is a 50-symbol scan (each symbol reads/resamples
+    # its own candle range) and was never in the boot-time cache warm list,
+    # so whoever opened the Data page first after a restart paid the full
+    # scan time inline -- same class of bug as the /api/home disk-walk
+    # hang fixed alongside this. A first-ever hit now gets an honest
+    # "warming up" placeholder instead of blocking.
+    default = {"overall_score": None, "symbols": [], "warming_up": True}
+    result = cache.cached_nonblocking(f"data_quality_{exchange}", 300, _compute, default)
+    return result
 
 
 @router.post("/api/data/download")

@@ -1,3 +1,5 @@
+import os
+
 import pandas as pd
 
 from data_engine import storage, resample_cache
@@ -5,6 +7,15 @@ from data_engine.config import SUPPORTED_INTERVALS, RESAMPLE_RULE
 
 _COLUMNS = ["open_time", "open", "high", "low", "close", "volume", "close_time", "quote_volume", "trades"]
 _OUT_COLUMNS = ["open", "high", "low", "close", "volume", "quote_volume", "trades"]
+
+# Lightweight cloud runner support: when set, every caller of get_ohlcv()
+# below (market_state.py, mtf_context.py, coin_filter.py -- the whole live
+# pipeline) is transparently redirected to a direct-from-exchange fetch
+# (data_engine.live_candles) instead of the klines_1m-backed path, with
+# zero changes needed in any of those callers. Unset (the local laptop,
+# always, unless deliberately configured otherwise), this file's behavior
+# is byte-for-byte unchanged.
+LIVE_CANDLES_ONLY = os.environ.get("SINDHU_LIVE_CANDLES") == "1"
 
 
 def _rows_to_df(rows):
@@ -46,6 +57,10 @@ def get_ohlcv(exchange, symbol, interval="1m", start_ms=None, end_ms=None):
     full-series-then-slice cache, are required for correctness)."""
     if interval not in SUPPORTED_INTERVALS:
         raise ValueError(f"Unsupported interval {interval!r}. Choose from {SUPPORTED_INTERVALS}")
+
+    if LIVE_CANDLES_ONLY:
+        from data_engine.live_candles import get_ohlcv_live
+        return get_ohlcv_live(exchange, symbol, interval, start_ms, end_ms)
 
     if interval == "1m":
         rows = storage.get_klines_range(exchange, symbol, start_ms, end_ms)

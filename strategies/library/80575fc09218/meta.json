@@ -1,0 +1,17 @@
+{
+  "id": "80575fc09218",
+  "name": "HTF Key Level Engulfing Reversal -- Confirmation Medium variant [Manual Build]",
+  "tags": [
+    "confirmation_optimizer_variant",
+    "level:medium",
+    "source:b9884b3e5e5d",
+    "additions:sl_distance"
+  ],
+  "favourite": false,
+  "archived": true,
+  "created_at": "2026-08-28T01:35:42.470422+00:00",
+  "updated_at": "2026-08-28T01:35:42.550511+00:00",
+  "current_version": 1,
+  "safety_status": "ready",
+  "safety_reasons": []
+}

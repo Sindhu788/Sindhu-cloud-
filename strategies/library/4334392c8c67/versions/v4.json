@@ -1,0 +1,139 @@
+{
+  "name": "Supply/Demand Zone Strategy [Manual Build]",
+  "raw_text": "Supply/Demand Zone Strategy -- manually constructed by Claude Code, reading the source document directly. No strategy_parser.py, no ai_integration/ used to build these conditions. Built using 3 NEW engine capabilities added specifically for this strategy (see concepts.consolidation_impulse_zones, concepts.valid_structure_trend, and the demand_zone/supply_zone re-entry containment check in configured_strategy.py), each covered by real unit tests in tests/test_supply_demand_zone_capabilities.py using synthetic OHLC data. Trend structure (Step 1 + Rule 2 + Rule 3: uptrend persists until the specific 'valid low' -- validated by a prior break of structure -- is itself broken, not on every minor lower low) is represented exactly via valid_structure_trend(), a genuine sequential state machine, not an approximation. Demand/supply zones (a multi-bar consolidation immediately before a sharp impulsive move) are represented exactly via consolidation_impulse_zones() -- tightness measured as the window's own range vs. the average single-bar range (<=1.5x), impulse measured as the next bar's move vs. ATR(14) (>=1.5x ATR) while actually clearing the consolidation's boundary. Zone re-entry (Rule 8/9) is a real fresh-every-bar containment check, not an existence check. Stop-loss (Rule 10/11, 'right below the demand zone'/'above the supply zone') reads the SAME zone the entry re-entered, via a small, targeted extension to the existing structure-type SL candidate chain (entry_demand_low/entry_supply_high checked first, generic order-block/support-resistance fallbacks unchanged for every other strategy). Take-profit (Rule 12/13, 'recent highs/lows') uses the existing structure-type TP chain's final fallback (entry_resistance/entry_support, built from confirmed swing points) since no order_block/fvg concepts are declared here -- flagged as an approximation of 'recent highs', a swing-based reading rather than a literal N-bar rolling high/low. The pre-trade R:R>2.5 filter (Rule 14/15) uses the existing min_risk_reward_filter + primary_target_lookback_bars mechanism (20-bar highest-high/lowest-low lookback as the 'recent highs/lows' reference for the FILTER specifically) -- note this is a SEPARATE reference point from the actual take-profit target above; both independently approximate 'recent highs' using the two different existing primitives available for a pre-trade filter vs. an actual exit target, not a contradiction, but not numerically identical either. Trend filter (Rule 16, never sell in an uptrend / never buy in a downtrend) is satisfied by construction: long requires a bullish valid_structure_trend reading, short requires bearish -- never both. Timeframe (Rule 18, not specified in source): 1-hour used for both analysis and entry, my own scope decision. Risk % per trade (Rule 20, not specified): 1% used, my own default. Session/timing rules (Rule 19, not specified): not represented. No indicators used at all (Rule 17), matching the source's explicit 'pure price action, no indicators' -- indicators=[] is empty.",
+  "timeframes": {
+    "entry": "1h"
+  },
+  "indicators": [],
+  "concepts_used": [
+    "valid_structure_trend",
+    "demand_zone",
+    "supply_zone",
+    "resistance"
+  ],
+  "entry_conditions": [],
+  "exit_conditions": [],
+  "confirmation_conditions": [],
+  "long_entry_conditions": [
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "valid_structure_trend",
+      "direction": "bullish",
+      "text": null,
+      "role": "entry",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": null
+    },
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "demand_zone",
+      "direction": null,
+      "text": null,
+      "role": "entry",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": null
+    }
+  ],
+  "short_entry_conditions": [
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "valid_structure_trend",
+      "direction": "bearish",
+      "text": null,
+      "role": "entry",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": null
+    },
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "supply_zone",
+      "direction": null,
+      "text": null,
+      "role": "entry",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": null
+    }
+  ],
+  "entry_rule_groups": [],
+  "stop_loss": {
+    "type": "structure",
+    "value": 1.0,
+    "level": null,
+    "atr_period": null
+  },
+  "take_profit": {
+    "type": "structure",
+    "value": null,
+    "level": null,
+    "atr_period": null
+  },
+  "risk_pct": 1.0,
+  "risk_reward": null,
+  "sl_distance_filter_pct": null,
+  "min_risk_reward_filter": 2.5,
+  "primary_target_lookback_bars": 20,
+  "risk_reward_filter_uses_take_profit": true,
+  "zone_params": {
+    "consolidation_bars": 5,
+    "tightness_mult": 1.5,
+    "impulse_atr_mult": 2.0,
+    "atr_period": 14
+  },
+  "session_filter": [],
+  "trend_filter": null,
+  "day_filter": [],
+  "breakeven_at_rr": null,
+  "entry_type": "market",
+  "long_entry_type": null,
+  "short_entry_type": null,
+  "entry_price_offset_pct": null,
+  "partial_take_profit": null,
+  "trailing_stop": null,
+  "time_exit_bars": null,
+  "tags": [
+    "demand_zone",
+    "supply_zone",
+    "valid_structure_trend",
+    "manual_build",
+    "1h",
+    "price_action",
+    "new_capability"
+  ],
+  "favourite": false,
+  "claimed_win_rate_pct": null,
+  "claimed_win_rate_source_text": null,
+  "missing": [],
+  "warnings": []
+}

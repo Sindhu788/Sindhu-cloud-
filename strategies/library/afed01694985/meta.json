@@ -1,0 +1,15 @@
+{
+  "id": "afed01694985",
+  "name": "Liquidity Sweep Reversal Strategy -- Fixed 1:2 TP variant [Manual Build]",
+  "tags": [
+    "dual_tp_variant",
+    "source:59978271c6ce"
+  ],
+  "favourite": false,
+  "archived": true,
+  "created_at": "2026-08-25T18:18:06.173083+00:00",
+  "updated_at": "2026-08-25T18:18:06.311238+00:00",
+  "current_version": 1,
+  "safety_status": "ready",
+  "safety_reasons": []
+}

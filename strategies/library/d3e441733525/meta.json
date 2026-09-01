@@ -1,0 +1,27 @@
+{
+  "id": "d3e441733525",
+  "name": "Double Confirmation CHoCH with Liquidity Trap [Manual Build]",
+  "tags": [
+    "choch",
+    "liquidity_trap",
+    "manual_build",
+    "5m",
+    "15m",
+    "sequence_ordering",
+    "rebuild"
+  ],
+  "favourite": false,
+  "archived": false,
+  "created_at": "2026-08-23T09:32:41.067347+00:00",
+  "updated_at": "2026-08-25T00:00:36.541221+00:00",
+  "current_version": 2,
+  "safety_status": "ready",
+  "safety_reasons": [],
+  "version_log": [
+    {
+      "version": 2,
+      "reason": "Optimizer Part 1: add breakeven_at_rr=1.0 to protect winning trades from reversing into losers (worst-DD symbols showed avg_win < avg_loss)",
+      "at": "2026-08-25T00:00:36.541221+00:00"
+    }
+  ]
+}

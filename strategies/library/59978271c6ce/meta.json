@@ -1,0 +1,26 @@
+{
+  "id": "59978271c6ce",
+  "name": "Liquidity Sweep Reversal Strategy [Manual Build]",
+  "tags": [
+    "concept_based_strategy",
+    "manual_build",
+    "liquidity_sweep",
+    "sequence_ordering",
+    "15m",
+    "1h"
+  ],
+  "favourite": false,
+  "archived": false,
+  "created_at": "2026-08-24T19:27:18.714071+00:00",
+  "updated_at": "2026-08-24T23:55:13.576633+00:00",
+  "current_version": 2,
+  "safety_status": "ready",
+  "safety_reasons": [],
+  "version_log": [
+    {
+      "version": 2,
+      "reason": "Optimizer Part 1: widen signal-candle SL buffer 1.0% -> 1.5% (cost_model verified safe) to reduce premature stopouts near volatile reclaim entries",
+      "at": "2026-08-24T23:55:13.576633+00:00"
+    }
+  ]
+}

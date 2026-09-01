@@ -1,0 +1,27 @@
+{
+  "id": "99fbf2454f8a",
+  "name": "SMA-Alignment Strategy (Approximate - ZIP Indicator Excluded) [Manual Build]",
+  "tags": [
+    "concept_based_strategy",
+    "manual_build",
+    "knowingly_incomplete",
+    "sma_alignment",
+    "1h",
+    "4h",
+    "1d"
+  ],
+  "favourite": false,
+  "archived": false,
+  "created_at": "2026-08-24T16:44:21.169154+00:00",
+  "updated_at": "2026-08-25T00:07:51.709381+00:00",
+  "current_version": 2,
+  "safety_status": "ready",
+  "safety_reasons": [],
+  "version_log": [
+    {
+      "version": 2,
+      "reason": "Optimizer Part 1: widen signal_candle SL buffer 1.0% -> 1.5% (cost_model verified safe) -- realized RR was well below the 2.0 TP target, indicating premature stopouts",
+      "at": "2026-08-25T00:07:51.709381+00:00"
+    }
+  ]
+}

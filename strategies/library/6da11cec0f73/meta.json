@@ -1,0 +1,15 @@
+{
+  "id": "6da11cec0f73",
+  "name": "Dumb Money Concepts -- Confirmation Entry -- Fixed 1:2 TP variant [Manual Build]",
+  "tags": [
+    "dual_tp_variant",
+    "source:2d7299c7a197"
+  ],
+  "favourite": false,
+  "archived": true,
+  "created_at": "2026-08-25T18:33:34.354033+00:00",
+  "updated_at": "2026-08-25T18:33:34.477965+00:00",
+  "current_version": 1,
+  "safety_status": "ready",
+  "safety_reasons": []
+}

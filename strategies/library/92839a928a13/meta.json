@@ -1,0 +1,17 @@
+{
+  "id": "92839a928a13",
+  "name": "Order Block Reversal -- Confirmation Strict variant [Manual Build]",
+  "tags": [
+    "confirmation_optimizer_variant",
+    "level:strict",
+    "source:8b878a159ead",
+    "additions:sl_distance,min_rr"
+  ],
+  "favourite": false,
+  "archived": true,
+  "created_at": "2026-08-27T09:02:08.929840+00:00",
+  "updated_at": "2026-08-27T09:02:08.946346+00:00",
+  "current_version": 1,
+  "safety_status": "ready",
+  "safety_reasons": []
+}

@@ -29,7 +29,14 @@ def position_locked(book_key, exchange, symbol, direction):
 
 
 def opposite_open_position(book_key, exchange, symbol, direction):
-    opposite = "bearish" if direction == "bullish" else "bullish"
+    """direction is the stored-position vocabulary ("long"/"short") -- the
+    same value engine.py's `side` already is by the time it calls this
+    (converted from the candidate's "bullish"/"bearish" upstream), and the
+    same vocabulary paper_positions.direction is actually stored in. Using
+    "bullish"/"bearish" here previously meant the lookup below could never
+    match a real stored position (a confirmed bug -- see
+    tests/test_multi_strategy_independence.py)."""
+    opposite = "short" if direction == "long" else "long"
     positions = storage.get_open_paper_positions(exchange, symbol, opposite, strategy_id=book_key)
     return positions[0] if positions else None
 

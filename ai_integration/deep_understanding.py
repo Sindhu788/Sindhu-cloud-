@@ -27,6 +27,18 @@ def _now_iso():
     return datetime.now(timezone.utc).isoformat()
 
 
+# Shown whenever AI extraction is switched ON but no provider is actually
+# usable (none enabled, or the enabled one has no API key). Deliberately
+# names the cause and the fix -- an empty provider chain used to return
+# error=None, which every caller then read as "the AI ran and found
+# nothing", silently degrading to offline rule-based parsing.
+NO_PROVIDER_ERROR = (
+    "No usable AI provider is configured (a provider must be both enabled AND "
+    "have an API key) -- falling back to offline rule-based parsing. "
+    "Check the AI provider settings."
+)
+
+
 def call_provider_chain_generic(text, chain, system_prompt, endpoint_label, parse_fn):
     """(Batch 3, Task 1) The shared provider-fallback-with-logging loop
     behind every single AI call this module makes -- used directly by
@@ -201,7 +213,16 @@ def understand_document_structured(raw_text, use_ai, source_hint=None, content_t
 
     chain = ai_config.provider_fallback_chain()
     if not chain:
-        return {"result": None, "provider": None, "error": None}
+        # Was `"error": None` -- indistinguishable from "the AI ran and
+        # genuinely found nothing", so a misconfigured/expired key made
+        # every import silently fall back to offline rule-based parsing
+        # with nothing anywhere saying why. `use_ai=False` above stays
+        # silent on purpose (the CEO deliberately turned AI off; that is
+        # a choice, not a failure) -- this branch is a real
+        # misconfiguration and must say so. Callers already surface it:
+        # sindhu_web/api/ai_integration.py raises HTTPException(422,
+        # result["error"]) and import_queue marks the item failed with it.
+        return {"result": None, "provider": None, "error": NO_PROVIDER_ERROR}
 
     if not chunking.needs_chunking(raw_text):
         parsed, provider_name, error = _call_provider_chain(raw_text, chain, source_hint, content_type)

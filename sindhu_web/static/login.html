@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SINDHU</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%234f7cff'/%3E%3Cstop offset='1' stop-color='%238b5cf6'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='16' fill='url(%23g)'/%3E%3Ctext x='32' y='44' font-family='Georgia,serif' font-size='36' fill='white' text-anchor='middle'%3ES%3C/text%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #060911;
+    --bg-elevated: #0d1220;
+    --panel: rgba(16, 21, 36, .66);
+    --border: rgba(255,255,255,.09);
+    --border-soft: rgba(255,255,255,.05);
+    --text: #eef1fb;
+    --text-dim: #94a1c4;
+    --text-faint: #5c6786;
+    --accent: #5b82ff;
+    --accent-2: #9a6bf5;
+    --red: #f0475a;
+    --red-dim: rgba(240,71,90,.12);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif;
+    overflow: hidden;
+  }
+
+  .scene {
+    position: relative;
+    width: 100%; height: 100vh;
+    display: flex; align-items: center; justify-content: flex-end;
+    isolation: isolate;
+  }
+
+  /* Soft drifting light -- abstract, no iconography, just depth */
+  .orb {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(120px);
+    opacity: .55;
+    z-index: 0;
+    pointer-events: none;
+  }
+  .orb-a {
+    width: 620px; height: 620px;
+    left: -160px; top: -140px;
+    background: radial-gradient(circle at 30% 30%, var(--accent), transparent 70%);
+    animation: drift-a 26s ease-in-out infinite;
+  }
+  .orb-b {
+    width: 520px; height: 520px;
+    left: 8%; bottom: -220px;
+    background: radial-gradient(circle at 60% 40%, var(--accent-2), transparent 70%);
+    animation: drift-b 32s ease-in-out infinite;
+  }
+  @keyframes drift-a {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    50% { transform: translate(40px, 50px) scale(1.08); }
+  }
+  @keyframes drift-b {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    50% { transform: translate(-30px, -40px) scale(1.05); }
+  }
+
+  .grain {
+    position: absolute; inset: 0;
+    background-image: radial-gradient(rgba(255,255,255,.05) 1px, transparent 1px);
+    background-size: 26px 26px;
+    mask-image: radial-gradient(ellipse 90% 80% at 50% 40%, black 40%, transparent 90%);
+    z-index: 0;
+    pointer-events: none;
+  }
+
+  .wordmark {
+    position: absolute;
+    left: clamp(28px, 6vw, 88px);
+    top: clamp(28px, 7vh, 72px);
+    display: flex; align-items: center; gap: 14px;
+    z-index: 2;
+  }
+  .wordmark .mark {
+    width: 42px; height: 42px; border-radius: 12px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    display: flex; align-items: center; justify-content: center;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 22px; font-weight: 700; color: #fff;
+    box-shadow: 0 10px 30px rgba(91,130,255,.28);
+  }
+  .wordmark span.name {
+    font-size: 19px; font-weight: 700; letter-spacing: .22em;
+    color: var(--text);
+  }
+
+  .tagline {
+    position: absolute;
+    left: clamp(28px, 6vw, 88px);
+    bottom: clamp(28px, 7vh, 64px);
+    max-width: 380px;
+    z-index: 2;
+  }
+  .tagline .big {
+    font-size: clamp(30px, 4.4vw, 52px);
+    line-height: 1.08;
+    font-weight: 600;
+    letter-spacing: -.01em;
+    margin: 0 0 10px;
+    background: linear-gradient(135deg, #ffffff, #9fb0e0 65%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .tagline p {
+    margin: 0;
+    color: var(--text-faint);
+    font-size: 13.5px;
+    line-height: 1.6;
+  }
+
+  .panel-wrap {
+    position: relative;
+    z-index: 2;
+    width: min(420px, 92vw);
+    margin-right: clamp(24px, 8vw, 120px);
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 40px 36px 34px;
+    backdrop-filter: blur(22px) saturate(140%);
+    -webkit-backdrop-filter: blur(22px) saturate(140%);
+    box-shadow: 0 24px 70px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.04);
+    animation: rise .6s cubic-bezier(.16,1,.3,1) both;
+  }
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(14px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .panel h2 {
+    margin: 0 0 6px;
+    font-size: 21px;
+    font-weight: 700;
+    letter-spacing: -.01em;
+  }
+  .panel .sub {
+    margin: 0 0 26px;
+    color: var(--text-dim);
+    font-size: 13.5px;
+    line-height: 1.5;
+  }
+
+  .field {
+    margin-bottom: 16px;
+  }
+  .field label {
+    display: block;
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin-bottom: 7px;
+  }
+  .field input {
+    width: 100%;
+    padding: 12px 14px;
+    background: rgba(255,255,255,.03);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text);
+    font-size: 14.5px;
+    font-family: inherit;
+    transition: border-color .15s, background .15s, box-shadow .15s;
+  }
+  .field input::placeholder { color: var(--text-faint); }
+  .field input:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: rgba(91,130,255,.05);
+    box-shadow: 0 0 0 3px rgba(91,130,255,.14);
+  }
+
+  .submit-btn {
+    width: 100%;
+    margin-top: 8px;
+    padding: 13px 16px;
+    border: none;
+    border-radius: 10px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    color: #fff;
+    font-size: 14.5px;
+    font-weight: 700;
+    letter-spacing: .01em;
+    cursor: pointer;
+    transition: transform .12s, box-shadow .12s, opacity .12s;
+    box-shadow: 0 12px 26px rgba(91,130,255,.22);
+  }
+  .submit-btn:hover { transform: translateY(-1px); box-shadow: 0 16px 34px rgba(91,130,255,.3); }
+  .submit-btn:active { transform: translateY(0); }
+  .submit-btn:disabled { opacity: .55; cursor: default; transform: none; }
+
+  .error-msg {
+    display: none;
+    margin-top: 14px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: var(--red-dim);
+    border: 1px solid rgba(240,71,90,.28);
+    color: #ff8a94;
+    font-size: 12.5px;
+    line-height: 1.4;
+  }
+  .error-msg.show { display: block; }
+
+  .foot-note {
+    margin-top: 22px;
+    text-align: center;
+    color: var(--text-faint);
+    font-size: 11.5px;
+    letter-spacing: .02em;
+  }
+
+  .skeleton-line {
+    height: 12px;
+    border-radius: 6px;
+    background: rgba(255,255,255,.06);
+    margin-bottom: 10px;
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity: .5; } 50% { opacity: 1; } }
+
+  @media (max-width: 760px) {
+    .scene { justify-content: center; padding: 24px; }
+    .wordmark { position: static; margin-bottom: 28px; }
+    .tagline { display: none; }
+    .panel-wrap { margin: 0; width: 100%; max-width: 420px; }
+    .scene { flex-direction: column; align-items: center; justify-content: center; }
+  }
+</style>
+</head>
+<body>
+  <div class="scene">
+    <div class="orb orb-a"></div>
+    <div class="orb orb-b"></div>
+    <div class="grain"></div>
+
+    <div class="wordmark">
+      <span class="mark">S</span>
+      <span class="name">SINDHU</span>
+    </div>
+
+    <div class="tagline">
+      <p class="big">Welcome back.</p>
+      <p>Private access only. If you're looking for this, you already know where to find it.</p>
+    </div>
+
+    <div class="panel-wrap">
+      <div class="panel" id="panel">
+        <div class="skeleton-line" style="width:55%;height:20px;"></div>
+        <div class="skeleton-line" style="width:80%;"></div>
+        <div class="skeleton-line" style="width:40%;margin-top:20px;"></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function () {
+  var panel = document.getElementById("panel");
+
+  function renderLogin() {
+    panel.innerHTML =
+      '<h2>Sign in</h2>' +
+      '<p class="sub">Enter your credentials to continue.</p>' +
+      '<form id="authForm">' +
+        '<div class="field"><label for="u">Username</label><input id="u" type="text" autocomplete="username" required></div>' +
+        '<div class="field"><label for="p">Password</label><input id="p" type="password" autocomplete="current-password" required></div>' +
+        '<button class="submit-btn" type="submit" id="submitBtn">Sign In</button>' +
+        '<div class="error-msg" id="errBox"></div>' +
+      '</form>' +
+      '<div class="foot-note">SINDHU &middot; Private System</div>';
+    wireForm("/api/auth/login", false);
+  }
+
+  function renderSetup() {
+    panel.innerHTML =
+      '<h2>Set up access</h2>' +
+      '<p class="sub">No account exists yet. Choose a username and password to secure this system.</p>' +
+      '<form id="authForm">' +
+        '<div class="field"><label for="u">Username</label><input id="u" type="text" autocomplete="username" required></div>' +
+        '<div class="field"><label for="p">Password</label><input id="p" type="password" autocomplete="new-password" minlength="8" required placeholder="At least 8 characters"></div>' +
+        '<div class="field"><label for="p2">Confirm Password</label><input id="p2" type="password" autocomplete="new-password" minlength="8" required></div>' +
+        '<button class="submit-btn" type="submit" id="submitBtn">Create Account</button>' +
+        '<div class="error-msg" id="errBox"></div>' +
+      '</form>' +
+      '<div class="foot-note">SINDHU &middot; Private System</div>';
+    wireForm("/api/auth/setup", true);
+  }
+
+  function wireForm(endpoint, isSetup) {
+    var form = document.getElementById("authForm");
+    var btn = document.getElementById("submitBtn");
+    var err = document.getElementById("errBox");
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+      err.classList.remove("show");
+      var username = document.getElementById("u").value.trim();
+      var password = document.getElementById("p").value;
+      if (isSetup) {
+        var confirm = document.getElementById("p2").value;
+        if (password !== confirm) {
+          err.textContent = "Passwords do not match.";
+          err.classList.add("show");
+          return;
+        }
+      }
+      btn.disabled = true;
+      btn.textContent = isSetup ? "Creating..." : "Signing in...";
+      fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: username, password: password }),
+      }).then(function (res) {
+        if (res.ok) {
+          window.location.href = "/";
+          return;
+        }
+        return res.json().then(function (d) {
+          throw new Error((d && d.detail) || "Something went wrong.");
+        });
+      }).catch(function (e) {
+        err.textContent = e.message;
+        err.classList.add("show");
+        btn.disabled = false;
+        btn.textContent = isSetup ? "Create Account" : "Sign In";
+      });
+    });
+  }
+
+  fetch("/api/auth/status")
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (d.logged_in) {
+        window.location.href = "/";
+        return;
+      }
+      if (d.configured) { renderLogin(); } else { renderSetup(); }
+    })
+    .catch(function () { renderLogin(); });
+})();
+</script>
+</body>
+</html>

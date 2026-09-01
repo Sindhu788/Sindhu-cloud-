@@ -1,0 +1,15 @@
+{
+  "id": "152f6d41d44d",
+  "name": "4-Hour Range Breakout-Retest -- Fixed 1:2 TP variant [Manual Build]",
+  "tags": [
+    "dual_tp_variant",
+    "source:0897eb126593"
+  ],
+  "favourite": false,
+  "archived": true,
+  "created_at": "2026-08-25T19:15:40.310206+00:00",
+  "updated_at": "2026-08-25T19:15:40.399590+00:00",
+  "current_version": 1,
+  "safety_status": "ready",
+  "safety_reasons": []
+}

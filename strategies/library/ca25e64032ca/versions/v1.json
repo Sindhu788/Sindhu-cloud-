@@ -1,0 +1,129 @@
+{
+  "name": "Kotegawa Bear Market Reversal Strategy -- Fixed 1:2 TP variant [Manual Build]",
+  "raw_text": "Kotegawa Bear Market Reversal Strategy -- see conversation source document.",
+  "timeframes": {
+    "analysis": "1d",
+    "entry": "15m"
+  },
+  "indicators": [
+    {
+      "name": "ema",
+      "params": {
+        "period": 25
+      },
+      "role": "analysis"
+    },
+    {
+      "name": "macd",
+      "params": {},
+      "role": "entry"
+    }
+  ],
+  "concepts_used": [
+    "support",
+    "resistance"
+  ],
+  "entry_conditions": [],
+  "exit_conditions": [],
+  "confirmation_conditions": [],
+  "long_entry_conditions": [
+    {
+      "type": "price_compare",
+      "indicator": "ema",
+      "params": {
+        "period": 25
+      },
+      "op": "<",
+      "value": null,
+      "name": null,
+      "direction": null,
+      "text": null,
+      "role": "analysis",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": null
+    },
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "support",
+      "direction": null,
+      "text": null,
+      "role": "entry",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": null
+    },
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "macd_signal_cross",
+      "direction": "bullish",
+      "text": null,
+      "role": "entry",
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": null
+    }
+  ],
+  "short_entry_conditions": [],
+  "entry_rule_groups": [],
+  "stop_loss": {
+    "type": "fixed_pct",
+    "value": 3.5,
+    "level": null,
+    "atr_period": null
+  },
+  "take_profit": {
+    "type": "rr",
+    "value": 2.0,
+    "level": null,
+    "atr_period": null
+  },
+  "risk_pct": 1.0,
+  "risk_reward": null,
+  "sl_distance_filter_pct": null,
+  "min_risk_reward_filter": null,
+  "primary_target_lookback_bars": null,
+  "risk_reward_filter_uses_take_profit": false,
+  "zone_params": {},
+  "session_filter": [],
+  "trend_filter": null,
+  "day_filter": [],
+  "breakeven_at_rr": null,
+  "entry_type": "market",
+  "long_entry_type": null,
+  "short_entry_type": null,
+  "entry_price_offset_pct": null,
+  "partial_take_profit": null,
+  "trailing_stop": null,
+  "time_exit_bars": null,
+  "tags": [
+    "kotegawa",
+    "manual_build",
+    "15m",
+    "1d",
+    "macd",
+    "rebuild"
+  ],
+  "favourite": false,
+  "claimed_win_rate_pct": null,
+  "claimed_win_rate_source_text": null,
+  "missing": [],
+  "warnings": []
+}

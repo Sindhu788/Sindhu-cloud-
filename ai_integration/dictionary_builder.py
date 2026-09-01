@@ -84,6 +84,41 @@ def discover_from_raw_text(text):
     ]
 
 
+def resolve_alias(name):
+    """Item 4 (Terminology Learning) -- if `name` was previously saved as a
+    known alias of another already-recognized indicator/concept (either
+    because the user clarified it once, via save_learned_alias below, or
+    because the AI's own dictionary_terms named it as an alias), returns
+    the known canonical name it stands for. None if `name` isn't a known
+    alias of anything yet. Read side of the loop that makes a clarified
+    term actually get reused on a later import, not just recorded."""
+    entry = storage.get_ai_dictionary_entry((name or "").strip().lower())
+    if not entry:
+        return None
+    aliases = entry.get("aliases") or []
+    return aliases[0] if aliases else None
+
+
+def save_learned_alias(unknown_term, canonical_name, doc_id=None):
+    """Item 4 (Terminology Learning) -- persists a user's own clarification
+    of an unrecognized indicator/concept name (e.g. the CEO typed 'smc_ob'
+    and picked 'order_block' as what it means) so the SAME term is
+    auto-resolved, not re-asked about, on every future import. Goes through
+    the exact same save_discovered_terms() write path as an AI-discovered
+    term -- one dictionary, one write path, never a second implementation."""
+    unknown_term = (unknown_term or "").strip()
+    canonical_name = (canonical_name or "").strip()
+    if not unknown_term or not canonical_name or unknown_term.lower() == canonical_name.lower():
+        return None
+    saved = save_discovered_terms([{
+        "term": unknown_term,
+        "definition": f"Same as '{canonical_name}' -- resolved by the user during Clarification.",
+        "category": "indicator",
+        "aliases": [canonical_name],
+    }], doc_id)
+    return saved[0] if saved else None
+
+
 def save_discovered_terms(entries, doc_id):
     """entries: a list of term-profile dicts, each with at least
     term/definition and optionally category/aliases/examples/

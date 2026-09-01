@@ -1,0 +1,17 @@
+{
+  "id": "6587f55cd23a",
+  "name": "Dumb Money Concepts -- Blind Entry -- Confirmation Strict variant [Manual Build]",
+  "tags": [
+    "confirmation_optimizer_variant",
+    "level:strict",
+    "source:79bda8dea533",
+    "additions:sl_distance,min_rr"
+  ],
+  "favourite": false,
+  "archived": true,
+  "created_at": "2026-08-27T08:58:01.936485+00:00",
+  "updated_at": "2026-08-27T08:58:01.953126+00:00",
+  "current_version": 1,
+  "safety_status": "ready",
+  "safety_reasons": []
+}

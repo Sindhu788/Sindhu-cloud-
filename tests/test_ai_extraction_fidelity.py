@@ -56,10 +56,22 @@ def test_signal_candle_stop_loss_survives_the_full_pipeline():
     assert cfg.stop_loss.value == 0.3
 
 
-def test_signal_candle_stop_loss_without_a_buffer_value_is_demoted_to_unknown():
+def test_signal_candle_stop_loss_without_a_buffer_value_is_kept_not_demoted():
+    """Two-Focused-Day Push, Part 1/2: changed from the original
+    conservative behavior (demoted to "unknown", losing the fact that the
+    STOP STRUCTURE was already unambiguous) -- unlike fixed_pct/
+    atr_multiple/rr, "anchored to the entry's own trigger candle" is a
+    complete, real answer even with no buffer % given yet. Kept as
+    signal_candle/value=None so Clarification Center can ask the exact,
+    narrow question (just the buffer %) instead of falling back to a
+    generic "pick any stop-loss mechanism" question that discards this
+    structural information. See
+    ai_integration.strategy_builder.build_stop_loss_take_profit and
+    sindhu_web.api.clarification._find_unspecified_stop_loss_buffer_issue."""
     parsed = schema.parse_structured_response(_ai_response(stop_loss={"type": "signal_candle", "value": None}))
     cfg = strategy_builder.build_strategy_config(parsed["strategy"], "Test Strategy", "raw text")
-    assert cfg.stop_loss.type == "unknown"
+    assert cfg.stop_loss.type == "signal_candle"
+    assert cfg.stop_loss.value is None
 
 
 def test_entry_type_signal_candle_low_survives_the_full_pipeline():

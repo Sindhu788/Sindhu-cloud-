@@ -1,0 +1,17 @@
+{
+  "id": "f2bada5fba26",
+  "name": "Candlestick Pattern Reversal Strategy -- Confirmation Strict variant [Manual Build]",
+  "tags": [
+    "confirmation_optimizer_variant",
+    "level:strict",
+    "source:1be394d92302",
+    "additions:sl_distance,min_rr"
+  ],
+  "favourite": false,
+  "archived": true,
+  "created_at": "2026-08-26T17:05:58.734572+00:00",
+  "updated_at": "2026-08-26T17:05:58.848644+00:00",
+  "current_version": 1,
+  "safety_status": "ready",
+  "safety_reasons": []
+}

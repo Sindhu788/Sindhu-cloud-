@@ -1,0 +1,15 @@
+{
+  "id": "62698d8e936f",
+  "name": "Laxman Rekha 5-EMA Trigger-Candle Strategy -- Fixed 1:2 TP variant [Manual Build]",
+  "tags": [
+    "dual_tp_variant",
+    "source:1f43468bb6af"
+  ],
+  "favourite": false,
+  "archived": true,
+  "created_at": "2026-08-25T19:28:03.746962+00:00",
+  "updated_at": "2026-08-25T19:28:03.851987+00:00",
+  "current_version": 1,
+  "safety_status": "ready",
+  "safety_reasons": []
+}

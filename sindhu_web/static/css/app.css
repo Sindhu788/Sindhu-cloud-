@@ -328,13 +328,223 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round
 }
 .section-title:first-child { margin-top: 0; }
 
+/* ============================================================
+   Overview hierarchy (design pass)
+   ------------------------------------------------------------
+   The Overview used to render eight identical cards in one grid,
+   so a headline number ("Balance $298.36") carried exactly the
+   same visual weight as a one-word status ("System Health OK").
+   Everything competed and nothing led the eye.
+
+   Now there are two deliberate tiers:
+     .kpi-grid     -> the few numbers the CEO actually judges the
+                      system by, given real prominence;
+     .status-strip -> system state, compact, clearly subordinate.
+   ============================================================ */
+
+.section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 34px 0 14px;
+}
+.section-head:first-child { margin-top: 0; }
+.section-head .section-title { margin: 0; }
+.section-head .section-sub {
+  font-size: 12px;
+  color: var(--text-faint);
+  font-weight: 500;
+  text-align: right;
+}
+
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(215px, 1fr));
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+/* A headline metric. The accent hairline along the top edge is what
+   separates "this is a number that matters" from the status chips
+   below, without shouting. */
+.kpi {
+  position: relative;
+  background: linear-gradient(180deg, var(--bg-card-2), var(--bg-card));
+  border: 1px solid var(--border-soft);
+  border-radius: 14px;
+  padding: 17px 18px 16px;
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease;
+}
+.kpi::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  opacity: .75;
+}
+.kpi.is-positive::before { background: var(--green); opacity: .85; }
+.kpi.is-negative::before { background: var(--red); opacity: .85; }
+.kpi:hover {
+  border-color: var(--border);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+.kpi .kpi-label {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  font-weight: 700;
+  color: var(--text-faint);
+  margin-bottom: 9px;
+}
+.kpi .kpi-value {
+  font-size: 30px;
+  line-height: 1.1;
+  font-weight: 700;
+  letter-spacing: -.025em;
+  /* tabular figures stop the number jittering as it live-updates */
+  font-variant-numeric: tabular-nums;
+}
+.kpi .kpi-value.positive { color: var(--green); }
+.kpi .kpi-value.negative { color: var(--red); }
+.kpi .kpi-sub {
+  margin-top: 7px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* System state: same information, one tier quieter. */
+.status-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.status-chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-soft);
+  border-radius: 11px;
+}
+.status-chip .sc-k {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  font-weight: 700;
+  color: var(--text-faint);
+}
+.status-chip .sc-v {
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.status-chip .sc-v.positive { color: var(--green); }
+.status-chip .sc-v.muted-v { color: var(--text-faint); font-weight: 600; }
+
+/* Maturity: was a 28px heading over three paragraphs of prose with no
+   structure. The level is fundamentally "step N of 5", so it now reads
+   as one. */
+.maturity-card { padding: 20px; }
+.maturity-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.maturity-level {
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: -.02em;
+}
+.maturity-level .ml-num { color: var(--accent); }
+.maturity-steps {
+  display: flex;
+  gap: 5px;
+  flex: 1 1 200px;
+  max-width: 340px;
+  min-width: 160px;
+}
+.maturity-step {
+  flex: 1;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-soft);
+}
+.maturity-step.on {
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  border-color: transparent;
+}
+.maturity-body { margin-top: 14px; font-size: 13.5px; line-height: 1.55; }
+.maturity-next {
+  margin-top: 10px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+.maturity-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-soft);
+}
+.maturity-metric .mm-v {
+  font-size: 17px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.maturity-metric .mm-k {
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-top: 2px;
+  line-height: 1.35;
+}
+
+/* An empty table used to render as a bare left-aligned sentence tight against
+   the header row, which reads like a broken table rather than a deliberate
+   "nothing here yet" state. */
+td.empty-cell {
+  text-align: center;
+  color: var(--text-faint);
+  padding: 26px 14px;
+  font-size: 12.5px;
+  white-space: normal;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
   background: var(--bg-card);
   border: 1px solid var(--border-soft);
   border-radius: 12px;
-  overflow: hidden;
+  /* `overflow: hidden` used to live here (for the rounded corners). It
+     CLIPPED overflowing cell content instead of letting .table-wrap
+     scroll, which -- combined with the `white-space: nowrap` below and
+     `width: 100%` -- meant a table whose content was wider than its
+     wrapper could neither wrap NOR scroll: the text simply spilled over
+     the neighbouring columns. Measured on the Strategy Lifecycle table:
+     content wanted 5286px inside a 1161px wrapper, and every column
+     visually overlapped the next. Rounding is now done by .table-wrap,
+     whose own `overflow-x: auto` already establishes a clipping context.
+     `min-width: min-content` lets a genuinely-too-wide table scroll
+     inside its wrapper rather than overlap; a table that already fits is
+     unaffected, because `width: 100%` still wins for it. */
+  min-width: min-content;
   font-size: 13px;
 }
 th, td {
@@ -342,12 +552,25 @@ th, td {
   text-align: left;
   border-bottom: 1px solid var(--border-soft);
   white-space: nowrap;
+  /* Top-aligned so a wrapping prose cell doesn't vertically drift away
+     from the short values sitting beside it in the same row. */
+  vertical-align: top;
 }
+/* A cell that sets its own max-width is explicitly asking to be
+   constrained, which only means anything if it may also wrap -- the
+   global `white-space: nowrap` above was silently defeating it. This is
+   what actually stopped the Strategy Lifecycle overlap (its Strategy,
+   Why Win/Loss and Optimizer cells all carry an inline max-width). */
+td[style*="max-width"] { white-space: normal; }
 th { color: var(--text-faint); font-weight: 700; font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; background: var(--bg-elevated); }
 tr:last-child td { border-bottom: none; }
 tbody tr { transition: background .12s ease; }
 tbody tr:hover { background: var(--bg-hover); }
 .table-wrap { overflow-x: auto; border-radius: 12px; margin-bottom: 8px; }
+/* The engine's "Started ... tick #N" line sat flush against the next section
+   heading (measured gap: 0px), so Control Center and Confidence Filter read
+   as one cramped block. */
+.pt-engine-status-line { margin-top: 8px; margin-bottom: 14px; }
 .pt-action-group { display: flex; gap: 6px; flex-wrap: wrap; }
 
 .period-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0; }
@@ -370,6 +593,59 @@ tbody tr:hover { background: var(--bg-hover); }
 .pill-down, .pill-error, .pill-bearish { background: var(--red-dim); color: var(--red); }
 .pill-pending, .pill-running, .pill-neutral { background: var(--yellow-dim); color: var(--yellow); }
 .pill-muted { background: var(--bg-hover); color: var(--text-dim); }
+
+/* Compare page: highlights a genuinely-profitable strategy's row without
+   needing a per-cell class on every td. */
+tr.row-positive td { background: var(--green-dim); }
+
+/* Data-table visual hierarchy (Compare page redesign): the ONE number that
+   drives the decision (profit factor) reads at a glance; everything else
+   in the row recedes. Reused wherever a table needs the same "one hero
+   number, rest secondary" pattern -- not Compare-specific. */
+.stat-hero {
+  font-size: 18px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.01em;
+}
+.stat-hero.positive { color: var(--green); }
+.stat-hero.negative { color: var(--red); }
+.stat-secondary { color: var(--text-dim); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+
+/* A titled card wrapping one whole sub-section of a page (e.g. the dual-TP
+   comparison block on Compare) -- gives it a visible boundary + its own
+   breathing room instead of two tables just sitting stacked with only a
+   section-title between them. */
+.section-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-soft);
+  border-radius: 14px;
+  padding: 20px 22px 8px;
+  margin: 28px 0 20px;
+}
+.section-card > .section-title:first-child { margin-top: 0; }
+
+/* Explains a decision metric in plain language right where it's used --
+   Compare page's Profit Factor callout, reusable for any other page that
+   needs the same "one-line jargon explainer near the top" treatment. */
+.metric-explainer {
+  background: var(--accent-dim);
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  margin: -6px 0 18px;
+}
+.metric-explainer b { color: var(--text); }
+
+/* Brief pulse when a row is scrolled to from another page's "view on
+   Compare" link -- fades on its own, no JS timer needed for the visual. */
+@keyframes row-flash-highlight {
+  0% { background: var(--accent-dim); }
+  100% { background: transparent; }
+}
+tr.row-flash td { animation: row-flash-highlight 2.2s ease-out; }
 
 .btn {
   background: linear-gradient(135deg, var(--accent), var(--accent-2));
@@ -651,6 +927,21 @@ textarea { font-family: Consolas, monospace; min-height: 160px; }
     min-height: 24px;
   }
   .content table td:last-child { border-bottom: none; }
+  /* Several tables carry an inline `max-width` on their cells to size
+     DESKTOP columns (Strategy Lifecycle uses 220px/320px/150px). In this
+     stacked-card layout a td is a full-width flex row, so those desktop
+     widths squeezed the content into a sliver -- the "Show more" button
+     rendered one letter per line vertically, and the Optimizer values
+     broke into single-character columns. `!important` is required
+     specifically because the value being overridden is an inline style. */
+  .content table td[style*="max-width"] { max-width: none !important; }
+  /* A cell holding BOTH prose and a control (Strategy Lifecycle's
+     "Why Win/Loss" has a summary span plus a "Show more" button) is a
+     flex row here, so the button was squeezed to its minimum width and
+     rendered one letter per line. Wrapping lets it drop onto its own
+     line, and nowrap keeps its own label intact. */
+  .content table td { flex-wrap: wrap; }
+  .content table td button { white-space: nowrap; }
   .content table td::before {
     content: attr(data-label);
     color: var(--text-faint);
@@ -883,3 +1174,263 @@ textarea { font-family: Consolas, monospace; min-height: 160px; }
   box-shadow: 0 6px 20px rgba(0,0,0,.25); font-size: 12.5px; line-height: 1.45; color: var(--text);
 }
 .conf-dimmed { opacity: .32; filter: grayscale(40%); }
+
+/* ================================================================
+   PAPER TRADING + TELEGRAM -- design layer
+   ----------------------------------------------------------------
+   Shares the login screen's vocabulary so the product reads as one
+   designed system rather than a login page bolted onto a dashboard:
+   a soft accent glow for depth instead of flat panels, small
+   wide-tracked caps for labels against large tight-tracked numerals
+   for values, and asymmetric weighting -- the one number that matters
+   is physically bigger than the ones that do not, rather than every
+   figure competing at the same size.
+   Colour meaning is fixed and identical everywhere on these pages:
+   green = profit / delivered, red = loss / failed, amber = held back
+   or waiting, grey = nothing to report.
+   ================================================================ */
+
+/* ---------------------------------------------------------- page head */
+.page-head { margin-bottom: 22px; }
+.page-eyebrow {
+  font-size: 11px; font-weight: 700; letter-spacing: .18em;
+  text-transform: uppercase; color: var(--text-faint); margin-bottom: 6px;
+}
+.page-title {
+  margin: 0 0 8px; font-size: 30px; font-weight: 650; letter-spacing: -.02em;
+  line-height: 1.1;
+  background: linear-gradient(135deg, var(--text), var(--text-dim) 92%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.page-lede { margin: 0; max-width: 62ch; color: var(--text-dim); font-size: 13.5px; line-height: 1.6; }
+
+/* A one-line plain-English note under a number or table. Deliberately
+   quiet: it explains, it does not compete with the data above it. */
+.plain-note { font-size: 12.5px; line-height: 1.6; max-width: 78ch; margin: -6px 0 18px; }
+
+/* ------------------------------------------------------------- hero band
+   Asymmetric on purpose: the headline figure gets roughly half the row
+   and a visible glow, the two supporting figures share the rest. */
+.headline-band {
+  display: grid;
+  grid-template-columns: 1.35fr 1fr 1fr;
+  gap: 14px;
+  margin: 4px 0 22px;
+}
+.headline-band > div {
+  position: relative;
+  border: 1px solid var(--border-soft);
+  border-radius: 16px;
+  padding: 20px 22px;
+  background: linear-gradient(180deg, var(--bg-card-2), var(--bg-card));
+  overflow: hidden;
+}
+/* The glow is a pseudo-element rather than a box-shadow so it stays
+   inside the rounded corner and never bleeds onto neighbouring cards. */
+.headline-main::before {
+  content: ""; position: absolute; inset: -40% 55% -40% -30%;
+  background: radial-gradient(circle at 30% 50%, var(--accent), transparent 70%);
+  opacity: .13; pointer-events: none;
+}
+.headline-main.tone-up::before { background: radial-gradient(circle at 30% 50%, var(--green), transparent 70%); opacity: .16; }
+.headline-main.tone-down::before { background: radial-gradient(circle at 30% 50%, var(--red), transparent 70%); opacity: .16; }
+.headline-label {
+  position: relative; font-size: 10.5px; font-weight: 700; letter-spacing: .16em;
+  text-transform: uppercase; color: var(--text-faint); margin-bottom: 10px;
+}
+.headline-value {
+  position: relative; font-size: 38px; font-weight: 680; letter-spacing: -.03em;
+  line-height: 1; font-variant-numeric: tabular-nums; color: var(--text);
+}
+.headline-side .headline-value { font-size: 28px; }
+.headline-main.tone-up .headline-value { color: var(--green); }
+.headline-main.tone-down .headline-value { color: var(--red); }
+.headline-value.tone-up { color: var(--green); }
+.headline-sub {
+  position: relative; margin-top: 9px; font-size: 12px; color: var(--text-dim); line-height: 1.5;
+}
+
+/* ------------------------------------------------- best/worst lead cards */
+.lead-card { position: relative; overflow: hidden; }
+.lead-card::after {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: var(--border);
+}
+.lead-best::after { background: linear-gradient(180deg, var(--green), transparent); }
+.lead-worst::after { background: linear-gradient(180deg, var(--red), transparent); }
+.lead-name {
+  font-size: 17px; font-weight: 650; letter-spacing: -.01em;
+  margin: 8px 0 10px; line-height: 1.25;
+}
+.lead-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; font-size: 12.5px; }
+
+/* ------------------------------------------------------------ pill tabs
+   Replaces the boxy period-tab look for section-level navigation: one
+   recessed track holding the tabs, so the active tab reads as selected
+   rather than as a separate button that happens to be coloured in. */
+.pill-tabs {
+  display: inline-flex; flex-wrap: wrap; gap: 4px;
+  padding: 4px; margin: 0 0 20px;
+  background: var(--bg-elevated); border: 1px solid var(--border-soft);
+  border-radius: 12px;
+}
+.pill-tab {
+  border: none; background: transparent; color: var(--text-dim);
+  padding: 7px 15px; border-radius: 9px; cursor: pointer;
+  font-size: 13px; font-weight: 600; font-family: inherit;
+  transition: color .15s ease, background .15s ease;
+}
+.pill-tab:hover { color: var(--text); background: var(--bg-hover); }
+.pill-tab.active {
+  color: var(--text); background: var(--bg-card);
+  box-shadow: var(--shadow-sm), inset 0 1px 0 rgba(255,255,255,.04);
+}
+
+/* --------------------------------------------- Telegram connection panel */
+.conn-panel {
+  border: 1px solid var(--border-soft); border-radius: 16px;
+  padding: 18px 20px; margin-bottom: 22px;
+  background: linear-gradient(180deg, var(--bg-card-2), var(--bg-card));
+  position: relative; overflow: hidden;
+}
+.conn-panel::before {
+  content: ""; position: absolute; inset: -60% 60% -60% -20%;
+  opacity: .12; pointer-events: none;
+  background: radial-gradient(circle at 30% 50%, var(--accent), transparent 70%);
+}
+.conn-ok::before { background: radial-gradient(circle at 30% 50%, var(--green), transparent 70%); }
+.conn-bad::before { background: radial-gradient(circle at 30% 50%, var(--red), transparent 70%); }
+.conn-warn::before { background: radial-gradient(circle at 30% 50%, var(--yellow), transparent 70%); }
+.conn-main { position: relative; display: flex; align-items: flex-start; gap: 13px; }
+.conn-dot {
+  width: 10px; height: 10px; border-radius: 50%; margin-top: 6px; flex: none;
+  background: var(--text-faint);
+}
+.conn-ok .conn-dot { background: var(--green); box-shadow: 0 0 0 4px var(--green-dim); }
+.conn-bad .conn-dot { background: var(--red); box-shadow: 0 0 0 4px var(--red-dim); }
+.conn-warn .conn-dot { background: var(--yellow); box-shadow: 0 0 0 4px var(--yellow-dim); }
+.conn-headline { font-size: 17px; font-weight: 650; letter-spacing: -.01em; }
+.conn-reason { margin-top: 5px; font-size: 13px; color: var(--text-dim); line-height: 1.55; max-width: 70ch; }
+.conn-facts {
+  position: relative; display: grid; gap: 12px; margin-top: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+}
+.conn-facts > div { display: flex; flex-direction: column; gap: 3px; }
+.conn-facts .muted { font-size: 10.5px; text-transform: uppercase; letter-spacing: .11em; font-weight: 600; }
+.conn-facts b { font-size: 13.5px; font-weight: 600; }
+.conn-detail {
+  position: relative; margin-top: 14px; padding-top: 12px;
+  border-top: 1px solid var(--border-soft);
+  font-size: 12px; color: var(--text-dim); word-break: break-word; line-height: 1.55;
+}
+
+/* ------------------------------------------------- delivery status strip */
+.status-strip { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 22px; }
+.status-chip {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 14px; border-radius: 11px;
+  border: 1px solid var(--border-soft); background: var(--bg-card);
+}
+.status-chip b { font-size: 16px; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+
+/* --------------------------------------------------------- message text */
+.tg-preview {
+  white-space: pre-wrap; word-break: break-word;
+  font-size: 13px; line-height: 1.62;
+  background: var(--bg-elevated); border: 1px solid var(--border-soft);
+  border-radius: 12px; padding: 15px 17px;
+  max-height: 460px; overflow: auto;
+}
+.mirror-list { display: flex; flex-direction: column; gap: 12px; margin-bottom: 24px; }
+.mirror-head {
+  display: flex; justify-content: space-between; align-items: center;
+  flex-wrap: wrap; gap: 8px; margin-bottom: 11px;
+}
+
+/* -------------------------------------------------------------- notices */
+.notice {
+  border-radius: 12px; padding: 12px 15px; margin-bottom: 16px;
+  font-size: 13px; line-height: 1.55; border: 1px solid var(--border-soft);
+}
+.notice-warn { background: var(--yellow-dim); border-color: rgba(234,179,8,.3); }
+.notice-ok { background: var(--green-dim); border-color: rgba(34,197,94,.28); }
+
+/* ------------------------------------------------------------- settings */
+.settings-card { max-width: 640px; margin-bottom: 20px; }
+.switch-row {
+  display: flex; align-items: flex-start; gap: 11px; width: auto;
+  padding: 11px 0; border-bottom: 1px solid var(--border-soft);
+  font-size: 13.5px; line-height: 1.5;
+}
+.switch-row:last-of-type { border-bottom: none; }
+.switch-row input[type="checkbox"] { width: auto; margin-top: 3px; flex: none; }
+.switch-row .muted { font-size: 12px; line-height: 1.55; }
+.settings-readonly {
+  display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  margin-bottom: 6px;
+}
+.settings-readonly > div { display: flex; flex-direction: column; gap: 4px; }
+.settings-readonly .muted { font-size: 10.5px; text-transform: uppercase; letter-spacing: .11em; font-weight: 600; }
+.settings-readonly b { font-size: 15px; font-weight: 650; letter-spacing: -.01em; }
+
+/* --------------------------------------------------------------- modals */
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 9999;
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+  background: rgba(4,7,14,.62);
+  -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
+  animation: modal-fade .16s ease both;
+}
+@keyframes modal-fade { from { opacity: 0; } to { opacity: 1; } }
+.modal-panel {
+  width: min(560px, 100%); max-height: 88vh; overflow: auto;
+  background: var(--bg-elevated); color: var(--text);
+  border: 1px solid var(--border); border-radius: 18px; padding: 26px 28px;
+  box-shadow: 0 28px 70px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.03);
+  animation: modal-rise .22s cubic-bezier(.16,1,.3,1) both;
+}
+.modal-wide { width: min(760px, 100%); }
+@keyframes modal-rise {
+  from { opacity: 0; transform: translateY(12px) scale(.985); }
+  to { opacity: 1; transform: none; }
+}
+.modal-head {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  gap: 16px; margin-bottom: 18px;
+}
+.modal-eyebrow {
+  font-size: 10.5px; font-weight: 700; letter-spacing: .16em;
+  text-transform: uppercase; color: var(--text-faint); margin-bottom: 5px;
+}
+.modal-title { margin: 0; font-size: 20px; font-weight: 650; letter-spacing: -.015em; line-height: 1.25; }
+.modal-stat-row {
+  display: grid; gap: 14px; margin-bottom: 18px;
+  grid-template-columns: repeat(auto-fit, minmax(115px, 1fr));
+  padding: 15px 17px; border-radius: 13px;
+  background: var(--bg-card); border: 1px solid var(--border-soft);
+}
+.modal-stat-row > div { display: flex; flex-direction: column; gap: 4px; }
+.modal-stat-label {
+  font-size: 10.5px; font-weight: 600; letter-spacing: .11em;
+  text-transform: uppercase; color: var(--text-faint);
+}
+.modal-stat-value { font-size: 16px; font-weight: 650; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+
+/* ---------------------------------------------------------- responsive
+   Below 900px the hero band stops being asymmetric (there is no longer
+   room for the emphasis to read) and simply stacks, headline first --
+   so the most important number stays first on the page rather than
+   being shuffled into some other grid position. */
+@media (max-width: 900px) {
+  .headline-band { grid-template-columns: 1fr 1fr; }
+  .headline-main { grid-column: 1 / -1; }
+}
+@media (max-width: 560px) {
+  .headline-band { grid-template-columns: 1fr; }
+  .headline-value { font-size: 30px; }
+  .headline-side .headline-value { font-size: 24px; }
+  .page-title { font-size: 24px; }
+  .modal-panel { padding: 20px 18px; border-radius: 15px; }
+  .pill-tabs { display: flex; width: 100%; }
+  .pill-tab { flex: 1 1 auto; text-align: center; }
+}

@@ -21,6 +21,12 @@ class Condition:
     - "candle_range_pct":       params={"min_pct":, "max_pct":}     (this bar's (high-low)/low
                                 as a percentage must fall within [min_pct, max_pct] -- e.g. "the
                                 signal candle's range must be between 0.15% and 3.0%")
+    - "candle_body_pct":        params={"min_pct":, "max_pct":}     (this bar's body size, as a
+                                percentage of its own full high-low range, must fall within
+                                [min_pct, max_pct] -- min_pct alone: "a strong candle" / "not a
+                                small or Doji candle"; max_pct alone: "an exhaustion candle" /
+                                small body, long wick. Either may be omitted to leave that side
+                                unbounded. role defaults to "entry" like candle_range_pct.)
     - "raw":                     text                                  (unparsed -- needs clarification)
     """
     type: str
@@ -54,6 +60,18 @@ class Condition:
     # enforcement point, not two divergent ones.
     manual_review: bool = False
     raw_source: Optional[str] = None
+    # Only meaningful in exit_conditions: which position side this exit
+    # rule gates for -- "bullish" = only checked while the open position is
+    # a LONG, "bearish" = only checked while it's a SHORT, None (default,
+    # every strategy saved before this field existed) = checked for both,
+    # exactly like today. Independent of `direction` above, which is the
+    # concept's own polarity (e.g. a "bearish" candle_break used to exit a
+    # LONG position is exit_direction="bullish" + direction="bearish" --
+    # two different facts: which side this rule protects vs. what event
+    # triggers it. Lets a strategy express "a bearish break exits longs,
+    # a bullish break exits shorts" as two separate exit_conditions entries
+    # instead of one direction-blind rule wrongly applied to both sides.
+    exit_direction: Optional[str] = None
 
     def is_unclear(self):
         # A raw condition the CEO already explicitly accepted as Manual
@@ -82,6 +100,13 @@ class SLTPSpec:
     type: str = "unknown"
     value: Optional[float] = None
     level: Optional[str] = None  # "pdh" | "pdl" -- only used when type == "level"
+    # Only used when type == "atr_multiple": which ATR period to read.
+    # Every strategy saved before this field existed reads "entry_atr_14"
+    # exactly as before (None -> 14 default, unchanged). Added for the
+    # Richard Dennis Turtle Trader rebuild, whose stop-loss is explicitly
+    # "2x ATR(20)" -- the hardcoded ATR(14) column made that unrepresentable
+    # without silently using the wrong period.
+    atr_period: Optional[int] = None
 
 
 @dataclass
@@ -146,6 +171,25 @@ class StrategyConfig:
     # primary_target_lookback_bars is also set.
     min_risk_reward_filter: Optional[float] = None
     primary_target_lookback_bars: Optional[int] = None
+    # When True, min_risk_reward_filter is checked against the SAME level
+    # the trade will actually exit at (the real computed take_profit),
+    # instead of the separate primary_target_lookback_bars reference above.
+    # Use this when the strategy's own source explicitly says the filter
+    # and the actual target are the same thing (e.g. "only take it if R:R
+    # to the target is above 2.5") -- primary_target_lookback_bars exists
+    # for strategies that explicitly describe a DIFFERENT, nearer reference
+    # for the filter than the actual (possibly farther) take-profit.
+    # Mutually exclusive with primary_target_lookback_bars in practice
+    # (this one wins if both are set) but both fields can coexist in the
+    # schema without conflict.
+    risk_reward_filter_uses_take_profit: bool = False
+
+    # Optional overrides for concepts.consolidation_impulse_zones()
+    # (consolidation_bars/tightness_mult/impulse_atr_mult/atr_period) --
+    # lets a demand_zone/supply_zone strategy tune what counts as "tight"/
+    # "sharp" for itself, since source documents for this pattern typically
+    # give no exact number for either. Empty = the function's own defaults.
+    zone_params: dict = field(default_factory=dict)
 
     session_filter: list = field(default_factory=list)        # ["london", "ny"]
     trend_filter: Optional[str] = None                          # "up" / "down" / None
@@ -197,6 +241,17 @@ class StrategyConfig:
 
     tags: list = field(default_factory=list)
     favourite: bool = False
+
+    # Item 7 (Cross-Reference Validation): a performance claim the SOURCE
+    # DOCUMENT itself makes about this strategy (e.g. "wins 60% of the
+    # time"), captured verbatim at import time -- never invented, never
+    # adjusted. Compared against this strategy's own real backtest result
+    # once one exists (see backtest_engine.claim_validation), so a
+    # document's marketing claim is never silently trusted over what
+    # SINDHU actually measured. None when the source text made no such
+    # claim.
+    claimed_win_rate_pct: Optional[float] = None
+    claimed_win_rate_source_text: Optional[str] = None
 
     missing: list = field(default_factory=list)                # required fields not detected
     warnings: list = field(default_factory=list)                # detected but ambiguous

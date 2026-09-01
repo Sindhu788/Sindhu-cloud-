@@ -30,8 +30,13 @@ def evaluate(book_key, symbol, candidate, settings, exchange=None):
     independently limited to max_open_trades DISTINCT coins actively
     traded at once, so one strategy filling its coin quota never blocks
     another strategy from opening its own positions."""
+    # Master Task 2, Part 3: per-strategy overrides win over the global
+    # default when explicitly set (None = "use the global setting", the
+    # "__lessons__" book never has a config row so always falls through).
+    overrides = storage.get_paper_strategy_config(book_key) if book_key else {}
+    max_coins = overrides.get("max_open_trades_override") or settings.get("max_open_trades", 5)
+
     open_symbols = storage.get_open_paper_position_symbols(book_key)
-    max_coins = settings.get("max_open_trades", 5)
     if symbol not in open_symbols and len(open_symbols) >= max_coins:
         return False, f"max coins for this strategy reached ({max_coins})", None, None
 
@@ -42,7 +47,7 @@ def evaluate(book_key, symbol, candidate, settings, exchange=None):
     if balance <= 0:
         return False, "account balance depleted", None, None
 
-    risk_pct_default = settings.get("risk_pct_default", 1.0)
+    risk_pct_default = overrides.get("risk_pct_override") or settings.get("risk_pct_default", 1.0)
     if exchange and feature_toggles.is_enabled("dynamic_risk_sizing_enabled"):
         adjusted_pct, note = dynamic_risk.compute_risk_pct(exchange, symbol, risk_pct_default)
         if note:

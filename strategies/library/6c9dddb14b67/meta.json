@@ -1,0 +1,26 @@
+{
+  "id": "6c9dddb14b67",
+  "name": "Kotegawa Bear Market Reversal Strategy [Manual Build]",
+  "tags": [
+    "kotegawa",
+    "manual_build",
+    "15m",
+    "1d",
+    "macd",
+    "rebuild"
+  ],
+  "favourite": false,
+  "archived": false,
+  "created_at": "2026-08-23T09:28:27.596669+00:00",
+  "updated_at": "2026-08-25T00:05:34.456352+00:00",
+  "current_version": 2,
+  "safety_status": "ready",
+  "safety_reasons": [],
+  "version_log": [
+    {
+      "version": 2,
+      "reason": "Optimizer Part 1: widen fixed_pct SL 2.5% -> 3.5% (cost_model verified safe) -- win rate (~20%) was too far below the 25% breakeven for the RR=3.0 target, indicating stops were too tight for a bear-market-reversal setup's normal retest volatility",
+      "at": "2026-08-25T00:05:34.456352+00:00"
+    }
+  ]
+}

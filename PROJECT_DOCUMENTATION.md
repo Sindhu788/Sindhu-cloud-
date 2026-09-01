@@ -1,6 +1,6 @@
 # SINDHU — Project Documentation (A to Z)
 
-> Ye document sirf real code, files aur folders scan karke banaya gaya hai. Koi bhi cheez guess nahi ki gayi — agar kuch clear nahi tha to "TBD" likha hai.
+> **Version 2 — 2026-08-26.** Ye document sirf real code, files aur folders scan karke banaya gaya hai. Koi bhi cheez guess nahi ki gayi — agar kuch clear nahi tha to "TBD" likha hai. (V1 sirf architecture/modules tak thi, "Extraction Reliability Crisis" era tak — is update mein Sections 14-19 naye add kiye gaye hain jo us waqt ke baad ka poora kaam cover karte hain: 18 strategies ka final state, dual-TP experiment, engine gaps, nayi pages, aur infra work.)
 
 ---
 
@@ -433,14 +433,107 @@ Code mein disabled nav items aur `PROJECT_PLAN.md`/`PROGRESS.md` ke "What's NOT 
 
 ## 12. Known Issues / TODO
 
-- `requirements.txt` mein package versions pin nahi hain — reproducibility ke liye risk
-- Project **git repository nahi hai** — koi commit history available nahi, isliye phases ka exact timeline sirf `PROGRESS.md` se pata chalta hai (jo manually maintain kiya gaya)
-- `data/settings/` aur `data/market_data/` folders bane hue hain lekin currently empty/unused (TBD — future use ke liye reserved lagte hain)
-- Strategy Library do jagah track hoti hai: `strategies/library/*.json` (asli config) aur SQLite ka `strategies` table (sirf naam/module registration, backtest_batches ke liye) — dono ka exact relationship pura clear nahi (TBD)
-- Desktop app (`dashboard/`) sirf 2 tabs tak limited hai — poori tarah web dashboard ke feature-parity mein nahi hai (jaan-boojh kar, kyunki web hi primary interface hai)
+**Current reality (2026-08-26 update — sabse zaroori items upar):**
+
+1. **Paper Trading abhi activate nahi hui hai — ye is waqt ka TOP PRIORITY hai.** 18 strategies backtest ho chuki hain, 4 genuinely profitable hain (Section 14 dekhein), lekin koi bhi strategy abhi live Paper Trading account par nahi chal rahi. Jab tak paper trading shuru nahi hoti, System Maturity Level 1/5 ("Bootstrapping") par hi ruka rahega.
+2. **DCA / multi-entry averaging engine gap** — abhi tak fix nahi hua, jaan-boojh kar excluded (Section 16, gap #14 dekhein). Engine ek trade mein sirf EK entry support karta hai; kisi bhi strategy ka "DCA entry" wala hissa isliye represent nahi ho sakta.
+3. **Concepts Library abhi 12 of 22 (55%) complete hai** — 10 concepts abhi "not yet defined" hain (Equal Highs/Lows, Previous High/Low, Premium & Discount, aur Candlestick Patterns category ke 7 baaki: Inverted Hammer, Hanging Man, Spinning Top, Tweezer Top/Bottom, Three White Soldiers, Three Black Crows).
+4. **Telegram Alerts aur VPS deployment dono abhi blocked hain** — koi bhi live signal system abhi nahi bana, aur poora system sirf local machine (`localhost:8420`) par chalta hai, 24/7 uptime ke liye VPS par move nahi hua.
+5. `requirements.txt` mein package versions pin nahi hain — reproducibility ke liye risk.
+6. Project **git repository nahi hai** — koi commit history available nahi, isliye phases ka exact timeline sirf `PROGRESS.md` se pata chalta hai (jo manually maintain kiya gaya).
+7. `data/settings/` aur `data/market_data/` folders bane hue hain lekin currently empty/unused (TBD — future use ke liye reserved lagte hain).
+8. Strategy Library do jagah track hoti hai: `strategies/library/*.json` (asli config) aur SQLite ka `strategies` table (sirf naam/module registration, backtest_batches ke liye) — dono ka exact relationship pura clear nahi (TBD).
+9. Desktop app (`dashboard/`) sirf 2 tabs tak limited hai — poori tarah web dashboard ke feature-parity mein nahi hai (jaan-boojh kar, kyunki web hi primary interface hai).
 
 ---
 
-## 13. Quick Summary (5 Lines)
+## 14. Strategy Library — Current State (18 Strategies)
 
-SINDHU ek self-learning crypto trading system hai jahan CEO sirf ek strategy ya YouTube link paste karta hai, aur AI (sirf import ke waqt, ek dafa) use hoke poori strategy ko samajh kar directly executable structure mein badal deta hai — uske baad AI ki zaroorat kabhi nahi padti. Ye structured data phir Backtesting Engine aur Paper Trading Engine dono mein bilkul same tarah chalta hai (multi-timeframe, auto-resampling, real indicators/patterns), aur sab kuch ek single SQLite database + JSON files mein permanently save hota hai. Poora system ek FastAPI web dashboard (`localhost:8420`) se control hota hai jo mobile aur laptop dono par chalta hai. 15+ phases already complete hain (Data, Backtesting, Knowledge, Paper Trading, aur AI Knowledge Learning Engine ke 3 versions v6/v7/v8). Live trading, Telegram alerts, News monitoring, aur Reflection/Evolution ko standalone pages banana — ye sab abhi future roadmap mein hain.
+Sab 18 strategies **direct-manual-construction** se banayi gayi hain (koi `strategy_parser.py`/`ai_integration/` use nahi hua — seedha Python mein `StrategyConfig` objects banaye gaye), aur sab ka real 50-coin backtest ho chuka hai. Sirf **4 genuinely profitable** hain (Profit Factor > 1.0) — baaki 14 losing hain. Neeche PF ke hisaab se descending order mein, jaisa Compare page par bhi dikhta hai:
+
+| Strategy | Trades | Win Rate | Net PnL | Profit Factor | Worst Drawdown | Verdict |
+|---|---|---|---|---|---|---|
+| Richard Dennis Turtle Trader | 1,376 | 6.83% | +$57,909.27 | **1.2596** | 83.46% | ✅ Profitable |
+| Liquidity Sweep Reversal | 4,159 | 39.72% | +$39,901.06 | **1.1939** | 91.54% | ✅ Profitable |
+| Candlestick Pattern Reversal | 3,755 | 31.19% | +$28,415.73 | **1.1435** | 93.88% | ✅ Profitable |
+| Support/Resistance Breakout | 4,479 | 39.03% | +$14,333.28 | **1.0548** | 89.33% | ✅ Profitable |
+| Dumb Money Concepts — Confirmation Entry | 1,602 | 29.15% | -$619.33 | 0.9501 | 53.80% | Losing |
+| Dumb Money Concepts — Combined Confirmation | 1,867 | 28.76% | -$1,807.51 | 0.8764 | 64.44% | Losing |
+| Double Confirmation CHoCH with Liquidity Trap | 8,011 | 26.26% | -$34,526.92 | 0.8726 | 98.88% | Losing |
+| Supply/Demand Zone | 193 | 37.31% | -$1,879.05 | 0.8626 | 7.43% | Losing |
+| SMA-Alignment (Approximate) | 3,287 | 37.91% | -$32,557.38 | 0.8386 | 27.75% | Losing |
+| Asian Range London Sweep | 3,688 | 34.25% | -$46,220.23 | 0.8316 | 39.40% | Losing |
+| 9-20 EMA SMC Hybrid | 771 | 36.19% | -$10,749.76 | 0.8171 | 27.54% | Losing |
+| 4-Hour Range Breakout-Retest | 15,361 | 33.33% | -$210,781.99 | 0.8097 | 92.67% | Losing |
+| Dumb Money Concepts — Blind Entry | 2,632 | 23.67% | -$4,153.17 | 0.8064 | 72.75% | Losing |
+| Laxman Rekha 5-EMA Trigger-Candle | 11,353 | 22.58% | -$16,599.74 | 0.8059 | 94.21% | Losing |
+| Kotegawa Bear Market Reversal | 5,581 | 23.13% | -$92,069.01 | 0.7988 | 57.99% | Losing |
+| Daily Liquidity Scalping | 48,947 | 46.07% | -$350,200.55 | 0.7853 | 99.93% | Losing |
+| Lower TF Liquidity Reversal | 14,248 | 32.74% | -$231,294.03 | 0.7694 | 89.65% | Losing |
+| Candle Range Theory (CRT) 2.0 | 42,013 | 33.74% | -$421,921.95 | 0.7329 | 98.29% | Losing |
+
+**Aggregate**: 172,323 total trades, trade-weighted win rate 35.81%, aggregate net PnL -$1,308,861. Yeh sab `/api/strategy-summary` (Home dashboard) aur `/api/compare-strategies` (Compare page) dono live compute karte hain — kahin bhi hardcode nahi.
+
+---
+
+## 15. Dual Take-Profit Experiment (Fixed 1:2 TP Test)
+
+**Kya test kiya gaya:** Upar wali 16 ORIGINAL strategies (2 DMC variants — Blind Entry aur Combined — is experiment mein shamil nahi thin, wo khud baad mein alag se banayi gayin) ka ek-ek "draft" copy banaya gaya jismein SIRF take-profit rule badla gaya — fixed 1:2 risk-reward se — baaki sab (entries, stop-loss, filters, timeframes) bilkul wahi rakha gaya. Har draft ka real 50-coin backtest chalaya gaya aur original ke saath compare kiya gaya.
+
+**Sabse zaroori finding:** Jo 4 strategies pehle se genuinely profitable thin, **un SAB ki performance 1:2 TP ke saath gir gayi** — Turtle Trader 1.2596→0.8265, Liquidity Sweep Reversal 1.1939→0.8213, Candlestick Pattern Reversal 1.1435→0.7493, Support/Resistance Breakout 1.0548→0.8202. Matlab: unka original TP logic (structure-based ya wider fixed RR) **already achhe se tuned tha** — usse chhota/generic 1:2 kar dene se winners jald cut ho gaye. Sirf 2 pehle-se-losing strategies 1:2 TP ke saath profitable ban paayin (DMC Confirmation Entry 0.9501→1.1349, Supply/Demand Zone 0.8626→1.0153 — yeh dusri wali sirf 70 trades ke saath, bharosemand nahi). 5 strategies ka original TP already 1:2 tha, isliye unka "variant" mathematically identical raha.
+
+**Yeh drafts kahan milte hain:** Sab 16 draft variants `archived` strategy entries ke tor par save hain (naam ke aakhir mein "— Fixed 1:2 TP variant"). Ye **main Compare/Dashboard totals mein count NAHI hote** (dono jagah `archived` flag check karke exclude kiya jata hai) — sirf Compare page ke apne dedicated "Take-Profit Comparison" section mein dikhte hain, taake original aur 1:2 version dono independently viewable rahein bina main leaderboard ko confuse kiye.
+
+---
+
+## 16. Engine Gaps Found & Fixed (Poore Session Mein)
+
+`ENGINE_GAP_TRACKER.md` (root folder mein) is sab ka permanent, append-only record hai. Summary:
+
+| # | Gap | Status |
+|---|---|---|
+| 1 | VWAP indicator declared tha lekin kabhi wire nahi hua tha (0 trades hamesha) | ✅ Fixed |
+| 2 | `take_profit.type == "structure"` ka koi implementation hi nahi tha (TP hamesha NULL) | ✅ Fixed |
+| 3 | Bare PDH/PDL condition sirf "level defined hai ya nahi" check karta tha, "price uske upar/neeche hai ya nahi" nahi | ✅ Fixed |
+| 4 | MACD listed tha lekin indicator loop mein kabhi call nahi hota tha | ✅ Fixed |
+| 5 | Koi sequential/event-ordering primitive nahi tha ("A ke BAAD B hua" — sirf "dono kabhi hue" check hota tha) | ✅ Fixed — `sequential_event()` naya primitive bana |
+| 6 | Stop-loss buffer default (0.15%) real transaction cost se bhi chhota tha — stops sirf fees/slippage se hit ho jaate the | ✅ Fixed (policy) — naya minimum 2-3x real cost |
+| 7 | Exit conditions mein direction-awareness nahi thi (long/short dono ke liye same exit rule) | ✅ Fixed — `exit_direction` field add hua |
+| 8 | ATR-based SL/TP hamesha hardcoded ATR(14) read karta tha, chahe strategy ne ATR(20) maanga ho | ✅ Fixed — `atr_period` field add hua |
+| 9 | `candle_body_pct` sirf minimum threshold support karta tha, maximum (exhaustion candle) nahi | ✅ Fixed |
+| 10 | 1-minute timeframe hardcoding — check kiya gaya, koi real gap nahi mila | Not a real gap |
+| 12 | Structural trailing stop-loss (swing-level tak trail karna) — sirf %/ATR-distance trailing hi supported hai | **Not fixed — excluded** (core execution loop change chahiye, scope se bahar) |
+| 11 | Per-day categorical trade-outcome counter ("max 2 full SL per din") | **Not fixed — excluded** (cross-trade state chahiye, scope se bahar) |
+| 13 | `_within()` helper `NaN` ko truthy treat karta tha role-merged columns par — backtest ke shuruaati bars mein galat trades khol sakta tha | ✅ Fixed — kam se kam 9 purani strategies ke liye bhi genuine correctness improvement |
+| 14 | DCA/multi-entry position averaging — engine sirf single-entry-per-trade support karta hai | **Not fixed — excluded**, abhi bhi khula gap (Section 12 dekhein) |
+
+**Sirf gap #14 (DCA) abhi bhi genuinely open hai** — baaki sab ya to fix ho chuke hain, ya jaan-boojh kar scope-se-bahar excluded hain (documented, fake approximation nahi banaya gaya).
+
+---
+
+## 17. Naye Pages/Features (Is Session Mein Bane)
+
+- **Concepts Library** (`/concepts` — abhi tak sidebar mein direct link nahi hai, sirf URL se pahunch) — 12 of 22 concepts (55%) fully detailed hain, Learning Score aur "What's Next" roadmap dono live data se compute hote hain.
+- **Compare page** (`/#compare`) — sab strategies ek saath, original vs current PF, aur ab ek dedicated "Take-Profit Comparison — Original vs Fixed 1:2" section bhi.
+- **Live Logs page** (`/#live_logs`) — running/queued/recently-completed jobs, real-time activity log.
+- **Project Status page** (`/#project_status`) — changelog, pending items, engine-gap counts, sab live-computed.
+- **Automation Pipeline / Optimizer work** — auto backtest → optimize → compare → paper trading handoff (`automation_pipeline/`), 9 strategies ka tuning pass already chal chuka hai (Compare page par "Tuning change" notes dikhte hain).
+- **Aggregate Dashboard section** (Home page ka hissa, `/api/strategy-summary` se) — Total Strategies, Genuinely Profitable count, trade-weighted Aggregate Win Rate, Aggregate Net PnL, Best/Worst Performer — sab Compare page ke sath exact same data source share karte hain.
+
+---
+
+## 18. Storage / Infrastructure Work
+
+- **Backup cleanup**: 4 purane backup `.db` files delete kiye gaye, sirf sabse latest (`sindhu_20260824_233936.db`) rakha gaya — E: drive par **~46.58GB free space wapas mili**.
+- **Current database size**: `data/database/sindhu.db` = **10.38 GB** (live verified). Backups folder bhi ab sirf 10.38 GB (1 file).
+- **E: drive free space**: ~126 GB (live verified).
+
+---
+
+*(Known Gaps / Pending ka updated version Section 12 mein hai — sabse upar Paper Trading activation ko top priority mark kiya gaya hai.)*
+
+---
+
+## 19. Quick Summary (5 Lines)
+
+SINDHU ek self-learning crypto trading system hai jahan CEO sirf ek strategy ya YouTube link paste karta hai, aur AI (sirf import ke waqt, ek dafa) use hoke poori strategy ko samajh kar directly executable structure mein badal deta hai — uske baad AI ki zaroorat kabhi nahi padti. Ye structured data phir Backtesting Engine aur Paper Trading Engine dono mein bilkul same tarah chalta hai (multi-timeframe, auto-resampling, real indicators/patterns), aur sab kuch ek single SQLite database + JSON files mein permanently save hota hai. Poora system ek FastAPI web dashboard (`localhost:8420`) se control hota hai jo mobile aur laptop dono par chalta hai. 15+ phases already complete hain (Data, Backtesting, Knowledge, Paper Trading, aur AI Knowledge Learning Engine ke 3 versions v6/v7/v8). Library mein ab **18 direct-manual-construction strategies** hain, jinme se **4 genuinely profitable** hain (Section 14) — sab real 50-coin backtests se verified. Live trading, Telegram alerts, News monitoring, Reflection/Evolution ko standalone pages banana, aur sabse zaroori — **Paper Trading ko activate karna** — ye sab abhi future roadmap/pending items mein hain (Section 12).

@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 
 from ai_integration import config as ai_config
 from ai_integration import schema
-from ai_integration.deep_understanding import call_provider_chain_generic
+from ai_integration.deep_understanding import call_provider_chain_generic, NO_PROVIDER_ERROR
 from ai_integration.fragment_merge import merge_fragment_additive
 
 _COMPARISON_SYSTEM_PROMPT = (
@@ -185,7 +185,9 @@ def run_multi_pass_extraction(raw_text, source_hint=None, content_type=None):
             "result": None, "provider": None, "call_count": 0,
             "rule_inventory": {"rules": [], "count": 0},
             "comparison": {"expected_count": 0, "captured_count": 0, "rules": []},
-            "error": None,
+            # Was None -- see deep_understanding.NO_PROVIDER_ERROR for why
+            # a silent empty chain is a real problem rather than a no-op.
+            "error": NO_PROVIDER_ERROR,
         }
 
     call_count = 0

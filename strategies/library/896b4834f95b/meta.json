@@ -1,0 +1,17 @@
+{
+  "id": "896b4834f95b",
+  "name": "SMA-Alignment Strategy (Approximate - ZIP Indicator Excluded) -- Confirmation Medium variant [Manual Build]",
+  "tags": [
+    "confirmation_optimizer_variant",
+    "level:medium",
+    "source:99fbf2454f8a",
+    "additions:sl_distance"
+  ],
+  "favourite": false,
+  "archived": true,
+  "created_at": "2026-08-27T09:07:38.126602+00:00",
+  "updated_at": "2026-08-27T09:07:38.154943+00:00",
+  "current_version": 1,
+  "safety_status": "ready",
+  "safety_reasons": []
+}

@@ -1,0 +1,15 @@
+{
+  "id": "6de60a62e9b2",
+  "name": "9-20 EMA SMC Hybrid -- Fixed 1:2 TP variant [Manual Build]",
+  "tags": [
+    "dual_tp_variant",
+    "source:86ceac60820b"
+  ],
+  "favourite": false,
+  "archived": true,
+  "created_at": "2026-08-25T19:09:02.264732+00:00",
+  "updated_at": "2026-08-25T19:09:02.394928+00:00",
+  "current_version": 1,
+  "safety_status": "ready",
+  "safety_reasons": []
+}

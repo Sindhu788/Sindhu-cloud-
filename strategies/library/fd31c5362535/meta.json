@@ -1,0 +1,17 @@
+{
+  "id": "fd31c5362535",
+  "name": "SAR + SMC (CISD Entry) -- Confirmation Strict variant [Manual Build]",
+  "tags": [
+    "confirmation_optimizer_variant",
+    "level:strict",
+    "source:f4bfea4e22e0",
+    "additions:sl_distance,stricter_min_rr"
+  ],
+  "favourite": false,
+  "archived": true,
+  "created_at": "2026-08-28T07:02:26.425764+00:00",
+  "updated_at": "2026-08-28T07:02:26.542402+00:00",
+  "current_version": 1,
+  "safety_status": "ready",
+  "safety_reasons": []
+}

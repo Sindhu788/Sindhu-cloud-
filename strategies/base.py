@@ -12,6 +12,14 @@ class Signal:
     stop_loss: Optional[float] = None
     take_profit: Optional[float] = None
     reason: Optional[str] = None  # human-readable "why" -- stored as entry/exit reason in trade history
+    # Optional soft position-size adjustment for THIS entry only (e.g. "half
+    # size on weekends / during a ranging HTF" -- a real filter some
+    # strategies describe, distinct from a hard skip). None (every Signal
+    # from every strategy before this field existed) means 1.0x -- full,
+    # unchanged size. Multiplies the strategy's own risk_pct at position-
+    # sizing time (backtest_engine.engine._position_size); never affects
+    # stop-loss/take-profit placement.
+    risk_multiplier: Optional[float] = None
 
 
 class Strategy:

@@ -1,0 +1,21 @@
+# Dependencies for the LIGHTWEIGHT CLOUD RUNNER ONLY (cloud_runtime/app.py).
+# Deliberately a small subset of the full requirements.txt (which also
+# covers the desktop GUI, PDF/Word/Excel report generation, backtesting,
+# and the local-only strategy-extraction pipeline -- none of that runs in
+# the cloud). Keeping this separate keeps Railway's build fast and its
+# image small; requirements.txt itself is untouched, so local development
+# is completely unaffected by this file's existence.
+#
+# Traced by actually importing cloud_runtime.app's full dependency graph
+# and listing every third-party package really touched -- not copied from
+# requirements.txt by guesswork.
+
+fastapi
+uvicorn[standard]
+pandas
+ccxt
+requests
+PySocks
+psycopg2-binary
+openpyxl
+python-multipart

@@ -11,20 +11,56 @@ import os
 import secrets
 
 from fastapi import Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from data_engine.paths import CONFIG_DIR, ensure_folders
+from sindhu_web import auth
 
 _TOKEN_PATH = os.path.join(CONFIG_DIR, "api_token.json")
 
 _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 _EXEMPT_PATHS = {"/", "/api/token"}
 
+# Master Task 2, Part 5: the login page itself and everything it needs to
+# function BEFORE a session exists -- must stay reachable while logged out.
+# "/" is deliberately NOT here: index() in server.py decides whether "/"
+# serves the dashboard or redirects to /login based on session state, so
+# the dashboard's own HTML is never handed out to a logged-out request.
+_LOGIN_EXEMPT_PATHS = {"/login", "/api/auth/status", "/api/auth/setup", "/api/auth/login"}
+
+# A valid session cookie is a stronger signal than the X-Sindhu-Token
+# header below (which exists to distinguish a real browser request from a
+# random LAN script) -- these two endpoints are meaningless without
+# already being logged in, so they still go through the session check
+# above like any other request, they just don't ALSO need the separate
+# token header on top of that.
+_SESSION_AUTHENTICATES_PATHS = {"/api/auth/logout", "/api/auth/change-password"}
+
+
+# Lightweight cloud runner support: on the local laptop this stays exactly
+# what it always was -- LAN-only, unconditionally. A cloud deployment (e.g.
+# Railway) is reached over the real internet by definition, so the LAN
+# check would refuse every single visitor including the CEO -- there is no
+# "same WiFi network" concept once the app is on a public host. Setting
+# SINDHU_CLOUD_MODE=1 (an explicit, separate flag from DATABASE_URL/
+# SINDHU_LIVE_CANDLES, so accidentally setting one of THOSE locally for
+# testing can never also loosen this) is the ONLY way to bypass the LAN
+# check, and it bypasses ONLY the LAN check -- the login-session gate right
+# below this in the middleware still runs unconditionally either way, so a
+# cloud deployment is never reachable by anyone who hasn't logged in.
+CLOUD_MODE = os.environ.get("SINDHU_CLOUD_MODE") == "1"
+
 
 def _is_lan_client(host):
     """True for loopback (same machine) or any private LAN range
     (192.168.x.x, 10.x.x.x, 172.16-31.x.x) -- i.e. "same WiFi network".
-    Anything else (a real internet address) is refused outright."""
+    Anything else (a real internet address) is refused outright.
+
+    Bypassed entirely when CLOUD_MODE is on (see above) -- the login page
+    becomes the sole access control in that case, exactly as Step 1 of the
+    Railway deployment task requires."""
+    if CLOUD_MODE:
+        return True
     if not host:
         return False
     try:
@@ -50,8 +86,28 @@ async def token_guard_middleware(request: Request, call_next):
     if not _is_lan_client(client_host):
         return JSONResponse({"detail": "access restricted to the local network"}, status_code=403)
 
-    if request.method in _SAFE_METHODS or request.url.path in _EXEMPT_PATHS \
-            or request.url.path.startswith("/static") or request.url.path.startswith("/ws"):
+    path = request.url.path
+
+    # Master Task 2, Part 5: the login gate. Unlike the token check below
+    # (which only ever guarded state-changing requests), this applies to
+    # EVERY method including GET -- no dashboard page and no API response
+    # is handed out to a request without a valid session. "/" is
+    # deliberately excluded here: server.py's index() itself decides
+    # whether to serve the dashboard or redirect to /login, so the
+    # dashboard's own HTML is still never reached without a session, it's
+    # just decided one layer up. Static files stay reachable (app.js/
+    # app.css are code, not data -- serving them pre-login leaks nothing,
+    # and the login page needs this same static mount available too).
+    if path != "/" and path not in _LOGIN_EXEMPT_PATHS and not path.startswith("/static"):
+        session_token = request.cookies.get(auth.SESSION_COOKIE)
+        if not auth.is_valid_session(session_token):
+            if request.method in _SAFE_METHODS and not path.startswith("/api/") and not path.startswith("/ws"):
+                return RedirectResponse(url="/login")
+            return JSONResponse({"detail": "login required"}, status_code=401)
+
+    if request.method in _SAFE_METHODS or path in _EXEMPT_PATHS or path in _LOGIN_EXEMPT_PATHS \
+            or path in _SESSION_AUTHENTICATES_PATHS \
+            or path.startswith("/static") or path.startswith("/ws"):
         return await call_next(request)
 
     expected = get_or_create_token()

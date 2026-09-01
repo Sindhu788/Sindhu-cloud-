@@ -1,0 +1,17 @@
+{
+  "id": "7b328f19ca1b",
+  "name": "9-20 EMA SMC Hybrid -- Confirmation Medium variant [Manual Build]",
+  "tags": [
+    "confirmation_optimizer_variant",
+    "level:medium",
+    "source:86ceac60820b",
+    "additions:sl_distance"
+  ],
+  "favourite": false,
+  "archived": true,
+  "created_at": "2026-08-27T08:58:45.926987+00:00",
+  "updated_at": "2026-08-27T08:58:45.944407+00:00",
+  "current_version": 1,
+  "safety_status": "ready",
+  "safety_reasons": []
+}

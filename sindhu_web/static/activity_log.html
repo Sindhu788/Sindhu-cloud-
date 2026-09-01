@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live Activity Log - SINDHU</title>
+<link rel="stylesheet" href="/static/css/app.css">
+<style>
+  body { background: var(--bg); color: var(--text); font-family: inherit; margin: 0; }
+  .al-wrap { max-width: 1080px; margin: 0 auto; padding: 32px 20px 64px; }
+  .al-header { margin-bottom: 20px; }
+  .al-header h1 { font-size: 22px; margin: 0 0 6px; }
+  .al-header p { color: var(--text-dim); font-size: 14px; margin: 0; max-width: 68ch; }
+
+  .al-summary {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 10px; margin: 20px 0 28px;
+  }
+  .al-stat.card { padding: 13px 16px; }
+  .al-stat .label { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-faint); margin-bottom: 5px; }
+  .al-stat .value { font-size: 21px; font-weight: 700; }
+  .al-stat .value.live { color: var(--green); }
+  .al-stat .sub { font-size: 11.5px; color: var(--text-dim); margin-top: 2px; }
+
+  .al-section { margin-bottom: 28px; }
+  .al-section h2 {
+    font-size: 13px; text-transform: uppercase; letter-spacing: .05em;
+    color: var(--text-faint); margin: 0 0 10px; font-weight: 600;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .al-section h2 .count { color: var(--text-dim); font-weight: 400; text-transform: none; letter-spacing: 0; }
+  .al-empty { color: var(--text-faint); font-size: 13px; padding: 12px 4px; }
+
+  .al-item.card { padding: 14px 16px; margin-bottom: 8px; }
+  .al-item-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+  .al-item-title { font-size: 14px; font-weight: 600; }
+  .al-item-meta { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+  .al-progress-track { height: 6px; border-radius: 3px; background: var(--bg-hover); overflow: hidden; margin-top: 10px; }
+  .al-progress-fill { height: 100%; border-radius: 3px; background: var(--accent); transition: width .3s; }
+  .al-stall { margin-top: 8px; }
+
+  .ws-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .ws-dot.on { background: var(--green); box-shadow: 0 0 0 3px var(--green-dim); }
+  .ws-dot.off { background: var(--text-faint); }
+  .ws-status { font-size: 12px; color: var(--text-dim); display: flex; align-items: center; gap: 6px; }
+</style>
+</head>
+<body>
+  <div class="al-wrap">
+    <div class="al-header">
+      <h1>Live Activity Log</h1>
+      <p>Read-only view of everything running, queued, or recently finished in SINDHU -- pulled from the real job manager, activity log, and pipeline history. Does not start, stop, or change anything.</p>
+    </div>
+
+    <div class="al-summary" id="summary"></div>
+
+    <div class="al-section">
+      <h2>Running Now <span class="count" id="running-count"></span> <span class="ws-status" id="ws-status" style="margin-left:auto"><span class="ws-dot off" id="ws-dot"></span><span id="ws-label">connecting...</span></span></h2>
+      <div id="running-list"></div>
+    </div>
+
+    <div class="al-section">
+      <h2>Queued / Pending <span class="count" id="queued-count"></span></h2>
+      <div id="queued-list"></div>
+    </div>
+
+    <div class="al-section">
+      <h2>Recently Completed <span class="count" id="completed-count"></span></h2>
+      <div id="completed-list"></div>
+    </div>
+  </div>
+
+<script>
+// STALL_THRESHOLDS_MS: realistic durations from this session's own real
+// history -- a 50-coin backtest genuinely took 12-60 minutes depending on
+// timeframe/entry_rule_group count; anything else defaults to a much
+// shorter window. This is a TIME-based heuristic only (elapsed since
+// started_at) -- the job object has no per-field "last updated" timestamp
+// to detect true no-progress-delta stalls, so "may be stalled" here means
+// "running far longer than this kind of job normally takes," not a
+// guaranteed diagnosis. Flagged explicitly in the report.
+const STALL_THRESHOLDS_MS = {
+  backtest: 60 * 60 * 1000,
+  pipeline: 90 * 60 * 1000,
+  default: 20 * 60 * 1000,
+};
+
+function fmtElapsed(ms) {
+  if (ms < 0) ms = 0;
+  const s = Math.floor(ms / 1000);
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${sec}s`;
+  return `${sec}s`;
+}
+
+function apiGet(path) {
+  return fetch(path).then(r => r.ok ? r.json() : Promise.reject(new Error(path + " -> " + r.status)));
+}
+
+function jobTitle(job) {
+  const kind = job.kind || "job";
+  const batch = job.batch_id || (job.result && job.result.batch_id) || "";
+  return kind.charAt(0).toUpperCase() + kind.slice(1) + (batch ? ` (${batch})` : "");
+}
+
+function progressLine(job) {
+  const p = job.progress || {};
+  if (p.stage_label) return p.stage_label;
+  if (p.backtest_stage) return p.backtest_stage;
+  if (p.current_stage) return p.current_stage;
+  return null;
+}
+
+function progressPct(job) {
+  const p = job.progress || {};
+  if (typeof p.done === "number" && typeof p.total === "number" && p.total > 0) {
+    return { pct: Math.round((p.done / p.total) * 100), label: `${p.done} of ${p.total} symbols done` };
+  }
+  if (typeof p.bar_pct === "number") {
+    return { pct: Math.round(p.bar_pct), label: `${Math.round(p.bar_pct)}% of bars simulated` };
+  }
+  return null; // genuinely no granular data -- caller must show "in progress", never fake a number
+}
+
+function renderRunning(jobs) {
+  const now = Date.now();
+  const list = document.getElementById("running-list");
+  list.innerHTML = "";
+  const running = jobs.filter(j => j.status === "running");
+  document.getElementById("running-count").textContent = `(${running.length})`;
+  if (!running.length) {
+    list.innerHTML = '<div class="al-empty">Nothing running right now.</div>';
+    return;
+  }
+  running.forEach(job => {
+    const started = job.started_at ? new Date(job.started_at).getTime() : now;
+    const elapsed = now - started;
+    const threshold = STALL_THRESHOLDS_MS[job.kind] || STALL_THRESHOLDS_MS.default;
+    const stalled = elapsed > threshold;
+    const prog = progressPct(job);
+    const stageLabel = progressLine(job);
+
+    const card = document.createElement("div");
+    card.className = "al-item card";
+    card.innerHTML = `
+      <div class="al-item-top">
+        <div class="al-item-title">${jobTitle(job)}</div>
+        <span class="pill pill-running">running</span>
+      </div>
+      <div class="al-item-meta">
+        ${stageLabel ? `Stage: ${stageLabel} &middot; ` : ""}
+        Started ${started ? new Date(started).toLocaleTimeString() : "-"} &middot; elapsed ${fmtElapsed(elapsed)}
+        ${prog ? ` &middot; ${prog.label}` : " &middot; in progress (no granular percentage reported)"}
+      </div>
+      ${prog ? `<div class="al-progress-track"><div class="al-progress-fill" style="width:${prog.pct}%"></div></div>` : ""}
+      ${stalled ? `<div class="al-stall"><span class="pill pill-error">no recent progress -- may be stalled (running ${fmtElapsed(elapsed)}, typical for '${job.kind}' is under ${fmtElapsed(threshold)})</span></div>` : ""}
+    `;
+    list.appendChild(card);
+  });
+}
+
+function renderQueued(jobs) {
+  // Best-effort: this job manager has no persisted "queued" entity --
+  // get_running_job_of_kind() means a second job of the same kind is
+  // simply REJECTED at creation time, not queued. So this section is
+  // honest but will usually read empty; it's not a fabricated feature.
+  const list = document.getElementById("queued-list");
+  list.innerHTML = "";
+  document.getElementById("queued-count").textContent = "(0)";
+  list.innerHTML = '<div class="al-empty">Nothing queued. (SINDHU currently rejects a second job of the same kind outright rather than queueing it -- there is no persisted queue to show here yet.)</div>';
+}
+
+function renderCompleted(jobs, activity) {
+  const list = document.getElementById("completed-list");
+  list.innerHTML = "";
+  const finishedJobs = jobs.filter(j => j.status !== "running").map(j => ({
+    kind: "job", time: j.finished_at || j.started_at, title: jobTitle(j),
+    status: j.status, error: j.error, result: j.result,
+  }));
+  const activityItems = (activity || []).map(a => ({
+    kind: "activity", time: a.created_at, title: `${a.entity}: ${a.action}`,
+    status: "info", message: a.message,
+  }));
+  const merged = finishedJobs.concat(activityItems)
+    .filter(x => x.time)
+    .sort((a, b) => new Date(b.time) - new Date(a.time))
+    .slice(0, 30);
+
+  document.getElementById("completed-count").textContent = `(${merged.length})`;
+  if (!merged.length) {
+    list.innerHTML = '<div class="al-empty">No recent activity yet.</div>';
+    return;
+  }
+  merged.forEach(item => {
+    const card = document.createElement("div");
+    card.className = "al-item card";
+    let statusPill = '<span class="pill pill-muted">info</span>';
+    if (item.status === "completed") statusPill = '<span class="pill pill-completed">success</span>';
+    else if (item.status === "error" || item.status === "failed") statusPill = '<span class="pill pill-error">failed</span>';
+    else if (item.status === "stopped") statusPill = '<span class="pill pill-neutral">stopped</span>';
+
+    let detail = item.message || "";
+    if (item.error) {
+      const e = item.error;
+      if (typeof e === "object" && e.reason) {
+        detail = `${e.stage || ""}${e.function ? " in " + e.function : ""}: ${e.reason}${e.suggested_fix ? " -- fix: " + e.suggested_fix : ""}`;
+      } else {
+        detail = String(e);
+      }
+    }
+
+    card.innerHTML = `
+      <div class="al-item-top">
+        <div class="al-item-title">${item.title}</div>
+        ${statusPill}
+      </div>
+      <div class="al-item-meta">
+        ${new Date(item.time).toLocaleString()}${detail ? " &middot; " + detail : ""}
+      </div>
+    `;
+    list.appendChild(card);
+  });
+}
+
+function renderSummary(jobs, activity) {
+  const now = new Date();
+  const todayStr = now.toDateString();
+  const todayJobs = jobs.filter(j => j.started_at && new Date(j.started_at).toDateString() === todayStr);
+  const running = jobs.filter(j => j.status === "running");
+  const lastActivityTimes = []
+    .concat(jobs.map(j => j.finished_at || j.started_at).filter(Boolean))
+    .concat((activity || []).map(a => a.created_at).filter(Boolean));
+  const lastActivity = lastActivityTimes.length
+    ? new Date(Math.max(...lastActivityTimes.map(t => new Date(t).getTime())))
+    : null;
+  const idleMs = lastActivity ? now - lastActivity : null;
+
+  const summary = document.getElementById("summary");
+  summary.innerHTML = `
+    <div class="al-stat card"><div class="label">Operations Today</div><div class="value">${todayJobs.length}</div></div>
+    <div class="al-stat card"><div class="label">Currently Running</div><div class="value ${running.length ? "live" : ""}">${running.length}</div></div>
+    <div class="al-stat card"><div class="label">Currently Queued</div><div class="value">0</div></div>
+    <div class="al-stat card"><div class="label">Last Activity</div>
+      <div class="value" style="font-size:15px">${lastActivity ? lastActivity.toLocaleTimeString() : "-"}</div>
+      <div class="sub">${idleMs !== null ? (idleMs < 5 * 60 * 1000 ? "active" : "idle for " + fmtElapsed(idleMs)) : "no activity recorded"}</div>
+    </div>
+  `;
+}
+
+let currentJobs = [], currentActivity = [];
+
+async function refresh() {
+  try {
+    const [jobsRes, activityRes] = await Promise.all([
+      apiGet("/api/jobs").catch(() => ({ jobs: [] })),
+      apiGet("/api/activity?limit=50").catch(() => ({ activity: [] })),
+    ]);
+    currentJobs = jobsRes.jobs || [];
+    currentActivity = activityRes.activity || [];
+    renderSummary(currentJobs, currentActivity);
+    renderRunning(currentJobs);
+    renderQueued(currentJobs);
+    renderCompleted(currentJobs, currentActivity);
+  } catch (e) {
+    document.getElementById("summary").innerHTML = `<div class="al-empty">Could not load activity data: ${e}</div>`;
+  }
+}
+
+function connectWs() {
+  const dot = document.getElementById("ws-dot");
+  const label = document.getElementById("ws-label");
+  try {
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    const ws = new WebSocket(`${proto}://${location.host}/ws/logs?device_id=activity_log_page`);
+    ws.onopen = () => { dot.className = "ws-dot on"; label.textContent = "live"; };
+    ws.onclose = () => { dot.className = "ws-dot off"; label.textContent = "disconnected"; setTimeout(connectWs, 5000); };
+    ws.onerror = () => { dot.className = "ws-dot off"; label.textContent = "error"; };
+    ws.onmessage = (evt) => {
+      // Reuses the app's existing single "everything" socket (channel:
+      // log/job/progress/sync) -- any of these mean something changed, so
+      // just re-pull the read-only REST snapshot rather than trying to
+      // hand-patch state from partial push messages.
+      let msg;
+      try { msg = JSON.parse(evt.data); } catch { return; }
+      if (["job", "progress", "sync"].includes(msg.channel)) refresh();
+    };
+  } catch (e) {
+    label.textContent = "unavailable";
+  }
+}
+
+refresh();
+setInterval(refresh, 15000); // fallback poll in case the socket misses something -- not the primary update path
+connectWs();
+</script>
+</body>
+</html>

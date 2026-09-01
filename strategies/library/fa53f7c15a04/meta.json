@@ -1,0 +1,17 @@
+{
+  "id": "fa53f7c15a04",
+  "name": "Market Structure Shift Reversal -- Confirmation Strict variant [Manual Build]",
+  "tags": [
+    "confirmation_optimizer_variant",
+    "level:strict",
+    "source:87c0c79ac0cb",
+    "additions:sl_distance,min_rr"
+  ],
+  "favourite": false,
+  "archived": true,
+  "created_at": "2026-08-27T09:00:48.750177+00:00",
+  "updated_at": "2026-08-27T09:00:48.765836+00:00",
+  "current_version": 1,
+  "safety_status": "ready",
+  "safety_reasons": []
+}

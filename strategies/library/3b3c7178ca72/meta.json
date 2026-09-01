@@ -1,0 +1,17 @@
+{
+  "id": "3b3c7178ca72",
+  "name": "Liquidity Sweep Reversal Strategy -- Confirmation Strict variant [Manual Build]",
+  "tags": [
+    "confirmation_optimizer_variant",
+    "level:strict",
+    "source:59978271c6ce",
+    "additions:sl_distance,min_rr"
+  ],
+  "favourite": false,
+  "archived": true,
+  "created_at": "2026-08-27T08:50:18.650474+00:00",
+  "updated_at": "2026-08-27T08:50:18.670963+00:00",
+  "current_version": 1,
+  "safety_status": "ready",
+  "safety_reasons": []
+}

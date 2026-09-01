@@ -24,6 +24,7 @@ package, already added to requirements.txt) or "http://[user:pass@]host:port".
 """
 
 import math
+import os
 import time
 from datetime import datetime, timezone
 
@@ -32,9 +33,21 @@ import requests
 from data_engine import config as base_config, storage, feature_toggles
 from paper_trading import confluence as confluence_mod, insights, pattern_stats, signal_explainer
 
+# Lightweight cloud runner support: on a fresh deploy (or any restart of a
+# container with no persistent volume mounted at data/config/), the local
+# telegram_settings.json this file normally persists to does not exist yet
+# -- these two env vars, if set, seed the very first save of that file so
+# the bot works immediately after deploy without a manual dashboard step.
+# Once the file exists, save_settings()/load_settings() read and write it
+# exactly as before; these env vars are consulted only for that first
+# seed (data_engine.config.load_or_seed's existing behavior -- the JSON
+# file wins over these defaults on every call after the first). Local
+# laptop behavior is unchanged when both env vars are unset (the
+# overwhelmingly common case: the CEO configures the bot from the
+# dashboard's Telegram Settings screen instead).
 _DEFAULTS = {
-    "bot_token": "",
-    "channel_id": "",
+    "bot_token": os.environ.get("TELEGRAM_BOT_TOKEN", ""),
+    "channel_id": os.environ.get("TELEGRAM_CHANNEL_ID", ""),
     "master_send_enabled": True,  # Telegram Dashboard's master switch -- see _master_enabled() below
     "auto_send_enabled": False,   # non-negotiable: OFF by default
     "auto_send_min_confluence_ratio": 1.0,  # require ALL counted factors aligned (e.g. 4/4) by default -- conservative
@@ -770,18 +783,22 @@ def send_close_followup(closed_position):
     L = _LABELS[lang if lang in _LABELS else "ur"]
     pnl = closed_position.get("pnl") or 0.0
     outcome = "WIN" if pnl > 0 else "LOSS" if pnl < 0 else "BREAK-EVEN"
+    outcome_icon = "\U0001F7E2" if pnl > 0 else "\U0001F534" if pnl < 0 else "⚪"
     strategy_label = "Strategy" if en else L["strategy"]
     coin_label = "Coin" if en else "Coin"
     exit_label = "Exit" if en else "Exit (Bahar)"
     result_label = "Result" if en else "Result (Nateeja)"
-    text = (
-        f"<b>{TELEGRAM_BRAND} Result -- {outcome}</b>\n"
-        f"{strategy_label}: {closed_position.get('strategy_name') or L['unknown_strategy']}\n"
-        f"{coin_label}: {closed_position['symbol']}\n"
-        f"{exit_label}: {closed_position.get('exit_price', '-')} ({closed_position.get('exit_reason', '-')})\n"
-        f"{result_label}: {'+' if pnl >= 0 else ''}{pnl:.2f} ({closed_position.get('pnl_pct', 0):.2f}%)\n\n"
-        f"{DISCLAIMER}"
-    )
+    lines = [
+        f"{outcome_icon} <b>{TELEGRAM_BRAND} Result -- {outcome}</b>",
+        "─" * 18,
+        f"• {strategy_label}: {closed_position.get('strategy_name') or L['unknown_strategy']}",
+        f"• {coin_label}: {closed_position['symbol']}",
+        f"• {exit_label}: {_format_price(closed_position.get('exit_price'))} ({closed_position.get('exit_reason', '-')})",
+        f"• {result_label}: {'+' if pnl >= 0 else ''}{pnl:.2f} ({closed_position.get('pnl_pct', 0):.2f}%)",
+        "",
+        DISCLAIMER,
+    ]
+    text = "\n".join(lines)
     ok, err = _raw_send(text)
     storage.log_telegram_message(
         position_id, closed_position.get("strategy_id"), closed_position.get("strategy_name"),
@@ -833,6 +850,25 @@ def sweep_unsent_qualifying_signals():
 NO_SIGNAL_ALERT_HOURS = 24
 
 
+def _humanize_hours(hours, en):
+    """Turn a raw hour count into something a non-technical reader parses
+    instantly. The dashboard alert read "in the last 752 hours", which
+    nobody can convert to "about a month" at a glance. Presentation only
+    -- the `hours_since` field in the payload keeps its exact raw value,
+    so nothing that reads the number is affected."""
+    hours = int(hours)
+    if hours < 48:
+        return f"{hours} hours" if en else f"{hours} ghanton"
+    days = hours // 24
+    if days < 14:
+        return f"{days} days" if en else f"{days} dinon"
+    weeks = days // 7
+    if weeks < 9:
+        return f"about {weeks} weeks" if en else f"takreeban {weeks} hafton"
+    months = days // 30
+    return f"about {months} month{'s' if months != 1 else ''}" if en else f"takreeban {months} maheenon"
+
+
 def no_signal_alert_status(now_iso=None, lang="ur"):
     """Dashboard alert (Overview + Telegram Signals page) for an extended
     signal drought -- 24+ hours with zero signals sent to Telegram, any
@@ -867,8 +903,8 @@ def no_signal_alert_status(now_iso=None, lang="ur"):
     return {
         "stale": stale, "last_sent_at": last_sent_iso, "hours_since": round(hours_since, 1),
         "message": (
-            (f"No signals have been sent to Telegram in the last {int(hours_since)} hours." if en
-             else f"Pichle {int(hours_since)} ghanton mein Telegram par koi signal nahi bheja gaya.")
+            (f"No signals have been sent to Telegram for {_humanize_hours(hours_since, True)}." if en
+             else f"Pichle {_humanize_hours(hours_since, False)} mein Telegram par koi signal nahi bheja gaya.")
             if stale else None
         ),
     }

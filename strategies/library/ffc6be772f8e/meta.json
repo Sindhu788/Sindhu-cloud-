@@ -1,0 +1,15 @@
+{
+  "id": "ffc6be772f8e",
+  "name": "Double Confirmation CHoCH with Liquidity Trap -- Fixed 1:2 TP variant [Manual Build]",
+  "tags": [
+    "dual_tp_variant",
+    "source:d3e441733525"
+  ],
+  "favourite": false,
+  "archived": true,
+  "created_at": "2026-08-25T18:34:40.673313+00:00",
+  "updated_at": "2026-08-25T18:34:40.798555+00:00",
+  "current_version": 1,
+  "safety_status": "ready",
+  "safety_reasons": []
+}

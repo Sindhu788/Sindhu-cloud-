@@ -8,7 +8,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 
-from backtest_engine.engine import _apply_slippage
+from backtest_engine.engine import _apply_slippage, EMERGENCY_STOP_PCT
 from data_engine import storage, feature_toggles
 from paper_trading import reflection, evolution, auto_avoid, drawdown_guard, telegram_bot, ai_trade_review
 from paper_trading.guards import book_key as _book_key
@@ -53,10 +53,33 @@ def open_position(exchange, symbol, candidate, size, risk_amount, confidence, ma
     now_ms = int(time.time() * 1000)
     now = _now_iso()
 
+    # Same Requirement 20 re-validation backtest_engine._open_position()
+    # applies: stop_loss/take_profit were computed against the raw signal
+    # price before slippage, so re-check them against the real, slipped
+    # entry_price and discard (rather than trust) one that ended up on the
+    # wrong side. A missing stop_loss additionally gets the same emergency
+    # fallback -- unlike backtesting, a live paper position has no "end of
+    # data" bound, so a structure stop whose zone search found nothing
+    # would otherwise ride completely unprotected indefinitely, not just
+    # until a fixed dataset ends.
+    stop_loss = candidate["stop_loss"]
+    take_profit = candidate["take_profit"]
+    stop_loss_type = candidate.get("stop_loss_type")
+    if stop_loss is not None:
+        wrong_side = (side == "long" and stop_loss >= entry_price) or (side == "short" and stop_loss <= entry_price)
+        if wrong_side:
+            stop_loss = None
+    if stop_loss is None and stop_loss_type not in (None, "unknown"):
+        stop_loss = entry_price * (1 - EMERGENCY_STOP_PCT) if side == "long" else entry_price * (1 + EMERGENCY_STOP_PCT)
+    if take_profit is not None:
+        wrong_side = (side == "long" and take_profit <= entry_price) or (side == "short" and take_profit >= entry_price)
+        if wrong_side:
+            take_profit = None
+
     pos = {
         "id": position_id, "exchange": exchange, "symbol": symbol,
         "direction": side, "entry_price": entry_price,
-        "stop_loss": candidate["stop_loss"], "take_profit": candidate["take_profit"],
+        "stop_loss": stop_loss, "take_profit": take_profit,
         "size": size, "risk_amount": risk_amount, "entry_time": now_ms,
         "entry_reason": candidate["entry_reason"],
         "strategy_id": candidate.get("strategy_id"), "strategy_name": candidate.get("strategy_name"),

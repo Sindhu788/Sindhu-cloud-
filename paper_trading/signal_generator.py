@@ -98,6 +98,14 @@ def strategy_candidates(exchange, symbol, strategies, lessons, settings):
             "direction": direction, "action": signal.action,
             "entry_price": float(merged["close"].iloc[i]),
             "stop_loss": signal.stop_loss, "take_profit": signal.take_profit,
+            # Position Manager (open_position) re-validates stop_loss against
+            # the real, slippage-adjusted fill price the same way the
+            # backtest engine does -- it needs to know whether this strategy
+            # actually configured a real stop-loss mechanism (vs. relying on
+            # exit_conditions instead) to decide whether a missing stop_loss
+            # here is expected or a genuine "zone search found nothing" gap
+            # that needs the emergency fallback.
+            "stop_loss_type": getattr(getattr(cfg, "stop_loss", None), "type", None),
             "entry_reason": signal.reason,
             "timeframe": cfg.timeframes.get("entry"),
             "approved": True, "veto_reason": veto_reason,

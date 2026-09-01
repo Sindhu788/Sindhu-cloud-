@@ -1,0 +1,11 @@
+# Tells Railway's Nixpacks builder to install ONLY the lightweight cloud
+# runner's dependencies (requirements-cloud.txt), not the full local
+# requirements.txt (which pulls in PySide6, a desktop GUI toolkit, and
+# other packages the cloud runner never imports). Without this file,
+# Nixpacks' default Python detection would install requirements.txt and
+# make every Railway build slower and the image larger for no benefit.
+[phases.install]
+cmds = ["pip install --no-cache-dir -r requirements-cloud.txt"]
+
+[phases.build]
+cmds = []

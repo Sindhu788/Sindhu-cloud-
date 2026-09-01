@@ -1,0 +1,1653 @@
+{
+  "task_id": "part1_why_win_loss",
+  "created_at": "2026-08-26T16:40:54.512813+00:00",
+  "updated_at": "2026-08-31T06:42:06.669871+00:00",
+  "items": {
+    "0897eb126593": {
+      "status": "done",
+      "result": {
+        "strategy_id": "0897eb126593",
+        "name": "4-Hour Range Breakout-Retest [Manual Build]",
+        "entry_tf": "5m",
+        "batch_id": "20260825_052201_00f94b",
+        "total_trades": 15361,
+        "wins": 5120,
+        "losses": 10241,
+        "win_rate_pct": 33.33,
+        "net_pnl": -210781.99,
+        "profit_factor": 0.8097,
+        "max_drawdown_pct": 92.67,
+        "round_trip_cost_pct_used": 0.3,
+        "loss_breakdown": {
+          "near_cost_stopout_pct": 0.1,
+          "stop_loss_hit_pct": 99.9,
+          "data_end_no_target_pct": 0.1,
+          "other_pct": 0.0
+        },
+        "win_breakdown": {
+          "top_symbols_by_profit": [
+            {
+              "symbol": "ZECUSDT",
+              "profit": 30679.2
+            },
+            {
+              "symbol": "RENDERUSDT",
+              "profit": 27050.78
+            },
+            {
+              "symbol": "NEARUSDT",
+              "profit": 25307.89
+            },
+            {
+              "symbol": "PUMPUSDT",
+              "profit": 24758.68
+            },
+            {
+              "symbol": "INJUSDT",
+              "profit": 24325.8
+            }
+          ],
+          "avg_win_time_in_trade_hours": 19.95,
+          "avg_loss_time_in_trade_hours": 13.02
+        },
+        "why_summary": "Unprofitable (PF 0.81, 33% win rate). 100% of all losses hit the stop-loss cleanly (not near-cost, not data-end) -- the stop level itself is being reached, not a measurement artifact. Wins concentrate in ZECUSDT and RENDERUSDT."
+      }
+    },
+    "1be394d92302": {
+      "status": "done",
+      "result": {
+        "strategy_id": "1be394d92302",
+        "name": "Candlestick Pattern Reversal Strategy [Manual Build]",
+        "entry_tf": "15m",
+        "batch_id": "20260825_002026_ef7a7d",
+        "total_trades": 3755,
+        "wins": 1171,
+        "losses": 2584,
+        "win_rate_pct": 31.19,
+        "net_pnl": 28415.73,
+        "profit_factor": 1.1435,
+        "max_drawdown_pct": 93.88,
+        "round_trip_cost_pct_used": 0.3,
+        "loss_breakdown": {
+          "near_cost_stopout_pct": 27.1,
+          "stop_loss_hit_pct": 72.9,
+          "data_end_no_target_pct": 0.1,
+          "other_pct": 26.9
+        },
+        "win_breakdown": {
+          "top_symbols_by_profit": [
+            {
+              "symbol": "ZECUSDT",
+              "profit": 71885.34
+            },
+            {
+              "symbol": "JSTUSDT",
+              "profit": 19198.45
+            },
+            {
+              "symbol": "ARBUSDT",
+              "profit": 5653.0
+            },
+            {
+              "symbol": "ENAUSDT",
+              "profit": 5000.56
+            },
+            {
+              "symbol": "ADAUSDT",
+              "profit": 4768.46
+            }
+          ],
+          "avg_win_time_in_trade_hours": 230.17,
+          "avg_loss_time_in_trade_hours": 63.06
+        },
+        "why_summary": "Profitable (PF 1.14, 31% win rate). 27% of losses are stopped out within ~1 round-trip transaction cost of entry -- the stop buffer is barely wider than commission+slippage. 73% of all losses hit the stop-loss cleanly (not near-cost, not data-end) -- the stop level itself is being reached, not a measurement artifact. Wins concentrate in ZECUSDT and JSTUSDT."
+      }
+    },
+    "1f43468bb6af": {
+      "status": "done",
+      "result": {
+        "strategy_id": "1f43468bb6af",
+        "name": "Laxman Rekha 5-EMA Trigger-Candle Strategy [Manual Build]",
+        "entry_tf": "5m",
+        "batch_id": "20260825_214031_d7a659",
+        "total_trades": 11353,
+        "wins": 2564,
+        "losses": 8789,
+        "win_rate_pct": 22.58,
+        "net_pnl": -16599.74,
+        "profit_factor": 0.8059,
+        "max_drawdown_pct": 94.21,
+        "round_trip_cost_pct_used": 0.3,
+        "loss_breakdown": {
+          "near_cost_stopout_pct": 0.0,
+          "stop_loss_hit_pct": 99.9,
+          "data_end_no_target_pct": 0.1,
+          "other_pct": 0.0
+        },
+        "win_breakdown": {
+          "top_symbols_by_profit": [
+            {
+              "symbol": "SUIUSDT",
+              "profit": 2837.08
+            },
+            {
+              "symbol": "NEARUSDT",
+              "profit": 2707.3
+            },
+            {
+              "symbol": "PUMPUSDT",
+              "profit": 2576.56
+            },
+            {
+              "symbol": "DASHUSDT",
+              "profit": 2518.13
+            },
+            {
+              "symbol": "ENAUSDT",
+              "profit": 2141.73
+            }
+          ],
+          "avg_win_time_in_trade_hours": 84.46,
+          "avg_loss_time_in_trade_hours": 25.71
+        },
+        "why_summary": "Unprofitable (PF 0.81, 23% win rate). 100% of all losses hit the stop-loss cleanly (not near-cost, not data-end) -- the stop level itself is being reached, not a measurement artifact. Wins concentrate in SUIUSDT and NEARUSDT."
+      }
+    },
+    "2d7299c7a197": {
+      "status": "done",
+      "result": {
+        "strategy_id": "2d7299c7a197",
+        "name": "Dumb Money Concepts -- Confirmation Entry [Manual Build]",
+        "entry_tf": "4h",
+        "batch_id": "20260825_220037_b7be83",
+        "total_trades": 1602,
+        "wins": 467,
+        "losses": 1135,
+        "win_rate_pct": 29.15,
+        "net_pnl": -619.33,
+        "profit_factor": 0.9501,
+        "max_drawdown_pct": 53.8,
+        "round_trip_cost_pct_used": 0.3,
+        "loss_breakdown": {
+          "near_cost_stopout_pct": 1.5,
+          "stop_loss_hit_pct": 97.9,
+          "data_end_no_target_pct": 0.8,
+          "other_pct": 1.3
+        },
+        "win_breakdown": {
+          "top_symbols_by_profit": [
+            {
+              "symbol": "ATOMUSDT",
+              "profit": 738.2
+            },
+            {
+              "symbol": "POLUSDT",
+              "profit": 696.47
+            },
+            {
+              "symbol": "FILUSDT",
+              "profit": 555.63
+            },
+            {
+              "symbol": "ARBUSDT",
+              "profit": 548.38
+            },
+            {
+              "symbol": "TAOUSDT",
+              "profit": 511.78
+            }
+          ],
+          "avg_win_time_in_trade_hours": 521.12,
+          "avg_loss_time_in_trade_hours": 98.84
+        },
+        "why_summary": "Unprofitable (PF 0.95, 29% win rate). 98% of all losses hit the stop-loss cleanly (not near-cost, not data-end) -- the stop level itself is being reached, not a measurement artifact. Wins concentrate in ATOMUSDT and POLUSDT."
+      }
+    },
+    "4334392c8c67": {
+      "status": "done",
+      "result": {
+        "strategy_id": "4334392c8c67",
+        "name": "Supply/Demand Zone Strategy [Manual Build]",
+        "entry_tf": "1h",
+        "batch_id": "20260825_053906_e7ef83",
+        "total_trades": 193,
+        "wins": 72,
+        "losses": 121,
+        "win_rate_pct": 37.31,
+        "net_pnl": -1879.05,
+        "profit_factor": 0.8626,
+        "max_drawdown_pct": 7.43,
+        "round_trip_cost_pct_used": 0.3,
+        "loss_breakdown": {
+          "near_cost_stopout_pct": 6.6,
+          "stop_loss_hit_pct": 93.4,
+          "data_end_no_target_pct": 1.7,
+          "other_pct": 5.0
+        },
+        "win_breakdown": {
+          "top_symbols_by_profit": [
+            {
+              "symbol": "ENAUSDT",
+              "profit": 931.14
+            },
+            {
+              "symbol": "WLFIUSDT",
+              "profit": 887.19
+            },
+            {
+              "symbol": "DOTUSDT",
+              "profit": 793.9
+            },
+            {
+              "symbol": "NIGHTUSDT",
+              "profit": 655.5
+            },
+            {
+              "symbol": "PUMPUSDT",
+              "profit": 649.12
+            }
+          ],
+          "avg_win_time_in_trade_hours": 10.22,
+          "avg_loss_time_in_trade_hours": 36.58
+        },
+        "why_summary": "Unprofitable (PF 0.86, 37% win rate). 93% of all losses hit the stop-loss cleanly (not near-cost, not data-end) -- the stop level itself is being reached, not a measurement artifact. Wins concentrate in ENAUSDT and WLFIUSDT."
+      }
+    },
+    "480cc42075a4": {
+      "status": "done",
+      "result": {
+        "strategy_id": "480cc42075a4",
+        "name": "Asian Range London Sweep [Manual Build]",
+        "entry_tf": "5m",
+        "batch_id": "20260825_051112_b9b4c4",
+        "total_trades": 3688,
+        "wins": 1263,
+        "losses": 2425,
+        "win_rate_pct": 34.25,
+        "net_pnl": -46220.23,
+        "profit_factor": 0.8316,
+        "max_drawdown_pct": 39.4,
+        "round_trip_cost_pct_used": 0.3,
+        "loss_breakdown": {
+          "near_cost_stopout_pct": 0.1,
+          "stop_loss_hit_pct": 99.8,
+          "data_end_no_target_pct": 0.2,
+          "other_pct": 0.0
+        },
+        "win_breakdown": {
+          "top_symbols_by_profit": [
+            {
+              "symbol": "AAVEUSDT",
+              "profit": 7066.78
+            },
+            {
+              "symbol": "ONDOUSDT",
+              "profit": 6889.37
+            },
+            {
+              "symbol": "ALGOUSDT",
+              "profit": 6343.92
+            },
+            {
+              "symbol": "ENAUSDT",
+              "profit": 6019.95
+            },
+            {
+              "symbol": "ARBUSDT",
+              "profit": 5977.65
+            }
+          ],
+          "avg_win_time_in_trade_hours": 21.48,
+          "avg_loss_time_in_trade_hours": 14.83
+        },
+        "why_summary": "Unprofitable (PF 0.83, 34% win rate). 100% of all losses hit the stop-loss cleanly (not near-cost, not data-end) -- the stop level itself is being reached, not a measurement artifact. Wins concentrate in AAVEUSDT and ONDOUSDT."
+      }
+    },
+    "59978271c6ce": {
+      "status": "done",
+      "result": {
+        "strategy_id": "59978271c6ce",
+        "name": "Liquidity Sweep Reversal Strategy [Manual Build]",
+        "entry_tf": "15m",
+        "batch_id": "20260825_045513_c3948b",
+        "total_trades": 4159,
+        "wins": 1652,
+        "losses": 2507,
+        "win_rate_pct": 39.72,
+        "net_pnl": 39901.06,
+        "profit_factor": 1.1939,
+        "max_drawdown_pct": 91.54,
+        "round_trip_cost_pct_used": 0.3,
+        "loss_breakdown": {
+          "near_cost_stopout_pct": 24.9,
+          "stop_loss_hit_pct": 75.1,
+          "data_end_no_target_pct": 0.0,
+          "other_pct": 24.9
+        },
+        "win_breakdown": {
+          "top_symbols_by_profit": [
+            {
+              "symbol": "ZECUSDT",
+              "profit": 66970.99
+            },
+            {
+              "symbol": "JSTUSDT",
+              "profit": 13137.49
+            },
+            {
+              "symbol": "WLFIUSDT",
+              "profit": 5832.5
+            },
+            {
+              "symbol": "ARBUSDT",
+              "profit": 5344.85
+            },
+            {
+              "symbol": "PUMPUSDT",
+              "profit": 5032.81
+            }
+          ],
+          "avg_win_time_in_trade_hours": 167.12,
+          "avg_loss_time_in_trade_hours": 64.24
+        },
+        "why_summary": "Profitable (PF 1.19, 40% win rate). 25% of losses are stopped out within ~1 round-trip transaction cost of entry -- the stop buffer is barely wider than commission+slippage. 75% of all losses hit the stop-loss cleanly (not near-cost, not data-end) -- the stop level itself is being reached, not a measurement artifact. Wins concentrate in ZECUSDT and JSTUSDT."
+      }
+    },
+    "62e44ad0fa92": {
+      "status": "done",
+      "result": {
+        "strategy_id": "62e44ad0fa92",
+        "name": "Previous High/Low Reversal [Manual Build]",
+        "entry_tf": "15m",
+        "batch_id": "pdhl_full_20260826_164403",
+        "total_trades": 18925,
+        "wins": 7510,
+        "losses": 11415,
+        "win_rate_pct": 39.68,
+        "net_pnl": -28196.5,
+        "profit_factor": 0.6691,
+        "max_drawdown_pct": 96.43,
+        "round_trip_cost_pct_used": 0.3,
+        "loss_breakdown": {
+          "near_cost_stopout_pct": 16.9,
+          "stop_loss_hit_pct": 83.1,
+          "data_end_no_target_pct": 0.1,
+          "other_pct": 16.8
+        },
+        "win_breakdown": {
+          "top_symbols_by_profit": [
+            {
+              "symbol": "JSTUSDT",
+              "profit": 1887.55
+            },
+            {
+              "symbol": "SOLUSDT",
+              "profit": 1730.77
+            },
+            {
+              "symbol": "MORPHOUSDT",
+              "profit": 1727.17
+            },
+            {
+              "symbol": "ENAUSDT",
+              "profit": 1710.0
+            },
+            {
+              "symbol": "BCHUSDT",
+              "profit": 1708.96
+            }
+          ],
+          "avg_win_time_in_trade_hours": 19.59,
+          "avg_loss_time_in_trade_hours": 18.9
+        },
+        "why_summary": "Unprofitable (PF 0.67, 40% win rate). 83% of all losses hit the stop-loss cleanly (not near-cost, not data-end) -- the stop level itself is being reached, not a measurement artifact. Wins concentrate in JSTUSDT and SOLUSDT."
+      }
+    },
+    "6c9dddb14b67": {
+      "status": "done",
+      "result": {
+        "strategy_id": "6c9dddb14b67",
+        "name": "Kotegawa Bear Market Reversal Strategy [Manual Build]",
+        "entry_tf": "15m",
+        "batch_id": "20260825_050534_8ff341",
+        "total_trades": 5581,
+        "wins": 1291,
+        "losses": 4290,
+        "win_rate_pct": 23.13,
+        "net_pnl": -92069.01,
+        "profit_factor": 0.7988,
+        "max_drawdown_pct": 57.99,
+        "round_trip_cost_pct_used": 0.3,
+        "loss_breakdown": {
+          "near_cost_stopout_pct": 0.1,
+          "stop_loss_hit_pct": 99.7,
+          "data_end_no_target_pct": 0.3,
+          "other_pct": 0.0
+        },
+        "win_breakdown": {
+          "top_symbols_by_profit": [
+            {
+              "symbol": "PUMPUSDT",
+              "profit": 13844.89
+            },
+            {
+              "symbol": "ENAUSDT",
+              "profit": 12402.71
+            },
+            {
+              "symbol": "ZECUSDT",
+              "profit": 12197.92
+            },
+            {
+              "symbol": "WLDUSDT",
+              "profit": 11036.03
+            },
+            {
+              "symbol": "INJUSDT",
+              "profit": 10672.1
+            }
+          ],
+          "avg_win_time_in_trade_hours": 94.15,
+          "avg_loss_time_in_trade_hours": 44.34
+        },
+        "why_summary": "Unprofitable (PF 0.80, 23% win rate). 100% of all losses hit the stop-loss cleanly (not near-cost, not data-end) -- the stop level itself is being reached, not a measurement artifact. Wins concentrate in PUMPUSDT and ENAUSDT."
+      }
+    },
+    "74c3a80238d4": {
+      "status": "done",
+      "result": {
+        "strategy_id": "74c3a80238d4",
+        "name": "Equal Highs/Lows Reversal [Manual Build]",
+        "entry_tf": "15m",
+        "batch_id": "eqhl_full_20260826_164337",
+        "total_trades": 2474,
+        "wins": 628,
+        "losses": 1846,
+        "win_rate_pct": 25.38,
+        "net_pnl": -300.86,
+        "profit_factor": 0.9822,
+        "max_drawdown_pct": 81.56,
+        "round_trip_cost_pct_used": 0.3,
+        "loss_breakdown": {
+          "near_cost_stopout_pct": 14.7,
+          "stop_loss_hit_pct": 85.3,
+          "data_end_no_target_pct": 0.1,
+          "other_pct": 14.6
+        },
+        "win_breakdown": {
+          "top_symbols_by_profit": [
+            {
+              "symbol": "ZECUSDT",
+              "profit": 3663.15
+            },
+            {
+              "symbol": "SUIUSDT",
+              "profit": 685.49
+            },
+            {
+              "symbol": "PEPEUSDT",
+              "profit": 596.6
+            },
+            {
+              "symbol": "APTUSDT",
+              "profit": 559.59
+            },
+            {
+              "symbol": "ADAUSDT",
+              "profit": 557.91
+            }
+          ],
+          "avg_win_time_in_trade_hours": 444.07,
+          "avg_loss_time_in_trade_hours": 88.0
+        },
+        "why_summary": "Unprofitable (PF 0.98, 25% win rate). 85% of all losses hit the stop-loss cleanly (not near-cost, not data-end) -- the stop level itself is being reached, not a measurement artifact. Wins concentrate in ZECUSDT and SUIUSDT."
+      }
+    },
+    "798166a860a3": {
+      "status": "done",
+      "result": {
+        "strategy_id": "798166a860a3",
+        "name": "Fair Value Gap Reversal [Manual Build]",
+        "entry_tf": "15m",
+        "batch_id": "fvg_full_20260826_132035",
+        "total_trades": 1728,
+        "wins": 343,
+        "losses": 1385,
+        "win_rate_pct": 19.85,
+        "net_pnl": 4830.76,
+        "profit_factor": 1.3735,
+        "max_drawdown_pct": 89.83,
+        "round_trip_cost_pct_used": 0.3,
+        "loss_breakdown": {
+          "near_cost_stopout_pct": 13.2,
+          "stop_loss_hit_pct": 86.8,
+          "data_end_no_target_pct": 0.1,
+          "other_pct": 13.1
+        },
+        "win_breakdown": {
+          "top_symbols_by_profit": [
+            {
+              "symbol": "ZECUSDT",
+              "profit": 4980.72
+            },
+            {
+              "symbol": "JSTUSDT",
+              "profit": 1133.05
+            },
+            {
+              "symbol": "HBARUSDT",
+              "profit": 490.89
+            },
+            {
+              "symbol": "ARBUSDT",
+              "profit": 444.58
+            },
+            {
+              "symbol": "ADAUSDT",
+              "profit": 434.37
+            }
+          ],
+          "avg_win_time_in_trade_hours": 814.91,
+          "avg_loss_time_in_trade_hours": 117.87
+        },
+        "why_summary": "Profitable (PF 1.37, 20% win rate). 87% of all losses hit the stop-loss cleanly (not near-cost, not data-end) -- the stop level itself is being reached, not a measurement artifact. Wins concentrate in ZECUSDT and JSTUSDT."
+      }
+    },
+    "79bda8dea533": {
+      "status": "done",
+      "result": {
+        "strategy_id": "79bda8dea533",
+        "name": "Dumb Money Concepts -- Blind Entry [Manual Build]",
+        "entry_tf": "4h",
+        "batch_id": "dmc_blind_20260826_011205",
+        "total_trades": 2632,
+        "wins": 623,
+        "losses": 2009,
+        "win_rate_pct": 23.67,
+        "net_pnl": -4153.18,
+        "profit_factor": 0.8064,
+        "max_drawdown_pct": 72.75,
+        "round_trip_cost_pct_used": 0.3,
+        "loss_breakdown": {
+          "near_cost_stopout_pct": 1.4,
+          "stop_loss_hit_pct": 98.2,
+          "data_end_no_target_pct": 0.6,
+          "other_pct": 1.2
+        },
+        "win_breakdown": {
+          "top_symbols_by_profit": [
+            {
+              "symbol": "TAOUSDT",
+              "profit": 1574.71
+            },
+            {
+              "symbol": "FILUSDT",
+              "profit": 797.58
+            },
+            {
+              "symbol": "SKYUSDT",
+              "profit": 779.47
+            },
+            {
+              "symbol": "ATOMUSDT",
+              "profit": 734.59
+            },
+            {
+              "symbol": "ARBUSDT",
+              "profit": 724.44
+            }
+          ],
+          "avg_win_time_in_trade_hours": 377.84,
+          "avg_loss_time_in_trade_hours": 56.59
+        },
+        "why_summary": "Unprofitable (PF 0.81, 24% win rate). 98% of all losses hit the stop-loss cleanly (not near-cost, not data-end) -- the stop level itself is being reached, not a measurement artifact. Wins concentrate in TAOUSDT and FILUSDT."
+      }
+    },
+    "84525b11cd18": {
+      "status": "done",
+      "result": {
+        "strategy_id": "84525b11cd18",
+        "name": "Richard Dennis Turtle Trader Strategy [Manual Build]",
+        "entry_tf": "1h",
+        "batch_id": "20260823_130044_de7246",
+        "total_trades": 1376,
+        "wins": 94,
+        "losses": 1282,
+        "win_rate_pct": 6.83,
+        "net_pnl": 57909.27,
+        "profit_factor": 1.2596,
+        "max_drawdown_pct": 83.46,
+        "round_trip_cost_pct_used": 0.3,
+        "loss_breakdown": {
+          "near_cost_stopout_pct": 1.1,
+          "stop_loss_hit_pct": 99.8,
+          "data_end_no_target_pct": 0.2,
+          "other_pct": 0.0
+        },
+        "win_breakdown": {
+          "top_symbols_by_profit": [
+            {
+              "symbol": "ENAUSDT",
+              "profit": 14264.11
+            },
+            {
+              "symbol": "ZECUSDT",
+              "profit": 13312.08
+            },
+            {
+              "symbol": "ETHUSDT",
+              "profit": 10662.05
+            },
+            {
+              "symbol": "SOLUSDT",
+              "profit": 9867.24
+            },
+            {
+              "symbol": "JSTUSDT",
+              "profit": 9598.15
+            }
+          ],
+          "avg_win_time_in_trade_hours": 2921.4,
+          "avg_loss_time_in_trade_hours": 106.58
+        },
+        "why_summary": "Profitable (PF 1.26, 7% win rate). 100% of all losses hit the stop-loss cleanly (not near-cost, not data-end) -- the stop level itself is being reached, not a measurement artifact. Wins concentrate in ENAUSDT and ZECUSDT."
+      }
+    },
+    "86ceac60820b": {
+      "status": "done",
+      "result": {
+        "strategy_id": "86ceac60820b",
+        "name": "9-20 EMA SMC Hybrid [Manual Build]",
+        "entry_tf": "15m",
+        "batch_id": "20260825_060428_93ff67",
+        "total_trades": 771,
+        "wins": 279,
+        "losses": 492,
+        "win_rate_pct": 36.19,
+        "net_pnl": -10749.76,
+        "profit_factor": 0.8171,
+        "max_drawdown_pct": 27.54,
+        "round_trip_cost_pct_used": 0.3,
+        "loss_breakdown": {
+          "near_cost_stopout_pct": 0.0,
+          "stop_loss_hit_pct": 100.0,
+          "data_end_no_target_pct": 0.0,
+          "other_pct": 0.0
+        },
+        "win_breakdown": {
+          "top_symbols_by_profit": [
+            {
+              "symbol": "DEXEUSDT",
+              "profit": 3656.61
+            },
+            {
+              "symbol": "PUMPUSDT",
+              "profit": 3443.14
+            },
+            {
+              "symbol": "DASHUSDT",
+              "profit": 3408.44
+            },
+            {
+              "symbol": "ASTERUSDT",
+              "profit": 2745.1
+            },
+            {
+              "symbol": "ZECUSDT",
+              "profit": 2704.77
+            }
+          ],
+          "avg_win_time_in_trade_hours": 2.48,
+          "avg_loss_time_in_trade_hours": 1.72
+        },
+        "why_summary": "Unprofitable (PF 0.82, 36% win rate). 100% of all losses hit the stop-loss cleanly (not near-cost, not data-end) -- the stop level itself is being reached, not a measurement artifact. Wins concentrate in DEXEUSDT and PUMPUSDT."
+      }
+    },
+    "87c0c79ac0cb": {
+      "status": "done",
+      "result": {
+        "strategy_id": "87c0c79ac0cb",
+        "name": "Market Structure Shift Reversal [Manual Build]",
+        "entry_tf": "15m",
+        "batch_id": "mss_full_20260826_164441",
+        "total_trades": 2445,
+        "wins": 541,
+        "losses": 1904,
+        "win_rate_pct": 22.13,
+        "net_pnl": -3239.98,
+        "profit_factor": 0.8227,
+        "max_drawdown_pct": 81.13,
+        "round_trip_cost_pct_used": 0.3,
+        "loss_breakdown": {
+          "near_cost_stopout_pct": 10.2,
+          "stop_loss_hit_pct": 89.8,
+          "data_end_no_target_pct": 0.1,
+          "other_pct": 10.1
+        },
+        "win_breakdown": {
+          "top_symbols_by_profit": [
+            {
+              "symbol": "ZECUSDT",
+              "profit": 2018.08
+            },
+            {
+              "symbol": "JSTUSDT",
+              "profit": 1300.7
+            },
+            {
+              "symbol": "ATOMUSDT",
+              "profit": 565.46
+            },
+            {
+              "symbol": "APTUSDT",
+              "profit": 550.53
+            },
+            {
+              "symbol": "ADAUSDT",
+              "profit": 487.57
+            }
+          ],
+          "avg_win_time_in_trade_hours": 481.1,
+          "avg_loss_time_in_trade_hours": 92.33
+        },
+        "why_summary": "Unprofitable (PF 0.82, 22% win rate). 90% of all losses hit the stop-loss cleanly (not near-cost, not data-end) -- the stop level itself is being reached, not a measurement artifact. Wins concentrate in ZECUSDT and JSTUSDT."
+      }
+    },
+    "8b878a159ead": {
+      "status": "done",
+      "result": {
+        "strategy_id": "8b878a159ead",
+        "name": "Order Block Reversal [Manual Build]",
+        "entry_tf": "15m",
+        "batch_id": "ob_full_20260826_132357",
+        "total_trades": 1449,
+        "wins": 231,
+        "losses": 1218,
+        "win_rate_pct": 15.94,
+        "net_pnl": 2096.1,
+        "profit_factor": 1.1686,
+        "max_drawdown_pct": 75.95,
+        "round_trip_cost_pct_used": 0.3,
+        "loss_breakdown": {
+          "near_cost_stopout_pct": 8.6,
+          "stop_loss_hit_pct": 91.4,
+          "data_end_no_target_pct": 0.1,
+          "other_pct": 8.5
+        },
+        "win_breakdown": {
+          "top_symbols_by_profit": [
+            {
+              "symbol": "ZECUSDT",
+              "profit": 1950.41
+            },
+            {
+              "symbol": "JSTUSDT",
+              "profit": 1407.55
+            },
+            {
+              "symbol": "SUIUSDT",
+              "profit": 648.99
+            },
+            {
+              "symbol": "AVAXUSDT",
+              "profit": 628.55
+            },
+            {
+              "symbol": "ADAUSDT",
+              "profit": 586.94
+            }
+          ],
+          "avg_win_time_in_trade_hours": 1239.39,
+          "avg_loss_time_in_trade_hours": 131.51
+        },
+        "why_summary": "Profitable (PF 1.17, 16% win rate). 91% of all losses hit the stop-loss cleanly (not near-cost, not data-end) -- the stop level itself is being reached, not a measurement artifact. Wins concentrate in ZECUSDT and JSTUSDT."
+      }
+    },
+    "8d527d2e0861": {
+      "status": "done",
+      "result": {
+        "strategy_id": "8d527d2e0861",
+        "name": "Candle Range Theory (CRT) Strategy 2.0 [Manual Build]",
+        "entry_tf": "5m",
+        "batch_id": "20260825_055813_2c51f8",
+        "total_trades": 42013,
+        "wins": 14177,
+        "losses": 27836,
+        "win_rate_pct": 33.74,
+        "net_pnl": -421921.95,
+        "profit_factor": 0.7329,
+        "max_drawdown_pct": 98.29,
+        "round_trip_cost_pct_used": 0.3,
+        "loss_breakdown": {
+          "near_cost_stopout_pct": 0.0,
+          "stop_loss_hit_pct": 99.9,
+          "data_end_no_target_pct": 0.1,
+          "other_pct": 0.0
+        },
+        "win_breakdown": {
+          "top_symbols_by_profit": [
+            {
+              "symbol": "ZECUSDT",
+              "profit": 41702.24
+            },
+            {
+              "symbol": "TAOUSDT",
+              "profit": 35826.67
+            },
+            {
+              "symbol": "SOLUSDT",
+              "profit": 35817.85
+            },
+            {
+              "symbol": "NEARUSDT",
+              "profit": 34349.18
+            },
+            {
+              "symbol": "DASHUSDT",
+              "profit": 33477.26
+            }
+          ],
+          "avg_win_time_in_trade_hours": 6.55,
+          "avg_loss_time_in_trade_hours": 4.69
+        },
+        "why_summary": "Unprofitable (PF 0.73, 34% win rate). 100% of all losses hit the stop-loss cleanly (not near-cost, not data-end) -- the stop level itself is being reached, not a measurement artifact. Wins concentrate in ZECUSDT and TAOUSDT."
+      }
+    },
+    "99fbf2454f8a": {
+      "status": "done",
+      "result": {
+        "strategy_id": "99fbf2454f8a",
+        "name": "SMA-Alignment Strategy (Approximate - ZIP Indicator Excluded) [Manual Build]",
+        "entry_tf": "1h",
+        "batch_id": "20260825_050751_bbad93",
+        "total_trades": 3287,
+        "wins": 1246,
+        "losses": 2041,
+        "win_rate_pct": 37.91,
+        "net_pnl": -32557.38,
+        "profit_factor": 0.8386,
+        "max_drawdown_pct": 27.75,
+        "round_trip_cost_pct_used": 0.3,
+        "loss_breakdown": {
+          "near_cost_stopout_pct": 5.9,
+          "stop_loss_hit_pct": 83.3,
+          "data_end_no_target_pct": 0.3,
+          "other_pct": 16.4
+        },
+        "win_breakdown": {
+          "top_symbols_by_profit": [
+            {
+              "symbol": "DEXEUSDT",
+              "profit": 7100.69
+            },
+            {
+              "symbol": "ENAUSDT",
+              "profit": 5628.01
+            },
+            {
+              "symbol": "WLDUSDT",
+              "profit": 5103.45
+            },
+            {
+              "symbol": "SUIUSDT",
+              "profit": 4995.63
+            },
+            {
+              "symbol": "ARBUSDT",
+              "profit": 4748.7
+            }
+          ],
+          "avg_win_time_in_trade_hours": 21.82,
+          "avg_loss_time_in_trade_hours": 15.13
+        },
+        "why_summary": "Unprofitable (PF 0.84, 38% win rate). 83% of all losses hit the stop-loss cleanly (not near-cost, not data-end) -- the stop level itself is being reached, not a measurement artifact. Wins concentrate in DEXEUSDT and ENAUSDT."
+      }
+    },
+    "b36687e8401a": {
+      "status": "done",
+      "result": {
+        "strategy_id": "b36687e8401a",
+        "name": "Daily Liquidity Scalping Strategy [Manual Build]",
+        "entry_tf": "1m",
+        "batch_id": "20260825_054222_75e07e",
+        "total_trades": 48947,
+        "wins": 22552,
+        "losses": 26395,
+        "win_rate_pct": 46.07,
+        "net_pnl": -350200.55,
+        "profit_factor": 0.7853,
+        "max_drawdown_pct": 99.93,
+        "round_trip_cost_pct_used": 0.3,
+        "loss_breakdown": {
+          "near_cost_stopout_pct": 0.0,
+          "stop_loss_hit_pct": 100.0,
+          "data_end_no_target_pct": 0.0,
+          "other_pct": 0.0
+        },
+        "win_breakdown": {
+          "top_symbols_by_profit": [
+            {
+              "symbol": "PUMPUSDT",
+              "profit": 48164.03
+            },
+            {
+              "symbol": "INJUSDT",
+              "profit": 40048.69
+            },
+            {
+              "symbol": "RENDERUSDT",
+              "profit": 38001.84
+            },
+            {
+              "symbol": "APTUSDT",
+              "profit": 35449.19
+            },
+            {
+              "symbol": "ZECUSDT",
+              "profit": 34693.41
+            }
+          ],
+          "avg_win_time_in_trade_hours": 11.36,
+          "avg_loss_time_in_trade_hours": 8.4
+        },
+        "why_summary": "Unprofitable (PF 0.79, 46% win rate). 100% of all losses hit the stop-loss cleanly (not near-cost, not data-end) -- the stop level itself is being reached, not a measurement artifact. Wins concentrate in PUMPUSDT and INJUSDT."
+      }
+    },
+    "b4caef4ee47d": {
+      "status": "done",
+      "result": {
+        "strategy_id": "b4caef4ee47d",
+        "name": "Support/Resistance Breakout (Swing/Crypto Futures) [Manual Build]",
+        "entry_tf": "1h",
+        "batch_id": "20260824_154756_4ff057",
+        "total_trades": 4479,
+        "wins": 1748,
+        "losses": 2731,
+        "win_rate_pct": 39.03,
+        "net_pnl": 14333.28,
+        "profit_factor": 1.0548,
+        "max_drawdown_pct": 89.33,
+        "round_trip_cost_pct_used": 0.3,
+        "loss_breakdown": {
+          "near_cost_stopout_pct": 9.6,
+          "stop_loss_hit_pct": 90.3,
+          "data_end_no_target_pct": 0.1,
+          "other_pct": 9.5
+        },
+        "win_breakdown": {
+          "top_symbols_by_profit": [
+            {
+              "symbol": "ZECUSDT",
+              "profit": 87693.74
+            },
+            {
+              "symbol": "JSTUSDT",
+              "profit": 12713.65
+            },
+            {
+              "symbol": "PUMPUSDT",
+              "profit": 6447.08
+            },
+            {
+              "symbol": "PEPEUSDT",
+              "profit": 6357.47
+            },
+            {
+              "symbol": "DOGEUSDT",
+              "profit": 5979.47
+            }
+          ],
+          "avg_win_time_in_trade_hours": 118.28,
+          "avg_loss_time_in_trade_hours": 51.57
+        },
+        "why_summary": "Profitable (PF 1.05, 39% win rate). 90% of all losses hit the stop-loss cleanly (not near-cost, not data-end) -- the stop level itself is being reached, not a measurement artifact. Wins concentrate in ZECUSDT and JSTUSDT."
+      }
+    },
+    "c502890cdef2": {
+      "status": "done",
+      "result": {
+        "strategy_id": "c502890cdef2",
+        "name": "Dumb Money Concepts -- Combined Confirmation [Manual Build]",
+        "entry_tf": "4h",
+        "batch_id": "dmc_combined_20260826_011218",
+        "total_trades": 1867,
+        "wins": 537,
+        "losses": 1330,
+        "win_rate_pct": 28.76,
+        "net_pnl": -1807.51,
+        "profit_factor": 0.8764,
+        "max_drawdown_pct": 64.44,
+        "round_trip_cost_pct_used": 0.3,
+        "loss_breakdown": {
+          "near_cost_stopout_pct": 1.6,
+          "stop_loss_hit_pct": 97.9,
+          "data_end_no_target_pct": 0.7,
+          "other_pct": 1.4
+        },
+        "win_breakdown": {
+          "top_symbols_by_profit": [
+            {
+              "symbol": "ATOMUSDT",
+              "profit": 606.19
+            },
+            {
+              "symbol": "ZECUSDT",
+              "profit": 534.18
+            },
+            {
+              "symbol": "DOTUSDT",
+              "profit": 529.25
+            },
+            {
+              "symbol": "JSTUSDT",
+              "profit": 516.33
+            },
+            {
+              "symbol": "ARBUSDT",
+              "profit": 513.13
+            }
+          ],
+          "avg_win_time_in_trade_hours": 356.64,
+          "avg_loss_time_in_trade_hours": 85.13
+        },
+        "why_summary": "Unprofitable (PF 0.88, 29% win rate). 98% of all losses hit the stop-loss cleanly (not near-cost, not data-end) -- the stop level itself is being reached, not a measurement artifact. Wins concentrate in ATOMUSDT and ZECUSDT."
+      }
+    },
+    "d3e441733525": {
+      "status": "done",
+      "result": {
+        "strategy_id": "d3e441733525",
+        "name": "Double Confirmation CHoCH with Liquidity Trap [Manual Build]",
+        "entry_tf": "5m",
+        "batch_id": "20260825_050036_1b4ceb",
+        "total_trades": 8011,
+        "wins": 2104,
+        "losses": 5907,
+        "win_rate_pct": 26.26,
+        "net_pnl": -34526.92,
+        "profit_factor": 0.8726,
+        "max_drawdown_pct": 98.88,
+        "round_trip_cost_pct_used": 0.3,
+        "loss_breakdown": {
+          "near_cost_stopout_pct": 48.9,
+          "stop_loss_hit_pct": 73.9,
+          "data_end_no_target_pct": 0.0,
+          "other_pct": 26.1
+        },
+        "win_breakdown": {
+          "top_symbols_by_profit": [
+            {
+              "symbol": "ZECUSDT",
+              "profit": 46080.44
+            },
+            {
+              "symbol": "JSTUSDT",
+              "profit": 13664.72
+            },
+            {
+              "symbol": "APTUSDT",
+              "profit": 7439.58
+            },
+            {
+              "symbol": "ASTERUSDT",
+              "profit": 6308.45
+            },
+            {
+              "symbol": "ENAUSDT",
+              "profit": 6102.33
+            }
+          ],
+          "avg_win_time_in_trade_hours": 128.66,
+          "avg_loss_time_in_trade_hours": 28.75
+        },
+        "why_summary": "Unprofitable (PF 0.87, 26% win rate). 49% of losses are stopped out within ~1 round-trip transaction cost of entry -- the stop buffer is barely wider than commission+slippage. 74% of all losses hit the stop-loss cleanly (not near-cost, not data-end) -- the stop level itself is being reached, not a measurement artifact. Wins concentrate in ZECUSDT and JSTUSDT."
+      }
+    },
+    "d62e5015a93b": {
+      "status": "done",
+      "result": {
+        "strategy_id": "d62e5015a93b",
+        "name": "Lower Time Frame Liquidity Reversal Strategy [Manual Build]",
+        "entry_tf": "5m",
+        "batch_id": "20260825_052917_b19fbc",
+        "total_trades": 14248,
+        "wins": 4665,
+        "losses": 9583,
+        "win_rate_pct": 32.74,
+        "net_pnl": -231294.03,
+        "profit_factor": 0.7694,
+        "max_drawdown_pct": 89.65,
+        "round_trip_cost_pct_used": 0.3,
+        "loss_breakdown": {
+          "near_cost_stopout_pct": 0.1,
+          "stop_loss_hit_pct": 99.8,
+          "data_end_no_target_pct": 0.2,
+          "other_pct": 0.0
+        },
+        "win_breakdown": {
+          "top_symbols_by_profit": [
+            {
+              "symbol": "PUMPUSDT",
+              "profit": 23715.69
+            },
+            {
+              "symbol": "RENDERUSDT",
+              "profit": 22237.81
+            },
+            {
+              "symbol": "ENAUSDT",
+              "profit": 22162.39
+            },
+            {
+              "symbol": "TAOUSDT",
+              "profit": 22154.97
+            },
+            {
+              "symbol": "HBARUSDT",
+              "profit": 21322.44
+            }
+          ],
+          "avg_win_time_in_trade_hours": 17.8,
+          "avg_loss_time_in_trade_hours": 11.59
+        },
+        "why_summary": "Unprofitable (PF 0.77, 33% win rate). 100% of all losses hit the stop-loss cleanly (not near-cost, not data-end) -- the stop level itself is being reached, not a measurement artifact. Wins concentrate in PUMPUSDT and RENDERUSDT."
+      }
+    },
+    "b9884b3e5e5d": {
+      "status": "done",
+      "result": {
+        "strategy_id": "b9884b3e5e5d",
+        "name": "HTF Key Level Engulfing Reversal [Manual Build]",
+        "entry_tf": "5m",
+        "batch_id": "s1_htf_key_level_engulfing",
+        "total_trades": 98556,
+        "wins": 32794,
+        "losses": 65762,
+        "win_rate_pct": 33.27,
+        "net_pnl": -47318.47,
+        "profit_factor": 0.6832,
+        "max_drawdown_pct": 100.0,
+        "round_trip_cost_pct_used": 0.3,
+        "loss_breakdown": {
+          "near_cost_stopout_pct": 0.0,
+          "stop_loss_hit_pct": 66.7,
+          "data_end_no_target_pct": 0.05,
+          "other_pct": 0.0
+        },
+        "win_breakdown": {
+          "top_symbols_by_profit": [
+            "DEXEUSDT",
+            "ICPUSDT",
+            "ENAUSDT",
+            "DASHUSDT",
+            "CAKEUSDT"
+          ],
+          "avg_win_time_in_trade_hours": null,
+          "avg_loss_time_in_trade_hours": null
+        },
+        "why_summary": "Ye strategy LOSING hai. Win rate 33.27% hai jo iske apne fixed 1:2 risk:reward ke liye breakeven line (33.3%) se thoda neeche hai -- matlab thodi si negative edge hai, bug nahi (sirf 0% stop-losses transaction-cost ke qareeb thay, matlab ye 'noise se stop hit hona' ka masla nahi hai). Asal wajah: is strategy mein signal bohot zyada bar aata hai (50 coins pe kul 98,556 trades, yani har coin pe ~2000 trades) kyunke 'HTF key level tap + engulfing candle' ka combination 5-minute chart pe kaafi frequently milta hai. Chhoti si negative edge jab hazaaron trades par 1% risk-per-trade ke saath compound hoti hai, to balance tarikban khatam ho jata hai (zyadatar coins pe -99% se -100% tak). Best performing coins (DEXEUSDT, ICPUSDT, ENAUSDT, DASHUSDT, CAKEUSDT) bhi overall strategy ko profitable nahi bana sake."
+      }
+    },
+    "45a238de1868": {
+      "status": "done",
+      "result": {
+        "strategy_id": "45a238de1868",
+        "name": "Sniper Headshot Entry [Manual Build]",
+        "entry_tf": "5m",
+        "batch_id": "s2_sniper_headshot_entry",
+        "total_trades": 9082,
+        "wins": 2661,
+        "losses": 6421,
+        "win_rate_pct": 29.3,
+        "net_pnl": -7491.65,
+        "profit_factor": 0.8393,
+        "max_drawdown_pct": 93.35,
+        "round_trip_cost_pct_used": 0.3,
+        "loss_breakdown": {
+          "near_cost_stopout_pct": 0.0,
+          "stop_loss_hit_pct": 59.6,
+          "data_end_no_target_pct": 0.48,
+          "other_pct": 0.0
+        },
+        "win_breakdown": {
+          "top_symbols_by_profit": [
+            "SHIBUSDT",
+            "NEARUSDT",
+            "PUMPUSDT",
+            "INJUSDT",
+            "FILUSDT"
+          ],
+          "avg_win_time_in_trade_hours": null,
+          "avg_loss_time_in_trade_hours": null
+        },
+        "why_summary": "Ye strategy overall LOSING hai (PF 0.84, win rate 29.3%). Stop-loss ka reason 'cost ke qareeb' nahi hai (0% near-cost stopouts) -- matlab stop genuinely level pe reach ho raha hai. Trade count coin ke hisaab se bohot alag hai (2 se le kar 537 tak) kyunke sequence (obvious-level sweep -> demand/supply zone tap -> Hammer/strong candle) volatile coins (PUMPUSDT, DASHUSDT, DOTUSDT) mein bohot frequent milta hai. Kuch coins genuinely achhe hain (DOGEUSDT +85%, PEPEUSDT +72%, ZECUSDT bohot zyada +271% is strategy mein) lekin baaki coins ke losses unhe cover kar dete hain -- overall universe pe ye edge negative hai."
+      }
+    },
+    "7775cebf0fd3": {
+      "status": "done",
+      "result": {
+        "strategy_id": "7775cebf0fd3",
+        "name": "PDH/PDL Multi-Timeframe Reversal [Manual Build]",
+        "entry_tf": "5m",
+        "batch_id": "s3_pdhl_mtf_reversal",
+        "total_trades": 10701,
+        "wins": 2729,
+        "losses": 7972,
+        "win_rate_pct": 25.5,
+        "net_pnl": -19944.3,
+        "profit_factor": 0.7385,
+        "max_drawdown_pct": 89.26,
+        "round_trip_cost_pct_used": 0.3,
+        "loss_breakdown": {
+          "near_cost_stopout_pct": 0.0,
+          "stop_loss_hit_pct": 74.42,
+          "data_end_no_target_pct": 0.14,
+          "other_pct": 0.0
+        },
+        "win_breakdown": {
+          "top_symbols_by_profit": [
+            "WLDUSDT",
+            "ALGOUSDT",
+            "ICPUSDT",
+            "NEARUSDT",
+            "PUMPUSDT"
+          ],
+          "avg_win_time_in_trade_hours": null,
+          "avg_loss_time_in_trade_hours": null
+        },
+        "why_summary": "Ye strategy LOSING hai (PF 0.74, win rate 25.5%). 74% losses stop-loss se hue (genuine level reach hua, cost-noise ka masla nahi -- 0% near-cost). Is strategy ka win rate sab 5 nayi strategies mein sabse kam hai, kyunke 15-minute PDH/PDL break confirmation ke baad 5-minute return-to-level pe Hammer/Engulfing bohot generic pattern hai -- bohot bar false signal deta hai. Best coins WLDUSDT, ALGOUSDT, ICPUSDT is strategy mein sabse zyada munafa dete hain, lekin baaki 45+ coins ka nuksan overall PF ko neeche kh\u0940\u0902ch leta hai."
+      }
+    },
+    "f4bfea4e22e0": {
+      "status": "done",
+      "result": {
+        "strategy_id": "f4bfea4e22e0",
+        "name": "SAR + SMC (CISD Entry) [Manual Build]",
+        "entry_tf": "5m",
+        "batch_id": "s4_cisd_entry",
+        "total_trades": 571,
+        "wins": 177,
+        "losses": 394,
+        "win_rate_pct": 31.0,
+        "net_pnl": -2090.42,
+        "profit_factor": 0.189,
+        "max_drawdown_pct": 17.38,
+        "round_trip_cost_pct_used": 0.3,
+        "loss_breakdown": {
+          "near_cost_stopout_pct": 0.0,
+          "stop_loss_hit_pct": 34.5,
+          "data_end_no_target_pct": 0.53,
+          "other_pct": 0.0
+        },
+        "win_breakdown": {
+          "top_symbols_by_profit": [
+            "PEPEUSDT",
+            "LTCUSDT",
+            "AAVEUSDT",
+            "NEXOUSDT",
+            "XLMUSDT"
+          ],
+          "avg_win_time_in_trade_hours": null,
+          "avg_loss_time_in_trade_hours": null
+        },
+        "why_summary": "Ye strategy sab 5 mein sabse zyada LOSING hai (PF 0.19). Ek zaroori baat: 65% trades 'take_profit' label ke saath close hote hain lekin overall PF phir bhi bohot kam hai -- iski wajah asli trade data check karne se mili: is strategy ka structural take-profit (CISD retrace level) kabhi kabhi entry price ke bohot qareeb hota hai, aur jab real slippage lagta hai to entry khud hi target ke paas ya us se aage khul jata hai -- matlab 'win' label ke saath trade khatam hoti hai lekin munafa na ke barabar ya halka negative (commission+slippage kha jata hai). Ye engine ka pehle se mojood 'structure' take-profit mechanism hai (is task mein iska code nahi chheda gaya), sirf is strategy mein zyada nazar aaya kyunke CISD retrace levels aksar tight hote hain. Trade count bhi kam hai (sirf 571 kul, ~11 per coin) kyunke 5-stage sequence (zone entry -> sharp move -> CISD level -> confirm close -> retrace) bohot rare milta hai."
+      }
+    },
+    "53c80e6c5b6a": {
+      "status": "done",
+      "result": {
+        "strategy_id": "53c80e6c5b6a",
+        "name": "4H Fractal Sweep Reversal [Manual Build]",
+        "entry_tf": "5m",
+        "batch_id": "s5_fractal_sweep_reversal",
+        "total_trades": 34221,
+        "wins": 11233,
+        "losses": 22988,
+        "win_rate_pct": 32.82,
+        "net_pnl": -41154.65,
+        "profit_factor": 0.6611,
+        "max_drawdown_pct": 98.79,
+        "round_trip_cost_pct_used": 0.3,
+        "loss_breakdown": {
+          "near_cost_stopout_pct": 0.0,
+          "stop_loss_hit_pct": 67.14,
+          "data_end_no_target_pct": 0.09,
+          "other_pct": 0.0
+        },
+        "win_breakdown": {
+          "top_symbols_by_profit": [
+            "DEXEUSDT",
+            "DOTUSDT",
+            "RENDERUSDT",
+            "AAVEUSDT",
+            "AVAXUSDT"
+          ],
+          "avg_win_time_in_trade_hours": null,
+          "avg_loss_time_in_trade_hours": null
+        },
+        "why_summary": "Ye strategy LOSING hai (PF 0.66, win rate 32.82%). Bilkul Strategy 1 jaisa pattern: fixed 1:2 RR ke liye breakeven win rate 33.3% hai, aur ye usse thoda neeche hai. 4H swing levels bohot bar sweep hote hain is liye trade count bohot zyada hai (34,221 kul, ~684 per coin) -- chhoti negative edge jab itni baar compound hoti hai to zyadatar coins pe balance 85-99% tak khatam ho jata hai. Ye near-cost-stopout ka masla nahi hai (0%) -- genuine, chhota negative edge hai jo bohot zyada frequency ki wajah se badi loss ban jata hai."
+      }
+    },
+    "bddde91aee6d": {
+      "status": "done",
+      "result": {
+        "why_summary": "Liquidity Sweep Multi-Confirmation: 14761 trades hue, jeet ka rate 39.65%, Profit Factor 1.0245 -- yani thoda sa profitable hai (1.0 se zra upar), lekin zyadatar munafa sirf ek coin (JSTUSDT) se aa raha hai. Agar us ek coin ko nikal den to strategy overall LOSS mein chali jaati. Baaki coins mostly breakeven ke qareeb hain. Stop-loss buffer (0.65%) sahi tarah kaam kar raha hai -- koi bhi stop sirf transaction cost ki wajah se nahi laga.",
+        "why_summary_en": "Liquidity Sweep Multi-Confirmation: 14761 trades, 39.65% win rate, PF 1.0245, net 18300.02. 60.3% of trades exit via stop-loss, 39.4% via take-profit. Marginally profitable overall (PF just above 1.0), but heavily concentrated: JSTUSDT alone contributed 21415 of the 18300 total net profit (46 trades) -- without that one coin's result, the strategy would be net negative. 0% of stop-losses were within round-trip-cost distance (the 0.65% SL buffer, 2x the real 0.3% round-trip cost, is doing its job). Why it mostly loses/breaks even on most coins: the HTF (4H) sweep+reclaim confirmation is a real, meaningful filter (not overtrading -- ~295 trades/symbol average, similar order of magnitude to other reversal strategies), but the CISD entry timing on 5m still only wins a bit above 1-in-3, close to this strategy's own structural-target RR, so most individual coins hover near breakeven; the overall positive PF is being carried by a small number of strong outlier coins rather than a broad, reliable edge.",
+        "n_trades": 14761,
+        "win_rate": 39.65178510940993,
+        "pf": 1.0245435608625926,
+        "net_pnl": 18300.018486798774,
+        "exit_reasons": {
+          "stop_loss": 8905,
+          "take_profit": 5810,
+          "end_of_data": 46
+        },
+        "near_cost_stopouts": 0,
+        "top5": [
+          [
+            "JSTUSDT",
+            {
+              "pnl": 21414.94621074725,
+              "n": 46
+            }
+          ],
+          [
+            "NIGHTUSDT",
+            {
+              "pnl": 7595.991789926886,
+              "n": 36
+            }
+          ],
+          [
+            "ASTERUSDT",
+            {
+              "pnl": 6861.365450536733,
+              "n": 94
+            }
+          ],
+          [
+            "UNIUSDT",
+            {
+              "pnl": 6283.867475261664,
+              "n": 384
+            }
+          ],
+          [
+            "XRPUSDT",
+            {
+              "pnl": 4143.890291699007,
+              "n": 85
+            }
+          ]
+        ],
+        "bottom5": [
+          [
+            "DASHUSDT",
+            {
+              "pnl": -7111.384432659942,
+              "n": 531
+            }
+          ],
+          [
+            "INJUSDT",
+            {
+              "pnl": -6096.951140209778,
+              "n": 579
+            }
+          ],
+          [
+            "WLFIUSDT",
+            {
+              "pnl": -5979.579757188294,
+              "n": 580
+            }
+          ],
+          [
+            "APTUSDT",
+            {
+              "pnl": -5701.472079208091,
+              "n": 637
+            }
+          ],
+          [
+            "RENDERUSDT",
+            {
+              "pnl": -5153.3309667801495,
+              "n": 591
+            }
+          ]
+        ]
+      }
+    },
+    "872544b77a57": {
+      "status": "done",
+      "result": {
+        "why_summary": "Liquidity Sweep + CISD (Pure Swing): 14993 trades hue, jeet ka rate sab se zyada 58.55% tha, lekin Profit Factor sirf 0.9483 -- yani LOSS mein hai. Wajah: is strategy ka take-profit jaan boojh kar chhota rakha gaya tha (\"sabse qareeb wali high/low\"), is liye jeetne wali trades mein munafa bhi chhota milta hai, jabke haarne wali trade mein poora structural stop-loss lagta hai jo usse bara hota hai. Entry timing (CISD) khud sahi/selective hai (isi liye win rate zyada hai), lekin reward chhota hone ki wajah se overall net loss ho raha hai.",
+        "why_summary_en": "Liquidity Sweep + CISD (Pure Swing Variant): 14993 trades, 58.55% win rate (the highest of this batch's 3 strategies), but PF only 0.9483 -- net -25666.85. 58.3% exit via take-profit, 41.4% via stop-loss. Classic small-reward/small-risk mismatch: this strategy's take-profit is deliberately conservative (\"nearest visible high/low\", the task's own v1 spec -- no extended/farther target mode built), so most winning trades bank a SMALL reward while the stop-loss buffer, though safe (0% near-cost stopouts), still costs a full structural-swing distance on a loss -- so even winning nearly 6-in-10 trades isn't enough to overcome an average loss that's larger than the average win. The CISD entry timing (retest-of-line) itself is genuinely selective and accurate (hence the high win rate) -- the honest verdict is a reward-sizing problem, not an entry-timing problem.",
+        "n_trades": 14993,
+        "win_rate": 58.54732208363903,
+        "pf": 0.9482666405920521,
+        "net_pnl": -25666.853794650535,
+        "exit_reasons": {
+          "take_profit": 8744,
+          "stop_loss": 6212,
+          "end_of_data": 37
+        },
+        "near_cost_stopouts": 0,
+        "top5": [
+          [
+            "NEXOUSDT",
+            {
+              "pnl": 4732.121324424222,
+              "n": 157
+            }
+          ],
+          [
+            "ASTERUSDT",
+            {
+              "pnl": 4562.817137326609,
+              "n": 91
+            }
+          ],
+          [
+            "WLFIUSDT",
+            {
+              "pnl": 4154.823858198478,
+              "n": 55
+            }
+          ],
+          [
+            "SHIBUSDT",
+            {
+              "pnl": 4105.070354292895,
+              "n": 27
+            }
+          ],
+          [
+            "BCHUSDT",
+            {
+              "pnl": 4006.562984130859,
+              "n": 316
+            }
+          ]
+        ],
+        "bottom5": [
+          [
+            "DASHUSDT",
+            {
+              "pnl": -7090.407151190984,
+              "n": 557
+            }
+          ],
+          [
+            "ZECUSDT",
+            {
+              "pnl": -5191.583938331057,
+              "n": 559
+            }
+          ],
+          [
+            "ETHUSDT",
+            {
+              "pnl": -4862.609133902564,
+              "n": 558
+            }
+          ],
+          [
+            "SOLUSDT",
+            {
+              "pnl": -4068.566815868382,
+              "n": 441
+            }
+          ],
+          [
+            "FILUSDT",
+            {
+              "pnl": -3877.045567361677,
+              "n": 402
+            }
+          ]
+        ]
+      }
+    },
+    "1e0a42397286": {
+      "status": "done",
+      "result": {
+        "why_summary": "OTE Liquidity Sweep Reversal: 20253 trades hue, jeet ka rate 40.43%, Profit Factor 1.0117 -- yani thoda sa profitable hai. Is batch ki Strategy 1 se farq ye hai ke yahan munafa sirf ek coin se nahi, balke bohot saare coins mein phaila hua hai -- zyada bharosemand result. 3R (yani kam se kam 1:3 reward:risk) ka hard filter is strategy ko selective bana raha hai -- sirf achhe setups leti hai, jis wajah se win rate breakeven line se thoda upar reh gaya.",
+        "why_summary_en": "OTE Liquidity Sweep Reversal: 20253 trades, 40.43% win rate, PF 1.0117, net 12449.02. 59.5% exit via stop-loss, 40.4% via take-profit. Marginally profitable overall (PF just above 1.0), and -- unlike Strategy 1 in this same batch -- the profit is broadly distributed across coins rather than concentrated in one outlier (top 5 coins each contribute a comparable 5,000-7,300 range, and losses are similarly spread across a different set of coins). The hard 3R-minimum filter (skip the trade entirely if the structural target doesn't offer at least 3:1) is genuinely selective (0% near-cost stopouts, and the win rate sits below 1:3's ~25% breakeven only marginally above it), which is consistent with a strategy that only takes higher-conviction setups but still wins often enough to stay on the right side of breakeven. Overall this is the most broadly (not outlier-driven) profitable of the batch's 3 strategies, though still only marginally so.",
+        "n_trades": 20253,
+        "win_rate": 40.428578482200166,
+        "pf": 1.0116876495040321,
+        "net_pnl": 12449.021118173154,
+        "exit_reasons": {
+          "stop_loss": 12059,
+          "take_profit": 8178,
+          "end_of_data": 16
+        },
+        "near_cost_stopouts": 0,
+        "top5": [
+          [
+            "APTUSDT",
+            {
+              "pnl": 7322.15225758946,
+              "n": 100
+            }
+          ],
+          [
+            "ONDOUSDT",
+            {
+              "pnl": 6067.817329371974,
+              "n": 452
+            }
+          ],
+          [
+            "AVAXUSDT",
+            {
+              "pnl": 5570.370229719711,
+              "n": 456
+            }
+          ],
+          [
+            "ICPUSDT",
+            {
+              "pnl": 5480.225556767583,
+              "n": 347
+            }
+          ],
+          [
+            "NEXOUSDT",
+            {
+              "pnl": 5313.437010554824,
+              "n": 439
+            }
+          ]
+        ],
+        "bottom5": [
+          [
+            "JSTUSDT",
+            {
+              "pnl": -4702.701106459986,
+              "n": 322
+            }
+          ],
+          [
+            "WLDUSDT",
+            {
+              "pnl": -4092.2466261856885,
+              "n": 525
+            }
+          ],
+          [
+            "DASHUSDT",
+            {
+              "pnl": -3918.9519004954836,
+              "n": 520
+            }
+          ],
+          [
+            "ZECUSDT",
+            {
+              "pnl": -3777.145138854454,
+              "n": 531
+            }
+          ],
+          [
+            "INJUSDT",
+            {
+              "pnl": -3479.0209824233702,
+              "n": 502
+            }
+          ]
+        ]
+      }
+    },
+    "ecec74744ec1": {
+      "status": "done",
+      "result": {
+        "why_summary": "Unprofitable (PF 0.2614, 14.32% win rate, 50,447 trades across 50 coins). 100% of trades exit via stop-loss (only 12 of 50,447 hit end-of-data) -- the stop level itself is being reached, not a measurement artifact. The real problem: ZERO of the 50,447 trades ever reached even 1R of profit before reversing (max R achieved was 0.99), and 40.8% closed within just 2 bars (30 minutes) of entry -- the entry signal (a close beyond a 2-point trendline drawn from the 2 most recent confirmed swing points, gated by BOTH 4H and 1H trend confirmation) simply has no real follow-through on 15m crypto data at this frequency. The structural trailing stop mechanism itself is confirmed working correctly (engaged on 24.3% of trades, verified via an isolated unit test and a real trade where it captured +$469.47 that a fixed 1:2 TP would have missed entirely -- see the checkpoint file for that trade) -- this is a real trading-edge problem, not an engine bug."
+      }
+    },
+    "8a048e8a2224": {
+      "status": "done",
+      "result": {
+        "why_summary": "Profitable (PF 1.1174, 25.0% win rate, 1,636 trades across 50 coins, net +$14,073.54). 1,113 of 1,636 trades (68%) exit via stop-loss and 496 (30%) via take-profit -- a healthy mix, not a strategy that only ever gets stopped out. The hard volume-spike filter (breakout candle must show a 1.8x volume spike vs its trailing 20-bar average, or the setup is discarded as a fakeout) appears to be doing real work: this is a genuinely rare-signal strategy (28-24 raw confirms per coin over 240 days on the single-coin smoke test) rather than a high-frequency one, consistent with 'wait for real, volume-confirmed breakouts' rather than trading every range edge touch."
+      }
+    },
+    "45040c58cf5a": {
+      "status": "done",
+      "result": {
+        "why_summary": "Profitable (PF 1.3692, 26.34% win rate, 2,798 trades across 50 coins, net +$61,443.51) -- rivals the platform's current best-performing strategy (Fair Value Gap Reversal, PF 1.3735). 1,692 of 2,798 trades (60%) exit via stop-loss and 1,056 (38%) via structure-based take-profit; the high-RR design the source describes (1:8-1:10) shows up directly in real trade data -- ZECUSDT alone returned +1076.13% on its own book (a single very large winning trade riding a real, verified multi-month price move, not a data artifact). The hard 'HTF and LTF trend must match, HTF sideways = skip entirely' filter reduced 10,391 raw FVG-zone touches down to 814 real high-probability setups on the single-coin smoke test (92% reduction) -- a genuinely selective, not vacuous, gate."
+      }
+    },
+    "e25028146948": {
+      "status": "done",
+      "result": {
+        "why_summary": "Unprofitable (PF 0.68, 40.14% win rate, net -$4,774 across 50 coins). 97% of all losses hit the stop-loss cleanly (0% near-cost -- the stop level itself is being reached, not a measurement artifact). Wins concentrate in DOTUSDT and PEPEUSDT."
+      }
+    },
+    "e2d090ed4ff4": {
+      "status": "done",
+      "result": {
+        "why_summary": "Unprofitable (PF 0.74, 30.51% win rate, net -$7,744 across 50 coins). 92% of all losses hit the stop-loss cleanly (0% near-cost -- the stop level itself is being reached, not a measurement artifact). Wins concentrate in JSTUSDT and ZECUSDT."
+      }
+    },
+    "3fef95339b15": {
+      "status": "done",
+      "result": {
+        "why_summary": "Essentially break-even (PF 0.99, 36.45% win rate, net -$282 across 50 coins and 7921 trades -- the closest to profitable of any strategy in this batch). 87% of all losses hit the stop-loss cleanly (0% near-cost -- the stop level itself is being reached, not a measurement artifact). Wins concentrate heavily in ZECUSDT (+$10,457 alone) and JSTUSDT."
+      }
+    },
+    "143a732de079": {
+      "status": "done",
+      "result": {
+        "why_summary": "Unprofitable (PF 0.64, 39.01% win rate, net -$35,018 across 50 coins and 27543 trades -- the highest trade count in this batch). 96% of all losses hit the stop-loss cleanly (0% near-cost -- the stop level itself is being reached, not a measurement artifact). Wins concentrate in DASHUSDT and ZECUSDT."
+      }
+    },
+    "0113516effdb": {
+      "status": "done",
+      "result": {
+        "why_summary": "Unprofitable but close to break-even (PF 0.93, 32.89% win rate, net -$1,000 across 50 coins and 2387 trades). 85% of all losses hit the stop-loss cleanly (0% near-cost -- the stop level itself is being reached, not a measurement artifact). Wins concentrate in ZECUSDT and JSTUSDT."
+      }
+    }
+  }
+}

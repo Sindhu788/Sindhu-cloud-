@@ -13,6 +13,7 @@ from paper_trading import config as pt_config, insights
 from paper_trading import drawdown_guard, regime, correlation, portfolio, strategy_profile, weekly_report
 from paper_trading import confluence, graveyard, telegram_bot, capital_allocation, ai_trade_review
 from paper_trading import telegram_analytics
+from paper_trading import telegram_delivery
 from paper_trading import signal_tracker
 from paper_trading import pattern_stats
 from paper_trading import challenge_mode
@@ -210,8 +211,132 @@ def update_strategy_config(strategy_id: str, req: StrategyConfigUpdate):
         strategy_id, req.enabled, req.priority, req.supported_coins,
         req.supported_market_types, datetime.now(timezone.utc).isoformat(),
     )
+    action = "activated" if req.enabled else "deactivated (manual override)"
+    _log_and_broadcast(f"[paper-trading] {strategy_id} {action} by a person")
     sync.notify("paper_trading", "updated", "Paper strategy config updated", id=strategy_id)
     return {"ok": True}
+
+
+# --------------------------------------------------- Master Task 2, Part 3
+# Advanced per-strategy controls: manual pause/resume, full stats reset
+# (archived, not deleted), and risk%/max-open-positions overrides.
+
+@router.post("/api/paper-trading/strategy-config/{strategy_id}/pause")
+def pause_strategy_manual(strategy_id: str):
+    """Manual pause -- same underlying flag as Drawdown Protection's
+    automatic pause (storage.is_strategy_paused, checked in
+    engine._open_if_allowed before every new entry), so it stops new
+    entries immediately while leaving existing open positions alone. The
+    reason text is what distinguishes "a person chose this" from an
+    automatic drawdown pause on the dashboard."""
+    storage.set_strategy_paused(strategy_id, True, "Paused manually by a person",
+                                 datetime.now(timezone.utc).isoformat())
+    _log_and_broadcast(f"[paper-trading] {strategy_id} paused manually by a person")
+    sync.notify("paper_trading", "updated", "Strategy paused", id=strategy_id)
+    return {"ok": True}
+
+
+@router.post("/api/paper-trading/strategy-config/{strategy_id}/resume")
+def resume_strategy_manual(strategy_id: str):
+    """Same action as the existing Drawdown Protection "Resume" button
+    (/api/paper-trading/resume/{id}) -- exposed here too so every Advanced
+    Control for a strategy lives under one consistent URL prefix."""
+    drawdown_guard.resume_strategy(strategy_id)
+    _log_and_broadcast(f"[paper-trading] {strategy_id} resumed by a person")
+    sync.notify("paper_trading", "updated", "Strategy resumed", id=strategy_id)
+    return {"ok": True}
+
+
+class RiskOverrideUpdate(BaseModel):
+    risk_pct_override: Optional[float] = None
+    max_open_trades_override: Optional[int] = None
+
+
+@router.post("/api/paper-trading/strategy-config/{strategy_id}/overrides")
+def update_strategy_overrides(strategy_id: str, req: RiskOverrideUpdate):
+    """None clears an override back to "use the global default". Bounded --
+    an override can narrow or widen this one strategy's risk, but never to
+    something unsafe (0%/negative risk, or an effectively unlimited coin
+    cap)."""
+    if req.risk_pct_override is not None and not (0 < req.risk_pct_override <= 10):
+        raise HTTPException(400, "risk_pct_override must be between 0 and 10 (percent)")
+    if req.max_open_trades_override is not None and not (1 <= req.max_open_trades_override <= 20):
+        raise HTTPException(400, "max_open_trades_override must be between 1 and 20")
+    storage.set_strategy_risk_overrides(
+        strategy_id, req.risk_pct_override, req.max_open_trades_override,
+        datetime.now(timezone.utc).isoformat(),
+    )
+    _log_and_broadcast(f"[paper-trading] {strategy_id} risk overrides updated by a person: "
+                        f"risk_pct={req.risk_pct_override}, max_open_trades={req.max_open_trades_override}")
+    sync.notify("paper_trading", "updated", "Strategy risk overrides updated", id=strategy_id)
+    return {"ok": True, **storage.get_paper_strategy_config(strategy_id)}
+
+
+class StrategyResetRequest(BaseModel):
+    confirm: bool = False
+
+
+@router.get("/api/paper-trading/strategy-config/{strategy_id}/reset-stats/preview")
+def preview_strategy_stats_reset(strategy_id: str):
+    settings = pt_config.load()
+    initial_balance = settings.get("initial_balance", 10000.0)
+    summary = storage.get_paper_account_summary(strategy_id)
+    open_count = len(storage.get_open_paper_position_symbols(strategy_id))
+    return {
+        "strategy_id": strategy_id,
+        "current_balance": round(initial_balance + summary["realized_pnl_total"], 2),
+        "current_closed_trades": summary["closed_count"],
+        "current_win_count": summary["win_count"],
+        "open_positions_left_running": open_count,
+    }
+
+
+@router.post("/api/paper-trading/strategy-config/{strategy_id}/reset-stats")
+def reset_strategy_stats(strategy_id: str, req: StrategyResetRequest):
+    """Per-strategy version of /api/paper-trading/reset-balance -- resets
+    THIS strategy's balance AND win/loss counters back to a fresh start,
+    archiving the previous numbers (never deleting them) in
+    paper_strategy_stat_archives. paper_positions (this strategy's real
+    trade-by-trade history) is untouched; only the live aggregate counters
+    reset. Open positions keep running."""
+    if not req.confirm:
+        raise HTTPException(400, "Confirmation required -- pass confirm: true to reset this strategy's stats.")
+    summary = storage.reset_strategy_stats(strategy_id, datetime.now(timezone.utc).isoformat())
+    cache.invalidate("home_account_snapshot")
+    _log_and_broadcast(
+        f"[paper-trading] {strategy_id} stats reset by a person (previous realized PnL "
+        f"{summary['previous_realized_pnl_total']:.2f}, {summary['previous_closed_count']} closed trades archived, "
+        f"{summary['open_positions_left_running']} open position(s) left running untouched)."
+    )
+    sync.notify("paper_trading", "stats_reset", "Strategy stats reset", id=strategy_id)
+    return {"ok": True, **summary}
+
+
+@router.get("/api/paper-trading/strategy-config/{strategy_id}/reset-history")
+def get_strategy_reset_history(strategy_id: str):
+    return {"archives": storage.list_strategy_stat_archives(strategy_id)}
+
+
+# The period vocabulary every period-aware endpoint on this router shares.
+# Order matters -- the dashboard renders its selector straight from this
+# list, so adding a period here is the only change needed to offer it.
+#
+# "7d"/"15d"/"30d" are ROLLING windows (the last N complete days plus
+# today), not calendar buckets: "last 7 days" on a Wednesday means the
+# previous Thursday onward, which is what a person actually means by it.
+# "week"/"month" are the older CALENDAR buckets (this calendar week /
+# this calendar month) and are kept unchanged so existing links,
+# bookmarks, and the Project Status page keep working exactly as before.
+PERIODS = [
+    ("today", "Today"),
+    ("yesterday", "Yesterday"),
+    ("7d", "Last 7 Days"),
+    ("15d", "Last 15 Days"),
+    ("30d", "Last 1 Month"),
+    ("all", "All-Time"),
+]
+
+_ROLLING_DAYS = {"7d": 7, "15d": 15, "30d": 30}
 
 
 def _period_bounds(period):
@@ -225,6 +350,11 @@ def _period_bounds(period):
     if period == "yesterday":
         y_start = today_start - timedelta(days=1)
         return y_start.isoformat(), today_start.isoformat()
+    if period in _ROLLING_DAYS:
+        # N-1 because the window INCLUDES today: "last 7 days" is today
+        # plus the 6 days before it, not today plus 7 more.
+        start = today_start - timedelta(days=_ROLLING_DAYS[period] - 1)
+        return start.isoformat(), None
     if period == "week":
         week_start = today_start - timedelta(days=today_start.weekday())
         return week_start.isoformat(), None
@@ -289,15 +419,109 @@ def _compute_analytics(period):
 
     new_alerts = insights.detect_alerts(strategy_stats, streaks=streaks)  # Group 2 #8/#9
 
+    # Best/worst strategy IN THIS PERIOD -- deliberately restricted to
+    # strategies that actually closed at least one trade inside the window.
+    # strategy_stats also carries strategies with zero closed trades (newly
+    # enabled, or only open positions so far); calling one of those "worst
+    # performing" because its $0.00 sorts below a losing strategy would be
+    # a false statement about a strategy that has not traded yet.
+    traded = [s for s in strategy_stats if s["closed_trades"] > 0]
+    traded_sorted = sorted(traded, key=lambda s: s["total_pnl"], reverse=True)
+
+    def _headline(row):
+        if not row:
+            return None
+        return {
+            "strategy_id": row["strategy_id"],
+            "strategy_name": row["strategy_name"],
+            "total_pnl": round(row["total_pnl"], 2),
+            "closed_trades": row["closed_trades"],
+            "win_rate": row["win_rate"],
+        }
+
+    # Combined current balance across every independent strategy book.
+    # This is a CURRENT figure, not a period one -- a balance is a
+    # point-in-time fact, so it reads the same whichever period is
+    # selected. Labelled that way in the UI rather than left ambiguous.
+    initial = initial_balance
+    current_balance = round(
+        initial * len(account_states) + sum(a["realized_pnl_total"] for a in account_states.values()),
+        2,
+    ) if account_states else 0.0
+
+    # Wins/losses as explicit counts. summary already carries wins; a
+    # "loss" here means a closed trade that finished below breakeven, so
+    # closed - wins would silently fold break-even trades into losses.
+    losses = max(summary["closed_trades"] - summary["win_count"], 0) if "win_count" in summary else None
+
     return {
         "new_alerts": new_alerts,
         "period": period,
         "summary": summary,
         "open_positions_count": len(open_positions),
+        "current_balance": current_balance,
+        "loss_count": losses,
+        "best_strategy": _headline(traded_sorted[0] if traded_sorted else None),
+        "worst_strategy": _headline(traded_sorted[-1] if len(traded_sorted) > 1 else None),
         "best_coin": coin_stats[0] if coin_stats else None,
         "worst_coin": coin_stats[-1] if coin_stats else None,
         "per_coin": coin_stats,
         "per_strategy": strategy_stats,
+    }
+
+
+@router.get("/api/paper-trading/strategy-configs")
+def list_all_strategy_configs():
+    """Every strategy's per-strategy settings in ONE call -- the settings
+    table needs enabled/paused/risk-override/max-open-override for all of
+    them at once, and fetching them one strategy at a time would be ~40
+    round-trips for a single screen (the exact shape of slowness already
+    fixed elsewhere on this page)."""
+    return {"configs": storage.list_paper_strategy_configs()}
+
+
+@router.get("/api/paper-trading/periods")
+def get_periods():
+    """The single source of truth for which time periods the dashboard
+    offers, so the selector and the backend can never drift apart."""
+    return {"periods": [{"id": pid, "label": label} for pid, label in PERIODS]}
+
+
+@router.get("/api/paper-trading/strategy-periods/{strategy_id}")
+def get_strategy_periods(strategy_id: str):
+    """Every time period at once for ONE strategy -- backs the per-strategy
+    drill-down. One request instead of six round-trips, and the numbers are
+    guaranteed to come from the same instant rather than from six separate
+    moments as the user clicks between periods.
+
+    Scoped strictly to this strategy's own independent book: nothing here
+    is blended with, averaged against, or divided by any other strategy."""
+    meta = next((m for m in lib.list_all() if m["id"] == strategy_id), None)
+    config = storage.get_paper_strategy_config(strategy_id)
+    periods = []
+    for pid, label in PERIODS:
+        since_iso, until_iso = _period_bounds(pid)
+        stats = storage.get_paper_strategy_period_stats(strategy_id, since_iso, until_iso)
+        stats["period"] = pid
+        stats["label"] = label
+        periods.append(stats)
+
+    initial_balance = pt_config.load().get("initial_balance", 10000.0)
+    acct = next(
+        (s for s in storage.list_paper_account_states() if s["strategy_id"] == strategy_id),
+        None,
+    )
+    return {
+        "strategy_id": strategy_id,
+        "strategy_name": (meta or {}).get("name") or strategy_id,
+        # A balance is a point-in-time fact, not a period one -- reported
+        # once, outside the period list, so it can never be misread as
+        # "the balance during last week".
+        "current_balance": round(initial_balance + acct["realized_pnl_total"], 2) if acct else initial_balance,
+        "initial_balance": initial_balance,
+        "enabled": bool(config.get("enabled")),
+        "paused": bool(config.get("paused")),
+        "periods": periods,
     }
 
 
@@ -684,7 +908,11 @@ def get_market_regime():
 
     def _compute():
         return regime.classify_all(exchange, symbols)
-    return {"exchange": exchange, "regimes": cache.cached(f"market_regime_{exchange}", 60, _compute)}
+    # Non-blocking: a 50-symbol ATR/MA pass can queue up behind other
+    # concurrent DB work right after a restart (same reasoning as
+    # /api/market, /api/data, and /api/home's disk_usage_bytes fixes).
+    regimes = cache.cached_nonblocking(f"market_regime_{exchange}", 60, _compute, {})
+    return {"exchange": exchange, "regimes": regimes}
 
 
 @router.get("/api/paper-trading/regime/{symbol}")
@@ -849,6 +1077,150 @@ def get_telegram_analytics(period: str = "all"):
     }
 
 
+@router.get("/api/paper-trading/telegram/delivery-log")
+def get_telegram_delivery_log(period: str = "all"):
+    """EVERY signal the system generated in this period with its honest
+    delivery status -- Sent / Withheld / Failed / Queued / Never sent.
+
+    Deliberately different from /telegram/signals above, which only lists
+    signals that were successfully SENT. While api.telegram.org is
+    network-blocked, that endpoint can legitimately show zero rows on a day
+    the system generated dozens of signals. This one always shows the full
+    picture, and never reports a signal as sent unless a real successful
+    send was recorded for it."""
+    since_iso, until_iso = _period_bounds(period)
+    signals = storage.list_generated_signals_with_delivery(since_iso, until_iso)
+    rows = telegram_delivery.delivery_rows(signals)
+    return {
+        "period": period,
+        "summary": telegram_delivery.delivery_summary(rows),
+        "signals": rows,
+    }
+
+
+@router.get("/api/paper-trading/telegram/connection-status")
+def get_telegram_connection_status():
+    """Is Telegram delivery actually working right now, and if not, why.
+
+    Deliberately makes NO network call: it reads the configuration plus
+    what the real send attempts already recorded. A live probe on every
+    page load would add a multi-second stall to a page whose whole point is
+    to remain useful while the network is blocked. The Test Connection
+    button (POST /telegram/test) is the deliberate live check."""
+    settings = telegram_bot.public_settings()
+    recent = storage.list_telegram_messages(limit=40)
+    real = [m for m in recent if m["trigger_type"] in ("manual", "automatic", "daily_report")]
+    last_success = next((m for m in real if m["success"]), None)
+    last_failure = next((m for m in real if not m["success"]), None)
+
+    if not settings["token_configured"] or not settings["channel_id"]:
+        state, reason = "not_configured", "No bot token or channel ID has been saved yet."
+    elif not settings["master_send_enabled"]:
+        state, reason = "turned_off", "Sending is switched off, so nothing is being delivered on purpose."
+    elif last_success and (not last_failure or last_success["sent_at"] > last_failure["sent_at"]):
+        state = "working"
+        # Name WHAT last got through. The most recent success is very often
+        # a scheduled daily report rather than a trade signal, and "delivery
+        # is working" sitting directly above "no signals sent in 4 weeks"
+        # reads as a contradiction unless the difference is spelled out.
+        # Both statements are true; this makes them legible together.
+        kind = ("a scheduled daily report" if last_success["trigger_type"] == "daily_report"
+                else "a trade signal")
+        reason = (f"The connection itself is fine -- {kind} was delivered successfully on "
+                  f"{last_success['sent_at'][:16].replace('T', ' ')}. That does not mean any trade "
+                  f"signals have gone out recently; the signal log below is what says that.")
+    elif last_failure:
+        status_id = telegram_delivery.classify_attempt(last_failure)
+        if status_id == "blocked_network":
+            state = "blocked"
+            reason = ("The request never reached Telegram -- the connection itself failed. "
+                      "api.telegram.org is blocked at network level in this region. "
+                      "A working proxy, or running this on a cloud server, resolves it.")
+        else:
+            state = "failing"
+            reason = last_failure.get("error") or "Last send attempt failed."
+    else:
+        state, reason = "unknown", "No real send has been attempted yet, so there is nothing to judge from."
+
+    return {
+        "state": state,
+        "reason": reason,
+        "can_deliver": state == "working",
+        "settings": settings,
+        "last_success_at": (last_success or {}).get("sent_at"),
+        "last_failure_at": (last_failure or {}).get("sent_at"),
+        "last_failure_reason": (last_failure or {}).get("error"),
+        "proxy_enabled": settings["proxy_enabled"],
+        "proxy_configured": settings["proxy_configured"],
+    }
+
+
+@router.get("/api/paper-trading/telegram/preview/{position_id}")
+def get_telegram_message_preview(position_id: str):
+    """The exact message text that WOULD be sent for this signal, built by
+    the same telegram_bot.format_signal_message() a real send uses -- so
+    formatting can be verified now, long before delivery ever works.
+
+    Builds the text only; it never sends and never writes to the message
+    log. live_price is passed explicitly as None so this makes no live
+    exchange call: a preview that stalls on a network fetch would defeat
+    the purpose on a page built for a blocked network. The message
+    therefore shows every field except the live "current price" line,
+    which only a real send can fill in."""
+    pos = storage.get_paper_position(position_id)
+    if not pos:
+        raise HTTPException(404, "signal not found")
+    # Cached per signal: scoring confluence reads live market data, which
+    # takes a couple of seconds on its own and considerably longer while
+    # an engine tick is holding the storage lock -- long enough to blow
+    # past the browser's request timeout, which is exactly how this first
+    # showed up. A signal's message text barely changes minute to minute,
+    # so a 5-minute TTL removes the stall on every reopen without making
+    # the preview stale in any way that matters.
+    return cache.cached(f"telegram_preview_{position_id}", 300, lambda: _build_telegram_preview(position_id, pos))
+
+
+def _build_telegram_preview(position_id, pos):
+    exchanges_cfg = base_config.load_or_seed("exchanges.json", base_config.DEFAULTS["exchanges.json"])
+    try:
+        conf = confluence.score_confluence(
+            pos.get("strategy_id"), pos["symbol"], exchanges_cfg["default"],
+            pos.get("market_state"), pos.get("session"), pos["direction"],
+        )
+    except Exception:
+        conf = None
+    try:
+        reliability = telegram_bot._pattern_reliability_for(
+            pos.get("strategy_id"), pos["symbol"], pos.get("market_state"), pos.get("session"),
+        )
+    except Exception:
+        reliability = None
+    explanation = signal_explainer.explain_signal(conf, reliability)
+    grade = signal_explainer.grade_signal(conf, reliability)
+    text = telegram_bot.format_signal_message(
+        pos, conf, reliability, high_confidence=False, live_price=None,
+        explanation_text=explanation, grade_result=grade,
+    )
+    # What the freshness gate would say about this signal RIGHT NOW, using
+    # age only (the price-drift half needs a live price fetch, which this
+    # endpoint deliberately avoids) -- so the preview can be honest about
+    # whether this message would actually go out if sending worked.
+    age_minutes = telegram_bot.signal_age_minutes(pos)
+    stale = telegram_bot.is_signal_stale(pos)
+    return {
+        "position_id": position_id,
+        "message_text": text,
+        "quality_grade": grade.get("grade"),
+        "grade_reason": grade.get("reason"),
+        "symbol": pos.get("symbol"),
+        "direction": pos.get("direction"),
+        "strategy_name": pos.get("strategy_name"),
+        "age_minutes": round(age_minutes, 1) if age_minutes is not None else None,
+        "would_be_withheld_as_stale": bool(stale),
+        "freshness_limit_minutes": telegram_bot.load_settings().get("signal_freshness_minutes"),
+    }
+
+
 @router.get("/api/paper-trading/signal-tracker/feed")
 def get_live_signal_feed(limit: int = 50):
     """Batch 6, Task 5: Live Signal Tracker -- every real Telegram signal
@@ -871,6 +1243,22 @@ class ChallengeRequest(BaseModel):
     target_amount: float
     days: int
     telegram_report_enabled: bool = False
+    # Level 3 -- one-click start from a recommended path. Both or neither;
+    # when both are given the challenge tracks that ONE real strategy-coin
+    # combination's own trades instead of the system-wide blend. This is a
+    # TRACKING scope choice only -- it can never alter risk_pct, position
+    # sizing, or any trading behavior (see paper_trading.challenge_mode
+    # and challenge_analysis module docstrings).
+    scope_strategy_id: str | None = None
+    scope_symbol: str | None = None
+
+
+class ChallengeWhatIfRequest(BaseModel):
+    start_amount: float
+    target_amount: float
+    days: int
+    restrict_symbols: list[str] | None = None
+    restrict_strategy_ids: list[str] | None = None
 
 
 @router.get("/api/paper-trading/challenge")
@@ -888,11 +1276,16 @@ def get_challenge():
 @router.post("/api/paper-trading/challenge")
 def set_challenge(req: ChallengeRequest):
     """Every number here is chosen by the CEO themselves -- nothing
-    hardcoded server-side."""
+    hardcoded server-side. This endpoint is a TRACKING/ANALYSIS action
+    only: it writes exclusively to challenge_settings.json and never
+    touches paper_trading/config.json (risk_pct_default, position sizing,
+    max_open_trades, etc.) or any other trading-behavior setting -- see
+    paper_trading.challenge_mode.set_challenge()."""
     try:
         challenge_mode.set_challenge(
             req.start_amount, req.target_amount, req.days,
             telegram_report_enabled=req.telegram_report_enabled,
+            scope_strategy_id=req.scope_strategy_id, scope_symbol=req.scope_symbol,
         )
     except ValueError as e:
         raise HTTPException(400, str(e))
@@ -903,6 +1296,28 @@ def set_challenge(req: ChallengeRequest):
 def clear_challenge():
     challenge_mode.clear_challenge()
     return {"ok": True}
+
+
+@router.get("/api/paper-trading/challenge/breakdown")
+def get_challenge_breakdown():
+    """Level 1: real per-strategy, per-coin, and per-strategy-coin
+    performance breakdown -- read-only, computed entirely from stored
+    closed trades."""
+    from paper_trading import challenge_analysis
+    return challenge_analysis.granular_breakdown()
+
+
+@router.post("/api/paper-trading/challenge/recommend")
+def post_challenge_recommend(req: ChallengeWhatIfRequest):
+    """Level 2 (and the Level 3 What-If explorer, via the optional
+    restrict_* filters): honest, confidence-graded, consistency-checked
+    recommended paths toward a target -- always recomputed fresh from
+    real historical data, never cached or extrapolated."""
+    from paper_trading import challenge_analysis
+    return challenge_analysis.recommend_paths(
+        req.start_amount, req.target_amount, req.days,
+        restrict_symbols=req.restrict_symbols, restrict_strategy_ids=req.restrict_strategy_ids,
+    )
 
 
 @router.get("/api/paper-trading/confluence/{position_id}")

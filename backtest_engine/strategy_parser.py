@@ -151,6 +151,19 @@ _INDICATOR_WITH_PERIOD_RE = re.compile(
 _INDICATOR_COMPARE_RE = re.compile(
     r"\b(rsi|atr)\b.{0,15}?(<=|>=|<|>|below|neeche|above|upar)\s*(\d+(?:\.\d+)?)", re.IGNORECASE
 )
+# Item 9 (Mixed-Language & Slang Robustness): Roman Urdu is SOV word order,
+# so a threshold is very commonly written NUMBER-then-comparison-word
+# ("RSI 30 se neeche" = literally "RSI 30 from below" = "RSI below 30")
+# instead of English's comparison-word-then-number order that
+# _INDICATOR_COMPARE_RE above expects. Found live: "RSI 30 se neeche jaye
+# to buy karo" previously fell all the way through to a bare bullish/
+# bearish "concept" match on "buy" and lost the actual RSI<30 threshold
+# entirely. The optional "se" ("from"/"than") is Urdu's comparison
+# postposition, matched but not required (a bare "RSI 30 neeche" is also
+# understood).
+_INDICATOR_COMPARE_REVERSED_RE = re.compile(
+    r"\b(rsi|atr)\b.{0,10}?(\d+(?:\.\d+)?)\s*(?:se\s+)?(below|neeche|above|upar)\b", re.IGNORECASE
+)
 _PRICE_VS_INDICATOR_RE = re.compile(
     r"\b(close|price)\b.{0,15}?(above|below|upar|neeche|>|<)\s*(ema|sma|vwap|pdh|pdl)\D{0,3}(\d{1,4})?", re.IGNORECASE
 )
@@ -613,6 +626,16 @@ def _parse_conditions_from_line(line, timeframes=None):
                 op = {"below": "<", "neeche": "<", "above": ">", "upar": ">"}.get(op_word, op_word)
                 conditions.append(Condition(
                     type="indicator_compare", indicator=m.group(1), op=op, value=float(m.group(3)),
+                ))
+                matched = True
+
+        if not matched:
+            m = _INDICATOR_COMPARE_REVERSED_RE.search(seg_lower)
+            if m:
+                op_word = m.group(3)
+                op = {"below": "<", "neeche": "<", "above": ">", "upar": ">"}.get(op_word, op_word)
+                conditions.append(Condition(
+                    type="indicator_compare", indicator=m.group(1), op=op, value=float(m.group(2)),
                 ))
                 matched = True
 

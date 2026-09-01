@@ -153,6 +153,18 @@ def build_condition(cond_dict):
             return Condition(type="raw", text=_describe_raw(cond_dict))
         return Condition(type="candle_range_pct", params={"min_pct": min_pct, "max_pct": max_pct}, role=cond_dict.get("role"))
 
+    if cond_type == "candle_body_pct":
+        # Two-Focused-Day Push, Part 1/2 -- unlike candle_range_pct above,
+        # this is KEPT as a real candle_body_pct condition even when
+        # min_pct is None (never demoted to a generic, indistinguishable
+        # "raw" statement) -- the whole point is that Clarification Center
+        # can recognize "a real candle-quality rule exists, only its exact
+        # threshold is unspecified" and offer the multiple-choice
+        # threshold options (Part 2), rather than losing the fact that a
+        # rule was here at all.
+        params = cond_dict.get("params") or {}
+        return Condition(type="candle_body_pct", params={"min_pct": params.get("min_pct")}, role=cond_dict.get("role"))
+
     return Condition(type="raw", text=_describe_raw(cond_dict))
 
 
@@ -160,11 +172,22 @@ def build_stop_loss_take_profit(sltp_dict):
     """sltp_dict: already type-sanitized by schema._clean_sltp (a real
     SLTPSpec-compatible dict). type="rr" without a value, or type="level"
     without a level, are semantically incomplete -- demoted to "unknown"
-    rather than trusted half-built, same conservatism as the old validator."""
+    rather than trusted half-built, same conservatism as the old validator.
+
+    type="signal_candle" without a value is the ONE exception (Two-
+    Focused-Day Push, Part 1/2): unlike fixed_pct/atr_multiple/rr, the
+    STRUCTURE here (anchored to the entry's own trigger candle) is
+    already completely unambiguous even with no buffer number given --
+    demoting it to "unknown" would lose that fact entirely and fall back
+    to the generic "Missing stop loss" question, which asks the user to
+    pick a whole new SL mechanism instead of just the missing buffer %.
+    Kept as signal_candle/value=None so Clarification Center can ask the
+    real, narrower question (see clarification.py's
+    _find_unspecified_stop_loss_buffer_issue)."""
     sltp_type = sltp_dict.get("type", "unknown")
     value = sltp_dict.get("value")
     level = sltp_dict.get("level")
-    if sltp_type in ("fixed_pct", "atr_multiple", "rr", "signal_candle") and value is None:
+    if sltp_type in ("fixed_pct", "atr_multiple", "rr") and value is None:
         return SLTPSpec(type="unknown")
     if sltp_type == "level" and not level:
         return SLTPSpec(type="unknown")

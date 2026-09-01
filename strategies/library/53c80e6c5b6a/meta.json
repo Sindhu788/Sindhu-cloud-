@@ -1,0 +1,18 @@
+{
+  "id": "53c80e6c5b6a",
+  "name": "4H Fractal Sweep Reversal [Manual Build]",
+  "tags": [
+    "concept_based_strategy",
+    "manual_build",
+    "fractal_sweep_reversal",
+    "5m",
+    "4h"
+  ],
+  "favourite": false,
+  "archived": false,
+  "created_at": "2026-08-28T06:09:12.726022+00:00",
+  "updated_at": "2026-08-28T06:09:12.726022+00:00",
+  "current_version": 1,
+  "safety_status": "ready",
+  "safety_reasons": []
+}

@@ -1,0 +1,92 @@
+{
+  "name": "Range Breakout Volume Confirmation -- Strict Variant [Manual Build]",
+  "raw_text": "Range Breakout Volume Confirmation (generic, non-proprietary equivalent -- no branded indicator reproduced). Bias TF: 1H (no explicit mechanical gate given by the source; used for structural support/resistance TP/SL context only -- flagged own decision). Entry TF: 15m. Range = trailing 25-candle high/low band. Breakout = a CLOSE beyond the band (not a wick). Volume filter (HARD): breakout candle must show a clear (1.8x, own default) volume spike vs its trailing 20-bar average -- no spike = fakeout = no trade. Candle-size check: ATR-multiple (1.5x ATR14, own default) classifies the breakout candle as standard (enter next candle) or very large (wait for a retest of the broken level, abandoned if price closes back through the OPPOSITE side of the original range). Stop-loss: the breakout/breakdown candle's own opposite extreme (falls back to recent swing-low/high), 0.65% buffer (cost_model-verified safe). Take-profit: structure-based (nearest swing/1H level). No session restriction, 24/7. Risk 1% default.",
+  "timeframes": {
+    "bias": "1h",
+    "entry": "15m"
+  },
+  "indicators": [],
+  "concepts_used": [
+    "range_breakout_volume_confirm",
+    "support",
+    "resistance"
+  ],
+  "entry_conditions": [],
+  "exit_conditions": [],
+  "confirmation_conditions": [],
+  "long_entry_conditions": [
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "range_breakout_volume_confirm",
+      "direction": "bullish",
+      "text": null,
+      "role": null,
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": null
+    }
+  ],
+  "short_entry_conditions": [
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "range_breakout_volume_confirm",
+      "direction": "bearish",
+      "text": null,
+      "role": null,
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": null
+    }
+  ],
+  "entry_rule_groups": [],
+  "stop_loss": {
+    "type": "structure",
+    "value": 0.65,
+    "level": null,
+    "atr_period": null
+  },
+  "take_profit": {
+    "type": "structure",
+    "value": null,
+    "level": null,
+    "atr_period": null
+  },
+  "risk_pct": 1.0,
+  "risk_reward": null,
+  "sl_distance_filter_pct": null,
+  "min_risk_reward_filter": 2.0,
+  "primary_target_lookback_bars": null,
+  "risk_reward_filter_uses_take_profit": true,
+  "zone_params": {},
+  "session_filter": [],
+  "trend_filter": null,
+  "day_filter": [],
+  "breakeven_at_rr": null,
+  "entry_type": "market",
+  "long_entry_type": null,
+  "short_entry_type": null,
+  "entry_price_offset_pct": null,
+  "partial_take_profit": null,
+  "trailing_stop": null,
+  "time_exit_bars": null,
+  "tags": [],
+  "favourite": false,
+  "claimed_win_rate_pct": null,
+  "claimed_win_rate_source_text": null,
+  "missing": [],
+  "warnings": []
+}

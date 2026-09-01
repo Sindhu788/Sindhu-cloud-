@@ -1,0 +1,312 @@
+{
+  "name": "9-20 EMA SMC Hybrid -- Fixed 1:2 TP variant [Manual Build]",
+  "raw_text": "9-20 EMA + Smart Money Concepts Hybrid -- see conversation source document.",
+  "timeframes": {
+    "bias": "1h",
+    "entry": "15m"
+  },
+  "indicators": [
+    {
+      "name": "ema",
+      "params": {
+        "period": 9
+      },
+      "role": "entry"
+    },
+    {
+      "name": "ema",
+      "params": {
+        "period": 20
+      },
+      "role": "entry"
+    }
+  ],
+  "concepts_used": [
+    "choch",
+    "bos",
+    "volume",
+    "support",
+    "resistance"
+  ],
+  "entry_conditions": [],
+  "exit_conditions": [],
+  "confirmation_conditions": [],
+  "long_entry_conditions": [],
+  "short_entry_conditions": [],
+  "entry_rule_groups": [
+    {
+      "label": "long",
+      "direction": "bullish",
+      "conditions": [
+        {
+          "type": "concept",
+          "indicator": null,
+          "params": {},
+          "op": null,
+          "value": null,
+          "name": "choch",
+          "direction": "bullish",
+          "text": null,
+          "role": "bias",
+          "lookback_bars": null,
+          "indicator2": null,
+          "params2": {},
+          "manual_review": false,
+          "raw_source": null,
+          "exit_direction": null
+        },
+        {
+          "type": "concept",
+          "indicator": null,
+          "params": {},
+          "op": null,
+          "value": null,
+          "name": "bos",
+          "direction": "bullish",
+          "text": null,
+          "role": "bias",
+          "lookback_bars": null,
+          "indicator2": null,
+          "params2": {},
+          "manual_review": false,
+          "raw_source": null,
+          "exit_direction": null
+        },
+        {
+          "type": "indicator_vs_indicator",
+          "indicator": "ema",
+          "params": {
+            "period": 9
+          },
+          "op": ">",
+          "value": null,
+          "name": null,
+          "direction": null,
+          "text": null,
+          "role": "entry",
+          "lookback_bars": null,
+          "indicator2": "ema",
+          "params2": {
+            "period": 20
+          },
+          "manual_review": false,
+          "raw_source": null,
+          "exit_direction": null
+        },
+        {
+          "type": "concept",
+          "indicator": null,
+          "params": {},
+          "op": null,
+          "value": null,
+          "name": "volume",
+          "direction": null,
+          "text": null,
+          "role": "entry",
+          "lookback_bars": null,
+          "indicator2": null,
+          "params2": {},
+          "manual_review": false,
+          "raw_source": null,
+          "exit_direction": null
+        },
+        {
+          "type": "price_compare",
+          "indicator": "ema",
+          "params": {
+            "period": 9
+          },
+          "op": "<",
+          "value": null,
+          "name": null,
+          "direction": null,
+          "text": null,
+          "role": "entry",
+          "lookback_bars": null,
+          "indicator2": null,
+          "params2": {},
+          "manual_review": false,
+          "raw_source": null,
+          "exit_direction": null
+        },
+        {
+          "type": "price_compare",
+          "indicator": "ema",
+          "params": {
+            "period": 20
+          },
+          "op": ">",
+          "value": null,
+          "name": null,
+          "direction": null,
+          "text": null,
+          "role": "entry",
+          "lookback_bars": null,
+          "indicator2": null,
+          "params2": {},
+          "manual_review": false,
+          "raw_source": null,
+          "exit_direction": null
+        }
+      ]
+    },
+    {
+      "label": "short",
+      "direction": "bearish",
+      "conditions": [
+        {
+          "type": "concept",
+          "indicator": null,
+          "params": {},
+          "op": null,
+          "value": null,
+          "name": "choch",
+          "direction": "bearish",
+          "text": null,
+          "role": "bias",
+          "lookback_bars": null,
+          "indicator2": null,
+          "params2": {},
+          "manual_review": false,
+          "raw_source": null,
+          "exit_direction": null
+        },
+        {
+          "type": "concept",
+          "indicator": null,
+          "params": {},
+          "op": null,
+          "value": null,
+          "name": "bos",
+          "direction": "bearish",
+          "text": null,
+          "role": "bias",
+          "lookback_bars": null,
+          "indicator2": null,
+          "params2": {},
+          "manual_review": false,
+          "raw_source": null,
+          "exit_direction": null
+        },
+        {
+          "type": "indicator_vs_indicator",
+          "indicator": "ema",
+          "params": {
+            "period": 9
+          },
+          "op": "<",
+          "value": null,
+          "name": null,
+          "direction": null,
+          "text": null,
+          "role": "entry",
+          "lookback_bars": null,
+          "indicator2": "ema",
+          "params2": {
+            "period": 20
+          },
+          "manual_review": false,
+          "raw_source": null,
+          "exit_direction": null
+        },
+        {
+          "type": "concept",
+          "indicator": null,
+          "params": {},
+          "op": null,
+          "value": null,
+          "name": "volume",
+          "direction": null,
+          "text": null,
+          "role": "entry",
+          "lookback_bars": null,
+          "indicator2": null,
+          "params2": {},
+          "manual_review": false,
+          "raw_source": null,
+          "exit_direction": null
+        },
+        {
+          "type": "price_compare",
+          "indicator": "ema",
+          "params": {
+            "period": 9
+          },
+          "op": ">",
+          "value": null,
+          "name": null,
+          "direction": null,
+          "text": null,
+          "role": "entry",
+          "lookback_bars": null,
+          "indicator2": null,
+          "params2": {},
+          "manual_review": false,
+          "raw_source": null,
+          "exit_direction": null
+        },
+        {
+          "type": "price_compare",
+          "indicator": "ema",
+          "params": {
+            "period": 20
+          },
+          "op": "<",
+          "value": null,
+          "name": null,
+          "direction": null,
+          "text": null,
+          "role": "entry",
+          "lookback_bars": null,
+          "indicator2": null,
+          "params2": {},
+          "manual_review": false,
+          "raw_source": null,
+          "exit_direction": null
+        }
+      ]
+    }
+  ],
+  "stop_loss": {
+    "type": "signal_candle",
+    "value": 1.0,
+    "level": null,
+    "atr_period": null
+  },
+  "take_profit": {
+    "type": "rr",
+    "value": 2.0,
+    "level": null,
+    "atr_period": null
+  },
+  "risk_pct": 1.0,
+  "risk_reward": null,
+  "sl_distance_filter_pct": null,
+  "min_risk_reward_filter": 1.5,
+  "primary_target_lookback_bars": null,
+  "risk_reward_filter_uses_take_profit": true,
+  "zone_params": {},
+  "session_filter": [],
+  "trend_filter": null,
+  "day_filter": [],
+  "breakeven_at_rr": null,
+  "entry_type": "market",
+  "long_entry_type": null,
+  "short_entry_type": null,
+  "entry_price_offset_pct": null,
+  "partial_take_profit": null,
+  "trailing_stop": null,
+  "time_exit_bars": null,
+  "tags": [
+    "concept_based_strategy",
+    "manual_build",
+    "smc_hybrid",
+    "15m",
+    "1h"
+  ],
+  "favourite": false,
+  "claimed_win_rate_pct": null,
+  "claimed_win_rate_source_text": null,
+  "missing": [],
+  "warnings": []
+}

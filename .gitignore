@@ -29,3 +29,9 @@ node_modules/
 .DS_Store
 Thumbs.db
 *.swp
+
+# Stray root-level debug/server log files from ad-hoc local runs (the
+# app's own real logs already live under data/logs/, already ignored
+# above via data/) -- these accumulate at the repo root during manual
+# debugging and are never meant to be committed.
+*.log

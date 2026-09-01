@@ -1,0 +1,18 @@
+{
+  "id": "bddde91aee6d",
+  "name": "Liquidity Sweep Multi-Confirmation [Manual Build]",
+  "tags": [
+    "concept_based_strategy",
+    "manual_build",
+    "liquidity_sweep_multi_confirm",
+    "5m",
+    "4h"
+  ],
+  "favourite": false,
+  "archived": false,
+  "created_at": "2026-08-28T19:16:57.234519+00:00",
+  "updated_at": "2026-08-28T19:16:57.234519+00:00",
+  "current_version": 1,
+  "safety_status": "ready",
+  "safety_reasons": []
+}

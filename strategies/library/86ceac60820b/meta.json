@@ -1,0 +1,30 @@
+{
+  "id": "86ceac60820b",
+  "name": "9-20 EMA SMC Hybrid [Manual Build]",
+  "tags": [
+    "concept_based_strategy",
+    "manual_build",
+    "smc_hybrid",
+    "15m",
+    "1h"
+  ],
+  "favourite": false,
+  "archived": false,
+  "created_at": "2026-08-24T17:03:48.514262+00:00",
+  "updated_at": "2026-08-25T01:04:28.820778+00:00",
+  "current_version": 3,
+  "safety_status": "ready",
+  "safety_reasons": [],
+  "version_log": [
+    {
+      "version": 2,
+      "reason": "Fix: concepts_used was missing 'support'/'resistance', so the 'structure' take_profit's candidate chain never had a real opposing zone to use -- take_profit was None on 100% of trades in the first smoke test. Added both.",
+      "at": "2026-08-24T17:06:13.698520+00:00"
+    },
+    {
+      "version": 3,
+      "reason": "Optimizer Part 1: add min_risk_reward_filter=1.5 (uses take_profit) -- realized RR (~0.3-0.5) was far below breakeven given the 49% win rate; structure TP was often too close relative to the fixed SL",
+      "at": "2026-08-25T01:04:28.820778+00:00"
+    }
+  ]
+}

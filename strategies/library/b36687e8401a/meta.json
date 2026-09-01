@@ -1,0 +1,25 @@
+{
+  "id": "b36687e8401a",
+  "name": "Daily Liquidity Scalping Strategy [Manual Build]",
+  "tags": [
+    "daily_liquidity_scalping",
+    "manual_build",
+    "1m",
+    "1d",
+    "rebuild"
+  ],
+  "favourite": false,
+  "archived": false,
+  "created_at": "2026-08-23T10:05:15.998917+00:00",
+  "updated_at": "2026-08-25T00:42:22.323905+00:00",
+  "current_version": 2,
+  "safety_status": "ready",
+  "safety_reasons": [],
+  "version_log": [
+    {
+      "version": 2,
+      "reason": "Optimizer Part 1: widen signal_candle SL buffer 1.0% -> 1.5% (cost_model verified safe) -- 1m scalping realized RR (~0.8) far below 3.0 TP target",
+      "at": "2026-08-25T00:42:22.323905+00:00"
+    }
+  ]
+}

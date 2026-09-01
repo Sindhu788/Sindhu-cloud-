@@ -362,6 +362,19 @@ def list_ai_dictionary():
     return {"entries": storage.list_ai_dictionary_entries()}
 
 
+def _learned_correction_pattern_count():
+    """Item 10 (User Correction Learning): how many of the eligible
+    missing-field questions (entry_timeframe, risk_pct, risk_reward) have
+    reached an unambiguous, auto-applied pattern -- surfaced on the CEO
+    Control Room's AI Center card, same as every other feature added this
+    round."""
+    from ai_integration import correction_learning
+    return sum(
+        1 for field in correction_learning.ELIGIBLE_FIELDS
+        if correction_learning.learned_suggestion(field)
+    )
+
+
 @router.get("/api/ai/dashboard")
 def get_ai_dashboard():
     """CEO Dashboard stats: what the whole Knowledge Import Center has
@@ -387,6 +400,7 @@ def get_ai_dashboard():
         "completed_imports": queue_stats["completed"],
         "total_ai_calls": sum(u["total_calls"] for u in usage),
         "total_hidden_rules_detected": total_hidden_rules,
+        "learned_correction_patterns": _learned_correction_pattern_count(),
         "youtube_import_available": youtube_import.transcript_api_available(),
         "provider_status": [
             {"provider": p["name"], "enabled": p["enabled"], "status": p["last_test_status"]}

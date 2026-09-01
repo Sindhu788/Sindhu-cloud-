@@ -1,0 +1,17 @@
+{
+  "id": "ff5eee6d928e",
+  "name": "Liquidity Sweep Multi-Confirmation [Medium Variant]",
+  "tags": [
+    "confirmation_optimizer_variant",
+    "level:medium",
+    "source:bddde91aee6d",
+    "additions:sl_distance"
+  ],
+  "favourite": false,
+  "archived": true,
+  "created_at": "2026-08-28T19:25:05.411690+00:00",
+  "updated_at": "2026-08-28T19:25:05.451463+00:00",
+  "current_version": 1,
+  "safety_status": "ready",
+  "safety_reasons": []
+}
