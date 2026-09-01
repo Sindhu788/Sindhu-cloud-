@@ -26,7 +26,14 @@ _EXEMPT_PATHS = {"/", "/api/token"}
 # "/" is deliberately NOT here: index() in server.py decides whether "/"
 # serves the dashboard or redirects to /login based on session state, so
 # the dashboard's own HTML is never handed out to a logged-out request.
-_LOGIN_EXEMPT_PATHS = {"/login", "/api/auth/status", "/api/auth/setup", "/api/auth/login"}
+#
+# "/health" (lightweight cloud runner only -- see cloud_runtime/app.py) is
+# here so an external uptime pinger (e.g. cron-job.org, hitting it every
+# few minutes to stop a free-tier host from sleeping the app after 15
+# minutes of inactivity) never needs credentials. It reveals nothing
+# beyond "the process is up" -- no trading data, no settings, not even
+# whether an account has been configured yet.
+_LOGIN_EXEMPT_PATHS = {"/login", "/api/auth/status", "/api/auth/setup", "/api/auth/login", "/health"}
 
 # A valid session cookie is a stronger signal than the X-Sindhu-Token
 # header below (which exists to distinguish a real browser request from a

@@ -1,0 +1,40 @@
+# Render Blueprint config for the lightweight cloud runner
+# (cloud_runtime/app.py). Render does not read Procfile or nixpacks.toml
+# (those are Railway/Heroku conventions) -- this file is Render's own
+# equivalent, used automatically when the service is created via
+# "New +" -> "Blueprint" pointing at this repo.
+#
+# If the service was instead created as a plain "Web Service" (manually
+# picking build/start commands in the dashboard rather than a Blueprint),
+# this file has no effect on it -- update the same two commands directly
+# under that service's Settings tab instead. See RENDER_DEPLOY.md.
+services:
+  - type: web
+    name: sindhu-cloud
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements-cloud.txt
+    # `python -m uvicorn`, NOT bare `uvicorn` -- the bare console-script
+    # entry point does not add the working directory to sys.path, so
+    # `import data_engine`/`import cloud_runtime` fails with
+    # ModuleNotFoundError. `python -m` does add it. Confirmed by
+    # reproducing the exact failure locally before this fix.
+    startCommand: python -m uvicorn cloud_runtime.app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      # Non-secret behavior flags -- safe to commit, so a fresh Blueprint
+      # deploy needs one fewer manual step.
+      - key: SINDHU_CLOUD_MODE
+        value: "1"
+      - key: SINDHU_LIVE_CANDLES
+        value: "1"
+      # Secrets -- `sync: false` means Render will prompt for these once
+      # in the dashboard and never expects (or accepts) a value here.
+      - key: DATABASE_URL
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHANNEL_ID
+        sync: false

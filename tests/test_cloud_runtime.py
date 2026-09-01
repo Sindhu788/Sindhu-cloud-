@@ -129,6 +129,21 @@ def test_get_home_stub_returns_a_minimal_shape(cloud_app):
     assert body == {"version": cloud_app.APP_VERSION, "system_health": "OK"}
 
 
+def test_health_endpoint_exists_and_is_trivial(cloud_app):
+    """The uptime-pinger endpoint (cron-job.org et al.) must do nothing
+    but return a fixed literal -- no database read, no exchange call."""
+    route = next(r for r in cloud_app.app.routes if getattr(r, "path", None) == "/health")
+    assert route.endpoint() == {"status": "ok"}
+
+
+def test_health_endpoint_is_exempt_from_the_login_gate():
+    """An external pinger has no session cookie and must not be asked for
+    one -- otherwise the very thing meant to keep the free tier awake
+    would itself get a 401 every time."""
+    from sindhu_web.security import _LOGIN_EXEMPT_PATHS
+    assert "/health" in _LOGIN_EXEMPT_PATHS
+
+
 def test_index_html_response_defaults_to_paper_trading_not_home(cloud_app, tmp_path, monkeypatch):
     """A logged-in visitor with no hash in the URL must land on Paper
     Trading, not app.js's own default of #home (which calls endpoints

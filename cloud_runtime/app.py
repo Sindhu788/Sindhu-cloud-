@@ -167,6 +167,19 @@ def create_app():
     def get_home_stub():
         return {"version": APP_VERSION, "system_health": "OK"}
 
+    @app.get("/health")
+    def health_check():
+        """For an external uptime pinger (e.g. cron-job.org) to keep a
+        free-tier host from sleeping the app after ~15 minutes idle.
+        Exempt from the login gate (see sindhu_web/security.py's
+        _LOGIN_EXEMPT_PATHS) so the pinger needs no credentials.
+        Deliberately does nothing but return a fixed literal: no database
+        read, no exchange call, no imports beyond what this file already
+        has -- the whole point is a near-zero-cost request an external
+        service can hit every few minutes without it ever being "heavy
+        work" in the sense the CEO asked to avoid."""
+        return {"status": "ok"}
+
     app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 
     @app.get("/login")
