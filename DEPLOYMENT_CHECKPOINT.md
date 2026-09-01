@@ -303,8 +303,40 @@ DONE. Never restart from the beginning.
       tests/test_paper_trading_coin_universe_default.py (1 test) --
       asserts the two defaults (coin_filter_top_n, NUM_COINS) agree at 50,
       so they can never silently drift apart again.
+- [x] 8  DONE -- first real deploy attempt (on Render, which the CEO
+      switched to) crashed: `ModuleNotFoundError: No module named
+      'data_engine'` at cloud_runtime/app.py's own import line.
+      ROOT CAUSE (reproduced locally before fixing, not guessed): the
+      Procfile invoked the bare `uvicorn` console-script entry point.
+      That entry point does NOT add the current working directory to
+      sys.path -- only `python -m uvicorn` does. Every one of this
+      project's own manual verification runs (Step 2g) used `python -m
+      uvicorn` directly, so this gap was never exercised until a real
+      PaaS executed the Procfile's exact bare form.
+      FIX: Procfile now reads `python -m uvicorn cloud_runtime.app:app
+      --host 0.0.0.0 --port $PORT`. Verified the fix for real: bare
+      `uvicorn` reproduced the crash in a subprocess; `python -m uvicorn`
+      immediately served a real HTTP 200 from a fresh instance.
+      Added render.yaml (Render does not read Procfile or nixpacks.toml
+      at all -- those are Railway/Heroku conventions) with the corrected
+      command baked in, and RENDER_DEPLOY.md covering the Render-
+      specific dashboard fields (Build Command, Start Command, Health
+      Check Path) for a service that was already created manually
+      rather than via Blueprint.
+      Also added, per the CEO's request: GET /health on cloud_runtime/
+      app.py -- returns a fixed `{"status": "ok"}` literal, no database
+      read, no exchange call, exempted from the login gate (sindhu_web/
+      security.py's _LOGIN_EXEMPT_PATHS) so an external pinger (cron-
+      job.org) needs no credentials to keep a free-tier host awake.
+      New tests: tests/test_procfile_uses_module_invocation.py (2 --
+      pins the `python -m uvicorn` form in both Procfile and render.yaml
+      so this exact bug can never silently regress) + 2 more in
+      tests/test_cloud_runtime.py for /health's shape and its login
+      exemption. Full suite re-run: 967 passed, 0 failed.
+      Pushed to GitHub (https://github.com/Sindhu788/Sindhu-cloud-) as
+      commit 5f9a8cb.
 
 ## STATUS: COMPLETE
-Full suite: 962 passed, 0 failed. Committed locally as 461b988. Pushing
-to GitHub and the Railway UI setup are the CEO's own steps -- see
+Full suite: 967 passed, 0 failed. Pushed to GitHub as commit 5f9a8cb.
+Railway UI setup (or Render, per Step 8) is the CEO's own steps -- see
 RAILWAY_DEPLOY.md.
