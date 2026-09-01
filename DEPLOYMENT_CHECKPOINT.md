@@ -335,8 +335,42 @@ DONE. Never restart from the beginning.
       exemption. Full suite re-run: 967 passed, 0 failed.
       Pushed to GitHub (https://github.com/Sindhu788/Sindhu-cloud-) as
       commit 5f9a8cb.
+- [x] 9  DONE -- deploy succeeded on Render, but every request returned
+      `{"detail":"access restricted to the local network"}` even with
+      SINDHU_CLOUD_MODE set on the host.
+      ROOT CAUSE: `sindhu_web/security.py` read the flag with a strict
+      `os.environ.get(...) == "1"` comparison -- any real-world way of
+      typing a boolean into a PaaS dashboard OTHER than the exact literal
+      "1" (e.g. `true`) left CLOUD_MODE silently False, with nothing in
+      the app's behavior able to reveal that from the outside. Checked
+      for the same pattern elsewhere on principle and found it
+      independently duplicated for SINDHU_LIVE_CANDLES in TWO more files
+      (data_engine/resample.py, paper_trading/engine.py) -- same bug
+      shape, not yet reported only because it hadn't been hit yet.
+      FIX: one shared `data_engine.config.env_flag()`, used by all three
+      call sites -- accepts "1"/"true"/"yes"/"on" case-insensitively,
+      tolerates stray whitespace. Verified every realistic input variant
+      individually (11 parametrized cases) plus the real end-to-end
+      symptom: a fresh instance started with `SINDHU_CLOUD_MODE=true`
+      (not "1") now genuinely bypasses the LAN check and serves
+      /api/auth/status with a real 200.
+      ALSO surfaced `cloud_mode`/`live_candles_only` (both non-secret) on
+      GET /health, so this exact "I set it but it's not working" question
+      can be answered by curling /health instead of guessing through
+      another full deploy cycle next time.
+      New tests: tests/test_env_flag.py (6, including a subprocess-
+      isolated check that all three real call sites agree -- deliberately
+      NOT done by reloading paper_trading.engine in-process, since that
+      module defines a live singleton at import time and reloading it
+      would silently fork state other tests hold a reference to) + 1
+      updated in tests/test_cloud_runtime.py for /health's new shape.
+      Full suite: 988 passed, 0 failed (one transient
+      `sqlite3.OperationalError: database is locked` on an unrelated
+      test during a contended run was confirmed non-reproducing in
+      isolation -- test-environment noise, not a regression).
+      Pushed to GitHub as commit 89fd884.
 
 ## STATUS: COMPLETE
-Full suite: 967 passed, 0 failed. Pushed to GitHub as commit 5f9a8cb.
-Railway UI setup (or Render, per Step 8) is the CEO's own steps -- see
-RAILWAY_DEPLOY.md.
+Full suite: 988 passed, 0 failed. Pushed to GitHub as commit 89fd884.
+Railway UI setup (or Render, per Steps 8-9) is the CEO's own steps -- see
+RAILWAY_DEPLOY.md / RENDER_DEPLOY.md.
