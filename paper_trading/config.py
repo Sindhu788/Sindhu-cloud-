@@ -27,7 +27,17 @@ _DEFAULTS = {
     "cooldown_minutes": 15,
     "priority_rule": "confidence",     # confidence | win_rate | profit | manual
     "opposite_signal_policy": "block", # block | allow | close_and_reverse
-    "coin_filter_top_n": 20,
+    # The full 50-coin universe (matches data_engine.config's own
+    # num_coins default, and the CEO's real already-saved local setting)
+    # -- NOT a smaller default that only matters on a FRESH install with
+    # no paper_trading_settings.json yet (a brand-new local install, or
+    # the lightweight cloud runner, which starts with no local settings
+    # file and no access to the CEO's real one). An existing installation
+    # already has its own saved value in that file and is completely
+    # unaffected by this default either way (data_engine.config.
+    # load_or_seed only ever applies a default once, before the file
+    # exists).
+    "coin_filter_top_n": 50,
     "tick_interval_seconds": 60,
     "lookback_days": 20,
     "lesson_default_timeframe": "1h",

@@ -102,7 +102,11 @@ DONE. Never restart from the beginning.
           - POST /api/paper-trading/run-tick-now completed a REAL tick
             in 31.2s: live-fetched and shortlisted 20 real symbols
             (ARBUSDT, ENAUSDT, CRVUSDT, ...) with zero database rows
-            present beyond an empty schema.
+            present beyond an empty schema. [That "20" was later found to
+            be a fresh-install DEFAULT mismatch, not a cloud-specific
+            limit -- see Step 7 below. This line is left as an accurate
+            record of what that verification run actually observed at
+            the time.]
         Verification instance and its temp data were destroyed afterward;
         the real local data/ was never touched.
   - [x] 2a data_engine/live_candles.py (NEW) -- in-memory, incrementally-
@@ -274,6 +278,31 @@ DONE. Never restart from the beginning.
       New test files this task added: tests/test_cloud_runtime.py (7),
       tests/test_migrate_to_postgres.py (7), tests/test_ws_login_gate.py
       (5) -- 19 new tests, all passing.
+- [x] 7  DONE -- 50-coin universe fix (requested after Step 6, before the
+      GitHub push). ROOT CAUSE: paper_trading/config.py's `_DEFAULTS`
+      had `"coin_filter_top_n": 20`, while data_engine/config.py's
+      `_DEFAULT_COINS["num_coins"]` was already 50, AND the CEO's real
+      local data/config/paper_trading_settings.json already had
+      `coin_filter_top_n: 50` saved (set via the dashboard at some
+      earlier point) -- confirmed by reading that real file directly.
+      Every EXISTING installation was therefore already running on 50;
+      only a FRESH install with no settings file yet (a brand-new local
+      setup, or the lightweight cloud runner, which starts with none of
+      the CEO's real saved settings and nothing from Postgres either,
+      since paper_trading_settings.json is a plain file, not one of the
+      17 curated tables) would fall back to the stale code default of 20.
+      This is why the Step 2g verification run's real tick genuinely
+      shortlisted 20 symbols -- not a cloud-specific limitation, a
+      fresh-install default that had drifted behind the CEO's real
+      configured value.
+      FIX: changed the one default in paper_trading/config.py from 20 to
+      50. Zero effect on any existing installation (data_engine.config.
+      load_or_seed only ever applies a default before the settings file
+      exists). Verified live: a fresh temp CONFIG_DIR now loads
+      coin_filter_top_n=50. New test:
+      tests/test_paper_trading_coin_universe_default.py (1 test) --
+      asserts the two defaults (coin_filter_top_n, NUM_COINS) agree at 50,
+      so they can never silently drift apart again.
 
 ## STATUS: COMPLETE
 Full suite: 962 passed, 0 failed. Committed locally as 461b988. Pushing
