@@ -370,7 +370,53 @@ DONE. Never restart from the beginning.
       isolation -- test-environment noise, not a regression).
       Pushed to GitHub as commit 89fd884.
 
-## STATUS: COMPLETE
-Full suite: 988 passed, 0 failed. Pushed to GitHub as commit 89fd884.
+- [x] 10 DONE -- CEO reported deploy showed "succeeded" on Render, but
+      BOTH the main URL and /health still returned
+      `{"detail":"access restricted to the local network"}`.
+      VERIFIED FIRST (not assumed): `git diff origin/main --
+      sindhu_web/security.py data_engine/config.py` was empty and
+      `git log origin/main` showed commits 89fd884/5983542 already on the
+      remote -- Step 9's fix genuinely was live on GitHub; the CEO's
+      symptom was a real, separate problem, not an unpushed fix.
+      ROOT CAUSE: `token_guard_middleware`'s LAN check ran unconditionally
+      for EVERY path, /health included, before CLOUD_MODE is even
+      consulted for anything else -- /health was only ever exempted from
+      the LOGIN gate (`_LOGIN_EXEMPT_PATHS`), never from the earLIER LAN
+      gate. So on a host where SINDHU_CLOUD_MODE genuinely isn't set (or
+      isn't reaching the process for some other reason -- a Render env
+      var saved against the wrong service, a stale deploy, a typo'd
+      variable name), /health -- the one endpoint meant to let the CEO
+      diagnose exactly that -- was ITSELF blocked by the same problem. A
+      chicken-and-egg dead end with no way to see cloud_mode's real value
+      short of dashboard/log access.
+      FIX: /health now bypasses the LAN check unconditionally, checked
+      before `_is_lan_client()` runs at all -- it already reveals nothing
+      sensitive (no trading data, no settings, not even whether an
+      account exists), so this costs nothing and makes it work as a real
+      diagnostic tool regardless of whether CLOUD_MODE is correctly set.
+      New test: tests/test_cloud_runtime.py::
+      test_health_endpoint_survives_the_lan_check_even_when_misconfigured
+      -- forces CLOUD_MODE False and a real non-LAN client IP (8.8.8.8),
+      the exact combination that reproduced the CEO's symptom, and
+      asserts /health still reaches the real handler.
+      Full suite: 988 passed, 0 failed.
+      Pushed to GitHub as commit <fill in after push>.
+      REMAINING, on the CEO's side (this is Render dashboard
+      configuration, not code): confirm `SINDHU_CLOUD_MODE` is actually
+      set on the SAME Render service that's failing (Environment tab),
+      spelled exactly `SINDHU_CLOUD_MODE` with no trailing space, value
+      `1` (simplest; "true"/"yes"/"on" also work after Step 9's fix), then
+      trigger Manual Deploy -> Deploy latest commit so the running
+      process actually picks up commit 89fd884 AND this fix -- a deploy
+      that "succeeded" only proves the build completed, not that it built
+      the commit containing a since-pushed fix if it was triggered
+      earlier. /health will now always respond even if this is still
+      misconfigured, so `cloud_mode`/`live_candles_only` in its JSON
+      answer the question directly without another guess-and-redeploy
+      cycle.
+
+## STATUS: COMPLETE (pending CEO's own Render dashboard verification per Step 10)
+Full suite: 988 passed, 0 failed. Pushed to GitHub as commit 89fd884 (Step 9)
+and the Step 10 /health fix above.
 Railway UI setup (or Render, per Steps 8-9) is the CEO's own steps -- see
 RAILWAY_DEPLOY.md / RENDER_DEPLOY.md.

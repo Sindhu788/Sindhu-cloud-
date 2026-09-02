@@ -90,11 +90,25 @@ def get_or_create_token():
 
 
 async def token_guard_middleware(request: Request, call_next):
+    path = request.url.path
+
+    # "/health" must survive even a MISCONFIGURED cloud deploy (e.g.
+    # SINDHU_CLOUD_MODE not actually set) -- otherwise the one endpoint
+    # meant to let the CEO/an uptime pinger diagnose exactly that problem
+    # is itself blocked by it, a chicken-and-egg dead end confirmed live:
+    # a real deploy had CLOUD_MODE evaluating False and /health returned
+    # the SAME "access restricted to the local network" error as every
+    # other path, with no way to see cloud_mode's real value without
+    # dashboard/log access. Checked BEFORE the LAN gate below (not just
+    # the login gate further down) -- it reveals nothing sensitive (no
+    # trading data, no settings, not even whether an account exists), so
+    # bypassing the LAN check for it unconditionally costs nothing.
+    if path == "/health":
+        return await call_next(request)
+
     client_host = request.client.host if request.client else None
     if not _is_lan_client(client_host):
         return JSONResponse({"detail": "access restricted to the local network"}, status_code=403)
-
-    path = request.url.path
 
     # Master Task 2, Part 5: the login gate. Unlike the token check below
     # (which only ever guarded state-changing requests), this applies to

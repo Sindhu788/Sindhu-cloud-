@@ -151,6 +151,41 @@ def test_health_endpoint_is_exempt_from_the_login_gate():
     assert "/health" in _LOGIN_EXEMPT_PATHS
 
 
+def test_health_endpoint_survives_the_lan_check_even_when_misconfigured():
+    """A real deploy had SINDHU_CLOUD_MODE evaluating False (the env var
+    was never actually set on the host) and /health returned the SAME
+    "access restricted to the local network" 403 as every other path --
+    a chicken-and-egg dead end, since /health is the one endpoint meant to
+    let the CEO diagnose exactly that misconfiguration. /health must now
+    bypass the LAN check unconditionally, BEFORE CLOUD_MODE is even
+    consulted -- verified here with CLOUD_MODE forced off and a real
+    non-LAN client IP, the exact combination that reproduced the bug."""
+    import asyncio
+
+    from fastapi import Request
+    from sindhu_web import security
+
+    async def _run():
+        scope = {
+            "type": "http", "method": "GET", "path": "/health",
+            "headers": [], "query_string": b"", "client": ("8.8.8.8", 12345),
+        }
+        request = Request(scope)
+
+        async def call_next(_req):
+            return "reached the real handler"
+
+        return await security.token_guard_middleware(request, call_next)
+
+    original_cloud_mode = security.CLOUD_MODE
+    security.CLOUD_MODE = False
+    try:
+        result = asyncio.run(_run())
+    finally:
+        security.CLOUD_MODE = original_cloud_mode
+    assert result == "reached the real handler"
+
+
 def test_index_html_response_defaults_to_paper_trading_not_home(cloud_app, tmp_path, monkeypatch):
     """A logged-in visitor with no hash in the URL must land on Paper
     Trading, not app.js's own default of #home (which calls endpoints
