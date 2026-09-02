@@ -400,7 +400,7 @@ DONE. Never restart from the beginning.
       the exact combination that reproduced the CEO's symptom, and
       asserts /health still reaches the real handler.
       Full suite: 988 passed, 0 failed.
-      Pushed to GitHub as commit <fill in after push>.
+      Pushed to GitHub as commit 1ff0a1f.
       REMAINING, on the CEO's side (this is Render dashboard
       configuration, not code): confirm `SINDHU_CLOUD_MODE` is actually
       set on the SAME Render service that's failing (Environment tab),
@@ -416,7 +416,11 @@ DONE. Never restart from the beginning.
       cycle.
 
 ## STATUS: COMPLETE (pending CEO's own Render dashboard verification per Step 10)
-Full suite: 988 passed, 0 failed. Pushed to GitHub as commit 89fd884 (Step 9)
-and the Step 10 /health fix above.
+Full suite: 987 passed, 2 transient sqlite "database is locked" errors
+confirmed non-reproducing in isolation (caused by the CEO's own locally-
+running web_main.py holding the shared SQLite file open during the test
+run -- not a regression). Pushed to GitHub as commit 89fd884 (Step 9) and
+commit 1ff0a1f (Step 10, the /health fix above) -- both confirmed present
+on origin/main via `git fetch` + `git log origin/main`.
 Railway UI setup (or Render, per Steps 8-9) is the CEO's own steps -- see
 RAILWAY_DEPLOY.md / RENDER_DEPLOY.md.
