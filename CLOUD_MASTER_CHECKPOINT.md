@@ -355,4 +355,70 @@ instead of a crash. tests/test_cloud_runtime.py -- nav-id-set assertion
 extended to include "signal_tracker", route-path assertions added for its
 two endpoints plus the three new cloud-sync endpoints.
 
-## PART 2 -- PUSH PREVIOUSLY COMPLETED FIXES TO GITHUB -- [ ] IN PROGRESS
+## PART 2 -- PUSH PREVIOUSLY COMPLETED FIXES TO GITHUB -- [x] DONE
+
+Staged and committed ONLY the files genuinely part of this cloud task
+(27 files) -- deliberately left untouched and unstaged: unrelated
+in-progress changes already sitting in this working directory from other
+work (backtest_engine/concepts.py, configured_strategy.py, validator.py,
+several new strategies/library/ entries, scratch scripts/_tmp_*.py files,
+NEW_BATCH_5_STRATEGY_REPORT.md, a PDF audit report) -- none of that is
+cloud-deployment code and GLOBAL RULES forbid touching the backtest
+engine, so it was not swept into this commit.
+
+Full suite immediately before commit: 1037 passed, 1 error
+(test_backtesting_incomplete_lock.py -- a real sqlite3.OperationalError
+"database is locked" from another process briefly holding the same real
+local DB file during a long contended run, the same known pattern
+documented earlier in this project's history). Re-ran that one test file
+alone: 4/4 passed cleanly, confirming it was transient contention, not a
+real regression from anything in this task.
+
+Committed as eb9f854 ("Fix cloud settings/session persistence, restrict
+Telegram to High Confidence, add signal labeling, Telegram-sent
+analytics, 24h cloud-to-local sync, and nav audit") and pushed to
+origin/main (github.com/Sindhu788/Sindhu-cloud-). Verified with `git
+fetch origin main` + `git log origin/main` that eb9f854 is genuinely on
+the remote, not just committed locally.
+
+RENDER AUTO-DEPLOY -- CANNOT CONFIRM FROM HERE (same honest limitation as
+Part 1's DATABASE_URL check): I have no Render dashboard login, API
+token, or the live service's URL anywhere in this repo or environment, so
+I cannot watch the deploy actually happen or read its build logs. Per
+RENDER_DEPLOY.md, a push to the connected GitHub repo triggers Render's
+auto-deploy on its own -- nothing further needs to be done on the code
+side for that to fire. What the CEO can check in 10 seconds once it
+finishes: open https://YOUR-RENDER-SERVICE-NAME.onrender.com/health --
+`status: "ok"` with no "access restricted" error confirms the new build
+is live and serving; `db_backend` on that same response answers Part 1's
+open question (see above). This is the one Part-2 sub-item that
+genuinely needs the CEO's own confirmation.
+
+## STATUS: ALL 7 PARTS COMPLETE. Pushed to GitHub as commit eb9f854.
+
+Parts 1, 3, and 6 each have one honest, unavoidable limitation: this
+session has no Render dashboard login, API token, or live service URL,
+so a few final confirmations (DATABASE_URL genuinely connected, the
+Render deploy finishing, a real 24h sync actually firing on the live
+host) can only be code-proven here (via tests using the exact real SQL
+text against a stand-in database) and must be eyeballed once by the CEO
+via /health and the new cloud-sync endpoints after this deploys. Every
+other requirement in the original 7-part spec is done and verified
+locally: full suite 1037 passed (1 transient, non-reproducing sqlite
+lock error during a contended full run, confirmed clean in isolation).
+
+DEFERRED QUESTIONS FOR THE CEO (per GLOBAL RULES -- asked together, at
+the end, having not blocked on any of them):
+1. Is a real Postgres database (DATABASE_URL) actually connected on the
+   live Render service? Check https://YOUR-SERVICE.onrender.com/health
+   -- if `db_backend` says "local_file (ephemeral on most hosts)" instead
+   of "postgres", follow the 5 numbered steps under PART 1 above.
+2. Once this push's deploy finishes on Render, please confirm it actually
+   succeeded (I can't see Render's build logs) -- the same /health check
+   doubles as that confirmation (a real "ok" response with no "access
+   restricted" error means the new code is live).
+3. To prove the 24h cloud-to-local sync for real (not just in tests),
+   after the deploy is live: call `POST /api/paper-trading/cloud-sync/run-now`
+   once, then `GET /api/paper-trading/cloud-sync/download` to see the
+   real file -- I did not do this against the live host myself since I
+   have no way to reach it.
