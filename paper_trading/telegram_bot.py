@@ -30,8 +30,8 @@ from datetime import datetime, timezone
 
 import requests
 
-from data_engine import config as base_config, storage, feature_toggles
-from paper_trading import confluence as confluence_mod, insights, pattern_stats, signal_explainer
+from data_engine import config as base_config, db_backend, storage, feature_toggles
+from paper_trading import challenge_mode, confluence as confluence_mod, insights, pattern_stats, signal_explainer
 
 # Lightweight cloud runner support: on a fresh deploy (or any restart of a
 # container with no persistent volume mounted at data/config/), the local
@@ -73,10 +73,28 @@ _DEFAULTS = {
     # "ur" (Roman Urdu, the CEO's everyday register) or "en". Deterministic
     # template choice, not an AI translation call.
     "language": "ur",
+    # Confidence filtering (this task): only High Confidence tier signals
+    # (evaluate_auto_send -- full confluence + the 25-trade Wilson gate) are
+    # ever sent to Telegram by default. A Low Confidence signal is still
+    # generated and stays visible on the dashboard (paper_decision_log,
+    # Signal Tracker, /telegram/delivery-log's "never sent" bucket) with
+    # its own reason -- it just never reaches the channel. Kept as a
+    # setting (default True) rather than hardcoded, consistent with every
+    # other behavior toggle in this file.
+    "auto_send_high_confidence_only": True,
 }
 
 DISCLAIMER = ("This is an experimental signal from a system still under development. "
               "Not financial advice. Trade at your own risk.")
+
+# Appended, without exception, to every signal from a strategy currently
+# classified "Profitable" (see _profitability_label) -- distinct wording
+# from DISCLAIMER above (which already appears on every message
+# regardless of tier or profitability) because this one specifically
+# exists to stop a real, positive live track record from reading as a
+# promise: a strategy that is profitable so far can still lose money on
+# the very next trade.
+PROFITABLE_RISK_DISCLAIMER = "⚠️ Risky -- no strategy guarantees profit, trade at your own risk"
 
 # Telegram-facing brand name only -- every message sent to the channel
 # says "Trade Vision" instead of "SINDHU". This is purely cosmetic and
@@ -99,14 +117,32 @@ def _now_iso():
     return datetime.now(timezone.utc).isoformat()
 
 
+_SETTINGS_KEY = "telegram_settings"
+
+
 def load_settings():
+    # Cloud persistence: same reasoning as paper_trading/config.py -- on a
+    # host with DATABASE_URL set, these settings live in Postgres
+    # (cloud_settings) instead of the local file, which is ephemeral on
+    # most cloud hosts and would otherwise silently revert a CEO's saved
+    # choice (auto-send on/off, confidence thresholds, ...) after every
+    # restart/redeploy/sleep-wake. Local laptop behavior is unchanged.
+    if db_backend.IS_POSTGRES:
+        saved = storage.get_cloud_setting(_SETTINGS_KEY)
+        merged = dict(_DEFAULTS)
+        if saved:
+            merged.update(saved)
+        return merged
     return base_config.load_or_seed("telegram_settings.json", _DEFAULTS)
 
 
 def save_settings(**fields):
     settings = load_settings()
     settings.update({k: v for k, v in fields.items() if v is not None})
-    base_config.save_config("telegram_settings.json", settings)
+    if db_backend.IS_POSTGRES:
+        storage.save_cloud_setting(_SETTINGS_KEY, settings, _now_iso())
+    else:
+        base_config.save_config("telegram_settings.json", settings)
     return settings
 
 
@@ -409,6 +445,9 @@ _LABELS = {
         "why_this_signal_heading": "Yeh Signal Kyun", "quality_grade": "Signal Grade",
         "footer_brand": f"{TELEGRAM_BRAND} -- Paper Trading (Nakli Paise)",
         "unknown_strategy": "Pata Nahi",
+        "profitable_strategy": "✅ <b>PROFITABLE STRATEGY</b> (live paper-trading record)",
+        "strategy_under_evaluation": "\U0001F9EA <b>STRATEGY ABHI UNDER EVALUATION HAI</b> (kaafi trade history nahi hui abhi)",
+        "challenge_mode_tag": "\U0001F3C6 <b>CHALLENGE MODE SIGNAL</b>",
     },
     "en": {
         "high_confidence": "⭐ <b>HIGH CONFIDENCE SIGNAL</b> ⭐",
@@ -420,6 +459,9 @@ _LABELS = {
         "why_this_signal_heading": "Yeh Signal Kyun", "quality_grade": "Signal Grade",
         "footer_brand": f"{TELEGRAM_BRAND} -- Paper Trading",
         "unknown_strategy": "Unknown",
+        "profitable_strategy": "✅ <b>PROFITABLE STRATEGY</b> (real live paper-trading record)",
+        "strategy_under_evaluation": "\U0001F9EA <b>STRATEGY STILL UNDER EVALUATION</b> (not enough trade history yet)",
+        "challenge_mode_tag": "\U0001F3C6 <b>CHALLENGE MODE SIGNAL</b>",
     },
 }
 
@@ -444,6 +486,12 @@ def format_signal_message(position, confluence_result=None, reliability_result=N
         # rather than being a cosmetic label anyone could mistake for
         # inflated confidence.
         lines.append(L["high_confidence"])
+    challenge_tag = _challenge_mode_tag(position, lang)
+    if challenge_tag:
+        lines.append(challenge_tag)
+    profitability_label = _profitability_label(position.get("strategy_id"), lang)
+    if profitability_label:
+        lines.append(profitability_label)
     lines += [
         f"\U0001F4CA <b>{TELEGRAM_BRAND} Signal</b>",
         "─" * 18,
@@ -512,7 +560,62 @@ def format_signal_message(position, confluence_result=None, reliability_result=N
     lines.append("")
     lines.append(L["footer_brand"])
     lines.append(DISCLAIMER)
+    # Task 4.3: without exception, every message from a currently
+    # "Profitable" strategy ends with this extra, distinct disclaimer --
+    # a real positive live track record must never read as a promise.
+    if _is_profitable_label(profitability_label, lang):
+        lines.append(PROFITABLE_RISK_DISCLAIMER)
     return "\n".join(lines)
+
+
+def _profitability_label(strategy_id, lang):
+    """Task 4.2: every signal message must say plainly whether it comes
+    from a strategy with a real, positive live paper-trading record, or
+    one still building that record. Uses LIVE paper-trading history
+    (storage.get_paper_account_summary -- the same O(1) running total the
+    rest of this file's PnL checks already use), never backtest results:
+    the cloud runner's own curated Postgres schema deliberately excludes
+    the backtest_* tables (see data_engine/db_backend.py), so a
+    backtest-based classification would be unavailable there, and "how
+    has this actually performed live" is the more honest thing to tell
+    someone about a signal they're about to see anyway. "Profitable"
+    requires BOTH a real sample size (the same 25-trade bar
+    pattern_stats.MIN_SAMPLE_SIZE uses elsewhere in this file, so this
+    isn't a second, softer threshold) and a net positive live PnL --
+    anything short of that is "still under evaluation," never a guess."""
+    if not strategy_id:
+        return None
+    summary = storage.get_paper_account_summary(strategy_id)
+    L = _LABELS[lang]
+    if summary["closed_count"] >= pattern_stats.MIN_SAMPLE_SIZE and summary["realized_pnl_total"] > 0:
+        return L["profitable_strategy"]
+    return L["strategy_under_evaluation"]
+
+
+def _is_profitable_label(label, lang):
+    return label == _LABELS[lang]["profitable_strategy"]
+
+
+def _challenge_mode_tag(position, lang):
+    """Task 4.4: labels a signal as a Challenge Mode signal when the CEO
+    has scoped an active Challenge (paper_trading.challenge_mode) to this
+    exact strategy+coin -- Challenge Mode itself never influences trading
+    decisions (see challenge_mode.py's own module docstring), this only
+    threads its existing scope choice through to the message text so a
+    signal counted toward that challenge is visibly distinguishable from
+    a regular one."""
+    challenge = challenge_mode.load()
+    if not challenge.get("enabled"):
+        return None
+    scope_strategy = challenge.get("scope_strategy_id")
+    scope_symbol = challenge.get("scope_symbol")
+    if not scope_strategy:
+        return None  # system-wide challenge, not scoped to any one signal
+    if position.get("strategy_id") != scope_strategy:
+        return None
+    if scope_symbol and position.get("symbol") != scope_symbol:
+        return None
+    return _LABELS[lang]["challenge_mode_tag"]
 
 
 def _pattern_reliability_for(strategy_id, symbol, market_state, session):
@@ -748,18 +851,34 @@ def evaluate_auto_send_low_tier(position_id):
 
 
 def evaluate_auto_send_tier(position_id):
-    """Tries the HIGH tier first (evaluate_auto_send -- unchanged, real
-    confluence + the real 25-trade Wilson gate), falls back to the LOW
-    tier (evaluate_auto_send_low_tier) only if High doesn't qualify, so
-    signal flow never stops just because nothing currently clears the
-    high bar. Returns (tier: "high" | "low" | None, reason: str)."""
+    """Tries the HIGH tier first (evaluate_auto_send -- real confluence +
+    the real 25-trade Wilson gate).
+
+    Confidence filtering (this task): with the default
+    auto_send_high_confidence_only=True, a Low-tier-only qualifying signal
+    is deliberately NOT sent to Telegram -- it is still fully generated
+    and stays visible everywhere the dashboard already shows signal
+    activity (paper_decision_log, the Signal Tracker page, and
+    /api/paper-trading/telegram/delivery-log's "never sent" bucket, which
+    surfaces exactly the reason text returned here), it just never reaches
+    the channel. Setting auto_send_high_confidence_only to False restores
+    the previous behavior (falls back to evaluate_auto_send_low_tier) for
+    anyone who deliberately wants that -- off by default, per this task's
+    requirement, not a silent behavior removal.
+
+    Returns (tier: "high" | "low" | None, reason: str)."""
     should_send_high, reason_high = evaluate_auto_send(position_id)
     if should_send_high:
         return "high", reason_high
     should_send_low, reason_low = evaluate_auto_send_low_tier(position_id)
-    if should_send_low:
-        return "low", reason_low
-    return None, reason_low
+    if not should_send_low:
+        return None, reason_low
+    if load_settings().get("auto_send_high_confidence_only", True):
+        return None, (
+            f"qualified for the Low Confidence tier but not sent -- only High Confidence "
+            f"signals are sent to Telegram ({reason_low})"
+        )
+    return "low", reason_low
 
 
 # --------------------------------------------------------------- A5: two-way awareness (close follow-up)

@@ -106,7 +106,12 @@ def test_sweep_does_nothing_when_auto_send_is_off(test_db):
     mock_send.assert_not_called()
 
 
-def test_sweep_only_sends_low_tier_when_high_does_not_qualify(test_db):
+def test_sweep_does_not_send_low_tier_only_signals_by_default(test_db):
+    """Confidence filtering (a later task): the sweep goes through the
+    exact same evaluate_auto_send_tier() gate as a real-time open, so its
+    default High-Confidence-only behavior applies here too -- a
+    Low-tier-only qualifying position must not be sent by the sweep
+    either."""
     _enable_auto_send()
     storage.open_paper_position(_position("pos1"))
 
@@ -114,7 +119,22 @@ def test_sweep_only_sends_low_tier_when_high_does_not_qualify(test_db):
          patch.object(storage, "get_paper_realized_pnl_total", return_value=10.0), \
          patch.object(telegram_bot, "_raw_send", return_value=(True, None)) as mock_send:
         # no reliability data mocked -- real _pattern_reliability_for returns
-        # insufficient_data, so High refuses but Low (no Wilson requirement) picks it up
+        # insufficient_data, so High refuses; Low would pick it up (no Wilson
+        # requirement) but is withheld by the High-Confidence-only default.
+        sent = telegram_bot.sweep_unsent_qualifying_signals()
+
+    assert sent == []
+    mock_send.assert_not_called()
+
+
+def test_sweep_sends_low_tier_when_explicitly_opted_back_in(test_db):
+    _enable_auto_send()
+    telegram_bot.save_settings(auto_send_high_confidence_only=False)
+    storage.open_paper_position(_position("pos1"))
+
+    with patch.object(telegram_bot.confluence_mod, "score_confluence", return_value=FULL_CONFLUENCE), \
+         patch.object(storage, "get_paper_realized_pnl_total", return_value=10.0), \
+         patch.object(telegram_bot, "_raw_send", return_value=(True, None)) as mock_send:
         sent = telegram_bot.sweep_unsent_qualifying_signals()
 
     assert len(sent) == 1

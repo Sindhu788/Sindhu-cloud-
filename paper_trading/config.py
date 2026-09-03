@@ -3,9 +3,22 @@ data_engine.config, so it's editable from the dashboard without a restart
 and persists between runs. Defaults are deliberately conservative: dry_run
 starts True so nothing executes automatically until the CEO explicitly
 switches it on.
+
+Cloud persistence: on a host with DATABASE_URL set (Postgres), these
+settings are stored in the cloud_settings table instead of the local file
+-- the local file lives on Render's ephemeral filesystem, which is wiped
+on every restart/redeploy/sleep-wake, silently reverting a CEO's real
+choice (e.g. turning Dry Run Mode off) back to the conservative default.
+See data_engine/db_backend.py's cloud_settings comment and
+sindhu_web/auth.py for the identical pattern used for login credentials.
+Local laptop behavior (DATABASE_URL unset) is completely unchanged.
 """
 
-from data_engine import config as base_config
+from datetime import datetime, timezone
+
+from data_engine import config as base_config, db_backend, storage
+
+_SETTINGS_KEY = "paper_trading_settings"
 
 _DEFAULTS = {
     "dry_run": True,
@@ -58,10 +71,19 @@ _DEFAULTS = {
 
 
 def load():
+    if db_backend.IS_POSTGRES:
+        saved = storage.get_cloud_setting(_SETTINGS_KEY)
+        merged = dict(_DEFAULTS)
+        if saved:
+            merged.update(saved)
+        return merged
     return base_config.load_or_seed("paper_trading_settings.json", _DEFAULTS)
 
 
 def save(settings):
+    if db_backend.IS_POSTGRES:
+        storage.save_cloud_setting(_SETTINGS_KEY, settings, datetime.now(timezone.utc).isoformat())
+        return
     base_config.save_config("paper_trading_settings.json", settings)
 
 

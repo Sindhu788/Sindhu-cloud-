@@ -116,6 +116,23 @@ def test_signal_period_summary_shows_win_rate_once_sample_size_met(test_db):
     assert summary["win_rate_pct"] == 100.0
 
 
+def test_signal_period_summary_totals_real_pnl_not_hypothetical(test_db):
+    """Part 5 (Telegram-specific analytics): the real dollar PnL of
+    Telegram-sent, closed trades -- distinct from hypothetical_pnl()'s
+    rescaled $100-account figure below."""
+    _open_position(id="posC1")
+    _close("posC1", 110.0, 10.0, 10.0, "take_profit")
+    _log_signal("posC1")
+    _open_position(id="posC2")
+    _close("posC2", 90.0, -4.0, -4.0, "stop_loss")
+    _log_signal("posC2")
+    _open_position(id="posC3")  # still open -- must not contribute
+    _log_signal("posC3")
+
+    summary = telegram_analytics.signal_period_summary()
+    assert summary["total_pnl"] == 6.0
+
+
 def test_strategy_breakdown_groups_and_sorts_by_signal_count(test_db):
     _open_position(id="s1a", strategy_id="stratA", strategy_name="Strategy A")
     _log_signal("s1a", strategy_id="stratA", strategy_name="Strategy A")
@@ -146,6 +163,46 @@ def test_strategy_breakdown_counts_losses_correctly(test_db):
     row = next(e for e in breakdown if e["strategy_id"] == "stratC")
     assert row["losses"] == 1
     assert row["closed"] == 1
+
+
+def test_strategy_breakdown_tracks_real_total_pnl_per_strategy(test_db):
+    _open_position(id="p1", strategy_id="stratD", strategy_name="Strategy D")
+    _close("p1", 110.0, 10.0, 10.0, "take_profit")
+    _log_signal("p1", strategy_id="stratD", strategy_name="Strategy D")
+    _open_position(id="p2", strategy_id="stratD", strategy_name="Strategy D")
+    _close("p2", 95.0, -3.0, -3.0, "stop_loss")
+    _log_signal("p2", strategy_id="stratD", strategy_name="Strategy D")
+
+    breakdown = telegram_analytics.strategy_breakdown()
+    row = next(e for e in breakdown if e["strategy_id"] == "stratD")
+    assert row["total_pnl"] == 7.0
+
+
+# --------------------------------------------------------------- Part 5: best-performing sent-signal strategy
+
+def test_best_performing_strategy_picks_the_highest_real_total_pnl(test_db):
+    _open_position(id="bp1", strategy_id="stratWinner", strategy_name="Winner")
+    _close("bp1", 120.0, 20.0, 20.0, "take_profit")
+    _log_signal("bp1", strategy_id="stratWinner", strategy_name="Winner")
+
+    _open_position(id="bp2", strategy_id="stratLoser", strategy_name="Loser")
+    _close("bp2", 90.0, -5.0, -5.0, "stop_loss")
+    _log_signal("bp2", strategy_id="stratLoser", strategy_name="Loser")
+
+    best = telegram_analytics.best_performing_strategy()
+    assert best["strategy_id"] == "stratWinner"
+    assert best["total_pnl"] == 20.0
+
+
+def test_best_performing_strategy_ignores_all_pending_strategies(test_db):
+    _open_position(id="bp3", strategy_id="stratPending", strategy_name="Pending")
+    _log_signal("bp3", strategy_id="stratPending", strategy_name="Pending")
+
+    assert telegram_analytics.best_performing_strategy() is None
+
+
+def test_best_performing_strategy_none_with_no_signals_at_all(test_db):
+    assert telegram_analytics.best_performing_strategy() is None
 
 
 # --------------------------------------------------------------- Hypothetical $100/month PnL tracker

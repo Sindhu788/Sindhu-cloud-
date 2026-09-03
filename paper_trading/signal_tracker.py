@@ -49,7 +49,17 @@ def live_signal_feed(limit=50):
 
 
 def _backtest_win_rate(strategy_name):
-    batch_id = storage.latest_completed_batch_for_strategy_name(strategy_name)
+    # The lightweight cloud runner's curated Postgres schema deliberately
+    # excludes backtest_batches/backtest_results (see data_engine/
+    # db_backend.py's POSTGRES_SCHEMA docstring) -- on that runner this
+    # query would raise "relation does not exist" rather than return no
+    # rows. Treated the same as "no backtest exists yet for this strategy"
+    # (None, None) rather than crashing this page's other two, genuinely
+    # available comparisons (paper vs Telegram-sent).
+    try:
+        batch_id = storage.latest_completed_batch_for_strategy_name(strategy_name)
+    except Exception:
+        return None, None
     if not batch_id:
         return None, None
     summary = quick_batch_summary(batch_id)

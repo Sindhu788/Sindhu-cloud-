@@ -31,10 +31,15 @@ def signal_period_summary(since_iso=None, until_iso=None):
     pending = sum(1 for r in rows if r["outcome"] == "pending")
     closed = wins + losses + breakeven
     win_rate_pct = round(wins / closed * 100, 1) if closed >= pattern_stats.MIN_SAMPLE_SIZE else None
+    # Real total PnL (not the hypothetical_pnl() rescaled figure below) --
+    # the actual sum of paper_positions.pnl for every closed, Telegram-
+    # signaled trade in this period. Still-open ("pending") signals
+    # contribute nothing until they actually close, same as win/loss.
+    total_pnl = sum(r["pnl"] for r in rows if r["outcome"] in ("win", "loss", "breakeven") and r["pnl"] is not None)
     return {
         "total_signals": len(rows), "wins": wins, "losses": losses,
         "breakeven": breakeven, "pending": pending, "closed": closed,
-        "win_rate_pct": win_rate_pct,
+        "win_rate_pct": win_rate_pct, "total_pnl": round(total_pnl, 2),
         "min_sample_size": pattern_stats.MIN_SAMPLE_SIZE,
     }
 
@@ -85,18 +90,34 @@ def strategy_breakdown(since_iso=None, until_iso=None):
         sid = r["strategy_id"] or "unknown"
         entry = by_strategy.setdefault(sid, {
             "strategy_id": r["strategy_id"], "strategy_name": r["strategy_name"] or "Unknown",
-            "total_signals": 0, "wins": 0, "losses": 0, "breakeven": 0, "pending": 0,
+            "total_signals": 0, "wins": 0, "losses": 0, "breakeven": 0, "pending": 0, "total_pnl": 0.0,
         })
         entry["total_signals"] += 1
         outcome_key = {"win": "wins", "loss": "losses", "breakeven": "breakeven", "pending": "pending"}.get(r["outcome"])
         if outcome_key:
             entry[outcome_key] += 1
+        if r["outcome"] in ("win", "loss", "breakeven") and r["pnl"] is not None:
+            entry["total_pnl"] += r["pnl"]
 
     result = []
     for entry in by_strategy.values():
         closed = entry["wins"] + entry["losses"] + entry["breakeven"]
         entry["closed"] = closed
         entry["win_rate_pct"] = round(entry["wins"] / closed * 100, 1) if closed >= pattern_stats.MIN_SAMPLE_SIZE else None
+        entry["total_pnl"] = round(entry["total_pnl"], 2)
         result.append(entry)
     result.sort(key=lambda e: e["total_signals"], reverse=True)
     return result
+
+
+def best_performing_strategy(since_iso=None, until_iso=None):
+    """Part 5 (Telegram-specific analytics): the single best-performing
+    strategy among Telegram-SENT signals specifically, by real total PnL
+    -- reuses strategy_breakdown() rather than a second query. Only
+    considers strategies with at least one CLOSED Telegram-signaled trade
+    (an all-pending strategy has no real performance to rank yet). Returns
+    None if nothing qualifies."""
+    candidates = [s for s in strategy_breakdown(since_iso, until_iso) if s["closed"] > 0]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda s: s["total_pnl"])

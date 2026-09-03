@@ -14,7 +14,7 @@ from unittest.mock import patch
 import pytest
 
 from data_engine import config as base_config, storage
-from paper_trading import telegram_bot
+from paper_trading import telegram_bot, pattern_stats
 
 
 @pytest.fixture(autouse=True)
@@ -179,7 +179,13 @@ def test_hourly_sweep_still_sends_a_fresh_qualifying_signal(test_db):
     storage.open_paper_position(pos)
 
     full_confluence = {"passed": 4, "total": 4, "label": "Strong -- 4/4 factors aligned", "factors": []}
+    # Reliable-good pattern history so this qualifies at the HIGH tier --
+    # since a later task made High-Confidence-only the default send
+    # behavior, a Low-tier-only signal would no longer go out here, which
+    # isn't what this test is actually checking (the freshness gate).
+    good_reliability = pattern_stats.classify(wins=23, n=25)
     with patch.object(telegram_bot.confluence_mod, "score_confluence", return_value=full_confluence), \
+         patch.object(telegram_bot, "_pattern_reliability_for", return_value=good_reliability), \
          patch.object(storage, "get_paper_realized_pnl_total", return_value=10.0), \
          patch.object(telegram_bot, "_fetch_live_price", return_value=100.1), \
          patch.object(telegram_bot, "_raw_send", return_value=(True, None)) as mock_send:

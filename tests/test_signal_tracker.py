@@ -7,6 +7,8 @@ have enough closed trades to trust (the same MIN_SAMPLE_SIZE floor used
 throughout this system).
 """
 
+from unittest.mock import patch
+
 import pytest
 
 from data_engine import config as base_config, storage
@@ -122,6 +124,25 @@ def test_match_table_has_no_backtest_row_when_no_completed_batch_matches(test_db
 
     table = signal_tracker.strategy_match_table()
     row = next(r for r in table["strategies"] if r["strategy_id"] == "strat9")
+    assert row["backtest_win_rate"] is None
+    assert row["backtest_batch_id"] is None
+
+
+def test_match_table_survives_a_database_with_no_backtest_tables(test_db):
+    """Part 7 (this task, cloud nav audit): the cloud runner's own curated
+    Postgres schema deliberately excludes backtest_batches/backtest_results
+    (see data_engine/db_backend.py) -- this page must degrade to "no
+    backtest data available" for that strategy instead of a 500, so it's
+    safe to link from the cloud nav."""
+    _open_position(id="p1", strategy_id="strat10", strategy_name="Cloud Strategy")
+    _close("p1", 110.0, 10.0, 10.0, "take_profit")
+    _log_signal("p1", strategy_id="strat10", strategy_name="Cloud Strategy")
+
+    with patch.object(storage, "latest_completed_batch_for_strategy_name",
+                       side_effect=Exception('relation "backtest_batches" does not exist')):
+        table = signal_tracker.strategy_match_table()
+
+    row = next(r for r in table["strategies"] if r["strategy_id"] == "strat10")
     assert row["backtest_win_rate"] is None
     assert row["backtest_batch_id"] is None
 

@@ -2,6 +2,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from backtest_engine import strategy_library as lib
@@ -17,6 +19,7 @@ from paper_trading import telegram_delivery
 from paper_trading import signal_tracker
 from paper_trading import pattern_stats
 from paper_trading import challenge_mode
+from paper_trading import cloud_sync
 from paper_trading import signal_explainer
 from paper_trading.engine import engine
 from data_engine import config as base_config
@@ -480,6 +483,85 @@ def list_all_strategy_configs():
     return {"configs": storage.list_paper_strategy_configs()}
 
 
+@router.get("/api/paper-trading/strategy-overview")
+def get_strategy_overview():
+    """Powers the cloud dashboard's "Strategies" page: one row per strategy
+    saved in the library, with real numbers -- never placeholders -- for
+    win rate, net PnL, and risk:reward, plus whether it's currently active
+    in Paper Trading and whether it's currently safe to activate.
+
+    Win rate/PnL/closed trades come from actual Paper Trading history
+    (storage.list_paper_strategy_stats), not the backtest engine -- this
+    runner's database deliberately excludes the backtest_* tables (see
+    data_engine/db_backend.py's own docstring), so live paper-trading
+    results are the only real performance numbers available here. A
+    strategy with zero paper trades legitimately shows 0/0.0, not a
+    rounded-off guess.
+
+    Risk:reward prefers the strategy's own FIXED configured ratio (
+    take_profit.type == "rr", or the legacy risk_reward field) when one
+    exists; only a strategy whose stop-loss/take-profit are structure-based
+    (no single fixed ratio to state) falls back to the average R:R actually
+    realized across its live trades (paper_strategy_performance.avg_rr).
+
+    can_activate/activation_blocked_reason reuse the exact same combined
+    gate /api/paper-trading/readiness/{id} already uses (the automatic
+    Strategy Safety Check plus the config validator) -- a strategy that
+    fails either is not safe to run unattended, so the frontend disables
+    its Move-to-Paper-Trading button and shows why, rather than silently
+    letting it through."""
+    metas = lib.list_all()
+    configs = storage.list_paper_strategy_configs()
+    stats_by_id = {s["strategy_id"]: s for s in storage.list_paper_strategy_stats()}
+    perf_by_id = {p["strategy_id"]: p for p in storage.list_paper_strategy_performance()}
+
+    rows = []
+    for meta in metas:
+        sid = meta["id"]
+        cfg_row = configs.get(sid, {})
+        stat = stats_by_id.get(sid)
+        perf = perf_by_id.get(sid)
+
+        fixed_rr = None
+        can_activate = False
+        blocked_reason = None
+        try:
+            cfg = lib.load(sid)
+            tp = cfg.take_profit
+            if tp and tp.type == "rr" and tp.value:
+                fixed_rr = tp.value
+            elif cfg.risk_reward:
+                fixed_rr = cfg.risk_reward
+            errors = validator.validate(cfg)
+            safety = run_safety_check(cfg)
+            can_activate = bool(safety["passed"]) and not errors
+            if not can_activate:
+                reasons = list(safety.get("reasons") or []) + list(errors or [])
+                blocked_reason = "; ".join(reasons) if reasons else "Failed the automatic Strategy Safety Check."
+        except Exception as exc:
+            blocked_reason = f"Could not load this strategy's saved configuration ({exc})."
+
+        avg_rr = perf.get("avg_rr") if perf else None
+        rows.append({
+            "strategy_id": sid,
+            "name": meta.get("name", sid),
+            "win_rate": stat["win_rate"] if stat else 0.0,
+            "closed_trades": stat["closed_trades"] if stat else 0,
+            "total_pnl": round(stat["total_pnl"], 2) if stat else 0.0,
+            "risk_reward": fixed_rr if fixed_rr is not None else avg_rr,
+            "risk_reward_is_fixed": fixed_rr is not None,
+            "in_paper_trading": bool(cfg_row.get("enabled")),
+            "paper_config": {
+                "priority": cfg_row.get("priority", 5),
+                "supported_coins": cfg_row.get("supported_coins", []),
+                "supported_market_types": cfg_row.get("supported_market_types", []),
+            },
+            "can_activate": can_activate,
+            "activation_blocked_reason": blocked_reason,
+        })
+    return {"strategies": rows}
+
+
 @router.get("/api/paper-trading/periods")
 def get_periods():
     """The single source of truth for which time periods the dashboard
@@ -558,6 +640,54 @@ def export_strategy_comparison(period: str = "all"):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f"attachment; filename=strategy_comparison_{period}.xlsx"},
     )
+
+
+@router.get("/api/paper-trading/cloud-sync/status")
+def get_cloud_sync_status():
+    """Part 6 (this task): whether the automatic 24h cloud-to-local backup
+    (paper_trading.cloud_sync) has ever run, and a quick row-count preview
+    -- lets the dashboard show "last synced 3 hours ago" without
+    downloading the whole snapshot."""
+    snapshot = cloud_sync.get_latest_snapshot()
+    if not snapshot:
+        return {"has_run": False, "generated_at": None}
+    return {
+        "has_run": True,
+        "generated_at": snapshot["generated_at"],
+        "open_positions": len(snapshot["open_positions"]),
+        "closed_positions": len(snapshot["closed_positions"]),
+        "telegram_signals": len(snapshot["telegram_signal_log"]),
+    }
+
+
+@router.post("/api/paper-trading/cloud-sync/run-now")
+def run_cloud_sync_now():
+    """Manual trigger -- generates a fresh snapshot immediately rather
+    than waiting for the scheduler's own up-to-24h gate, for a CEO who
+    wants an up-to-date backup right before pulling it down, or to prove
+    the mechanism works without waiting a full day."""
+    snapshot = cloud_sync.run_sync()
+    return {"ok": True, "generated_at": snapshot["generated_at"]}
+
+
+@router.get("/api/paper-trading/cloud-sync/download")
+def download_cloud_sync_snapshot():
+    """Downloads the most recent 24h backup snapshot as a JSON file --
+    open positions, closed trades, the Telegram signal log, and per-
+    strategy performance stats. One-way (cloud -> local): this endpoint
+    only ever reads and hands out the cloud's own data, it never accepts
+    or writes anything back."""
+    snapshot = cloud_sync.get_latest_snapshot()
+    if not snapshot:
+        raise HTTPException(
+            status_code=404,
+            detail="No sync snapshot has been generated yet. It runs automatically "
+                   "every 24 hours, or call POST /api/paper-trading/cloud-sync/run-now "
+                   "to generate one immediately.",
+        )
+    filename = f"sindhu_cloud_sync_{snapshot['generated_at'][:10]}.json"
+    return JSONResponse(content=jsonable_encoder(snapshot),
+                         headers={"Content-Disposition": f"attachment; filename={filename}"})
 
 
 @router.get("/api/paper-trading/analytics")
@@ -1074,6 +1204,7 @@ def get_telegram_analytics(period: str = "all"):
         "summary": telegram_analytics.signal_period_summary(since_iso, until_iso),
         "strategy_breakdown": telegram_analytics.strategy_breakdown(since_iso, until_iso),
         "hypothetical_pnl": telegram_analytics.hypothetical_pnl(since_iso, until_iso),
+        "best_strategy": telegram_analytics.best_performing_strategy(since_iso, until_iso),
     }
 
 

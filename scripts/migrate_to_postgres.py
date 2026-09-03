@@ -55,8 +55,20 @@ from data_engine.paths import DB_PATH
 # Every table this migrates -- must stay exactly in sync with
 # data_engine/db_backend.py's POSTGRES_SCHEMA. Listed in dependency order
 # (a table with no foreign keys to any other table in this set can go in
-# any order; none of the 17 curated tables reference each other via
+# any order; none of the 19 curated tables reference each other via
 # FOREIGN KEY, so plain insertion order is fine here).
+#
+# auth_credentials/auth_sessions are listed here for that exact-parity
+# guarantee, but this script never actually copies rows into them: on the
+# local laptop, login credentials/sessions live in JSON files (sindhu_web/
+# auth.py), never in a local SQLite table -- there is no source data for
+# migrate_table() to read. It handles that the same as any other table
+# absent from the source database (see test_table_absent_from_local_
+# database_is_skipped_not_fatal): prints "skipped", copies 0 rows, and
+# moves on. A brand-new cloud deploy simply starts with no account set up
+# yet, exactly like a first-ever local run -- the CEO creates fresh cloud
+# credentials once, and Part 1's Postgres-backed storage keeps them from
+# then on.
 CURATED_TABLES = [
     "paper_positions",
     "paper_account_state",
@@ -75,6 +87,13 @@ CURATED_TABLES = [
     "paper_lesson_performance",
     "bot_strategies",
     "bot_lessons",
+    "auth_credentials",
+    "auth_sessions",
+    # cloud_settings: same story as auth_credentials/auth_sessions above --
+    # listed for exact-parity with db_backend.POSTGRES_SCHEMA, but never
+    # actually migrated. paper_trading_settings.json/telegram_settings.json
+    # live as local JSON files, not a SQLite table, on the laptop.
+    "cloud_settings",
 ]
 
 

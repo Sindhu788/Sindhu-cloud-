@@ -401,6 +401,50 @@ CREATE TABLE IF NOT EXISTS bot_strategies (
     updated_at TEXT NOT NULL
 );
 
+-- Login credentials + sessions (sindhu_web/auth.py). On the local laptop
+-- these live in data/config/auth_credentials.json + auth_sessions.json --
+-- fine there because the local disk is permanent. Render's free tier
+-- filesystem is EPHEMERAL: it is wiped on every restart, redeploy, and
+-- sleep/wake cycle, so a cloud deploy that kept using those JSON files lost
+-- its login every time the host recycled, forcing "first-time setup" again
+-- even though nothing was actually wrong. Moving them into this same
+-- curated Postgres database (which already backs paper_positions etc. and
+-- genuinely survives restarts) fixes that; auth.py branches on
+-- db_backend.IS_POSTGRES exactly like every other dual-backend call site.
+CREATE TABLE IF NOT EXISTS auth_credentials (
+    id INTEGER PRIMARY KEY,
+    username TEXT NOT NULL,
+    salt TEXT NOT NULL,
+    password_hash TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS auth_sessions (
+    token TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+);
+
+-- Same ephemeral-filesystem problem as auth_credentials above, for the two
+-- operational settings files a CEO actually toggles from the dashboard:
+-- paper_trading/config.py's paper_trading_settings.json (Dry Run Mode,
+-- engine on/off, the 5-open-trades-per-strategy default, etc.) and
+-- paper_trading/telegram_bot.py's telegram_settings.json (auto-send
+-- on/off, confidence thresholds, Signal Freshness Gate). Flipping "Dry
+-- Run Mode" off on a Render free instance previously would not survive
+-- the next restart/redeploy/sleep-wake -- it would silently revert to the
+-- conservative default (dry_run: True) with no visible error, exactly the
+-- same failure shape Part 1 fixed for login credentials. One generic
+-- key/value table (rather than one bespoke table per settings file, which
+-- would repeat auth_credentials' shape for no reason -- these are plain
+-- JSON blobs, not queried by column) covers both, and any future settings
+-- file that needs the same treatment, without another schema change.
+CREATE TABLE IF NOT EXISTS cloud_settings (
+    key TEXT PRIMARY KEY,
+    value_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS bot_lessons (
     id TEXT PRIMARY KEY,
     base_id TEXT NOT NULL,

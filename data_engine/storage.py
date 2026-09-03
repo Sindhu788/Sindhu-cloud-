@@ -2998,6 +2998,30 @@ def list_paper_lesson_performance():
     return [dict(zip(cols, r)) for r in rows]
 
 
+def get_cloud_setting(key):
+    """Generic key/value read for cloud_settings (see db_backend.py's
+    schema comment) -- used by paper_trading/config.py and
+    paper_trading/telegram_bot.py to persist their settings blobs across
+    restarts when running against Postgres, instead of the local JSON file
+    that pattern normally uses. Returns None if the key has never been
+    saved (caller merges over its own defaults, same contract as
+    data_engine.config.load_or_seed)."""
+    with get_conn() as conn:
+        row = conn.execute("SELECT value_json FROM cloud_settings WHERE key=?", (key,)).fetchone()
+    return json.loads(row[0]) if row else None
+
+
+def save_cloud_setting(key, data, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO cloud_settings (key, value_json, updated_at)
+               VALUES (?, ?, ?)
+               ON CONFLICT(key) DO UPDATE SET
+                 value_json=excluded.value_json, updated_at=excluded.updated_at""",
+            (key, json.dumps(data), now_iso),
+        )
+
+
 def get_paper_strategy_config(strategy_id):
     with get_conn() as conn:
         row = conn.execute(

@@ -90,7 +90,7 @@ def test_cloud_nav_only_lists_pages_this_runner_actually_mounts(cloud_app):
     this runner really serves -- a stale nav entry would put a dead link
     in the cloud sidebar with no way to notice except a user clicking it."""
     page_ids = {p["id"] for p in cloud_app._CLOUD_NAV_PAGES}
-    assert page_ids == {"paper_trading", "telegram_dashboard"}
+    assert page_ids == {"paper_trading", "telegram_dashboard", "strategy_overview", "signal_tracker"}
     for group in (p["group"] for p in cloud_app._CLOUD_NAV_PAGES):
         assert group in cloud_app._CLOUD_NAV_GROUPS
 
@@ -114,6 +114,11 @@ def test_app_mounts_exactly_the_expected_routers(cloud_app):
     route_paths = _all_route_paths(cloud_app.app)
     # A representative sample from each intentionally-mounted router.
     assert "/api/paper-trading/status" in route_paths
+    assert "/api/paper-trading/strategy-overview" in route_paths
+    assert "/api/paper-trading/signal-tracker/feed" in route_paths
+    assert "/api/paper-trading/signal-tracker/match-table" in route_paths
+    assert "/api/paper-trading/cloud-sync/status" in route_paths
+    assert "/api/paper-trading/cloud-sync/download" in route_paths
     assert "/api/auth/login" in route_paths
     assert "/ws/logs" in route_paths
     # A page this runner does NOT serve must not have leaked in via some
@@ -138,9 +143,26 @@ def test_health_endpoint_exists_and_is_trivial(cloud_app):
     route = next(r for r in cloud_app.app.routes if getattr(r, "path", None) == "/health")
     body = route.endpoint()
     assert body["status"] == "ok"
-    assert set(body) == {"status", "cloud_mode", "live_candles_only"}
+    assert set(body) == {"status", "cloud_mode", "live_candles_only", "db_backend"}
     assert isinstance(body["cloud_mode"], bool)
     assert isinstance(body["live_candles_only"], bool)
+    assert body["db_backend"] in ("postgres", "local_file (ephemeral on most hosts)")
+
+
+def test_health_endpoint_reports_db_backend_honestly(cloud_app, monkeypatch):
+    """DATABASE_URL being unset (or not reaching the process) is exactly
+    the misconfiguration Part 1's persistence fix depends on someone being
+    able to notice from outside -- /health must reflect the REAL live
+    db_backend.IS_POSTGRES flag, not a cached/assumed value, in both
+    directions."""
+    from data_engine import db_backend
+    route = next(r for r in cloud_app.app.routes if getattr(r, "path", None) == "/health")
+
+    monkeypatch.setattr(db_backend, "IS_POSTGRES", False)
+    assert route.endpoint()["db_backend"] == "local_file (ephemeral on most hosts)"
+
+    monkeypatch.setattr(db_backend, "IS_POSTGRES", True)
+    assert route.endpoint()["db_backend"] == "postgres"
 
 
 def test_health_endpoint_is_exempt_from_the_login_gate():

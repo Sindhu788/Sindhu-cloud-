@@ -1285,6 +1285,123 @@
     });
   }
 
+  // ------------------------------------------------------------ Cloud "Strategies" overview
+  // Cloud-only page (see cloud_runtime/app.py's _CLOUD_NAV_PAGES) --
+  // deliberately its own function/id, NOT a reuse of renderStrategies
+  // (that one calls /api/backtesting/strategies and other routers the
+  // lightweight cloud runner never mounts). Backed entirely by
+  // /api/paper-trading/strategy-overview, which itself pulls only from
+  // Paper Trading's own real history -- there is no backtest database in
+  // this runner (see db_backend.py), so win rate/PnL are live-trading
+  // numbers, not backtest ones.
+  let strategyOverviewSort = { key: "total_pnl", dir: "desc" };
+
+  function strategyOverviewRrCell(row, en) {
+    if (row.risk_reward == null) return `<span class="muted">${en ? "Not enough data yet" : "Abhi kaafi data nahi"}</span>`;
+    return `1 : ${row.risk_reward.toFixed(2)}${row.risk_reward_is_fixed ? "" : ` <span class="muted" style="font-size:11px;">(${en ? "avg" : "avg"})</span>`}`;
+  }
+
+  function strategyOverviewSortValue(row, key) {
+    if (key === "name") return (row.name || "").toLowerCase();
+    if (key === "status") return row.in_paper_trading ? 1 : 0;
+    const v = row[key];
+    return v == null ? -Infinity : v;
+  }
+
+  async function renderStrategyOverview() {
+    const en = getLang() === "en";
+    const myToken = activeRouteToken;
+    const data = await apiGet("/api/paper-trading/strategy-overview");
+    if (isStaleRoute(myToken)) return;
+    const strategies = data.strategies || [];
+
+    const COLUMNS = [
+      { key: "name", label: en ? "Strategy" : "Strategy" },
+      { key: "win_rate", label: en ? "Win Rate" : "Win Rate" },
+      { key: "total_pnl", label: en ? "Net PnL" : "Net PnL" },
+      { key: "risk_reward", label: "R:R" },
+      { key: "status", label: en ? "Status" : "Status" },
+    ];
+
+    function renderTable() {
+      const sorted = [...strategies].sort((a, b) => {
+        const av = strategyOverviewSortValue(a, strategyOverviewSort.key);
+        const bv = strategyOverviewSortValue(b, strategyOverviewSort.key);
+        if (av < bv) return strategyOverviewSort.dir === "asc" ? -1 : 1;
+        if (av > bv) return strategyOverviewSort.dir === "asc" ? 1 : -1;
+        return 0;
+      });
+
+      const rows = sorted.map(s => `
+        <tr>
+          <td>${esc(s.name)}</td>
+          <td>${s.closed_trades > 0 ? s.win_rate.toFixed(1) + "%" : `<span class="muted">${en ? "No trades yet" : "Abhi trades nahi"}</span>`}</td>
+          <td>${s.closed_trades > 0 ? pnlSpan(s.total_pnl) : `<span class="muted">$0.00</span>`}</td>
+          <td>${strategyOverviewRrCell(s, en)}</td>
+          <td>${s.in_paper_trading
+            ? `<span class="pill pill-up">${en ? "Active in Paper Trading" : "Paper Trading Mein Active"}</span>`
+            : `<span class="pill pill-muted">${en ? "Not yet added" : "Abhi Shamil Nahi"}</span>`}</td>
+          <td>
+            ${s.in_paper_trading
+              ? `<span class="muted" style="font-size:12px;">${s.closed_trades} ${en ? "trades so far" : "trades ab tak"}</span>`
+              : s.can_activate
+                ? `<button class="btn" style="font-size:12px;" data-activate="${esc(s.strategy_id)}">${en ? "Move to Paper Trading" : "Paper Trading Mein Bhejein"}</button>`
+                : `<button class="btn" style="font-size:12px;" disabled title="${esc(s.activation_blocked_reason || "")}">${en ? "Move to Paper Trading" : "Paper Trading Mein Bhejein"}</button>
+                   <div class="muted" style="font-size:11px;max-width:220px;">${esc(s.activation_blocked_reason || "")}</div>`}
+          </td>
+        </tr>`).join("");
+
+      content.innerHTML = `
+        <div class="section-title">${en ? "Strategies" : "Strategies"}</div>
+        <p class="muted" style="font-size:12px;margin:0 0 12px;">${en
+          ? "Every strategy currently in the system. Win rate and PnL come from real Paper Trading history -- a strategy not yet added shows $0.00 until it actually starts trading. Click a column heading to sort."
+          : "System mein maujood har strategy. Win rate aur PnL asli Paper Trading history se hain -- jo strategy abhi shamil nahi hui uska $0.00 dikhega jab tak trading shuru nahi hoti. Column ke naam par click karke sort karein."}</p>
+        <div class="table-wrap"><table>
+          <thead><tr>${COLUMNS.map(c => `<th data-sort-key="${c.key}" style="cursor:pointer;">${c.label}${strategyOverviewSort.key === c.key ? (strategyOverviewSort.dir === "asc" ? " &#9650;" : " &#9660;") : ""}</th>`).join("")}<th></th></tr></thead>
+          <tbody>${rows || `<tr><td colspan="6">${en ? "No strategies saved yet." : "Abhi koi strategy save nahi hui."}</td></tr>`}</tbody>
+        </table></div>`;
+
+      content.querySelectorAll("[data-sort-key]").forEach(th => {
+        th.onclick = () => {
+          const key = th.dataset.sortKey;
+          if (strategyOverviewSort.key === key) {
+            strategyOverviewSort = { key, dir: strategyOverviewSort.dir === "asc" ? "desc" : "asc" };
+          } else {
+            strategyOverviewSort = { key, dir: key === "name" ? "asc" : "desc" };
+          }
+          renderTable();
+        };
+      });
+
+      content.querySelectorAll("[data-activate]").forEach(btn => {
+        btn.onclick = async () => {
+          const sid = btn.dataset.activate;
+          const row = strategies.find(s => s.strategy_id === sid);
+          const confirmMsg = en
+            ? `Move "${row.name}" into Paper Trading?\n\nThis switches it ON so it starts taking real (simulated) trades. Every other safety gate (Confluence, Signal Freshness, Drawdown Protection) still applies before any trade fires.`
+            : `"${row.name}" ko Paper Trading mein bhejna hai?\n\nYe isko ON kar dega, jisse ye real (simulated) trades lena shuru kar degi. Baaki har safety gate (Confluence, Signal Freshness, Drawdown Protection) ab bhi lagu rahega, kisi bhi trade se pehle.`;
+          if (!confirm(confirmMsg)) return;
+          btn.disabled = true;
+          try {
+            await apiPost(`/api/paper-trading/strategy-config/${sid}`, {
+              enabled: true,
+              priority: row.paper_config.priority,
+              supported_coins: row.paper_config.supported_coins,
+              supported_market_types: row.paper_config.supported_market_types,
+            });
+            showToast({ title: en ? "Activated" : "Activate ho gaya", body: `${row.name} ${en ? "is now active in Paper Trading." : "ab Paper Trading mein active hai."}` });
+            renderStrategyOverview();
+          } catch (e) {
+            btn.disabled = false;
+            showToast({ title: en ? "Failed" : "Nakam", body: e.message, isError: true });
+          }
+        };
+      });
+    }
+
+    renderTable();
+  }
+
   // "All / Profitable / Losing" filter on Compare's main table -- client-
   // side only (the full list is already fetched), remembered per-tab-switch
   // like the Project Status period tabs use the exact same pill pattern.
@@ -1630,6 +1747,7 @@
     external_signals: renderExternalSignals,
     compare: renderCompare, live_logs: renderLiveLogs, project_status: renderProjectStatus,
     strategy_lifecycle: renderStrategyLifecycle,
+    strategy_overview: renderStrategyOverview,
   };
   let refreshTimer = null;
   let pendingStrategyLoadId = null;
@@ -4781,6 +4899,19 @@
         ${signals.length > 200 ? `<p class="muted plain-note">Showing the 200 most recent of ${fmtNum(signals.length)} signals in this period.</p>` : ""}
 
         ${analytics ? `
+        <div class="section-title">Telegram-Sent Signals Only &mdash; Real Performance ${helpIcon("delivery_status")}</div>
+        <p class="muted plain-note">Every number below counts ONLY signals that genuinely reached Telegram (the High-Confidence-filtered subset) &mdash; never every signal the system generated, and never a hypothetical figure.</p>
+        <div class="grid">
+          ${card("Signals Sent", fmtNum(analytics.summary.total_signals))}
+          ${card("Wins", fmtNum(analytics.summary.wins))}
+          ${card("Losses", fmtNum(analytics.summary.losses))}
+          ${card("Win Rate", analytics.summary.win_rate_pct != null ? `${analytics.summary.win_rate_pct.toFixed(1)}%` : `Needs ${analytics.summary.min_sample_size}+ finished`)}
+          ${card("Total PnL", pnlSpan(analytics.summary.total_pnl))}
+          ${card("Best Strategy", analytics.best_strategy
+            ? `${esc(analytics.best_strategy.strategy_name)} (${pnlSpan(analytics.best_strategy.total_pnl)})`
+            : "Not enough closed trades yet")}
+        </div>
+
         <div class="section-title">Per-Strategy &mdash; Delivered Signals Only</div>
         <p class="muted plain-note">This table counts only signals that genuinely reached Telegram, so it will read lower than the log above whenever delivery is blocked.</p>
         <div class="table-wrap"><table>

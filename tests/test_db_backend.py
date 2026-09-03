@@ -139,7 +139,7 @@ def test_schema_contains_every_table_the_lightweight_runner_needs():
         "paper_strategy_overrides", "paper_lesson_candidates", "paper_auto_lessons",
         "paper_decision_log", "paper_strategy_stat_archives", "telegram_message_log",
         "lessons", "paper_strategy_performance", "paper_lesson_performance",
-        "bot_strategies", "bot_lessons",
+        "bot_strategies", "bot_lessons", "auth_credentials", "auth_sessions", "cloud_settings",
     }
     for table in expected_tables:
         assert f"CREATE TABLE IF NOT EXISTS {table} (" in db_backend.POSTGRES_SCHEMA, table

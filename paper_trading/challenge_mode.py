@@ -20,10 +20,11 @@ presented as achievable.
 import math
 from datetime import datetime, timedelta, timezone
 
-from data_engine import config as base_config, storage
+from data_engine import config as base_config, db_backend, storage
 from paper_trading import config as pt_config
 
 _SETTINGS_FILE = "challenge_settings.json"
+_SETTINGS_KEY = "challenge_settings"
 _DEFAULTS = {
     "enabled": False,
     "start_amount": None,
@@ -55,10 +56,26 @@ def _now_iso():
 
 
 def load():
+    # Cloud persistence: same reasoning as paper_trading/config.py and
+    # paper_trading/telegram_bot.py -- on a host with DATABASE_URL set,
+    # this lives in Postgres (cloud_settings) instead of the local file,
+    # which is ephemeral on most cloud hosts and would otherwise silently
+    # drop the CEO's chosen challenge (and, relevant to Telegram's Challenge
+    # Mode labeling, its scope_strategy_id/scope_symbol) after every
+    # restart/redeploy/sleep-wake. Local laptop behavior is unchanged.
+    if db_backend.IS_POSTGRES:
+        saved = storage.get_cloud_setting(_SETTINGS_KEY)
+        merged = dict(_DEFAULTS)
+        if saved:
+            merged.update(saved)
+        return merged
     return base_config.load_or_seed(_SETTINGS_FILE, _DEFAULTS)
 
 
 def save(settings):
+    if db_backend.IS_POSTGRES:
+        storage.save_cloud_setting(_SETTINGS_KEY, settings, _now_iso())
+        return
     base_config.save_config(_SETTINGS_FILE, settings)
 
 

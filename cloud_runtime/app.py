@@ -71,9 +71,30 @@ APP_VERSION = "5.1-cloud"
 # full nav (sindhu_web/api/home.py NAV_PAGES) lists dozens of pages
 # (Backtesting, Evolution, AI Center, ...) this runner never serves --
 # listing them here would put dead links in the cloud sidebar.
+#
+# "strategy_overview" is deliberately its own id, NOT "strategies" -- that
+# id already belongs to the local app's full Strategy Library page
+# (renderStrategies in app.js, backed by /api/backtesting/strategies and
+# other routers this runner never mounts). Reusing that id here would make
+# the SAME shared PAGES{} entry try to render on a runner that can't serve
+# it. renderStrategyOverview (app.js) is a new, separate function built
+# specifically against endpoints this runner already mounts
+# (paper_trading_api's /api/paper-trading/strategy-overview).
 _CLOUD_NAV_PAGES = [
     {"id": "paper_trading", "label": "Paper Trading", "enabled": True, "icon": "wallet", "group": "Paper Trading"},
+    {"id": "strategy_overview", "label": "Strategies", "enabled": True, "icon": "layers", "group": "Paper Trading"},
     {"id": "telegram_dashboard", "label": "Telegram Signals", "enabled": True, "icon": "send", "group": "Paper Trading"},
+    # Part 7 (nav audit, this task): "signal_tracker" was a genuine
+    # oversight, not a deliberate exclusion like every other local-only
+    # page -- its page (renderSignalTracker, app.js) only ever calls
+    # paper_trading_api endpoints already mounted here
+    # (/api/paper-trading/signal-tracker/feed and /match-table), same
+    # router as every other page in this list. signal_tracker.py's
+    # backtest-comparison lookup was hardened (see paper_trading/
+    # signal_tracker.py's _backtest_win_rate) to degrade to "no backtest
+    # data available" rather than crash on this runner's curated Postgres
+    # schema, which never stores backtest_batches/backtest_results.
+    {"id": "signal_tracker", "label": "Signal Tracker", "enabled": True, "icon": "activity", "group": "Paper Trading"},
 ]
 _CLOUD_NAV_GROUPS = ["Paper Trading"]
 
@@ -116,6 +137,12 @@ async def _lifespan(app: FastAPI):
     _tg_enabled = _telegram_bot.load_settings().get("master_send_enabled", True)
     log(f"[cloud-runtime] Telegram sending is currently {'ON' if _tg_enabled else 'OFF'} "
         f"(restored from the last saved setting).")
+
+    # Part 6 (24h cloud-to-local sync): started ONLY here, never from the
+    # local laptop's full app (sindhu_web/server.py) -- this is a
+    # cloud-runtime-only backup mechanism, per this task's own scope rule.
+    from paper_trading import cloud_sync
+    cloud_sync.start_cloud_sync_scheduler_thread()
 
     task = asyncio.create_task(_broadcast_loop())
     yield
@@ -183,10 +210,25 @@ def create_app():
         was because SINDHU_CLOUD_MODE genuinely wasn't set on the host or
         because of some other bug -- this makes that immediately visible
         without needing dashboard access or a redeploy to check. Neither
-        value is a secret; they're just which mode the process is in."""
+        value is a secret; they're just which mode the process is in.
+
+        db_backend answers the same kind of question for DATABASE_URL:
+        "postgres" means login credentials/sessions and all Paper Trading
+        data genuinely survive a restart; "local_file (ephemeral on most
+        hosts)" means DATABASE_URL isn't set (or isn't reaching this
+        process) and login/trading state will be wiped on the next
+        restart/redeploy/sleep-wake cycle -- the exact bug Part 1 fixed
+        for the Postgres case. No connection string or credential is ever
+        exposed here, only which of the two modes the process picked."""
         from data_engine.resample import LIVE_CANDLES_ONLY
         from sindhu_web.security import CLOUD_MODE
-        return {"status": "ok", "cloud_mode": CLOUD_MODE, "live_candles_only": LIVE_CANDLES_ONLY}
+        from data_engine import db_backend
+        return {
+            "status": "ok",
+            "cloud_mode": CLOUD_MODE,
+            "live_candles_only": LIVE_CANDLES_ONLY,
+            "db_backend": "postgres" if db_backend.IS_POSTGRES else "local_file (ephemeral on most hosts)",
+        }
 
     app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 

@@ -87,10 +87,14 @@ def test_high_tier_still_requires_the_unchanged_25_trade_wilson_gate(test_db):
     assert "statistically confident" in reason
 
 
-def test_low_tier_sends_when_high_tier_lacks_statistical_history(test_db):
-    """The core Task 4 behavior: full confluence but not yet enough trade
-    history for the Wilson gate -- HIGH tier correctly refuses, LOW tier
-    picks it up so signal flow doesn't stop."""
+def test_low_tier_qualifies_but_is_not_sent_by_default(test_db):
+    """Confidence filtering (a later task): full confluence but not yet
+    enough trade history for the Wilson gate -- HIGH tier correctly
+    refuses, LOW tier ON ITS OWN still qualifies (evaluate_auto_send_low_tier
+    is untouched), but the combined decision evaluate_auto_send_tier()
+    actually makes for a real send now defaults to High-Confidence-only:
+    a Low-tier-only qualifying signal is generated (still visible on the
+    dashboard's decision log/Signal Tracker/delivery-log) but NOT sent."""
     _enable_auto_send()
     _open_position(storage)
     with patch.object(telegram_bot.confluence_mod, "score_confluence", return_value=FULL_CONFLUENCE):
@@ -101,6 +105,19 @@ def test_low_tier_sends_when_high_tier_lacks_statistical_history(test_db):
         assert should_send_low is True
         assert "not yet statistically confirmed" in low_reason
 
+        tier, reason = telegram_bot.evaluate_auto_send_tier("pos1")
+        assert tier is None
+        assert "only High Confidence" in reason
+
+
+def test_low_tier_can_still_be_sent_if_explicitly_opted_back_in(test_db):
+    """auto_send_high_confidence_only=False restores the previous
+    fallback-to-low-tier behavior for anyone who deliberately wants it --
+    the filtering is a default, not a hardcoded removal of the tier."""
+    _enable_auto_send()
+    telegram_bot.save_settings(auto_send_high_confidence_only=False)
+    _open_position(storage)
+    with patch.object(telegram_bot.confluence_mod, "score_confluence", return_value=FULL_CONFLUENCE):
         tier, reason = telegram_bot.evaluate_auto_send_tier("pos1")
         assert tier == "low"
 
