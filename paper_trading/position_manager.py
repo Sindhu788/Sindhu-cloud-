@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 from backtest_engine.engine import _apply_slippage, EMERGENCY_STOP_PCT
 from data_engine import storage, feature_toggles
 from paper_trading import reflection, evolution, auto_avoid, drawdown_guard, telegram_bot, ai_trade_review
+from paper_trading import account_drawdown_guard, profit_lock
+from paper_trading import config as pt_config
 from paper_trading.guards import book_key as _book_key
 # Evolution Core Engine (Phase 7A, A.1): turns this closed trade's outcome,
 # combined with this strategy's own trade history, into a traceable BOT
@@ -138,7 +140,35 @@ def monitor_and_close(exchange, symbol, latest_price, high=None, low=None):
     candle's range when the caller has it, so an intrabar stop/target touch
     is caught the same way the backtest catches it."""
     closed = []
+    profit_lock_settings = None
     for pos in storage.get_open_paper_positions(exchange, symbol):
+        # Grand Feature Expansion, Phase 3 Feature 8 (MAE/MFE): widen this
+        # position's lowest/highest-price-seen range with this tick's
+        # candle, BEFORE checking for exit -- an exit-triggering wick still
+        # counts as part of this trade's real excursion history.
+        tick_low = low if low is not None else latest_price
+        tick_high = high if high is not None else latest_price
+        storage.update_position_excursion(pos["id"], tick_low, tick_high)
+
+        # Grand Feature Expansion, Phase 5 Feature 9: Profit-Lock Trailing
+        # Stop -- reuses the excursion just widened above (pos's own
+        # in-memory copy predates that write, so this tick's high/low is
+        # folded in here too) to see if the stop should tighten BEFORE
+        # this same tick's exit check runs.
+        if profit_lock_settings is None:
+            profit_lock_settings = pt_config.load()
+        if profit_lock_settings.get("profit_lock_enabled", False):
+            current_high = max(pos.get("highest_price_seen") or pos["entry_price"], tick_high)
+            current_low = min(pos.get("lowest_price_seen") or pos["entry_price"], tick_low)
+            new_stop = profit_lock.compute_trailing_stop(
+                pos["direction"], pos["entry_price"], pos["stop_loss"], current_high, current_low,
+                trigger_r=profit_lock_settings.get("profit_lock_trigger_r", 1.0),
+                trail_pct=profit_lock_settings.get("profit_lock_trail_pct", 50.0),
+            )
+            if new_stop is not None:
+                storage.update_position_stop_loss(pos["id"], new_stop)
+                pos["stop_loss"] = new_stop
+
         reason = _check_exit(pos, latest_price, high, low)
         if reason:
             # Fill at the stop/target level itself, not the sampled spot
@@ -207,6 +237,12 @@ def _close(pos, exit_price, exit_reason):
     # that's mid-drawdown.
     if feature_toggles.is_enabled("drawdown_protection_enabled"):
         drawdown_guard.evaluate_strategy(pos.get("strategy_id"), pos.get("strategy_name"))
+        # Account-wide Drawdown Circuit-Breaker (Grand Feature Expansion,
+        # Phase 1 Feature 5): same trigger point, but compares the COMBINED
+        # balance across every book against its own peak -- see the
+        # module's own docstring for why this is a separate, stricter,
+        # system-wide check rather than a duplicate of the per-strategy one.
+        account_drawdown_guard.evaluate_account()
 
     # A5: two-way Telegram awareness -- only sends if a signal was actually
     # sent for this exact position earlier (checked inside the function).

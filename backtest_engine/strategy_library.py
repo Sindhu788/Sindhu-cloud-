@@ -44,6 +44,34 @@ def _write_meta(strategy_id, meta):
         json.dump(meta, f, indent=2)
 
 
+def save_backtest_snapshot(strategy_id, snapshot):
+    """Master Task 3, Phase 0.7 (dual-row Strategies table -- backtest
+    expectation vs live paper-trading reality): a small, git-tracked
+    summary of this strategy's most recent LOCAL backtest performance
+    (win_rate, profit_factor, total_trades, batch_id, computed_at),
+    refreshed opportunistically by sindhu_web/api/backtesting.py's
+    _compute_strategies_list whenever it computes these same numbers
+    anyway for the local Strategies page -- no extra backtest queries.
+
+    WHY meta.json, not a database column: the cloud runner's Postgres
+    schema deliberately excludes the backtest_* tables (see data_engine/
+    db_backend.py's own docstring) to keep the cloud database small, so a
+    cloud dashboard could never otherwise show "what this strategy's
+    backtest predicted" at all. meta.json already travels from the local
+    laptop to the cloud deploy via the normal git commit/push (every
+    strategies/library/<id>/meta.json is a tracked file) -- this makes
+    that same channel carry a tiny backtest summary alongside it, with
+    zero new infrastructure.
+
+    Skips the write entirely if nothing actually changed, so a page that
+    polls this endpoint repeatedly does not rewrite the file on every call."""
+    meta = _read_meta(strategy_id)
+    if meta.get("backtest_snapshot") == snapshot:
+        return
+    meta["backtest_snapshot"] = snapshot
+    _write_meta(strategy_id, meta)
+
+
 def create(config, tags=None):
     """Saves a new strategy as version 1. Returns its library id.
 
@@ -179,6 +207,44 @@ def search(query="", tag=None):
     return results
 
 
+SIMILARITY_WARNING_THRESHOLD_PCT = 80.0
+
+
+def find_similarity_warnings(concepts_used, exclude_strategy_id=None, threshold_pct=SIMILARITY_WARNING_THRESHOLD_PCT):
+    """Grand Feature Expansion, Phase 4 Feature 2: Strategy Similarity
+    Detector -- fuzzy similarity (Jaccard index over concepts_used) against
+    every ACTIVE strategy in the whole library. Distinct from the two
+    similarity checks that already existed: knowledge_compiler/quality.py's
+    find_duplicate_strategy (EXACT strategy_dna hash match only, no partial
+    similarity) and paper_trading/graveyard.py's check_similarity_warnings
+    (a raw concept-overlap COUNT, not a %, and only ever compared against
+    BURIED/retired strategies, never the live library). This is the
+    "before you build something 80%+ identical" check neither of those
+    covers."""
+    target = set(concepts_used or [])
+    if not target:
+        return []
+    warnings = []
+    for meta in list_all():
+        if meta.get("archived") or meta["id"] == exclude_strategy_id:
+            continue
+        try:
+            other = set(load(meta["id"]).concepts_used or [])
+        except FileNotFoundError:
+            continue
+        union = target | other
+        if not union:
+            continue
+        similarity_pct = len(target & other) / len(union) * 100
+        if similarity_pct >= threshold_pct:
+            warnings.append({
+                "strategy_id": meta["id"], "strategy_name": meta["name"],
+                "similarity_pct": round(similarity_pct, 1),
+            })
+    warnings.sort(key=lambda w: w["similarity_pct"], reverse=True)
+    return warnings
+
+
 def rename(strategy_id, new_name):
     meta = _read_meta(strategy_id)
     meta["name"] = new_name
@@ -196,6 +262,19 @@ def set_tags(strategy_id, tags):
 def set_favourite(strategy_id, favourite):
     meta = _read_meta(strategy_id)
     meta["favourite"] = bool(favourite)
+    _write_meta(strategy_id, meta)
+
+
+def set_comment(strategy_id, comment):
+    """Grand Feature Expansion, Phase 4 Feature 9: Strategy Comments/Notes
+    -- a single freeform, user-writable field, distinct from set_
+    clarification's own "notes" (a system-generated, auto-cleared list
+    nested under meta["clarification"], never user-editable). Stored at
+    the top level as "ceo_comment" specifically to avoid any collision
+    with that existing key."""
+    meta = _read_meta(strategy_id)
+    meta["ceo_comment"] = comment or ""
+    meta["updated_at"] = _now_iso()
     _write_meta(strategy_id, meta)
 
 
@@ -323,3 +402,21 @@ def diff_versions(strategy_id, version_a, version_b):
                 "before": a.get(key), "after": b.get(key),
             })
     return changes
+
+
+def restore_version(strategy_id, version):
+    """Grand Feature Expansion, Phase 4 Feature 22: Undo/Rollback for a
+    strategy's own config -- a CEO can already VIEW/diff old versions
+    (version_history/diff_versions above) but had no way to actually go
+    back to one. Never deletes or overwrites history: loads the requested
+    old version's config and re-saves it as a brand-new version via the
+    existing save_version() (exactly like any other edit), so a restore is
+    itself fully undoable by restoring again, and every version file on
+    disk stays untouched forever, per this project's no-deletion rule."""
+    meta = _read_meta(strategy_id)
+    if version < 1 or version > meta["current_version"]:
+        raise ValueError(f"version {version} does not exist for this strategy")
+    if version == meta["current_version"]:
+        raise ValueError("that is already the current version")
+    config = load(strategy_id, version)
+    return save_version(strategy_id, config, reason=f"Restored from version {version}")

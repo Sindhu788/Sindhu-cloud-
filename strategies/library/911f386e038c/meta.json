@@ -1,0 +1,19 @@
+{
+  "id": "911f386e038c",
+  "name": "Support/Resistance + Liquidity Sweep (Structure) [Manual Build]",
+  "tags": [
+    "concept_based_strategy",
+    "manual_build",
+    "sr_liquidity_sweep_sideways",
+    "1h",
+    "new_batch_5",
+    "structure"
+  ],
+  "favourite": false,
+  "archived": false,
+  "created_at": "2026-09-01T23:37:51.170233+00:00",
+  "updated_at": "2026-09-01T23:37:51.170233+00:00",
+  "current_version": 1,
+  "safety_status": "ready",
+  "safety_reasons": []
+}

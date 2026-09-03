@@ -23,6 +23,18 @@ class AIResult:
     latency_ms: int = 0
 
 
+def _retry_after_seconds(header_value, default):
+    """Parses a Retry-After header (seconds, per RFC) -- falls back to
+    `default` if missing or not a plain integer (some providers omit it or
+    use an HTTP-date form this doesn't bother parsing)."""
+    if not header_value:
+        return default
+    try:
+        return max(0, int(header_value))
+    except (TypeError, ValueError):
+        return default
+
+
 class AIProvider:
     name = "base"
 
@@ -57,6 +69,17 @@ class AIProvider:
                     last_error = f"HTTP {resp.status_code}: {resp.text[:300]}"
                     if resp.status_code in (401, 403):
                         break  # auth errors never succeed on retry
+                    # Grand Feature Expansion, Phase 1 Feature 10: 429 (rate
+                    # limited) previously fell through to the generic
+                    # `continue` below with NO backoff at all, hammering the
+                    # provider on every retry instead of waiting -- same
+                    # Retry-After-aware pattern data_engine/binance_client.py
+                    # already uses for the exchange API.
+                    if resp.status_code == 429 and attempt < attempts - 1:
+                        wait = _retry_after_seconds(resp.headers.get("Retry-After"), default=5 * (attempt + 1))
+                        time.sleep(wait)
+                    elif resp.status_code >= 500 and attempt < attempts - 1:
+                        time.sleep(2 * (attempt + 1))
                     continue
                 text, tin, tout = self._parse_response(resp.json())
                 if not text:
@@ -66,9 +89,13 @@ class AIProvider:
             except requests.Timeout:
                 latency_ms = int((time.time() - start) * 1000)
                 last_error = f"Request timed out after {self.timeout}s."
+                if attempt < attempts - 1:
+                    time.sleep(2 * (attempt + 1))
             except requests.RequestException as exc:
                 latency_ms = int((time.time() - start) * 1000)
                 last_error = f"Network error: {exc}"
+                if attempt < attempts - 1:
+                    time.sleep(2 * (attempt + 1))
             except (KeyError, IndexError, ValueError) as exc:
                 latency_ms = int((time.time() - start) * 1000)
                 last_error = f"Unexpected response shape: {exc}"

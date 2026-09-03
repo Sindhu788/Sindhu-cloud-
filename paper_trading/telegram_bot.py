@@ -82,6 +82,22 @@ _DEFAULTS = {
     # setting (default True) rather than hardcoded, consistent with every
     # other behavior toggle in this file.
     "auto_send_high_confidence_only": True,
+    # Grand Feature Expansion, Phase 2 Feature 22: Multi-Channel Support --
+    # {strategy_id: channel_id} overrides. A strategy with no entry here
+    # keeps going to the one default `channel_id` above, exactly as
+    # before this feature; this is purely additive routing, not a second
+    # bot token or a second set of credentials.
+    "strategy_channel_overrides": {},
+    # Grand Feature Expansion, Phase 2 Feature 24: Silent Hours / Do-Not-
+    # Disturb. UTC hour:minute strings (this codebase is UTC-everywhere,
+    # see _now_iso() -- no timezone library needed, the CEO just accounts
+    # for their own UTC offset when setting these). Signals are still
+    # generated, sent, and fully logged during this window -- only the
+    # phone notification is muted (Telegram's own disable_notification
+    # flag), never a queued/delayed/withheld send.
+    "silent_hours_enabled": False,
+    "silent_hours_start_utc": "23:00",
+    "silent_hours_end_utc": "07:00",
 }
 
 DISCLAIMER = ("This is an experimental signal from a system still under development. "
@@ -163,7 +179,62 @@ def public_settings():
         "signal_freshness_minutes": s.get("signal_freshness_minutes", _DEFAULTS["signal_freshness_minutes"]),
         "signal_price_drift_pct": s.get("signal_price_drift_pct", _DEFAULTS["signal_price_drift_pct"]),
         "language": s.get("language", _DEFAULTS["language"]),
+        "strategy_channel_overrides": s.get("strategy_channel_overrides", {}),
+        "silent_hours_enabled": s.get("silent_hours_enabled", False),
+        "silent_hours_start_utc": s.get("silent_hours_start_utc", _DEFAULTS["silent_hours_start_utc"]),
+        "silent_hours_end_utc": s.get("silent_hours_end_utc", _DEFAULTS["silent_hours_end_utc"]),
     }
+
+
+def channel_for_strategy(strategy_id):
+    """Grand Feature Expansion, Phase 2 Feature 22: the destination this
+    strategy's real-time signals go to -- its own override if one is
+    configured, else None (meaning "use the one default channel_id"),
+    exactly the shape _raw_send's channel_id_override expects."""
+    if not strategy_id:
+        return None
+    return load_settings().get("strategy_channel_overrides", {}).get(strategy_id)
+
+
+def set_strategy_channel_override(strategy_id, channel_id):
+    """channel_id=None (or empty) removes the override, reverting this
+    strategy to the one default channel."""
+    settings = load_settings()
+    overrides = dict(settings.get("strategy_channel_overrides", {}))
+    if channel_id:
+        overrides[strategy_id] = channel_id
+    else:
+        overrides.pop(strategy_id, None)
+    save_settings(strategy_channel_overrides=overrides)
+    return overrides
+
+
+def _parse_hhmm(s):
+    hh, mm = s.split(":")
+    return int(hh) * 60 + int(mm)
+
+
+def is_within_silent_hours(now=None):
+    """Grand Feature Expansion, Phase 2 Feature 24. Handles an overnight
+    window (e.g. 23:00 -> 07:00, which spans midnight) the same way a
+    same-day window (e.g. 13:00 -> 14:00) does -- both are just "is the
+    current minute-of-day inside [start, end)", the wraparound is simply
+    whether start > end."""
+    settings = load_settings()
+    if not settings.get("silent_hours_enabled", False):
+        return False
+    now = now or datetime.now(timezone.utc)
+    current = now.hour * 60 + now.minute
+    try:
+        start = _parse_hhmm(settings.get("silent_hours_start_utc", "23:00"))
+        end = _parse_hhmm(settings.get("silent_hours_end_utc", "07:00"))
+    except (ValueError, AttributeError):
+        return False
+    if start == end:
+        return False  # a zero-width window means "always off", not "always on"
+    if start < end:
+        return start <= current < end
+    return current >= start or current < end  # overnight wraparound
 
 
 def _master_enabled():
@@ -206,7 +277,7 @@ def _build_proxies(settings):
     return {"http": url, "https": url}
 
 
-def _raw_send(text):
+def _raw_send(text, channel_id_override=None):
     """Real HTTP call to the Telegram Bot API -- no simulation. Returns
     (success: bool, error: str|None).
 
@@ -221,19 +292,32 @@ def _raw_send(text):
     through that proxy instead of connecting directly -- see the module
     docstring for why (api.telegram.org is network-blocked in some
     countries at the ISP level, confirmed via direct diagnostic testing,
-    not fixable by timeout/retry tuning alone)."""
+    not fixable by timeout/retry tuning alone).
+
+    channel_id_override (Grand Feature Expansion, Phase 2 Feature 22:
+    Multi-Channel Support): set by send_signal_for_position() when the
+    signal's strategy has a configured routing override -- same bot token,
+    a different destination chat/channel. Every other caller (daily/weekly
+    reports, test sends, close-followups) omits this and keeps using the
+    one default channel_id, unchanged."""
     settings = load_settings()
-    token, channel_id = settings.get("bot_token"), settings.get("channel_id")
+    token = settings.get("bot_token")
+    channel_id = channel_id_override or settings.get("channel_id")
     if not token or not channel_id:
         return False, "Telegram bot token or channel ID not configured yet"
     proxies = _build_proxies(settings)
+    # Grand Feature Expansion, Phase 2 Feature 24: Silent Hours / Do-Not-
+    # Disturb. The message is still sent and fully logged as normal --
+    # Telegram's own disable_notification flag just mutes the phone
+    # alert/sound during the configured window, nothing is withheld.
+    silent = is_within_silent_hours()
 
     last_err = None
     for attempt in range(1, _API_MAX_ATTEMPTS + 1):
         try:
             resp = requests.post(
                 f"https://api.telegram.org/bot{token}/sendMessage",
-                json={"chat_id": channel_id, "text": text, "parse_mode": "HTML"},
+                json={"chat_id": channel_id, "text": text, "parse_mode": "HTML", "disable_notification": silent},
                 timeout=(_API_CONNECT_TIMEOUT, _API_READ_TIMEOUT),
                 proxies=proxies,
             )
@@ -633,7 +717,7 @@ def _pattern_reliability_for(strategy_id, symbol, market_state, session):
     return pattern_stats.classify(match["wins"], match["trades"])
 
 
-def send_signal_for_position(position_id, trigger_type="manual", high_confidence=False):
+def send_signal_for_position(position_id, trigger_type="manual", high_confidence=False, retry_id=None):
     """The one real-send entry point both Manual Override (A2) and the
     automatic rule (A3) call. Rate-limited, always logged (success or
     failure) to telegram_message_log -- a full audit trail, per A4.
@@ -643,12 +727,25 @@ def send_signal_for_position(position_id, trigger_type="manual", high_confidence
     returned "high" for THIS position -- adds the distinct High Confidence
     marker to the message. Manual sends never pass this (defaults False),
     so a CEO-triggered send is never mislabeled as an automatic
-    high-confidence call."""
+    high-confidence call.
+
+    retry_id (Grand Feature Expansion, Phase 2 Feature 11): set ONLY by
+    sweep_pending_telegram_retries() when re-attempting a previously
+    queued failed send -- tells this call not to enqueue a SECOND retry
+    row on renewed failure (the sweep itself updates the existing row)."""
     pos = storage.get_paper_position(position_id)
     now = _now_iso()
     if not pos:
         storage.log_telegram_message(position_id, None, None, trigger_type, "", False, "position not found", now)
         return {"ok": False, "error": "position not found"}
+
+    from paper_trading import kill_switch
+    if kill_switch.is_active():
+        storage.log_telegram_message(
+            position_id, pos.get("strategy_id"), pos.get("strategy_name"), trigger_type,
+            "", False, "kill switch is active -- Telegram sending halted", now,
+        )
+        return {"ok": False, "error": "kill switch is active -- Telegram sending halted"}
 
     if not _master_enabled():
         storage.log_telegram_message(
@@ -699,11 +796,21 @@ def send_signal_for_position(position_id, trigger_type="manual", high_confidence
     grade_result = signal_explainer.grade_signal(conf, reliability)
     text = format_signal_message(pos, conf, reliability, high_confidence=high_confidence, live_price=live_price,
                                   explanation_text=explanation_text, grade_result=grade_result)
-    ok, err = _raw_send(text)
+    ok, err = _raw_send(text, channel_id_override=channel_for_strategy(pos.get("strategy_id")))
     storage.log_telegram_message(
         position_id, pos.get("strategy_id"), pos.get("strategy_name"), trigger_type, text, ok, err, now,
         explanation_text=explanation_text, quality_grade=grade_result["grade"], grade_reason=grade_result["reason"],
     )
+    # Grand Feature Expansion, Phase 2 Feature 11: Delivery Retry Queue.
+    # Only a genuine TRANSIENT delivery failure is queued -- _raw_send's
+    # own docstring is explicit that a real Telegram API response (even an
+    # error one, e.g. a bad chat_id) is never worth retrying, only its
+    # "failed after N attempts" network-exhaustion case is. Never queues
+    # from inside a RETRY attempt itself (retry_id passed) -- that path's
+    # own caller (sweep_pending_retries) updates the SAME queue row
+    # instead of creating a new one.
+    if not ok and retry_id is None and err and err.startswith("failed after"):
+        storage.enqueue_telegram_retry(position_id, trigger_type, high_confidence, now)
     return {"ok": ok, "error": err, "message": text}
 
 
@@ -918,7 +1025,7 @@ def send_close_followup(closed_position):
         DISCLAIMER,
     ]
     text = "\n".join(lines)
-    ok, err = _raw_send(text)
+    ok, err = _raw_send(text, channel_id_override=channel_for_strategy(closed_position.get("strategy_id")))
     storage.log_telegram_message(
         position_id, closed_position.get("strategy_id"), closed_position.get("strategy_name"),
         "close_followup", text, ok, err, _now_iso(),
@@ -962,6 +1069,42 @@ def sweep_unsent_qualifying_signals():
         if result.get("ok"):
             sent.append({"position_id": pos["id"], "tier": tier})
     return sent
+
+
+# ----------------------------------------- Grand Feature Expansion, Phase 2 Feature 11
+# Delivery Retry Queue: re-attempts every PENDING queued send. A row is
+# marked 'abandoned' (and a dashboard-visible alert raised) once it has
+# failed this many total attempts -- never retried forever.
+MAX_RETRY_ATTEMPTS = 5
+
+
+def sweep_pending_telegram_retries():
+    """Called periodically (see paper_trading.engine's tick loop). Returns
+    {"delivered": [...], "abandoned": [...], "still_pending": [...]}
+    (each a list of position_ids) for visibility/testing."""
+    result = {"delivered": [], "abandoned": [], "still_pending": []}
+    for row in storage.list_pending_telegram_retries():
+        send_result = send_signal_for_position(
+            row["position_id"], trigger_type=row["trigger_type"],
+            high_confidence=bool(row["high_confidence"]), retry_id=row["id"],
+        )
+        new_status = storage.record_telegram_retry_attempt(
+            row["id"], send_result["ok"], send_result.get("error"), _now_iso(), MAX_RETRY_ATTEMPTS,
+        )
+        result[{"delivered": "delivered", "abandoned": "abandoned", "pending": "still_pending"}[new_status]].append(
+            row["position_id"]
+        )
+        if new_status == "abandoned":
+            pos = storage.get_paper_position(row["position_id"])
+            storage.create_paper_alert(
+                "telegram_delivery_abandoned", pos.get("strategy_id") if pos else None,
+                pos.get("strategy_name") if pos else None,
+                f"A Telegram signal for position {row['position_id']} could not be delivered after "
+                f"{MAX_RETRY_ATTEMPTS} attempts (last error: {send_result.get('error')}) and has been "
+                f"given up on. The trade itself was unaffected -- only the Telegram notification failed.",
+                "warning", _now_iso(),
+            )
+    return result
 
 
 # --------------------------------------------------------------- Task 3 (Batch 2): no-signal alert

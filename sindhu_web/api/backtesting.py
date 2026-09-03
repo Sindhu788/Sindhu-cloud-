@@ -18,7 +18,8 @@ from backtest_engine import wizard
 from backtest_engine import runner
 from backtest_engine import sanity_check
 from backtest_engine.reports import generate_report
-from backtest_engine import monte_carlo, stress_test
+from backtest_engine import monte_carlo, stress_test, result_plausibility, slippage_sensitivity, duration_tracker
+from backtest_engine import what_if_simulator, feature_importance, cross_coin_validation, strategy_variants
 from automation_pipeline import optimizer as grid_optimizer
 from automation_pipeline import genetic_optimizer
 from ai_integration import extraction_lock, multi_pass_extraction, sentence_level_extraction
@@ -76,6 +77,20 @@ def save_strategy(req: SaveRequest):
     cache.invalidate(_STRATEGIES_CACHE_KEY)
     sync.notify("strategy", "created", f"Strategy added: {cfg.name}", id=strategy_id)
     return {"id": strategy_id}
+
+
+class SimilarityCheckRequest(BaseModel):
+    concepts_used: list[str]
+    exclude_strategy_id: Optional[str] = None
+
+
+@router.post("/api/backtesting/strategies/similarity-check")
+def check_strategy_similarity(req: SimilarityCheckRequest):
+    """Grand Feature Expansion, Phase 4 Feature 2: called by the frontend
+    BEFORE the actual save action (see save_strategy above, left
+    completely unmodified) so a warning can be shown and confirmed without
+    ever blocking or altering the real save."""
+    return {"warnings": lib.find_similarity_warnings(req.concepts_used, exclude_strategy_id=req.exclude_strategy_id)}
 
 
 def _strategy_last_batch_result(strategy_name, recent_batches, batch_results_cache=None):
@@ -212,6 +227,27 @@ def _compute_strategies_list(q, include_archived=False):
         meta["performance_verdict"] = performance["verdict"] if performance else None
         meta["performance_label"] = performance["label"] if performance else None
         meta["performance_failed_factors"] = performance["failed_factors"] if performance else []
+
+        # Master Task 3, Phase 0.7: opportunistically refresh this
+        # strategy's git-tracked backtest snapshot (see strategy_library.
+        # save_backtest_snapshot's docstring) using numbers already
+        # computed above -- no extra queries.
+        lbr = meta["last_batch_result"]
+        if lbr and lbr.get("status") == "completed" and lbr.get("total_trades"):
+            profit_factor = next(
+                (f["value"] for f in (performance["factors"] if performance else []) if f["factor"] == "profit_factor"),
+                None,
+            )
+            try:
+                lib.save_backtest_snapshot(meta["id"], {
+                    "win_rate": lbr.get("win_rate"),
+                    "profit_factor": profit_factor,
+                    "total_trades": lbr.get("total_trades"),
+                    "batch_id": lbr.get("batch_id"),
+                    "computed_at": lbr.get("created_at"),
+                })
+            except Exception:
+                pass
     return strategies
 
 
@@ -291,6 +327,27 @@ def get_strategy_version_diff(strategy_id: str, version_a: int, version_b: int):
     except FileNotFoundError:
         raise HTTPException(404, "strategy or version not found")
     return {"strategy_id": strategy_id, "version_a": version_a, "version_b": version_b, "changes": changes}
+
+
+class RestoreVersionRequest(BaseModel):
+    version: int
+
+
+@router.post("/api/backtesting/strategies/{strategy_id}/restore-version")
+def restore_strategy_version(strategy_id: str, req: RestoreVersionRequest):
+    """Grand Feature Expansion, Phase 4 Feature 22: Undo/Rollback UI Config
+    -- restores an older saved version as a new current version. Never
+    deletes anything; the old version file and every version in between
+    stay on disk forever, same as every other edit to this strategy."""
+    try:
+        new_version = lib.restore_version(strategy_id, req.version)
+    except FileNotFoundError:
+        raise HTTPException(404, "strategy or version not found")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    cache.invalidate(_STRATEGIES_CACHE_KEY)
+    sync.notify("strategy", "version_restored", f"Restored version {req.version} as new version {new_version}", id=strategy_id)
+    return {"ok": True, "new_version": new_version}
 
 
 # --------------------------------------------------------------- Batch 4, Task 3: Duplicate Strategy Cleanup
@@ -511,6 +568,39 @@ def favourite_strategy(strategy_id: str, favourite: bool = True):
     return {"ok": True}
 
 
+class TagsRequest(BaseModel):
+    tags: list[str]
+
+
+@router.post("/api/backtesting/strategies/{strategy_id}/tags")
+def set_strategy_tags(strategy_id: str, req: TagsRequest):
+    """Grand Feature Expansion, Phase 4 Feature 3: Strategy Tagging System.
+    lib.set_tags() itself already existed (used internally at creation
+    time for system tags like "dual_tp_variant") but had no endpoint or
+    UI ever calling it for user-defined tags -- this is that missing
+    wiring, reusing the existing function as-is."""
+    tags = [t.strip() for t in req.tags if t.strip()]
+    lib.set_tags(strategy_id, tags)
+    sync.notify("strategy", "updated", f"Strategy tags updated: {', '.join(tags) or '(cleared)'}", id=strategy_id)
+    cache.invalidate(_STRATEGIES_CACHE_KEY)
+    return {"ok": True, "tags": tags}
+
+
+class CommentRequest(BaseModel):
+    comment: str = ""
+
+
+@router.post("/api/backtesting/strategies/{strategy_id}/comment")
+def set_strategy_comment(strategy_id: str, req: CommentRequest):
+    """Grand Feature Expansion, Phase 4 Feature 9: Strategy Comments/Notes
+    -- a freeform field, distinct from the system-generated clarification
+    notes list."""
+    lib.set_comment(strategy_id, req.comment)
+    sync.notify("strategy", "updated", "Strategy comment updated", id=strategy_id)
+    cache.invalidate(_STRATEGIES_CACHE_KEY)
+    return {"ok": True, "comment": req.comment}
+
+
 @router.post("/api/backtesting/strategies/{strategy_id}/duplicate")
 def duplicate_strategy(strategy_id: str):
     new_id = lib.duplicate(strategy_id)
@@ -529,6 +619,137 @@ def list_coins():
 @router.get("/api/backtesting/monte-carlo/{batch_id}")
 def get_monte_carlo(batch_id: str, iterations: int = 1000):
     return monte_carlo.run_monte_carlo(batch_id, iterations=iterations)
+
+
+# ----------------------------------------- Sanity Check Alert (Grand Feature Expansion, Phase 3 Feature 1)
+
+@router.get("/api/backtesting/plausibility/{batch_id}")
+def get_batch_plausibility(batch_id: str):
+    """On-demand check (the hourly background sweep -- see
+    backtest_engine/result_plausibility.py -- covers this automatically,
+    but this lets the CEO check a batch immediately after it finishes
+    instead of waiting)."""
+    return result_plausibility.check_batch_plausibility(batch_id)
+
+
+# ----------------------------------------- Slippage Sensitivity Test (Grand Feature Expansion, Phase 3 Feature 18)
+
+@router.get("/api/backtesting/slippage-sensitivity/{batch_id}")
+def get_slippage_sensitivity(batch_id: str):
+    return slippage_sensitivity.run_slippage_sensitivity_test(batch_id)
+
+
+# ----------------------------------------- Session Time-Tracker (Grand Feature Expansion, Phase 3 Feature 14)
+
+@router.get("/api/backtesting/duration-stats")
+def get_duration_stats(limit: int = 100):
+    return duration_tracker.compute_duration_stats(limit=limit)
+
+
+# ----------------------------------------- Historical What-If Simulator (Grand Feature Expansion, Phase 5 Feature 14)
+
+class WhatIfRequest(BaseModel):
+    batch_id: str
+    parameter_changes: dict
+    max_symbols: int = 3
+
+
+@router.post("/api/backtesting/what-if")
+def run_what_if_simulation(req: WhatIfRequest):
+    """A fast, bounded (~30 days, up to 5 symbols) real re-simulation with
+    one or more parameters changed -- e.g. {"risk_pct": 2.0} or
+    {"stop_loss": {"type": "fixed_pct", "value": 2.0}}. Never touches the
+    strategy's own saved config or the original batch's results; purely a
+    what-if preview. Takes only batch_id (not a strategy_id) since the
+    Backtest History page -- the natural place to run this from -- only
+    ever has the batch in hand; the strategy is resolved from the batch's
+    own recorded strategy_name (same "latest/matching batch by strategy
+    name" style lookup used elsewhere in this codebase, e.g.
+    get_strategy_claim_check above)."""
+    batch = storage.get_batch(req.batch_id)
+    if not batch:
+        raise HTTPException(404, "batch not found")
+    meta = next((m for m in lib.list_all() if m["name"] == batch["strategy_name"]), None)
+    if not meta:
+        raise HTTPException(404, "the strategy this batch belongs to no longer exists in the library")
+    cfg = lib.load(meta["id"])
+    try:
+        result = what_if_simulator.run_what_if(cfg, batch, req.parameter_changes, max_symbols=req.max_symbols)
+    except (TypeError, ValueError) as e:
+        raise HTTPException(400, f"invalid parameter_changes: {e}")
+    if result is None:
+        raise HTTPException(400, "this batch has no usable symbol list / date range to replay against")
+    return result
+
+
+# ----------------------------------------- Feature Importance Ranking (Grand Feature Expansion, Phase 6 Feature 6)
+
+class FeatureImportanceRequest(BaseModel):
+    batch_id: str
+    max_symbols: int = 3
+
+
+@router.post("/api/backtesting/feature-importance")
+def run_feature_importance(req: FeatureImportanceRequest):
+    """Which of THIS strategy's own entry/confirmation conditions actually
+    drive its performance, via leave-one-out ablation against the same
+    fast, bounded window/symbol-count Historical What-If Simulator uses.
+    Resolves the strategy from the batch's own recorded strategy_name,
+    same pattern as the What-If Simulator endpoint above."""
+    batch = storage.get_batch(req.batch_id)
+    if not batch:
+        raise HTTPException(404, "batch not found")
+    meta = next((m for m in lib.list_all() if m["name"] == batch["strategy_name"]), None)
+    if not meta:
+        raise HTTPException(404, "the strategy this batch belongs to no longer exists in the library")
+    cfg = lib.load(meta["id"])
+    result = feature_importance.rank_feature_importance(cfg, batch, max_symbols=req.max_symbols)
+    if result is None:
+        raise HTTPException(400, "this batch has no usable symbol list / date range to replay against")
+    return result
+
+
+# ----------------------------------------- Cross-Coin Group Validation (Grand Feature Expansion, Phase 6 Feature 8)
+
+@router.get("/api/backtesting/cross-coin-validation/{batch_id}")
+def get_cross_coin_validation(batch_id: str):
+    """Whether this batch's real per-coin results hold up similarly across
+    low/medium/high VOLATILITY groups (computed fresh from real data every
+    time, never a hardcoded coin list) -- distinct from the flat per-coin
+    ranking table, which shows every coin individually with no grouping."""
+    result = cross_coin_validation.validate_across_coin_groups(batch_id)
+    if result is None:
+        raise HTTPException(404, "batch not found")
+    return result
+
+
+# ----------------------------------------- Self-Generated Strategy Variants (Grand Feature Expansion, Phase 6 Feature 5)
+
+class StrategyVariantsRequest(BaseModel):
+    batch_id: str
+    max_variants: int = strategy_variants.MAX_VARIANTS
+    max_symbols: int = 3
+
+
+@router.post("/api/backtesting/strategy-variants")
+def run_strategy_variants(req: StrategyVariantsRequest):
+    """Branches several PARALLEL sibling variants off this strategy (each
+    swapping one concept-type entry condition for a same-DNA-category
+    alternative) and tests them side-by-side against the same fast,
+    bounded window/symbol-count as the What-If Simulator and Feature
+    Importance Ranking above. Never touches the CEO's real saved config --
+    every variant is a throwaway clone."""
+    batch = storage.get_batch(req.batch_id)
+    if not batch:
+        raise HTTPException(404, "batch not found")
+    meta = next((m for m in lib.list_all() if m["name"] == batch["strategy_name"]), None)
+    if not meta:
+        raise HTTPException(404, "the strategy this batch belongs to no longer exists in the library")
+    cfg = lib.load(meta["id"])
+    result = strategy_variants.test_variants(cfg, batch, max_variants=req.max_variants, max_symbols=req.max_symbols)
+    if result is None:
+        raise HTTPException(400, "this batch has no usable symbol list / date range to replay against")
+    return result
 
 
 # --------------------------------------------------------------- Stress Testing Engine (B5)
@@ -607,6 +828,48 @@ def get_trade_audit(batch_id: str, symbol: str, timeframe: str, trade_num: int):
         candles = []
 
     return {"trade": trade, "candles": candles}
+
+
+# ----------------------------------------- Backtest Replay Visualizer (Grand Feature Expansion, Phase 5 Feature 15)
+
+MAX_REPLAY_BARS = 2000
+
+
+@router.get("/api/backtesting/replay/{batch_id}/{symbol}")
+def get_backtest_replay(batch_id: str, symbol: str):
+    """A full-run, bar-by-bar replay of one symbol's real backtest bars
+    plus every real trade on it -- distinct from the Trade Audit above
+    (one static candle window per SELECTED trade) and from the desktop
+    dashboard's own TradeReplayDialog (also per-trade snapshots, PySide6,
+    not this web app). The timeframe is read from this symbol's own real
+    trades (an MTF strategy has exactly one entry timeframe), not raw 1m,
+    so a multi-month run stays a renderable number of bars -- capped at
+    MAX_REPLAY_BARS regardless, with the trade list unaffected (every real
+    trade on this symbol is returned, even ones outside the candle window)."""
+    batch = storage.get_batch(batch_id)
+    if not batch:
+        raise HTTPException(404, "batch not found")
+    trades = storage.get_trades(batch_id, symbol=symbol)
+    if not trades:
+        raise HTTPException(404, "no trades recorded for this symbol in this batch")
+    timeframe = trades[0]["timeframe"]
+
+    settings = batch.get("settings") or {}
+    start_ms, end_ms = settings.get("start_ms"), settings.get("end_ms")
+    if start_ms is None or end_ms is None:
+        raise HTTPException(400, "this batch has no recorded date range to replay")
+
+    exchange = batch["exchange"]
+    df = get_ohlcv(exchange, symbol, interval=timeframe, start_ms=start_ms, end_ms=end_ms)
+    if len(df) > MAX_REPLAY_BARS:
+        df = df.tail(MAX_REPLAY_BARS)
+    candles = [
+        {"time": int(idx.timestamp() * 1000), "open": row.open, "high": row.high,
+         "low": row.low, "close": row.close}
+        for idx, row in df.iterrows()
+    ]
+    return {"symbol": symbol, "timeframe": timeframe, "candles": candles, "trades": trades,
+            "truncated": len(df) >= MAX_REPLAY_BARS}
 
 
 class RunRequest(BaseModel):

@@ -1,0 +1,131 @@
+{
+  "name": "Ichimoku 1d Indicator-Exit [Manual Build]",
+  "raw_text": "Ichimoku Cloud System, 1d timeframe, Indicator-Exit variant -- see conversation source document, New Batch 5 Strategy 9.",
+  "timeframes": {
+    "entry": "1d"
+  },
+  "indicators": [],
+  "concepts_used": [
+    "ichimoku_system"
+  ],
+  "entry_conditions": [],
+  "exit_conditions": [
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "ichimoku_cross",
+      "direction": "bearish",
+      "text": null,
+      "role": null,
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": "bullish"
+    },
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "ichimoku_cross",
+      "direction": "bullish",
+      "text": null,
+      "role": null,
+      "lookback_bars": null,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": "bearish"
+    }
+  ],
+  "confirmation_conditions": [],
+  "long_entry_conditions": [
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "ichimoku_system",
+      "direction": "bullish",
+      "text": null,
+      "role": null,
+      "lookback_bars": 1,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": null
+    }
+  ],
+  "short_entry_conditions": [
+    {
+      "type": "concept",
+      "indicator": null,
+      "params": {},
+      "op": null,
+      "value": null,
+      "name": "ichimoku_system",
+      "direction": "bearish",
+      "text": null,
+      "role": null,
+      "lookback_bars": 1,
+      "indicator2": null,
+      "params2": {},
+      "manual_review": false,
+      "raw_source": null,
+      "exit_direction": null
+    }
+  ],
+  "entry_rule_groups": [],
+  "stop_loss": {
+    "type": "structure",
+    "value": 0.65,
+    "level": null,
+    "atr_period": null
+  },
+  "take_profit": {
+    "type": "rr",
+    "value": 10.0,
+    "level": null,
+    "atr_period": null
+  },
+  "risk_pct": 1.0,
+  "risk_reward": null,
+  "sl_distance_filter_pct": null,
+  "min_risk_reward_filter": null,
+  "primary_target_lookback_bars": null,
+  "risk_reward_filter_uses_take_profit": false,
+  "zone_params": {},
+  "session_filter": [],
+  "trend_filter": null,
+  "day_filter": [],
+  "breakeven_at_rr": null,
+  "entry_type": "market",
+  "long_entry_type": "next_candle_open",
+  "short_entry_type": null,
+  "entry_price_offset_pct": null,
+  "partial_take_profit": null,
+  "trailing_stop": null,
+  "time_exit_bars": null,
+  "tags": [
+    "concept_based_strategy",
+    "manual_build",
+    "ichimoku_system",
+    "1d",
+    "indicator",
+    "new_batch_5"
+  ],
+  "favourite": false,
+  "claimed_win_rate_pct": null,
+  "claimed_win_rate_source_text": null,
+  "missing": [],
+  "warnings": []
+}

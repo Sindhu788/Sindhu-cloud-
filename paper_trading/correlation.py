@@ -97,3 +97,58 @@ def detect_warnings(exchange):
                     ),
                 })
     return warnings
+
+
+# ------------------------------------------------------ Grand Feature Expansion, Phase 3 Feature 4
+# Strategy-vs-Strategy Correlation Matrix -- distinct from detect_warnings()
+# above (which correlates SYMBOL PRICE RETURNS for currently-open
+# positions). This correlates each strategy's own DAILY REALIZED PnL time
+# series -- the real "do these two strategies win and lose on the same
+# days" question, the one that actually answers whether running both gives
+# genuine diversification or is a hidden, doubled-up bet.
+
+CORRELATION_LOOKBACK_DAYS = 30
+MIN_ALIGNED_DAYS = 10
+
+
+def _pearson(xs, ys):
+    """Plain-Python Pearson correlation coefficient -- same manual-formula
+    style as paper_trading.insights (no pandas dependency needed for two
+    short, already-aligned lists)."""
+    n = len(xs)
+    mean_x, mean_y = sum(xs) / n, sum(ys) / n
+    cov = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys))
+    var_x = sum((x - mean_x) ** 2 for x in xs)
+    var_y = sum((y - mean_y) ** 2 for y in ys)
+    denom = (var_x * var_y) ** 0.5
+    return cov / denom if denom > 0 else None
+
+
+def strategy_correlation_matrix(strategy_ids, lookback_days=CORRELATION_LOOKBACK_DAYS):
+    """Returns {"strategies": [id, ...], "matrix": [[float|None, ...], ...],
+    "min_aligned_days": int}. matrix[i][j] is the correlation between
+    strategy_ids[i] and strategy_ids[j] (1.0 on the diagonal); None when
+    fewer than MIN_ALIGNED_DAYS days overlap between the two, or either
+    strategy has zero variance in its own daily PnL (a flat/no-data
+    series correlates with nothing meaningfully)."""
+    from datetime import datetime, timezone, timedelta
+    from data_engine import storage
+
+    since_iso = (datetime.now(timezone.utc) - timedelta(days=lookback_days)).isoformat()
+    daily_series = {sid: storage.list_paper_daily_pnl_by_strategy(sid, since_iso) for sid in strategy_ids}
+
+    n = len(strategy_ids)
+    matrix = [[None] * n for _ in range(n)]
+    for i in range(n):
+        matrix[i][i] = 1.0 if daily_series[strategy_ids[i]] else None
+        for j in range(i + 1, n):
+            a, b = daily_series[strategy_ids[i]], daily_series[strategy_ids[j]]
+            common_days = sorted(set(a) & set(b))
+            if len(common_days) < MIN_ALIGNED_DAYS:
+                continue
+            corr = _pearson([a[d] for d in common_days], [b[d] for d in common_days])
+            if corr is not None:
+                corr = round(corr, 3)
+            matrix[i][j] = matrix[j][i] = corr
+
+    return {"strategies": strategy_ids, "matrix": matrix, "min_aligned_days": MIN_ALIGNED_DAYS}

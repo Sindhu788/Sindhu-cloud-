@@ -7,7 +7,7 @@ state and the CEO's configured risk limits.
 from backtest_engine.engine import _position_size
 from data_engine import storage, feature_toggles
 from data_engine.logging_setup import log as _log
-from paper_trading import dynamic_risk
+from paper_trading import account_drawdown_guard, dynamic_risk, kill_switch, slippage_filter, time_of_day_filter
 
 
 def account_balance(book_key, initial_balance):
@@ -36,12 +36,28 @@ def evaluate(book_key, symbol, candidate, settings, exchange=None):
     overrides = storage.get_paper_strategy_config(book_key) if book_key else {}
     max_coins = overrides.get("max_open_trades_override") or settings.get("max_open_trades", 5)
 
+    if kill_switch.is_active():
+        return False, "KILL SWITCH ACTIVE -- all trading halted", None, None
+
+    if account_drawdown_guard.is_globally_paused():
+        return False, "account-wide drawdown circuit-breaker is active -- new trades paused for every strategy", None, None
+
+    if time_of_day_filter.is_blocked_now(settings=settings):
+        return False, "time-of-day trading filter is active for this hour", None, None
+
     open_symbols = storage.get_open_paper_position_symbols(book_key)
     if symbol not in open_symbols and len(open_symbols) >= max_coins:
         return False, f"max coins for this strategy reached ({max_coins})", None, None
 
     if candidate["stop_loss"] is None:
         return False, "no stop-loss could be computed -- risk cannot be sized", None, None
+
+    if exchange and feature_toggles.is_enabled("slippage_aware_filter_enabled"):
+        side = "long" if candidate.get("direction") == "bullish" else "short"
+        slippage_ok, slippage_reason, _ = slippage_filter.check_entry(
+            exchange, symbol, side, candidate["entry_price"], candidate["stop_loss"])
+        if not slippage_ok:
+            return False, f"slippage-aware filter: {slippage_reason}", None, None
 
     balance = account_balance(book_key, settings.get("initial_balance", 10000.0))
     if balance <= 0:

@@ -37,10 +37,10 @@ from data_engine.logging_setup import log as default_log
 LIVE_CANDLES_ONLY = env_flag("SINDHU_LIVE_CANDLES")
 
 from paper_trading import config as pt_config
-from paper_trading import coin_filter, live_feed, market_state, strategy_matcher, lesson_matcher
+from paper_trading import coin_filter, coin_blacklist, live_feed, market_state, strategy_matcher, lesson_matcher
 from paper_trading import signal_generator, confidence, risk_manager, guards, position_manager
-from paper_trading import auto_avoid, drawdown_guard, lesson_auto_apply, telegram_bot, capital_allocation
-from paper_trading import confluence
+from paper_trading import auto_avoid, drawdown_guard, kill_switch, lesson_auto_apply, telegram_bot, capital_allocation
+from paper_trading import confluence, signal_tracker, insights, custom_alerts, ensemble_voting
 
 
 def _now_iso():
@@ -60,6 +60,31 @@ def _default_exchange():
 # SINDHU Strategy scheduler already use for their own time-gated work.
 TELEGRAM_SWEEP_INTERVAL_SECONDS = 3600
 
+# Grand Feature Expansion, Phase 1 Feature 8: same throttle-on-the-tick-
+# loop pattern as the Telegram sweep above -- a real backtest-vs-paper
+# divergence changes slowly (it needs 25+ new paper closes to even move),
+# so once an hour is more than enough to catch it without adding real
+# per-tick cost (signal_tracker.check_and_alert_divergence itself also
+# self-throttles per strategy via ALERT_RECHECK_HOURS).
+DIVERGENCE_CHECK_INTERVAL_SECONDS = 3600
+
+# Grand Feature Expansion, Phase 2 Feature 11: Delivery Retry Queue sweep.
+# Shorter than the other two throttles above -- a queued failure is most
+# often a brief network blip (Telegram down for a few minutes, the
+# laptop's internet dropping) worth re-checking sooner than once an hour,
+# but still cheap since it only ever touches rows genuinely marked pending.
+TELEGRAM_RETRY_SWEEP_INTERVAL_SECONDS = 300
+
+# Grand Feature Expansion, Phase 3 Feature 11: Win-Rate Decay Detection
+# sweep. Same reasoning as the divergence check above -- changes slowly
+# (needs 15+ new trades to even shift the recent window), hourly is fine.
+WIN_RATE_DECAY_SWEEP_INTERVAL_SECONDS = 3600
+
+# Grand Feature Expansion, Phase 4 Feature 25: Custom Alert Rules sweep.
+# Same hourly cadence -- custom_alerts.py itself also self-throttles per
+# rule via RECHECK_HOURS.
+CUSTOM_ALERT_RULES_SWEEP_INTERVAL_SECONDS = 3600
+
 
 class PaperTradingEngine:
     def __init__(self):
@@ -76,6 +101,10 @@ class PaperTradingEngine:
         self._tick_count = 0
         self._started_at = None
         self._last_telegram_sweep_at = None  # Task 4 (Batch 2) -- see TELEGRAM_SWEEP_INTERVAL_SECONDS
+        self._last_divergence_check_at = None  # Grand Feature Expansion, Phase 1 Feature 8
+        self._last_retry_sweep_at = None  # Grand Feature Expansion, Phase 2 Feature 11
+        self._last_decay_sweep_at = None  # Grand Feature Expansion, Phase 3 Feature 11
+        self._last_custom_alerts_sweep_at = None  # Grand Feature Expansion, Phase 4 Feature 25
 
     # ------------------------------------------------------------ control
     def is_running(self):
@@ -95,6 +124,10 @@ class PaperTradingEngine:
         with self._lock:
             if self._running:
                 return False
+            if kill_switch.is_active():
+                raise RuntimeError(
+                    "Kill switch is active -- trading stays OFF until it is explicitly deactivated."
+                )
             self._log = log or default_log
             self._on_event = on_event
             self._stop_flag.clear()
@@ -166,11 +199,19 @@ class PaperTradingEngine:
         # contribute its initial_balance -- previously it contributed
         # nothing at all, understating the combined figure.
         combined_balance = initial_balance * len(books) + sum(s["realized_pnl_total"] for s in books.values())
+        # Master Task 3, Phase 0.8c: "Today" = since the most recent UTC
+        # midnight -- same convention as the existing weekly/monthly report
+        # windows elsewhere in this module, just a 1-day window instead.
+        today_start_iso = datetime.now(timezone.utc).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        ).isoformat()
+        trades_today = storage.count_paper_trades_opened_since(today_start_iso)
         return {
             "running": self._running,
             "dry_run": settings.get("dry_run", True),
             "started_at": self._started_at,
             "last_tick_at": self._last_tick_at,
+            "trades_today": trades_today,
             "tick_count": self._tick_count,
             "open_trades": len(open_positions),
             "queue": len(self._last_summary.get("shortlisted", [])),
@@ -209,6 +250,9 @@ class PaperTradingEngine:
 
     # ------------------------------------------------------------ tick
     def _tick(self):
+        if kill_switch.is_active():
+            self._last_summary = {"shortlisted": [], "opened": 0, "closed": 0, "rejected": 0}
+            return
         settings = pt_config.load()
         exchange = _default_exchange()
         client = get_exchange_client(exchange)
@@ -222,6 +266,11 @@ class PaperTradingEngine:
             self._last_summary = {"shortlisted": [], "opened": 0, "closed": 0, "rejected": 0}
             return
 
+        # Grand Feature Expansion, Phase 5 Feature 1: Coin Blacklist -- a
+        # blacklisted symbol is removed BEFORE it can even be scored/ranked
+        # by coin_filter.shortlist(), so it can never be traded regardless
+        # of how strong its activity score would otherwise be.
+        symbols = coin_blacklist.filter_out_blacklisted(symbols)
         shortlist = coin_filter.shortlist(exchange, symbols, settings.get("coin_filter_top_n", 20),
                                           log=self._log)
         shortlisted_symbols = [s["symbol"] for s in shortlist]
@@ -292,6 +341,51 @@ class PaperTradingEngine:
                                f"{[s['position_id'] for s in sent]}")
             except Exception as e:
                 self._log(f"[paper-trading] Telegram hourly sweep error: {e!r}")
+
+        # Grand Feature Expansion, Phase 1 Feature 8: hourly Backtest-vs-
+        # Paper Divergence check -- see DIVERGENCE_CHECK_INTERVAL_SECONDS.
+        if self._last_divergence_check_at is None or (now - self._last_divergence_check_at) >= DIVERGENCE_CHECK_INTERVAL_SECONDS:
+            self._last_divergence_check_at = now
+            try:
+                alerted = signal_tracker.check_and_alert_divergence()
+                if alerted:
+                    self._log(f"[paper-trading] Backtest-vs-Paper divergence alert raised for: {alerted}")
+            except Exception as e:
+                self._log(f"[paper-trading] Backtest-vs-Paper divergence check error: {e!r}")
+
+        # Grand Feature Expansion, Phase 2 Feature 11: Delivery Retry Queue
+        # sweep -- see TELEGRAM_RETRY_SWEEP_INTERVAL_SECONDS.
+        if self._last_retry_sweep_at is None or (now - self._last_retry_sweep_at) >= TELEGRAM_RETRY_SWEEP_INTERVAL_SECONDS:
+            self._last_retry_sweep_at = now
+            try:
+                retry_result = telegram_bot.sweep_pending_telegram_retries()
+                if retry_result["delivered"] or retry_result["abandoned"]:
+                    self._log(f"[paper-trading] Telegram retry sweep: delivered={retry_result['delivered']} "
+                               f"abandoned={retry_result['abandoned']}")
+            except Exception as e:
+                self._log(f"[paper-trading] Telegram retry sweep error: {e!r}")
+
+        # Grand Feature Expansion, Phase 3 Feature 11: hourly Win-Rate
+        # Decay Detection sweep -- see WIN_RATE_DECAY_SWEEP_INTERVAL_SECONDS.
+        if self._last_decay_sweep_at is None or (now - self._last_decay_sweep_at) >= WIN_RATE_DECAY_SWEEP_INTERVAL_SECONDS:
+            self._last_decay_sweep_at = now
+            try:
+                decayed = insights.sweep_win_rate_decay_alerts()
+                if decayed:
+                    self._log(f"[paper-trading] Win-rate decay alert raised for: {decayed}")
+            except Exception as e:
+                self._log(f"[paper-trading] Win-rate decay sweep error: {e!r}")
+
+        # Grand Feature Expansion, Phase 4 Feature 25: hourly Custom Alert
+        # Rules sweep -- see CUSTOM_ALERT_RULES_SWEEP_INTERVAL_SECONDS.
+        if self._last_custom_alerts_sweep_at is None or (now - self._last_custom_alerts_sweep_at) >= CUSTOM_ALERT_RULES_SWEEP_INTERVAL_SECONDS:
+            self._last_custom_alerts_sweep_at = now
+            try:
+                triggered = custom_alerts.sweep_custom_alert_rules()
+                if triggered:
+                    self._log(f"[paper-trading] Custom alert rule(s) triggered: {triggered}")
+            except Exception as e:
+                self._log(f"[paper-trading] Custom alert rules sweep error: {e!r}")
 
         self._tick_count += 1
         self._last_tick_at = _now_iso()
@@ -386,6 +480,21 @@ class PaperTradingEngine:
         opened = 0
         for book, group in groups.items():
             pick = guards.rank_candidates(group, settings.get("priority_rule", "confidence"))
+
+            # Grand Feature Expansion, Phase 5 Feature 10: Ensemble Voting
+            # Confirmation -- `approved` already holds every OTHER
+            # strategy's/lesson's approved candidate for this exact
+            # symbol+tick, so counting agreement needs no extra work.
+            if feature_toggles.is_enabled("ensemble_voting_enabled"):
+                min_agreeing = settings.get("ensemble_voting_min_agreeing_strategies", 2)
+                if not ensemble_voting.has_enough_agreement(approved, pick["direction"], min_agreeing):
+                    agreeing = ensemble_voting.agreeing_book_count(approved, pick["direction"])
+                    self._log_decision(exchange, symbol, pick, "rejected",
+                                        f"ensemble voting: only {agreeing} of {min_agreeing} required "
+                                        f"independent strategies agree on this direction", snapshot)
+                    rejected += 1
+                    continue
+
             o, r = self._open_if_allowed(book, exchange, symbol, pick, snapshot, settings)
             opened += o
             rejected += r
@@ -502,6 +611,9 @@ def resume_engine_on_startup():
     "resume only if it was already running" contract as
     evolution_engine.engine.resume_evolution_jobs_on_startup, called
     once from sindhu_web/server.py's lifespan."""
+    if kill_switch.is_active():
+        default_log("[paper-trading] Staying OFF -- kill switch is active (must be explicitly deactivated first).")
+        return
     enabled = pt_config.load().get("engine_enabled", False)
     if enabled:
         default_log("[paper-trading] Restoring to ON -- it was running when the server last stopped.")

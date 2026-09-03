@@ -138,6 +138,35 @@ def get_postgres_conn():
 # TEXT column type name is valid, unchanged, in Postgres too -- no type
 # translation table is needed.
 POSTGRES_SCHEMA = """
+-- Pre-existing gap found while building the Grand Feature Expansion's
+-- Audit Trail (Phase 1 Feature 3): sindhu_web/sync.py notify() -- called
+-- unconditionally by paper_trading start/stop and several other routes
+-- already mounted on the cloud runner -- writes to activity_log via
+-- storage.log_activity(), but this table was never part of the curated
+-- cloud schema. That means clicking Start/Stop Engine (or any other
+-- notify()-calling action) on a real Postgres-connected cloud deployment
+-- would have raised "relation activity_log does not exist" the moment it
+-- ran. Fixed here by adding it for real (not working around it) -- same
+-- schema as the local SQLite table, same 500-row cap logic in
+-- log_activity() works identically against Postgres.
+CREATE TABLE IF NOT EXISTS activity_log (
+    id SERIAL PRIMARY KEY,
+    entity TEXT NOT NULL,
+    action TEXT NOT NULL,
+    message TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+-- Grand Feature Expansion, Phase 5 Feature 1: Coin Blacklist. The tick
+-- loop (resumed on cloud startup too -- see cloud_runtime/app.py's
+-- resume_engine_on_startup) checks this before coin_filter.shortlist(),
+-- so it must exist on Postgres wherever the engine can actually run.
+CREATE TABLE IF NOT EXISTS paper_coin_blacklist (
+    symbol TEXT PRIMARY KEY,
+    reason TEXT,
+    added_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS paper_positions (
     id TEXT PRIMARY KEY,
     exchange TEXT NOT NULL,
@@ -169,10 +198,30 @@ CREATE TABLE IF NOT EXISTS paper_positions (
     reflection_json TEXT,
     status TEXT NOT NULL DEFAULT 'open',
     created_at TEXT NOT NULL,
-    closed_at TEXT
+    closed_at TEXT,
+    -- Grand Feature Expansion, Phase 3 Feature 8 (MAE/MFE): mirrors the
+    -- local SQLite schema exactly (see data_engine/storage.py).
+    lowest_price_seen REAL,
+    highest_price_seen REAL
 );
 CREATE INDEX IF NOT EXISTS idx_paper_positions_status_closed
     ON paper_positions(status, closed_at);
+
+-- Grand Feature Expansion, Phase 3 Feature 8 (MAE/MFE): unlike SQLite
+-- (data_engine/storage.py's own _migrate_paper_positions_excursion_columns,
+-- needed because SQLite has no "ADD COLUMN IF NOT EXISTS"), Postgres
+-- supports it natively -- so this heals an ALREADY-LIVE cloud database
+-- (which already has this table, so the CREATE TABLE above was a no-op
+-- for it) the same way on every startup, no separate migration function
+-- needed. Backfill is idempotent -- only ever touches rows still NULL.
+ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS lowest_price_seen REAL;
+ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS highest_price_seen REAL;
+UPDATE paper_positions SET lowest_price_seen = entry_price, highest_price_seen = entry_price
+    WHERE lowest_price_seen IS NULL;
+
+-- Grand Feature Expansion, Phase 4 Feature 8 (Trade Annotation): same
+-- always-safe idempotent healing pattern as the MAE/MFE columns above.
+ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS user_note TEXT;
 
 CREATE TABLE IF NOT EXISTS paper_account_state (
     strategy_id TEXT PRIMARY KEY,
@@ -321,6 +370,22 @@ CREATE TABLE IF NOT EXISTS telegram_message_log (
 );
 CREATE INDEX IF NOT EXISTS idx_telegram_log_sent_at ON telegram_message_log(sent_at DESC);
 
+-- Grand Feature Expansion, Phase 2 Feature 11: Delivery Retry Queue.
+-- Mirrors the local SQLite schema exactly (see data_engine/storage.py) --
+-- telegram_bot.py (which writes here) runs on the cloud runner too.
+CREATE TABLE IF NOT EXISTS telegram_retry_queue (
+    id SERIAL PRIMARY KEY,
+    position_id TEXT NOT NULL,
+    trigger_type TEXT NOT NULL,
+    high_confidence INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'pending',
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    created_at TEXT NOT NULL,
+    last_attempt_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_telegram_retry_status ON telegram_retry_queue(status);
+
 -- Empty on a fresh cloud database (lessons are hand-authored locally
 -- today) -- exists purely so lesson_matcher.relevant_lessons() and
 -- evolution.record_outcome()'s get_lesson() lookup have a real table to
@@ -443,6 +508,35 @@ CREATE TABLE IF NOT EXISTS cloud_settings (
     key TEXT PRIMARY KEY,
     value_json TEXT NOT NULL,
     updated_at TEXT NOT NULL
+);
+
+-- Grand Feature Expansion, Phase 1 Feature 1: Kill-Switch. Mirrors the
+-- local SQLite schema exactly (see data_engine/storage.py) -- the cloud
+-- runner trades too, so it needs the same global emergency-stop state.
+CREATE TABLE IF NOT EXISTS kill_switch_state (
+    id INTEGER PRIMARY KEY,
+    active INTEGER NOT NULL DEFAULT 0,
+    reason TEXT,
+    close_positions INTEGER NOT NULL DEFAULT 0,
+    activated_at TEXT,
+    activated_by TEXT,
+    deactivated_at TEXT,
+    deactivated_by TEXT,
+    activation_count INTEGER NOT NULL DEFAULT 0
+);
+
+-- Grand Feature Expansion, Phase 1 Feature 3: Audit Trail. sync.notify()
+-- (sindhu_web/sync.py) writes here on every call and IS reachable from the
+-- cloud runner (paper_trading start/stop, telegram settings, etc. all call
+-- it) -- this table must exist in Postgres or every one of those calls
+-- would raise "relation does not exist" the moment anything notifies.
+-- Never pruned, unlike activity_log (see storage.py's record_audit_event).
+CREATE TABLE IF NOT EXISTS audit_trail_log (
+    id SERIAL PRIMARY KEY,
+    entity TEXT NOT NULL,
+    action TEXT NOT NULL,
+    message TEXT NOT NULL,
+    created_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS bot_lessons (

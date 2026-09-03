@@ -11,9 +11,53 @@ from datetime import datetime, timezone, timedelta
 
 from data_engine import storage, feature_toggles
 from backtest_engine import strategy_library as lib
-from paper_trading import insights
+from paper_trading import insights, telegram_bot
 
 REPORT_INTERVAL_DAYS = 7
+
+# Grand Feature Expansion, Phase 2 Feature 19: the "chart/visual" this
+# feature is named for, rendered as a plain-text Unicode sparkline (no new
+# dependency, no image-generation/upload plumbing -- this codebase's
+# Telegram integration only ever sends plain text, see
+# telegram_bot._raw_send, and every other report in this project is
+# deliberately plain-language text too).
+_SPARKLINE_BARS = "▁▂▃▄▅▆▇█"
+
+
+def _daily_pnl_sparkline(period_start_iso, period_end_iso):
+    """One bar per calendar day in the period, height proportional to that
+    day's total realized PnL across every strategy combined. A flat `-`
+    line (not a misleadingly flat sparkline) when there's no closed-trade
+    data at all yet."""
+    with storage.get_conn() as conn:
+        rows = conn.execute(
+            "SELECT substr(closed_at, 1, 10) AS day, SUM(pnl) FROM paper_positions "
+            "WHERE status='closed' AND closed_at >= ? AND closed_at <= ? AND closed_at IS NOT NULL "
+            "GROUP BY day ORDER BY day",
+            (period_start_iso, period_end_iso),
+        ).fetchall()
+    if not rows:
+        return "No closed trades yet this week -- nothing to chart."
+
+    by_day = {r[0]: r[1] or 0.0 for r in rows}
+    start_date = datetime.fromisoformat(period_start_iso).date()
+    end_date = datetime.fromisoformat(period_end_iso).date()
+    days = []
+    d = start_date
+    while d <= end_date:
+        days.append(d.isoformat())
+        d += timedelta(days=1)
+
+    values = [by_day.get(d, 0.0) for d in days]
+    lo, hi = min(values), max(values)
+    if hi == lo:
+        bars = _SPARKLINE_BARS[3] * len(values)  # flat but real (all-zero or all-equal days)
+    else:
+        bars = "".join(
+            _SPARKLINE_BARS[min(len(_SPARKLINE_BARS) - 1, int((v - lo) / (hi - lo) * (len(_SPARKLINE_BARS) - 1)))]
+            for v in values
+        )
+    return f"{bars}  (daily PnL, left=oldest day right=today; lowest ${lo:.0f}, highest ${hi:.0f})"
 
 
 def _now_iso():
@@ -67,6 +111,8 @@ def generate_weekly_report():
         f"Weekly Report -- {now.strftime('%Y-%m-%d')}",
         "",
         f"This covers {len(strategies)} strategies with at least one completed trade in the last {REPORT_INTERVAL_DAYS} days.",
+        "",
+        _daily_pnl_sparkline(period_start, period_end),
         "",
     ]
 
@@ -128,7 +174,12 @@ def generate_weekly_report():
 def maybe_generate_weekly_report():
     """Called periodically by the scheduler thread -- only actually
     generates a new report if 7+ days have passed since the last one (or
-    none exists yet). Safe to call as often as convenient."""
+    none exists yet). Safe to call as often as convenient. Also sends the
+    freshly-generated report to Telegram (Grand Feature Expansion, Phase 2
+    Feature 19) -- the existing 7-day generation gate above already
+    prevents more than one send per week, so no separate dedup tracking
+    is needed; a send failure never blocks the report from being saved
+    (generate_weekly_report already persisted it before this runs)."""
     if not feature_toggles.is_enabled("weekly_report_enabled"):
         return None
     last = storage.get_latest_weekly_report()
@@ -136,7 +187,15 @@ def maybe_generate_weekly_report():
         last_dt = datetime.fromisoformat(last)
         if datetime.now(timezone.utc) - last_dt < timedelta(days=REPORT_INTERVAL_DAYS):
             return None
-    return generate_weekly_report()
+    result = generate_weekly_report()
+    if telegram_bot._master_enabled():
+        ok, err = telegram_bot._raw_send(result["report_text"])
+        storage.log_telegram_message(
+            None, None, None, "weekly_report", result["report_text"], ok, err, _now_iso(),
+        )
+        result["telegram_sent"] = ok
+        result["telegram_error"] = err
+    return result
 
 
 def start_weekly_report_scheduler_thread():

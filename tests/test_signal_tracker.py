@@ -191,3 +191,70 @@ def test_match_table_read_only_never_modifies_underlying_tables(test_db):
     signal_tracker.live_signal_feed()
     assert storage.list_telegram_signal_outcomes() == before_positions
     assert storage.list_recent_batches() == before_batches
+
+
+# ------------------------------------------ backtest-vs-paper divergence
+# Grand Feature Expansion, Phase 1 Feature 8: the flag + alert this exact
+# task's own name refers to, distinct from the pre-existing `diverges`
+# (paper vs the Telegram-sent SUBSET) checked above.
+
+def _paper_trades(strategy_id, strategy_name, n, wins):
+    for i in range(n):
+        pid = f"{strategy_id}_{i}"
+        won = i < wins
+        _open_position(id=pid, strategy_id=strategy_id, strategy_name=strategy_name)
+        _close(pid, 110.0 if won else 90.0, 10.0 if won else -10.0, 10.0 if won else -10.0,
+               "take_profit" if won else "stop_loss", closed_at=f"2026-01-02T00:{i:02d}:00+00:00")
+
+
+def test_backtest_vs_paper_diverges_flagged_when_gap_exceeds_threshold(test_db):
+    _make_completed_batch("b1", "Drifted Strategy", total_trades=10, wins=7)  # 70% backtest
+    _paper_trades("stratX", "Drifted Strategy", pattern_stats.MIN_SAMPLE_SIZE, wins=5)  # 20% paper
+
+    table = signal_tracker.strategy_match_table()
+    row = next(r for r in table["strategies"] if r["strategy_id"] == "stratX")
+    assert row["backtest_win_rate"] == 70.0
+    assert abs(row["paper_win_rate"] - 20.0) < 0.1
+    assert row["backtest_vs_paper_diverges"] is True
+
+
+def test_backtest_vs_paper_not_flagged_below_min_sample_size(test_db):
+    _make_completed_batch("b1", "Too New Strategy", total_trades=10, wins=7)
+    _paper_trades("stratY", "Too New Strategy", n=5, wins=1)  # huge gap, but far below MIN_SAMPLE_SIZE
+
+    table = signal_tracker.strategy_match_table()
+    row = next(r for r in table["strategies"] if r["strategy_id"] == "stratY")
+    assert row["backtest_vs_paper_diverges"] is False
+
+
+def test_check_and_alert_divergence_creates_a_real_alert(test_db):
+    _make_completed_batch("b1", "Drifted Strategy", total_trades=10, wins=7)
+    _paper_trades("stratX", "Drifted Strategy", pattern_stats.MIN_SAMPLE_SIZE, wins=5)
+
+    alerted = signal_tracker.check_and_alert_divergence()
+    assert alerted == ["stratX"]
+    alerts = storage.list_paper_alerts()
+    match = next(a for a in alerts if a["alert_type"] == "backtest_paper_divergence")
+    assert match["strategy_id"] == "stratX"
+    assert "70.0%" in match["message"]
+    assert match["severity"] == "warning"
+
+
+def test_check_and_alert_divergence_does_not_duplicate_within_the_recheck_window(test_db):
+    _make_completed_batch("b1", "Drifted Strategy", total_trades=10, wins=7)
+    _paper_trades("stratX", "Drifted Strategy", pattern_stats.MIN_SAMPLE_SIZE, wins=5)
+
+    first = signal_tracker.check_and_alert_divergence()
+    second = signal_tracker.check_and_alert_divergence()
+    assert first == ["stratX"]
+    assert second == []  # already alerted within ALERT_RECHECK_HOURS
+    matches = [a for a in storage.list_paper_alerts() if a["alert_type"] == "backtest_paper_divergence"]
+    assert len(matches) == 1
+
+
+def test_check_and_alert_divergence_ignores_strategies_in_line_with_backtest(test_db):
+    _make_completed_batch("b1", "Consistent Strategy", total_trades=10, wins=7)
+    _paper_trades("stratZ", "Consistent Strategy", pattern_stats.MIN_SAMPLE_SIZE, wins=18)  # ~72%, close to 70%
+
+    alerted = signal_tracker.check_and_alert_divergence()
+    assert alerted == []

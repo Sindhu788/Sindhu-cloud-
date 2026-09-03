@@ -22,6 +22,7 @@ from pydantic import BaseModel
 
 from data_engine import storage, feature_toggles
 from paper_trading import ai_trade_review, telegram_bot
+from sindhu_web import sync
 
 router = APIRouter()
 
@@ -107,6 +108,20 @@ def _feature_defs():
             "status": "active" if toggles["dynamic_risk_sizing_enabled"] else "off -- always uses the plain configured risk %",
         },
         {
+            "id": "slippage_aware_filter_enabled", "name": "Slippage-Aware Entry Filter",
+            "description": "Rejects a new trade when the coin's own recent volatility suggests expected slippage would eat over half of that trade's stop-distance risk budget. New and off by default.",
+            "category": "Risk & Safety",
+            "enabled": toggles["slippage_aware_filter_enabled"],
+            "status": "active" if toggles["slippage_aware_filter_enabled"] else "off -- entries are never rejected for expected slippage",
+        },
+        {
+            "id": "ensemble_voting_enabled", "name": "Ensemble Voting Confirmation",
+            "description": "Requires a minimum number of independent strategies to agree on the same coin and direction in the same tick before any of them can open. New and off by default -- only ever makes trading more conservative, never less.",
+            "category": "Risk & Safety",
+            "enabled": toggles["ensemble_voting_enabled"],
+            "status": "active" if toggles["ensemble_voting_enabled"] else "off -- every strategy still trades fully independently",
+        },
+        {
             "id": "lesson_auto_apply_enabled", "name": "Lesson Auto-Apply",
             "description": "Automatically promotes a strongly one-sided trading pattern into a live confidence boost or penalty.",
             "category": "Self-Learning",
@@ -156,6 +171,27 @@ def _feature_defs():
             "enabled": toggles["weekly_report_enabled"],
             "status": "scheduled" if toggles["weekly_report_enabled"] else "off -- no new weekly reports until re-enabled",
         },
+        {
+            "id": "monthly_report_enabled", "name": "Monthly Auto-Report",
+            "description": "Automatically writes a plain-language performance summary every 30 days.",
+            "category": "Other",
+            "enabled": toggles["monthly_report_enabled"],
+            "status": "scheduled" if toggles["monthly_report_enabled"] else "off -- no new monthly reports until re-enabled",
+        },
+        {
+            "id": "evolution_weekly_review_enabled", "name": "Automated Weekly Strategy Review",
+            "description": "Automatically writes a plain-language summary of the week's evolution/tuning activity (mutations, rollbacks) every 7 days -- distinct from the Weekly Auto-Report above, which covers trading performance only.",
+            "category": "Other",
+            "enabled": toggles["evolution_weekly_review_enabled"],
+            "status": "scheduled" if toggles["evolution_weekly_review_enabled"] else "off -- no new evolution reviews until re-enabled",
+        },
+        {
+            "id": "infra_weekly_digest_enabled", "name": "Automated Weekly Digest",
+            "description": "Automatically writes a plain-language summary of the week's SYSTEM health (backups, incidents, database/disk size) every 7 days -- distinct from the trading and evolution weekly reports above.",
+            "category": "Other",
+            "enabled": toggles["infra_weekly_digest_enabled"],
+            "status": "scheduled" if toggles["infra_weekly_digest_enabled"] else "off -- no new infrastructure digests until re-enabled",
+        },
     ]
 
 
@@ -175,7 +211,14 @@ class ToggleRequest(BaseModel):
 _UNIFIED_KEYS = {
     "auto_avoid_enabled", "lesson_auto_apply_enabled", "drawdown_protection_enabled",
     "dynamic_risk_sizing_enabled", "capital_allocation_enabled", "backup_enabled",
-    "weekly_report_enabled", "sindhu_strategy_autogen_enabled",
+    "weekly_report_enabled", "monthly_report_enabled", "sindhu_strategy_autogen_enabled",
+    # Grand Feature Expansion, Phase 5/6: added when each toggle was built,
+    # but missed here at first -- without a key in this set, clicking its
+    # switch in the UI 404s ("unknown feature_id") even though it appears
+    # correctly in the list above. Fixed together while building Phase 6
+    # Feature 13, which is what surfaced the gap.
+    "slippage_aware_filter_enabled", "ensemble_voting_enabled", "evolution_weekly_review_enabled",
+    "infra_weekly_digest_enabled",
 }
 
 
@@ -189,6 +232,7 @@ def toggle_feature(req: ToggleRequest):
         telegram_bot.save_settings(auto_send_enabled=req.enabled)
     else:
         raise HTTPException(404, f"unknown feature_id: {req.feature_id}")
+    sync.notify("feature_control", "toggled", f"{req.feature_id} set to {req.enabled}")
     return {"ok": True, "feature_id": req.feature_id, "enabled": req.enabled}
 
 
@@ -205,4 +249,5 @@ def set_master_pause(req: MasterPauseRequest):
     lessons, allocations) is deleted or reset; they simply stop being
     re-evaluated/acted on until unpaused."""
     feature_toggles.set_master_pause(req.enabled)
+    sync.notify("feature_control", "master_pause", f"Master Pause All set to {req.enabled}")
     return {"ok": True, "master_pause_all": req.enabled}

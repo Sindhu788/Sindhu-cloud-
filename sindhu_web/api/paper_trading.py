@@ -1,9 +1,11 @@
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+import os
+
 from fastapi import APIRouter, HTTPException
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
 
 from backtest_engine import strategy_library as lib
@@ -21,6 +23,11 @@ from paper_trading import pattern_stats
 from paper_trading import challenge_mode
 from paper_trading import cloud_sync
 from paper_trading import signal_explainer
+from paper_trading import kill_switch, account_drawdown_guard, coin_heatmap, custom_alerts
+from paper_trading import trade_journal_export
+from paper_trading import coin_blacklist
+from paper_trading import position_size_calculator
+from paper_trading import health_check
 from paper_trading.engine import engine
 from data_engine import config as base_config
 from sindhu_web import broadcast, cache, sync
@@ -42,9 +49,17 @@ def get_status():
     return engine.status()
 
 
+@router.get("/api/paper-trading/health-check")
+def get_health_check():
+    return health_check.run_health_check()
+
+
 @router.post("/api/paper-trading/start")
 def start_engine():
-    started = engine.start(log=_log_and_broadcast, on_event=_on_engine_event)
+    try:
+        started = engine.start(log=_log_and_broadcast, on_event=_on_engine_event)
+    except RuntimeError as e:
+        raise HTTPException(409, str(e))
     if not started:
         raise HTTPException(400, "engine already running")
     # Batch 9, Task 3: persist this explicit choice immediately (not just
@@ -63,6 +78,49 @@ def stop_engine():
     pt_config.update(engine_enabled=False)
     sync.notify("paper_trading", "stopped", "Paper Trading engine stopped")
     return {"ok": True}
+
+
+class KillSwitchActivateRequest(BaseModel):
+    reason: Optional[str] = None
+    close_positions: bool = True
+    actor: str = "CEO"
+
+
+@router.get("/api/paper-trading/kill-switch/status")
+def kill_switch_status():
+    return kill_switch.status()
+
+
+@router.post("/api/paper-trading/kill-switch/activate")
+def kill_switch_activate(req: KillSwitchActivateRequest):
+    return kill_switch.activate(reason=req.reason, actor=req.actor, close_positions=req.close_positions)
+
+
+class KillSwitchDeactivateRequest(BaseModel):
+    actor: str = "CEO"
+
+
+@router.post("/api/paper-trading/kill-switch/deactivate")
+def kill_switch_deactivate(req: KillSwitchDeactivateRequest = KillSwitchDeactivateRequest()):
+    result = kill_switch.deactivate(actor=req.actor)
+    if not result["ok"]:
+        raise HTTPException(400, result["error"])
+    return result
+
+
+@router.get("/api/paper-trading/account-drawdown-status")
+def account_drawdown_status():
+    return account_drawdown_guard.status()
+
+
+class AccountDrawdownResumeRequest(BaseModel):
+    actor: str = "CEO"
+
+
+@router.post("/api/paper-trading/account-drawdown-resume")
+def account_drawdown_resume(req: AccountDrawdownResumeRequest = AccountDrawdownResumeRequest()):
+    account_drawdown_guard.resume_account(actor=req.actor)
+    return account_drawdown_guard.status()
 
 
 @router.post("/api/paper-trading/run-tick-now")
@@ -88,6 +146,13 @@ class SettingsUpdate(BaseModel):
     lesson_default_sl_pct: Optional[float] = None
     lesson_default_rr: Optional[float] = None
     daily_goal_pct: Optional[float] = None
+    time_filter_enabled: Optional[bool] = None
+    time_filter_block_start_utc: Optional[str] = None
+    time_filter_block_end_utc: Optional[str] = None
+    profit_lock_enabled: Optional[bool] = None
+    profit_lock_trigger_r: Optional[float] = None
+    profit_lock_trail_pct: Optional[float] = None
+    ensemble_voting_min_agreeing_strategies: Optional[int] = None
 
 
 @router.get("/api/paper-trading/settings")
@@ -179,6 +244,20 @@ def manual_close(position_id: str):
     closed = position_manager.force_close(position_id, pos["entry_price"], reason="closed_manually")
     sync.notify("paper_trading", "position_closed", f"Position closed manually: {pos['symbol']}")
     return {"ok": True, "trade": closed}
+
+
+class TradeNoteRequest(BaseModel):
+    note: str = ""
+
+
+@router.post("/api/paper-trading/positions/{position_id}/note")
+def set_trade_note(position_id: str, req: TradeNoteRequest):
+    """Grand Feature Expansion, Phase 4 Feature 8: Trade Annotation --
+    works on an open OR closed position, never touches pnl/exit/reflection."""
+    if not storage.get_paper_position(position_id):
+        raise HTTPException(404, "position not found")
+    storage.set_trade_note(position_id, req.note)
+    return {"ok": True, "note": req.note}
 
 
 @router.get("/api/paper-trading/decisions")
@@ -550,6 +629,14 @@ def get_strategy_overview():
             "total_pnl": round(stat["total_pnl"], 2) if stat else 0.0,
             "risk_reward": fixed_rr if fixed_rr is not None else avg_rr,
             "risk_reward_is_fixed": fixed_rr is not None,
+            # Master Task 3, Phase 0.7: dual-row Strategies table -- the
+            # local machine's most recent backtest numbers (win_rate,
+            # profit_factor), refreshed opportunistically by
+            # sindhu_web/api/backtesting.py's _compute_strategies_list and
+            # carried here via meta.json (git-tracked, so it also reaches
+            # the cloud deploy, which has no backtest_* tables of its own).
+            # None on a strategy that has never completed a local backtest.
+            "backtest": meta.get("backtest_snapshot"),
             "in_paper_trading": bool(cfg_row.get("enabled")),
             "paper_config": {
                 "priority": cfg_row.get("priority", 5),
@@ -756,15 +843,82 @@ def get_session_stats(strategy_id: Optional[str] = None, period: str = "all"):
     return {"sessions": storage.list_paper_session_stats(since_iso, until_iso, strategy_id)}
 
 
+@router.get("/api/paper-trading/hour-of-day-stats")
+def get_hour_of_day_stats(strategy_id: Optional[str] = None, period: str = "all"):
+    """Grand Feature Expansion, Phase 3 Feature 10: more granular than
+    session-stats above (named sessions) -- one row per UTC hour (00-23)."""
+    since_iso, until_iso = _period_bounds(period)
+    return {"hours": storage.list_paper_hour_of_day_stats(since_iso, until_iso, strategy_id)}
+
+
 @router.get("/api/paper-trading/coin-stats/{strategy_id}")
 def get_coin_stats_for_strategy(strategy_id: str, period: str = "all"):
     since_iso, until_iso = _period_bounds(period)
     return {"coins": storage.list_paper_coin_stats_by_strategy(strategy_id, since_iso, until_iso)}
 
 
+@router.get("/api/paper-trading/coin-heatmap")
+def get_coin_heatmap(period: str = "all"):
+    """Grand Feature Expansion, Phase 3 Feature 3: which coins are
+    CONSISTENTLY profitable across every strategy that traded them --
+    distinct from the plain aggregate ranking /coin-stats-style endpoints
+    already give."""
+    since_iso, _ = _period_bounds(period)
+    return {"coins": coin_heatmap.compute_coin_heatmap(since_iso)}
+
+
+@router.get("/api/paper-trading/coin-deep-dive/{symbol}")
+def get_coin_deep_dive(symbol: str, period: str = "all"):
+    """Grand Feature Expansion, Phase 3 Feature 17: pick one coin, see
+    every strategy's own performance on it side by side."""
+    since_iso, _ = _period_bounds(period)
+    return coin_heatmap.compute_coin_deep_dive(symbol, since_iso)
+
+
 @router.get("/api/paper-trading/alerts")
 def get_alerts(limit: int = 30):
     return {"alerts": storage.list_paper_alerts(limit=limit)}
+
+
+# ----------------------------------------- Custom Alert Rules (Grand Feature Expansion, Phase 4 Feature 25)
+
+class CustomAlertRuleRequest(BaseModel):
+    name: str
+    metric: str
+    comparison: str
+    threshold: float
+    strategy_id: Optional[str] = None
+
+
+@router.get("/api/paper-trading/custom-alert-rules")
+def list_custom_alert_rules_endpoint():
+    return {"rules": custom_alerts.list_rules(), "metric_choices": custom_alerts.METRIC_CHOICES,
+            "comparison_choices": custom_alerts.COMPARISON_CHOICES}
+
+
+@router.post("/api/paper-trading/custom-alert-rules")
+def create_custom_alert_rule_endpoint(req: CustomAlertRuleRequest):
+    try:
+        rule_id = custom_alerts.create_rule(
+            req.name, req.metric, req.comparison, req.threshold, strategy_id=req.strategy_id,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    sync.notify("custom_alert_rule", "created", f"Custom alert rule created: {req.name}")
+    return {"ok": True, "rule_id": rule_id}
+
+
+@router.post("/api/paper-trading/custom-alert-rules/{rule_id}/enabled")
+def set_custom_alert_rule_enabled_endpoint(rule_id: str, enabled: bool = True):
+    custom_alerts.set_rule_enabled(rule_id, enabled)
+    return {"ok": True}
+
+
+@router.delete("/api/paper-trading/custom-alert-rules/{rule_id}")
+def delete_custom_alert_rule_endpoint(rule_id: str):
+    custom_alerts.delete_rule(rule_id)
+    sync.notify("custom_alert_rule", "deleted", f"Custom alert rule deleted: {rule_id}")
+    return {"ok": True}
 
 
 # --------------------------------------------------------------- Group 3: self-learning foundation
@@ -1012,6 +1166,17 @@ def recompute_capital_allocations_now():
     return {"updated": capital_allocation.recompute_all_allocations()}
 
 
+@router.get("/api/paper-trading/risk-pct-recommendations")
+def get_risk_pct_recommendations():
+    """Grand Feature Expansion, Phase 5 Feature 6: Optimal Risk % Per
+    Strategy -- a suggestion only. Applying one reuses the existing,
+    already-validated POST .../strategy-config/{id}/overrides endpoint;
+    this endpoint never changes anything itself."""
+    settings = pt_config.load()
+    return {"recommendations": capital_allocation.compute_all_risk_pct_recommendations(
+        settings.get("risk_pct_default", 1.0))}
+
+
 @router.get("/api/paper-trading/risk-metrics-all")
 def get_risk_metrics_all():
     """Bulk version for a table view (Strategy Performance Dashboard) --
@@ -1070,6 +1235,19 @@ def get_correlation_warnings():
     return {"warnings": cache.cached(f"correlation_warnings_{exchange}", 60, _compute)}
 
 
+@router.get("/api/paper-trading/strategy-correlation-matrix")
+def get_strategy_correlation_matrix():
+    """Grand Feature Expansion, Phase 3 Feature 4: strategy-vs-strategy
+    correlation of DAILY REALIZED PnL (distinct from correlation-warnings
+    above, which compares symbol price returns for open positions) --
+    every strategy with at least one closed trade in the lookback window."""
+    strategy_ids = [s["strategy_id"] for s in storage.list_paper_strategy_stats()]
+
+    def _compute():
+        return correlation.strategy_correlation_matrix(strategy_ids)
+    return cache.cached("strategy_correlation_matrix", 300, _compute)
+
+
 # --------------------------------------------------------------- Portfolio & Capital Intelligence
 
 @router.get("/api/paper-trading/portfolio")
@@ -1097,6 +1275,36 @@ def get_coin_exposure():
     exchanges_cfg = base_config.load_or_seed("exchanges.json", base_config.DEFAULTS["exchanges.json"])
     exchange = exchanges_cfg["default"]
     return {"exposure": portfolio.compute_coin_exposure(exchange)}
+
+
+@router.get("/api/paper-trading/duplicate-exposure-warnings")
+def get_duplicate_exposure_warnings():
+    """Grand Feature Expansion, Phase 7 Feature 1: Duplicate Exposure
+    Warning -- flags a coin currently traded by 2+ independent strategies
+    at once, regardless of price correlation (see correlation-warnings
+    above for the separate, price-correlation-based check)."""
+    exchanges_cfg = base_config.load_or_seed("exchanges.json", base_config.DEFAULTS["exchanges.json"])
+    exchange = exchanges_cfg["default"]
+    return {"warnings": portfolio.detect_duplicate_exposure_warnings(exchange)}
+
+
+@router.get("/api/paper-trading/strategy-exposure")
+def get_strategy_exposure():
+    """Grand Feature Expansion, Phase 3 Feature 5: Portfolio Heat Map --
+    where open risk is concentrated BY STRATEGY (coin-exposure above
+    already covers by-coin)."""
+    exchanges_cfg = base_config.load_or_seed("exchanges.json", base_config.DEFAULTS["exchanges.json"])
+    exchange = exchanges_cfg["default"]
+    return {"exposure": portfolio.compute_strategy_exposure(exchange)}
+
+
+@router.get("/api/paper-trading/direction-exposure")
+def get_direction_exposure():
+    """Grand Feature Expansion, Phase 3 Feature 5: Portfolio Heat Map --
+    long vs short split across every strategy combined."""
+    exchanges_cfg = base_config.load_or_seed("exchanges.json", base_config.DEFAULTS["exchanges.json"])
+    exchange = exchanges_cfg["default"]
+    return portfolio.compute_direction_exposure(exchange)
 
 
 # --------------------------------------------------------------- Trade Audit Engine (Group 6 #5)
@@ -1127,6 +1335,9 @@ class TelegramSettingsUpdate(BaseModel):
     send_close_followups: Optional[bool] = None
     proxy_enabled: Optional[bool] = None
     proxy_url: Optional[str] = None
+    silent_hours_enabled: Optional[bool] = None
+    silent_hours_start_utc: Optional[str] = None
+    silent_hours_end_utc: Optional[str] = None
 
 
 @router.get("/api/paper-trading/telegram/settings")
@@ -1145,6 +1356,23 @@ def update_telegram_settings(req: TelegramSettingsUpdate):
         note += " (auto-send " + ("ENABLED" if req.auto_send_enabled else "disabled") + ")"
     _log_and_broadcast("[paper-trading] Telegram settings updated" + note)
     return {"ok": True, "settings": telegram_bot.public_settings()}
+
+
+class ChannelOverrideRequest(BaseModel):
+    channel_id: Optional[str] = None  # None/empty removes the override
+
+
+@router.post("/api/paper-trading/telegram/channel-override/{strategy_id}")
+def set_telegram_channel_override(strategy_id: str, req: ChannelOverrideRequest):
+    """Grand Feature Expansion, Phase 2 Feature 22: Multi-Channel Support.
+    A dedicated endpoint (rather than folding this into the general
+    /telegram/settings PATCH above) so the frontend only ever sends ONE
+    strategy's change, never a full dict replace that could accidentally
+    clobber every other strategy's routing."""
+    overrides = telegram_bot.set_strategy_channel_override(strategy_id, req.channel_id)
+    sync.notify("telegram", "channel_override_changed",
+                f"{strategy_id} routed to {req.channel_id}" if req.channel_id else f"{strategy_id} reverted to the default channel")
+    return {"ok": True, "strategy_channel_overrides": overrides}
 
 
 @router.post("/api/paper-trading/telegram/test")
@@ -1438,6 +1666,17 @@ def get_challenge_breakdown():
     return challenge_analysis.granular_breakdown()
 
 
+@router.get("/api/paper-trading/challenge/best-portfolio")
+def get_best_portfolio_suggestion(top_n: int = 3):
+    """Grand Feature Expansion, Phase 5 Feature 11: Best Combination
+    Auto-Suggest, extended to a multi-strategy PORTFOLIO -- top N distinct
+    strategies' best coin each, by real PnL, filtered to statistically-
+    trusted combinations. Purely informational -- applying an idea reuses
+    each strategy's own existing enable/pause controls."""
+    from paper_trading import challenge_analysis
+    return challenge_analysis.suggest_best_portfolio(top_n=top_n)
+
+
 @router.post("/api/paper-trading/challenge/recommend")
 def post_challenge_recommend(req: ChallengeWhatIfRequest):
     """Level 2 (and the Level 3 What-If explorer, via the optional
@@ -1517,6 +1756,76 @@ class SimilarityCheck(BaseModel):
 @router.post("/api/paper-trading/graveyard/check-similarity")
 def check_graveyard_similarity(req: SimilarityCheck):
     return {"warnings": graveyard.check_similarity_warnings(req.concepts_used)}
+
+
+@router.get("/api/paper-trading/retirement-suggestions")
+def get_retirement_suggestions():
+    """Grand Feature Expansion, Phase 4 Feature 4: Auto-Retirement
+    Suggestion. Archiving itself reuses the existing, fully reversible
+    POST /api/backtesting/strategies/{id}/archive -- this endpoint only
+    ever surfaces the suggestion, never archives anything itself."""
+    return {"suggestions": graveyard.compute_retirement_suggestions()}
+
+
+@router.get("/api/paper-trading/trade-journal/export-pdf")
+def export_trade_journal(strategy_id: Optional[str] = None, limit: int = 200):
+    """Grand Feature Expansion, Phase 4 Feature 23: Trade Journal Export to
+    PDF -- distinct from the only other paper-trading export (an Excel
+    strategy-vs-strategy comparison, not a per-trade journal). Reuses
+    reportlab exactly like the existing backtest PDF export -- no new
+    dependency."""
+    path = trade_journal_export.export_trade_journal_pdf(strategy_id=strategy_id, limit=limit)
+    return FileResponse(path, filename=os.path.basename(path))
+
+
+class CoinBlacklistRequest(BaseModel):
+    symbol: str
+    reason: Optional[str] = None
+
+
+@router.get("/api/paper-trading/coin-blacklist")
+def get_coin_blacklist():
+    """Grand Feature Expansion, Phase 5 Feature 1: Coin Blacklist -- a
+    genuine deny-list, distinct from coin_filter.py's shortlist() (a top-N
+    allowlist/ranker, never an exclude mechanism)."""
+    return {"blacklist": coin_blacklist.list_all()}
+
+
+@router.post("/api/paper-trading/coin-blacklist")
+def add_coin_blacklist(req: CoinBlacklistRequest):
+    symbol = req.symbol.strip().upper()
+    if not symbol:
+        raise HTTPException(400, "symbol is required")
+    coin_blacklist.add(symbol, req.reason)
+    sync.notify("coin_blacklist", "added", f"Blacklisted {symbol}" + (f" ({req.reason})" if req.reason else ""))
+    return {"ok": True}
+
+
+@router.delete("/api/paper-trading/coin-blacklist/{symbol}")
+def remove_coin_blacklist(symbol: str):
+    coin_blacklist.remove(symbol)
+    sync.notify("coin_blacklist", "removed", f"Removed {symbol.upper()} from the blacklist")
+    return {"ok": True}
+
+
+class PositionSizeCalculatorRequest(BaseModel):
+    balance: float
+    entry_price: float
+    stop_loss: Optional[float] = None
+    risk_pct: float = 1.0
+    take_profit: Optional[float] = None
+    leverage: float = 1.0
+
+
+@router.post("/api/paper-trading/position-size-calculator")
+def calculate_position_size(req: PositionSizeCalculatorRequest):
+    """Grand Feature Expansion, Phase 5 Feature 13: Position Size
+    Calculator -- pure calculation, never touches a real position or the
+    trading engine."""
+    if req.entry_price <= 0:
+        raise HTTPException(400, "entry_price must be greater than 0")
+    return position_size_calculator.calculate(
+        req.balance, req.entry_price, req.stop_loss, req.risk_pct, req.take_profit, req.leverage)
 
 
 @router.get("/api/paper-trading/weekly-reports")

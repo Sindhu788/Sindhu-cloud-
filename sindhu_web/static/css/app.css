@@ -1,3 +1,11 @@
+/* Master Task 3, Phase 0.8a: layout offset for the System Status Banner
+   (grid-area "banner"). JS toggles this between "0px" and "30px" -- kept
+   as a variable (not a hardcoded row height) so the two position:fixed
+   overlays below (.logs-panel, the mobile sidebar drawer) that assume
+   "everything above the content area is 60px of topbar" can add this on
+   top instead of silently overlapping the banner when it's visible. */
+:root { --banner-h: 0px; }
+
 :root[data-theme="dark"] {
   --bg: #0a0e17;
   --bg-elevated: #10151f;
@@ -69,8 +77,8 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round
 .app-shell {
   display: grid;
   grid-template-columns: 220px 1fr;
-  grid-template-rows: 60px 1fr;
-  grid-template-areas: "topbar topbar" "sidebar content";
+  grid-template-rows: 60px var(--banner-h) 1fr;
+  grid-template-areas: "topbar topbar" "banner banner" "sidebar content";
   height: 100vh;
   transition: grid-template-columns .18s ease;
 }
@@ -206,6 +214,30 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round
 .dropdown-item:hover { background: var(--bg-hover); }
 
 /* --------------------------------------------------------------- sidebar */
+/* Master Task 3, Phase 0.8a/0.8c/0.8e: prominent top-of-dashboard banner --
+   Paper Trading engine running/stopped, last-heartbeat timestamp, and
+   today's live trade counter, visible from every page (not buried inside
+   the Paper Trading page itself). Collapses to zero height via JS setting
+   display:none when there's nothing to show yet (e.g. still loading). */
+.engine-status-banner {
+  grid-area: banner;
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  gap: 18px;
+  height: 30px;
+  padding: 0 18px;
+  font-size: 12.5px;
+  background: var(--bg-hover);
+  border-bottom: 1px solid var(--border);
+}
+.engine-status-banner .esb-item { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.engine-status-banner .esb-dot { font-size: 10px; }
+.engine-status-banner .esb-running { color: var(--green); font-weight: 600; }
+.engine-status-banner .esb-stopped { color: var(--red); font-weight: 600; }
+.engine-status-banner .esb-muted { color: var(--text-dim); }
+
 .sidebar {
   grid-area: sidebar;
   background: var(--bg-elevated);
@@ -777,7 +809,7 @@ textarea { font-family: Consolas, monospace; min-height: 160px; }
 /* ---- logs panel ---- */
 .logs-panel {
   position: fixed;
-  top: 60px; right: 0; bottom: 0;
+  top: calc(60px + var(--banner-h)); right: 0; bottom: 0;
   width: 380px;
   background: var(--bg-elevated);
   border-left: 1px solid var(--border);
@@ -826,7 +858,7 @@ textarea { font-family: Consolas, monospace; min-height: 160px; }
   .sidebar {
     grid-area: unset;
     position: fixed;
-    top: 60px; left: -280px; bottom: 0;
+    top: calc(60px + var(--banner-h)); left: -280px; bottom: 0;
     width: 272px;
     transition: left .2s ease;
     z-index: 60;
@@ -1074,7 +1106,7 @@ textarea { font-family: Consolas, monospace; min-height: 160px; }
 }
 .toast.toast-error { border-left-color: var(--red); }
 .toast-title { font-size: 13px; font-weight: 700; margin-bottom: 4px; }
-.toast-body { font-size: 12.5px; color: var(--text-dim); }
+.toast-body { font-size: 12.5px; color: var(--text-dim); white-space: pre-line; }
 .toast-actions { margin-top: 8px; display: flex; gap: 8px; }
 .toast-close {
   position: absolute; top: 6px; right: 8px; background: none; border: none;
@@ -1174,6 +1206,19 @@ textarea { font-family: Consolas, monospace; min-height: 160px; }
   box-shadow: 0 6px 20px rgba(0,0,0,.25); font-size: 12.5px; line-height: 1.45; color: var(--text);
 }
 .conf-dimmed { opacity: .32; filter: grayscale(40%); }
+
+/* Grand Feature Expansion, Phase 4 Feature 17: Beginner Mode -- makes the
+   existing "?" help icons impossible to miss, without changing any real
+   number or layout. Toggled in Settings, localStorage-only. */
+body.beginner-mode .help-icon {
+  width: 19px; height: 19px; font-size: 12px;
+  background: var(--accent); border-color: var(--accent); color: #fff;
+  animation: beginner-help-pulse 2.2s ease-in-out infinite;
+}
+@keyframes beginner-help-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, .45); }
+  50% { box-shadow: 0 0 0 5px rgba(99, 102, 241, 0); }
+}
 
 /* ================================================================
    PAPER TRADING + TELEGRAM -- design layer
@@ -1394,6 +1439,30 @@ textarea { font-family: Consolas, monospace; min-height: 160px; }
   from { opacity: 0; transform: translateY(12px) scale(.985); }
   to { opacity: 1; transform: none; }
 }
+
+/* --------------------------------------------------------------- onboarding tour
+   Grand Feature Expansion, Phase 4 Feature 16: a lightweight, dependency-
+   free product tour -- a dimmed overlay with a transparent "spotlight"
+   cutout (a box-shadow trick, no image/canvas needed) around the current
+   step's target element, plus a small tooltip box with Next/Back/Skip. */
+.tour-dim {
+  position: fixed; inset: 0; z-index: 10000; background: transparent; pointer-events: none;
+}
+.tour-spotlight {
+  position: fixed; z-index: 10000; border-radius: 10px; pointer-events: none;
+  box-shadow: 0 0 0 9999px rgba(4,7,14,.68);
+  transition: top .18s ease, left .18s ease, width .18s ease, height .18s ease;
+}
+.tour-tooltip {
+  position: fixed; z-index: 10001; width: min(300px, calc(100vw - 24px));
+  background: var(--bg-elevated); color: var(--text); border: 1px solid var(--border);
+  border-radius: 14px; padding: 16px 18px; box-shadow: 0 20px 50px rgba(0,0,0,.4);
+  animation: modal-fade .16s ease both;
+}
+.tour-tooltip .tour-title { font-weight: 650; margin-bottom: 6px; }
+.tour-tooltip .tour-body { font-size: 13px; line-height: 1.5; color: var(--text-dim); }
+.tour-tooltip .tour-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; }
+.tour-tooltip .tour-step-count { font-size: 11px; color: var(--text-dim); }
 .modal-head {
   display: flex; justify-content: space-between; align-items: flex-start;
   gap: 16px; margin-bottom: 18px;

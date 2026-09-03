@@ -67,6 +67,47 @@ _DEFAULTS = {
     # drawdown limits) -- not a custom invention.
     "drawdown_pause_streak_threshold": 7,
     "drawdown_pause_pct_threshold": 15.0,
+    # Grand Feature Expansion, Phase 1 Feature 5: Account-wide Drawdown
+    # Circuit-Breaker. Unlike the per-strategy threshold above (one
+    # strategy's own peak, pauses only that strategy), this compares the
+    # COMBINED balance across every book against its own all-time peak and
+    # halts ALL new entries system-wide once crossed -- deliberately a
+    # stricter/larger bar than any single strategy's own threshold, since
+    # tripping it is a bigger action. Existing open positions are still
+    # monitored and closed normally; only new entries are blocked, and only
+    # a fresh kill switch activation ever force-closes anything.
+    "account_drawdown_pause_pct_threshold": 20.0,
+    # Grand Feature Expansion, Phase 5 Feature 2: Time-of-Day Trading
+    # Filter -- blocks NEW entries during a configured UTC hour window
+    # (e.g. known-illiquid overnight hours), same overnight-wraparound
+    # window convention as Telegram's Silent Hours DND (Phase 2 Feature
+    # 24), but gates real trade execution instead of muting a
+    # notification sound. Off by default -- start/end equal means "always
+    # off" here too. Existing open positions are never affected, only new
+    # entries; same scope as every other pre-entry risk gate.
+    "time_filter_enabled": False,
+    "time_filter_block_start_utc": "00:00",
+    "time_filter_block_end_utc": "00:00",
+    # Grand Feature Expansion, Phase 5 Feature 9: Profit-Lock Trailing
+    # Stop -- once a position has moved in its favor by at least
+    # profit_lock_trigger_r times its own original risk (entry-to-stop
+    # distance), the stop-loss trails behind the position's best price
+    # seen so far (Phase 3's MAE/MFE excursion tracking, reused as-is) to
+    # lock in profit_lock_trail_pct of that favorable move -- e.g. the
+    # defaults (trigger 1.0R, trail 50%) mean: once up 1R, guarantee at
+    # least 0.5R either way it goes from there. Off by default -- a
+    # brand-new execution-affecting mechanism. The stop-loss is only ever
+    # tightened, never loosened, regardless of these settings.
+    "profit_lock_enabled": False,
+    "profit_lock_trigger_r": 1.0,
+    "profit_lock_trail_pct": 50.0,
+    # Grand Feature Expansion, Phase 5 Feature 10: Ensemble Voting
+    # Confirmation -- how many INDEPENDENT strategies/lessons must agree
+    # on the same symbol+direction within the same tick before any of them
+    # can open (only checked when feature_toggles.ensemble_voting_enabled
+    # is on). 2 is the smallest number that is actually "agreement"
+    # between more than one source.
+    "ensemble_voting_min_agreeing_strategies": 2,
 }
 
 

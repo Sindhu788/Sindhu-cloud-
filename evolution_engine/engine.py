@@ -195,7 +195,14 @@ class EvolutionEngine:
             base_id = self.governor.dequeue()
             if base_id is None:
                 break
-            new_id = mutator.mutate_strategy(base_id, self.governor, _now_iso())
+            # Grand Feature Expansion, Phase 6 Feature 9: Regime-Aware
+            # Evolution -- mutate_strategy's own regime-adaptation branch
+            # was previously dead code here (this call never passed
+            # exchange/symbol/timeframe). regime_context_for() derives all
+            # 3 from the lineage's own last real backtest.
+            reg_exchange, reg_symbol, reg_timeframe = mutator.regime_context_for(base_id)
+            new_id = mutator.mutate_strategy(base_id, self.governor, _now_iso(),
+                                              exchange=reg_exchange, symbol=reg_symbol, timeframe=reg_timeframe)
             if new_id:
                 mutated.append(new_id)
         self._checkpoint("mutating", mutated=mutated, queue_remaining=self.governor.queue_size())

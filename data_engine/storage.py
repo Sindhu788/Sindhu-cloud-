@@ -176,12 +176,96 @@ CREATE TABLE IF NOT EXISTS activity_log (
 -- user can leave notes on (Suggest/Add/Fix/Wrong) for Claude Code to read
 -- back in future sessions. Deliberately does NOT trigger any automatic
 -- action -- just persisted and displayed.
+-- Grand Feature Expansion, Phase 1 Feature 3: Audit Trail. Unlike
+-- activity_log above (deliberately capped to the last 500 rows for the
+-- live dashboard feed, see log_activity()), this table is INSERT-ONLY --
+-- no function anywhere deletes or updates a row here. Fed automatically by
+-- sync.notify() (already the codebase's single choke point for every
+-- "significant, worth telling the user about" event -- strategy/lesson/
+-- settings/paper-trading/engine-on-off changes, ~50 call sites) plus a
+-- few direct calls where a mutating action existed but never routed
+-- through sync.notify (feature-control toggles, backup create/restore).
+CREATE TABLE IF NOT EXISTS audit_trail_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entity TEXT NOT NULL,
+    action TEXT NOT NULL,
+    message TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_trail_created ON audit_trail_log(created_at DESC);
+
 CREATE TABLE IF NOT EXISTS user_feedback (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     type TEXT NOT NULL,
     text TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'open',
     created_at TEXT NOT NULL
+);
+
+-- Grand Feature Expansion, Phase 4 Feature 21: Quick Note Box -- an
+-- instant, unstructured scratch-pad, deliberately distinct from
+-- user_feedback above (which is a structured type+status request/backlog
+-- workflow). No type, no status, nothing to triage -- just jot something
+-- down and delete it whenever it's no longer needed.
+CREATE TABLE IF NOT EXISTS quick_notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+-- Grand Feature Expansion, Phase 1 Feature 4: Incident Management System.
+-- A structured record for problem -> detection -> root cause -> fix ->
+-- test -> resolution, distinct from both paper_alerts (auto-generated,
+-- trading-specific, ephemeral) and audit_trail_log (a plain event log, no
+-- workflow/status). Rows are never deleted -- resolved incidents stay as
+-- permanent history, same as the audit trail.
+CREATE TABLE IF NOT EXISTS incidents (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    problem TEXT NOT NULL,
+    detected_by TEXT,
+    severity TEXT NOT NULL DEFAULT 'medium',
+    status TEXT NOT NULL DEFAULT 'open',
+    root_cause TEXT,
+    fix_description TEXT,
+    fix_reference TEXT,
+    test_description TEXT,
+    detected_at TEXT NOT NULL,
+    resolved_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_incidents_status ON incidents(status);
+
+-- Grand Feature Expansion, Phase 4 Feature 25: Custom Alert Rules. A
+-- user-DEFINED "alert me if X" mechanism, distinct from every other alert
+-- in this system (all system-generated). metric is one of a fixed,
+-- validated set (see paper_trading/custom_alerts.py's METRIC_CHOICES) --
+-- never an arbitrary user-supplied expression, so this can never become
+-- an injection surface or execute arbitrary logic.
+CREATE TABLE IF NOT EXISTS custom_alert_rules (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    metric TEXT NOT NULL,
+    strategy_id TEXT,
+    comparison TEXT NOT NULL,
+    threshold REAL NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    last_triggered_at TEXT
+);
+
+-- Grand Feature Expansion, Phase 5 Feature 1: Coin Blacklist -- a genuine
+-- deny-list, distinct from coin_filter.py's shortlist() (a top-N
+-- ALLOWLIST/ranker by activity score, never an exclude mechanism). Checked
+-- in engine.py BEFORE a symbol is even offered to coin_filter.shortlist(),
+-- so a blacklisted coin never gets ranked, scored, or traded.
+CREATE TABLE IF NOT EXISTS paper_coin_blacklist (
+    symbol TEXT PRIMARY KEY,
+    reason TEXT,
+    added_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS paper_positions (
@@ -215,7 +299,23 @@ CREATE TABLE IF NOT EXISTS paper_positions (
     reflection_json TEXT,
     status TEXT NOT NULL DEFAULT 'open',
     created_at TEXT NOT NULL,
-    closed_at TEXT
+    closed_at TEXT,
+    -- Grand Feature Expansion, Phase 3 Feature 8: Maximum Adverse/Favorable
+    -- Excursion. Raw lowest/highest price seen while this position was
+    -- open -- deliberately DIRECTION-AGNOSTIC (just the literal price
+    -- extremes, updated every tick by position_manager.monitor_and_close,
+    -- seeded to entry_price the instant it opens) so the tick-update path
+    -- never needs a direction check; MAE %/MFE % are DERIVED from these
+    -- plus entry_price/direction/size at READ time instead (see
+    -- _row_to_paper_position), same "don't store what you can recompute"
+    -- convention this table already uses for is_win/rr.
+    lowest_price_seen REAL,
+    highest_price_seen REAL,
+    -- Grand Feature Expansion, Phase 4 Feature 8: Trade Annotation -- a
+    -- personal, user-written note on one specific trade. Distinct from
+    -- reflection_json above (fully auto-generated/templated, never
+    -- user-editable).
+    user_note TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_paper_positions_status_closed
@@ -334,6 +434,26 @@ CREATE TABLE IF NOT EXISTS telegram_message_log (
 );
 CREATE INDEX IF NOT EXISTS idx_telegram_log_sent_at ON telegram_message_log(sent_at DESC);
 
+-- Grand Feature Expansion, Phase 2 Feature 11: Delivery Retry Queue.
+-- telegram_bot._raw_send() already retries a handful of times WITHIN one
+-- call for a connection-level failure; this is the separate, longer-
+-- horizon mechanism for when that whole call still failed (Telegram down
+-- for several minutes, a laptop's internet drops, etc) -- rather than the
+-- signal being lost, it's queued here and retried again later.
+CREATE TABLE IF NOT EXISTS telegram_retry_queue (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    position_id TEXT NOT NULL,
+    trigger_type TEXT NOT NULL,
+    high_confidence INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'pending',
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    created_at TEXT NOT NULL,
+    last_attempt_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_telegram_retry_status ON telegram_retry_queue(status);
+
 -- Batch 5, Task 2: one row per time a strategy's re-extraction produced a
 -- genuinely different configuration (Batch 5, Task 1's sentence-level
 -- pipeline vs whatever produced the version before it). corrected_at_version
@@ -388,6 +508,49 @@ CREATE INDEX IF NOT EXISTS idx_confluence_log_strategy ON confluence_score_log(s
 -- Weekly Auto-Report (Dashboard Consolidation Group, item 7): one row per
 -- generated report, permanently stored so past reports stay reviewable.
 CREATE TABLE IF NOT EXISTS paper_weekly_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    period_start TEXT NOT NULL,
+    period_end TEXT NOT NULL,
+    report_json TEXT NOT NULL,
+    report_text TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+-- Grand Feature Expansion, Phase 3 Feature 13: Monthly Auto-Report.
+-- Identical shape to paper_weekly_reports above -- a separate table (not
+-- a shared one distinguished by period length) so the two report types'
+-- own "has one been generated in the last N days" gates never interfere
+-- with each other.
+CREATE TABLE IF NOT EXISTS paper_monthly_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    period_start TEXT NOT NULL,
+    period_end TEXT NOT NULL,
+    report_json TEXT NOT NULL,
+    report_text TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+-- Grand Feature Expansion, Phase 6 Feature 13: Automated Weekly Strategy
+-- Review. Identical shape to paper_weekly_reports/paper_monthly_reports
+-- above, same "separate table, own independent gate" reasoning -- this
+-- reviews EVOLUTION/TUNING history (mutations, rollbacks), never trading
+-- performance, so its own 7-day gate must never interact with either of
+-- those two.
+CREATE TABLE IF NOT EXISTS evolution_weekly_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    period_start TEXT NOT NULL,
+    period_end TEXT NOT NULL,
+    report_json TEXT NOT NULL,
+    report_text TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+-- Grand Feature Expansion, Phase 7 Feature 10: Automated Weekly Digest.
+-- A weekly SYSTEM/INFRASTRUCTURE health digest (backups, incidents, disk/
+-- database size) -- distinct content from paper_weekly_reports (trading
+-- performance) and evolution_weekly_reports (tuning/evolution activity)
+-- above, so its own 7-day gate never interacts with either of those.
+CREATE TABLE IF NOT EXISTS infra_weekly_digests (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     period_start TEXT NOT NULL,
     period_end TEXT NOT NULL,
@@ -498,6 +661,20 @@ CREATE TABLE IF NOT EXISTS paper_strategy_overrides (
     updated_at TEXT
 );
 
+-- Grand Feature Expansion, Phase 1 Feature 5: Account-wide Drawdown
+-- Circuit-Breaker. Single row (id=1) tracking the combined-balance
+-- all-time peak and whether the account is currently globally paused.
+-- Distinct from paper_strategy_config.paused (per-strategy, see
+-- drawdown_guard.py) -- this one blocks EVERY book's new entries at once.
+CREATE TABLE IF NOT EXISTS account_drawdown_state (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    peak_balance REAL NOT NULL,
+    paused INTEGER NOT NULL DEFAULT 0,
+    paused_reason TEXT,
+    paused_at TEXT,
+    updated_at TEXT NOT NULL
+);
+
 -- Real-Time Alert / Drawdown Alert history -- computed fresh each time
 -- paper_trading.alerts is asked to check (see that module), persisted here
 -- only so the UI has a short recent history instead of alerts vanishing
@@ -514,6 +691,24 @@ CREATE TABLE IF NOT EXISTS paper_alerts (
 );
 
 CREATE INDEX IF NOT EXISTS idx_paper_alerts_created ON paper_alerts(created_at DESC);
+
+-- Grand Feature Expansion, Phase 1 Feature 1: Kill-Switch. Single row
+-- (id=1) holding the current global emergency-stop state. Deliberately
+-- separate from paper_trading_settings/engine_enabled -- this must
+-- override the normal start/stop flow, not be just another setting a
+-- restart could quietly bring back. reactivation_count exists only so
+-- the audit trail (Feature 3) can show a history without a second table.
+CREATE TABLE IF NOT EXISTS kill_switch_state (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    active INTEGER NOT NULL DEFAULT 0,
+    reason TEXT,
+    close_positions INTEGER NOT NULL DEFAULT 0,
+    activated_at TEXT,
+    activated_by TEXT,
+    deactivated_at TEXT,
+    deactivated_by TEXT,
+    activation_count INTEGER NOT NULL DEFAULT 0
+);
 
 -- Lesson Candidate Auto-Flagging (self-learning foundation, Group 3):
 -- repeated patterns detected in closed trades get flagged here for human
@@ -995,6 +1190,62 @@ _PAPER_STRATEGY_CONFIG_PAUSE_COLUMNS = {
     "risk_pct_override": "REAL",
     "max_open_trades_override": "INTEGER",
 }
+
+
+_PAPER_POSITIONS_EXCURSION_COLUMNS = {
+    # Grand Feature Expansion, Phase 3 Feature 8 (MAE/MFE). Backfilled to
+    # entry_price for any row that predates this feature -- see below --
+    # so an old, already-closed trade reports zero excursion (an honest
+    # "we never tracked this" rather than NULL breaking mae_amount/
+    # mfe_amount's derivation in _row_to_paper_position.
+    "lowest_price_seen": "REAL",
+    "highest_price_seen": "REAL",
+}
+
+_PAPER_POSITIONS_NOTE_COLUMN = {
+    # Grand Feature Expansion, Phase 4 Feature 8 (Trade Annotation).
+    "user_note": "TEXT",
+}
+
+
+def _migrate_paper_positions_excursion_columns(conn):
+    """Additive columns on an existing paper_positions table (CREATE TABLE
+    IF NOT EXISTS is a no-op once the table already exists from before
+    this feature -- exact same situation _migrate_paper_strategy_config_
+    pause_columns below already handles for a different table)."""
+    existing = {r[0] for r in
+                conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "paper_positions" not in existing:
+        return
+    have_columns = {r[1] for r in conn.execute("PRAGMA table_info(paper_positions)").fetchall()}
+    for col, col_type in _PAPER_POSITIONS_EXCURSION_COLUMNS.items():
+        if col not in have_columns:
+            conn.execute(f"ALTER TABLE paper_positions ADD COLUMN {col} {col_type}")
+    if "lowest_price_seen" not in have_columns:
+        # Every row that already existed before this migration never had
+        # its excursion tracked -- backfilling to entry_price (rather than
+        # leaving NULL) reports an honest "zero excursion recorded" for
+        # old trades instead of breaking mae_amount/mfe_amount's derivation.
+        conn.execute(
+            "UPDATE paper_positions SET lowest_price_seen = entry_price, "
+            "highest_price_seen = entry_price WHERE lowest_price_seen IS NULL"
+        )
+
+
+def _migrate_paper_positions_note_column(conn):
+    """Trade Annotation (Grand Feature Expansion, Phase 4 Feature 8):
+    additive column on an existing paper_positions table -- same situation
+    as _migrate_paper_positions_excursion_columns just above, kept as its
+    own function per this file's established one-function-per-feature
+    convention rather than folded into that one."""
+    existing = {r[0] for r in
+                conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "paper_positions" not in existing:
+        return
+    have_columns = {r[1] for r in conn.execute("PRAGMA table_info(paper_positions)").fetchall()}
+    for col, col_type in _PAPER_POSITIONS_NOTE_COLUMN.items():
+        if col not in have_columns:
+            conn.execute(f"ALTER TABLE paper_positions ADD COLUMN {col} {col_type}")
 
 
 def _migrate_paper_strategy_config_pause_columns(conn):
@@ -1544,6 +1795,8 @@ def init_db():
         _migrate_ai_import_queue_content_type_column(conn)
         _migrate_ai_import_cache_v8_columns(conn)
         _migrate_backtest_batch_columns(conn)
+        _migrate_paper_positions_excursion_columns(conn)
+        _migrate_paper_positions_note_column(conn)
         _migrate_lesson_stats_summary_backfill(conn)
         _migrate_paper_account_state_per_strategy(conn)
         _migrate_paper_strategy_config_pause_columns(conn)
@@ -2294,6 +2547,199 @@ def list_activity(limit=50):
     ]
 
 
+def get_kill_switch_state():
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT active, reason, close_positions, activated_at, activated_by, "
+            "deactivated_at, deactivated_by, activation_count FROM kill_switch_state WHERE id=1"
+        ).fetchone()
+    if not row:
+        return {"active": False, "reason": None, "close_positions": False, "activated_at": None,
+                "activated_by": None, "deactivated_at": None, "deactivated_by": None, "activation_count": 0}
+    return {"active": bool(row[0]), "reason": row[1], "close_positions": bool(row[2]),
+            "activated_at": row[3], "activated_by": row[4], "deactivated_at": row[5],
+            "deactivated_by": row[6], "activation_count": row[7]}
+
+
+def activate_kill_switch(reason, actor, close_positions, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO kill_switch_state (id, active, reason, close_positions, activated_at, activated_by, activation_count)
+               VALUES (1, 1, ?, ?, ?, ?, 1)
+               ON CONFLICT(id) DO UPDATE SET
+                 active=1, reason=excluded.reason, close_positions=excluded.close_positions,
+                 activated_at=excluded.activated_at, activated_by=excluded.activated_by,
+                 deactivated_at=NULL, deactivated_by=NULL,
+                 activation_count=kill_switch_state.activation_count + 1""",
+            (reason, int(bool(close_positions)), now_iso, actor),
+        )
+
+
+def deactivate_kill_switch(actor, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE kill_switch_state SET active=0, deactivated_at=?, deactivated_by=? WHERE id=1",
+            (now_iso, actor),
+        )
+
+
+def record_audit_event(entity, action, message, now_iso):
+    """Append-only. Deliberately no delete/update/prune function exists
+    anywhere for this table -- see the table's own comment in the schema."""
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO audit_trail_log (entity, action, message, created_at) VALUES (?, ?, ?, ?)",
+            (entity, action, message, now_iso),
+        )
+
+
+def list_audit_trail(limit=100, entity=None, since_iso=None):
+    query = "SELECT id, entity, action, message, created_at FROM audit_trail_log WHERE 1=1"
+    params = []
+    if entity:
+        query += " AND entity = ?"
+        params.append(entity)
+    if since_iso:
+        query += " AND created_at >= ?"
+        params.append(since_iso)
+    query += " ORDER BY id DESC LIMIT ?"
+    params.append(limit)
+    with get_conn() as conn:
+        rows = conn.execute(query, params).fetchall()
+    return [
+        {"id": r[0], "entity": r[1], "action": r[2], "message": r[3], "created_at": r[4]}
+        for r in rows
+    ]
+
+
+def count_audit_trail():
+    with get_conn() as conn:
+        row = conn.execute("SELECT COUNT(*) FROM audit_trail_log").fetchone()
+    return row[0] if row else 0
+
+
+_INCIDENT_COLUMNS = [
+    "id", "title", "problem", "detected_by", "severity", "status", "root_cause",
+    "fix_description", "fix_reference", "test_description", "detected_at",
+    "resolved_at", "created_at", "updated_at",
+]
+INCIDENT_VALID_STATUSES = ("open", "root_cause_found", "fix_in_progress", "fixed", "resolved")
+INCIDENT_VALID_SEVERITIES = ("low", "medium", "high", "critical")
+
+
+def create_incident(incident_id, title, problem, detected_by, severity, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO incidents
+               (id, title, problem, detected_by, severity, status, detected_at, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?)""",
+            (incident_id, title, problem, detected_by, severity, now_iso, now_iso, now_iso),
+        )
+    return get_incident(incident_id)
+
+
+def update_incident(incident_id, now_iso, **fields):
+    """Only ever touches columns explicitly passed in `fields` -- every
+    other field (including whatever was already recorded) is left exactly
+    as-is, so a partial update (e.g. just adding root_cause) never wipes
+    fields set in an earlier update."""
+    allowed = {"root_cause", "fix_description", "fix_reference", "test_description", "status", "resolved_at"}
+    cols = [c for c in fields if c in allowed]
+    if not cols:
+        return get_incident(incident_id)
+    set_clause = ", ".join(f"{c}=?" for c in cols) + ", updated_at=?"
+    params = [fields[c] for c in cols] + [now_iso, incident_id]
+    with get_conn() as conn:
+        conn.execute(f"UPDATE incidents SET {set_clause} WHERE id=?", params)
+    return get_incident(incident_id)
+
+
+def get_incident(incident_id):
+    with get_conn() as conn:
+        row = conn.execute(
+            f"SELECT {','.join(_INCIDENT_COLUMNS)} FROM incidents WHERE id=?", (incident_id,)
+        ).fetchone()
+    return dict(zip(_INCIDENT_COLUMNS, row)) if row else None
+
+
+def list_incidents(status=None, limit=100):
+    query = f"SELECT {','.join(_INCIDENT_COLUMNS)} FROM incidents WHERE 1=1"
+    params = []
+    if status:
+        query += " AND status = ?"
+        params.append(status)
+    query += " ORDER BY created_at DESC LIMIT ?"
+    params.append(limit)
+    with get_conn() as conn:
+        rows = conn.execute(query, params).fetchall()
+    return [dict(zip(_INCIDENT_COLUMNS, r)) for r in rows]
+
+
+def get_account_drawdown_state():
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT peak_balance, paused, paused_reason, paused_at, updated_at "
+            "FROM account_drawdown_state WHERE id=1"
+        ).fetchone()
+    if not row:
+        return None
+    return {"peak_balance": row[0], "paused": bool(row[1]), "paused_reason": row[2],
+            "paused_at": row[3], "updated_at": row[4]}
+
+
+def update_account_drawdown_state(peak_balance, paused, paused_reason, paused_at, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO account_drawdown_state (id, peak_balance, paused, paused_reason, paused_at, updated_at)
+               VALUES (1, ?, ?, ?, ?, ?)
+               ON CONFLICT(id) DO UPDATE SET
+                 peak_balance=excluded.peak_balance, paused=excluded.paused,
+                 paused_reason=excluded.paused_reason, paused_at=excluded.paused_at,
+                 updated_at=excluded.updated_at""",
+            (peak_balance, int(bool(paused)), paused_reason, paused_at, now_iso),
+        )
+
+
+_CUSTOM_ALERT_RULE_COLUMNS = [
+    "id", "name", "metric", "strategy_id", "comparison", "threshold",
+    "enabled", "created_at", "last_triggered_at",
+]
+
+
+def create_custom_alert_rule(rule_id, name, metric, strategy_id, comparison, threshold, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO custom_alert_rules (id, name, metric, strategy_id, comparison, threshold, enabled, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, 1, ?)""",
+            (rule_id, name, metric, strategy_id, comparison, threshold, now_iso),
+        )
+
+
+def list_custom_alert_rules(enabled_only=False):
+    query = f"SELECT {','.join(_CUSTOM_ALERT_RULE_COLUMNS)} FROM custom_alert_rules"
+    if enabled_only:
+        query += " WHERE enabled=1"
+    query += " ORDER BY created_at DESC"
+    with get_conn() as conn:
+        rows = conn.execute(query).fetchall()
+    return [dict(zip(_CUSTOM_ALERT_RULE_COLUMNS, r)) for r in rows]
+
+
+def set_custom_alert_rule_enabled(rule_id, enabled):
+    with get_conn() as conn:
+        conn.execute("UPDATE custom_alert_rules SET enabled=? WHERE id=?", (int(bool(enabled)), rule_id))
+
+
+def delete_custom_alert_rule(rule_id):
+    with get_conn() as conn:
+        conn.execute("DELETE FROM custom_alert_rules WHERE id=?", (rule_id,))
+
+
+def mark_custom_alert_rule_triggered(rule_id, now_iso):
+    with get_conn() as conn:
+        conn.execute("UPDATE custom_alert_rules SET last_triggered_at=? WHERE id=?", (now_iso, rule_id))
+
+
 def save_feedback(fb_type, text, now_iso):
     with get_conn() as conn:
         cur = conn.execute(
@@ -2318,6 +2764,56 @@ def list_feedback(limit=200):
 def set_feedback_status(feedback_id, status):
     with get_conn() as conn:
         conn.execute("UPDATE user_feedback SET status = ? WHERE id = ?", (status, feedback_id))
+
+
+def add_to_coin_blacklist(symbol, reason, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO paper_coin_blacklist (symbol, reason, added_at) VALUES (?, ?, ?)",
+            (symbol, reason, now_iso),
+        )
+
+
+def remove_from_coin_blacklist(symbol):
+    with get_conn() as conn:
+        conn.execute("DELETE FROM paper_coin_blacklist WHERE symbol=?", (symbol,))
+
+
+def list_coin_blacklist():
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT symbol, reason, added_at FROM paper_coin_blacklist ORDER BY added_at DESC"
+        ).fetchall()
+    return [{"symbol": r[0], "reason": r[1], "added_at": r[2]} for r in rows]
+
+
+def get_coin_blacklist_symbols():
+    """The bare set of blacklisted symbols -- what engine.py's tick loop
+    actually needs, without the reason/added_at overhead of list_coin_blacklist()."""
+    with get_conn() as conn:
+        rows = conn.execute("SELECT symbol FROM paper_coin_blacklist").fetchall()
+    return {r[0] for r in rows}
+
+
+def create_quick_note(content, now_iso):
+    with get_conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO quick_notes (content, created_at) VALUES (?, ?)", (content, now_iso),
+        )
+        return cur.lastrowid
+
+
+def list_quick_notes(limit=50):
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, content, created_at FROM quick_notes ORDER BY id DESC LIMIT ?", (limit,),
+        ).fetchall()
+    return [{"id": r[0], "content": r[1], "created_at": r[2]} for r in rows]
+
+
+def delete_quick_note(note_id):
+    with get_conn() as conn:
+        conn.execute("DELETE FROM quick_notes WHERE id=?", (note_id,))
 
 
 def get_knowledge_report():
@@ -2363,7 +2859,7 @@ _PAPER_POSITION_COLUMNS = [
     "exit_reason", "entry_reason", "strategy_id", "strategy_name", "strategy_version",
     "lesson_ids_json", "confidence", "market_snapshot_json", "tags_json", "session",
     "timeframe", "market_state", "lifecycle_json", "reflection_json", "status",
-    "created_at", "closed_at",
+    "created_at", "closed_at", "lowest_price_seen", "highest_price_seen", "user_note",
 ]
 
 
@@ -2384,6 +2880,28 @@ def _row_to_paper_position(row):
     else:
         d["is_win"] = None
         d["rr"] = None
+
+    # Grand Feature Expansion, Phase 3 Feature 8: MAE %/MFE %, derived from
+    # worst_price_seen/best_price_seen (raw prices, tick-updated) plus
+    # entry_price/direction/size -- always in the position's OWN account-
+    # currency terms (dollars), matching how pnl itself is expressed, not
+    # a price-only percentage that would ignore position size.
+    entry = d.get("entry_price")
+    size = d.get("size")
+    direction = d.get("direction")
+    lowest, highest = d.get("lowest_price_seen"), d.get("highest_price_seen")
+    if entry is not None and size is not None and lowest is not None and highest is not None:
+        if direction == "long":
+            mae_amount = (lowest - entry) * size   # negative or zero -- the worst unrealized dip
+            mfe_amount = (highest - entry) * size  # positive or zero -- the best unrealized run-up
+        else:
+            mae_amount = (entry - highest) * size
+            mfe_amount = (entry - lowest) * size
+        d["mae_amount"] = round(min(0.0, mae_amount), 4)
+        d["mfe_amount"] = round(max(0.0, mfe_amount), 4)
+    else:
+        d["mae_amount"] = None
+        d["mfe_amount"] = None
     return d
 
 
@@ -2394,8 +2912,8 @@ def open_paper_position(pos):
                (id, exchange, symbol, direction, entry_price, stop_loss, take_profit, size,
                 risk_amount, entry_time, entry_reason, strategy_id, strategy_name, strategy_version,
                 lesson_ids_json, confidence, market_snapshot_json, tags_json, session, timeframe,
-                market_state, lifecycle_json, status, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)""",
+                market_state, lifecycle_json, status, created_at, lowest_price_seen, highest_price_seen)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)""",
             (
                 pos["id"], pos["exchange"], pos["symbol"], pos["direction"], pos["entry_price"],
                 pos.get("stop_loss"), pos.get("take_profit"), pos["size"], pos.get("risk_amount"),
@@ -2404,7 +2922,47 @@ def open_paper_position(pos):
                 json.dumps(pos.get("market_snapshot", {})), json.dumps(pos.get("tags", [])),
                 pos.get("session"), pos.get("timeframe"), pos.get("market_state"),
                 json.dumps(pos.get("lifecycle", {})), pos["created_at"],
+                # Grand Feature Expansion, Phase 3 Feature 8: seeded to
+                # entry_price -- at the instant a position opens, that IS
+                # the only price it has "seen" so far.
+                pos["entry_price"], pos["entry_price"],
             ),
+        )
+
+
+def update_position_excursion(position_id, tick_low, tick_high):
+    """Grand Feature Expansion, Phase 3 Feature 8: widens (never narrows)
+    this position's lowest/highest-price-seen range with one tick's
+    high/low. Called every tick for every OPEN position, whether or not
+    it closes this tick -- a no-op UPDATE (same values written back) if
+    this tick's range was already inside the recorded one.
+
+    Written as CASE expressions rather than a 2-argument MIN()/MAX() call
+    -- SQLite treats those as scalar functions, but Postgres's MIN/MAX are
+    aggregate-only and have no 2-argument scalar form (that's LEAST/GREATEST
+    there), so a raw MIN(col, ?) would work locally and break on the cloud
+    runner. CASE WHEN is identical, portable SQL on both backends."""
+    with get_conn() as conn:
+        conn.execute(
+            """UPDATE paper_positions SET
+                 lowest_price_seen = CASE WHEN lowest_price_seen IS NULL OR ? < lowest_price_seen
+                                          THEN ? ELSE lowest_price_seen END,
+                 highest_price_seen = CASE WHEN highest_price_seen IS NULL OR ? > highest_price_seen
+                                           THEN ? ELSE highest_price_seen END
+               WHERE id = ? AND status = 'open'""",
+            (tick_low, tick_low, tick_high, tick_high, position_id),
+        )
+
+
+def update_position_stop_loss(position_id, new_stop_loss):
+    """Grand Feature Expansion, Phase 5 Feature 9: Profit-Lock Trailing
+    Stop -- the caller (paper_trading.profit_lock.compute_trailing_stop)
+    already guarantees new_stop_loss only ever tightens the existing stop,
+    never loosens it; this function just persists whatever it's given."""
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE paper_positions SET stop_loss = ? WHERE id = ? AND status = 'open'",
+            (new_stop_loss, position_id),
         )
 
 
@@ -2635,6 +3193,14 @@ def get_paper_position(position_id):
     return _row_to_paper_position(row) if row else None
 
 
+def set_trade_note(position_id, note):
+    """Grand Feature Expansion, Phase 4 Feature 8: Trade Annotation -- a
+    personal, user-written note on one specific trade, open or closed.
+    Never touches pnl/exit/reflection or any other field."""
+    with get_conn() as conn:
+        conn.execute("UPDATE paper_positions SET user_note = ? WHERE id = ?", (note, position_id))
+
+
 def list_closed_paper_positions(limit=100, strategy_id=None, since_iso=None):
     query = f"SELECT {','.join(_PAPER_POSITION_COLUMNS)} FROM paper_positions WHERE status='closed'"
     params = []
@@ -2734,6 +3300,20 @@ def earliest_paper_trading_activity():
     with get_conn() as conn:
         row = conn.execute("SELECT MIN(created_at) FROM paper_positions").fetchone()
     return row[0] if row else None
+
+
+def count_paper_trades_opened_since(since_iso):
+    """Master Task 3, Phase 0.8c: how many paper trades were OPENED (not
+    necessarily closed yet) at or after since_iso, system-wide across every
+    strategy/book -- backs the dashboard's "Today: X trades" live counter.
+    Uses created_at (a position's own row-creation time), not entry_time
+    (an epoch-ms field carried over from live exchange fills, not always
+    populated the same way for every strategy)."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM paper_positions WHERE created_at >= ?", (since_iso,)
+        ).fetchone()
+    return row[0] if row else 0
 
 
 def list_closed_paper_trades_since(since_iso):
@@ -3174,6 +3754,25 @@ def get_recent_paper_alert(alert_type, strategy_id, since_iso):
     return row is not None
 
 
+def list_paper_daily_pnl_by_strategy(strategy_id, since_iso=None):
+    """Grand Feature Expansion, Phase 3 Feature 4: one row per calendar day
+    this strategy had at least one closed trade, with that day's total
+    realized PnL -- the raw time series strategy-vs-strategy correlation
+    (paper_trading/correlation.py's strategy_correlation_matrix) aligns
+    and correlates. Day is read from closed_at (UTC-everywhere, per this
+    codebase's own convention)."""
+    query = ("SELECT substr(closed_at, 1, 10) AS day, SUM(pnl) FROM paper_positions "
+             "WHERE status='closed' AND pnl IS NOT NULL AND strategy_id = ? AND closed_at IS NOT NULL")
+    params = [strategy_id]
+    if since_iso:
+        query += " AND closed_at >= ?"
+        params.append(since_iso)
+    query += " GROUP BY day ORDER BY day"
+    with get_conn() as conn:
+        rows = conn.execute(query, params).fetchall()
+    return {r[0]: r[1] for r in rows}
+
+
 def list_paper_session_stats(since_iso=None, until_iso=None, strategy_id=None):
     """Closed-trade performance grouped by trading session (asian/london/ny/
     etc, as classified at entry time) -- time-of-day performance split."""
@@ -3195,6 +3794,67 @@ def list_paper_session_stats(since_iso=None, until_iso=None, strategy_id=None):
     return [
         {"session": r[0], "closed_trades": r[1], "total_pnl": r[2],
          "win_rate": round(r[3] / r[1] * 100, 2) if r[1] else 0.0}
+        for r in rows
+    ]
+
+
+def list_paper_hour_of_day_stats(since_iso=None, until_iso=None, strategy_id=None):
+    """Grand Feature Expansion, Phase 3 Feature 10: closed-trade
+    performance grouped by UTC HOUR of entry (00-23) -- more granular than
+    list_paper_session_stats' named sessions (asian/london/ny) above, for
+    spotting a specific hour that consistently under/over-performs rather
+    than a whole multi-hour session. Hour is read from created_at (entry
+    time, ISO 'YYYY-MM-DDTHH:...', UTC-everywhere per this codebase's own
+    convention) -- substr(created_at, 12, 2) is the HH component."""
+    query = (
+        "SELECT substr(created_at, 12, 2) AS hour, COUNT(*), COALESCE(SUM(pnl),0), "
+        "SUM(CASE WHEN pnl>0 THEN 1 ELSE 0 END) "
+        "FROM paper_positions WHERE status='closed' AND pnl IS NOT NULL"
+    )
+    params = []
+    if since_iso:
+        query += " AND closed_at >= ?"
+        params.append(since_iso)
+    if until_iso:
+        query += " AND closed_at < ?"
+        params.append(until_iso)
+    if strategy_id:
+        query += " AND strategy_id = ?"
+        params.append(strategy_id)
+    query += " GROUP BY hour ORDER BY hour ASC"
+    with get_conn() as conn:
+        rows = conn.execute(query, params).fetchall()
+    return [
+        {"hour_utc": int(r[0]), "closed_trades": r[1], "total_pnl": round(r[2], 2),
+         "win_rate": round(r[3] / r[1] * 100, 2) if r[1] else 0.0}
+        for r in rows if r[0] is not None and r[0].isdigit()
+    ]
+
+
+def list_paper_coin_strategy_matrix(since_iso=None, until_iso=None):
+    """Grand Feature Expansion, Phase 3 Feature 3: one row per (symbol,
+    strategy_id) pair that has closed at least one trade -- the raw
+    material for the Coin-Performance Heatmap, which asks a different
+    question than list_paper_coin_stats above (that one already answers
+    "which coin made the most money overall"; this answers "is a coin
+    CONSISTENTLY good across every strategy that's traded it, or is its
+    aggregate number secretly propped up by just one outlier strategy")."""
+    query = ("SELECT symbol, strategy_id, COUNT(*), COALESCE(SUM(pnl),0), "
+             "SUM(CASE WHEN pnl>0 THEN 1 ELSE 0 END) FROM paper_positions "
+             "WHERE status='closed' AND pnl IS NOT NULL AND strategy_id IS NOT NULL")
+    params = []
+    if since_iso:
+        query += " AND closed_at >= ?"
+        params.append(since_iso)
+    if until_iso:
+        query += " AND closed_at < ?"
+        params.append(until_iso)
+    query += " GROUP BY symbol, strategy_id"
+    with get_conn() as conn:
+        rows = conn.execute(query, params).fetchall()
+    return [
+        {"symbol": r[0], "strategy_id": r[1], "closed_trades": r[2], "total_pnl": round(r[3], 2),
+         "win_rate": round(r[4] / r[2] * 100, 2) if r[2] else 0.0}
         for r in rows
     ]
 
@@ -3337,6 +3997,59 @@ def list_telegram_messages(limit=100):
     cols = ["id", "position_id", "strategy_id", "strategy_name", "trigger_type",
             "message_text", "success", "error", "sent_at"]
     return [dict(zip(cols, r)) for r in rows]
+
+
+_RETRY_QUEUE_COLUMNS = ["id", "position_id", "trigger_type", "high_confidence", "status",
+                        "attempts", "last_error", "created_at", "last_attempt_at"]
+
+
+def enqueue_telegram_retry(position_id, trigger_type, high_confidence, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO telegram_retry_queue (position_id, trigger_type, high_confidence, status, created_at)
+               VALUES (?, ?, ?, 'pending', ?)""",
+            (position_id, trigger_type, int(bool(high_confidence)), now_iso),
+        )
+
+
+def list_pending_telegram_retries(limit=50):
+    with get_conn() as conn:
+        rows = conn.execute(
+            f"SELECT {','.join(_RETRY_QUEUE_COLUMNS)} FROM telegram_retry_queue "
+            "WHERE status='pending' ORDER BY created_at ASC LIMIT ?", (limit,),
+        ).fetchall()
+    return [dict(zip(_RETRY_QUEUE_COLUMNS, r)) for r in rows]
+
+
+def record_telegram_retry_attempt(retry_id, success, error, now_iso, max_attempts):
+    """Marks 'delivered' on success; on failure, increments attempts and
+    marks 'abandoned' once max_attempts is reached, else stays 'pending'
+    for the next sweep."""
+    with get_conn() as conn:
+        if success:
+            conn.execute(
+                "UPDATE telegram_retry_queue SET status='delivered', attempts=attempts+1, "
+                "last_error=NULL, last_attempt_at=? WHERE id=?",
+                (now_iso, retry_id),
+            )
+            return "delivered"
+        row = conn.execute("SELECT attempts FROM telegram_retry_queue WHERE id=?", (retry_id,)).fetchone()
+        new_attempts = (row[0] if row else 0) + 1
+        new_status = "abandoned" if new_attempts >= max_attempts else "pending"
+        conn.execute(
+            "UPDATE telegram_retry_queue SET status=?, attempts=?, last_error=?, last_attempt_at=? WHERE id=?",
+            (new_status, new_attempts, error, now_iso, retry_id),
+        )
+        return new_status
+
+
+def list_telegram_retry_queue(limit=50):
+    with get_conn() as conn:
+        rows = conn.execute(
+            f"SELECT {','.join(_RETRY_QUEUE_COLUMNS)} FROM telegram_retry_queue "
+            "ORDER BY created_at DESC LIMIT ?", (limit,),
+        ).fetchall()
+    return [dict(zip(_RETRY_QUEUE_COLUMNS, r)) for r in rows]
 
 
 def count_telegram_messages_since(since_iso):
@@ -3654,6 +4367,100 @@ def get_latest_weekly_report():
     with get_conn() as conn:
         row = conn.execute(
             "SELECT created_at FROM paper_weekly_reports ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()
+    return row[0] if row else None
+
+
+def save_monthly_report(period_start, period_end, report_json, report_text, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO paper_monthly_reports (period_start, period_end, report_json, report_text, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (period_start, period_end, report_json, report_text, now_iso),
+        )
+
+
+def list_monthly_reports(limit=20):
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, period_start, period_end, report_json, report_text, created_at "
+            "FROM paper_monthly_reports ORDER BY created_at DESC LIMIT ?", (limit,),
+        ).fetchall()
+    return [
+        {"id": r[0], "period_start": r[1], "period_end": r[2], "report_json": r[3],
+         "report_text": r[4], "created_at": r[5]}
+        for r in rows
+    ]
+
+
+def get_latest_monthly_report():
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT created_at FROM paper_monthly_reports ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()
+    return row[0] if row else None
+
+
+# --------------------------------------------------------------- Automated Weekly Strategy Review (Evolution)
+
+def save_evolution_weekly_report(period_start, period_end, report_json, report_text, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO evolution_weekly_reports (period_start, period_end, report_json, report_text, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (period_start, period_end, report_json, report_text, now_iso),
+        )
+
+
+def list_evolution_weekly_reports(limit=20):
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, period_start, period_end, report_json, report_text, created_at "
+            "FROM evolution_weekly_reports ORDER BY created_at DESC LIMIT ?", (limit,),
+        ).fetchall()
+    return [
+        {"id": r[0], "period_start": r[1], "period_end": r[2], "report_json": r[3],
+         "report_text": r[4], "created_at": r[5]}
+        for r in rows
+    ]
+
+
+def get_latest_evolution_weekly_report():
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT created_at FROM evolution_weekly_reports ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()
+    return row[0] if row else None
+
+
+# --------------------------------------------------------------- Automated Weekly Digest (Infrastructure)
+
+def save_infra_weekly_digest(period_start, period_end, report_json, report_text, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO infra_weekly_digests (period_start, period_end, report_json, report_text, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (period_start, period_end, report_json, report_text, now_iso),
+        )
+
+
+def list_infra_weekly_digests(limit=20):
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, period_start, period_end, report_json, report_text, created_at "
+            "FROM infra_weekly_digests ORDER BY created_at DESC LIMIT ?", (limit,),
+        ).fetchall()
+    return [
+        {"id": r[0], "period_start": r[1], "period_end": r[2], "report_json": r[3],
+         "report_text": r[4], "created_at": r[5]}
+        for r in rows
+    ]
+
+
+def get_latest_infra_weekly_digest():
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT created_at FROM infra_weekly_digests ORDER BY created_at DESC LIMIT 1"
         ).fetchone()
     return row[0] if row else None
 

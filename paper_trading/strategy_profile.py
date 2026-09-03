@@ -30,6 +30,20 @@ def get_strategy_profile(strategy_id, exchange, correlation_warnings=None):
     confidence = insights.all_confidence_scores().get(strategy_id)
     streak = insights.compute_streak(strategy_id)
     risk = insights.compute_risk_metrics(strategy_id, since=since)
+    # Grand Feature Expansion, Phase 3 Feature 7: Value at Risk. Uses ALL
+    # historical closed trades (no `since` scoping) unlike Sharpe/Sortino
+    # above -- a real 95th-percentile estimate needs pattern_stats.MIN_SAMPLE_SIZE
+    # (25) trades, which a fresh session alone would rarely have yet.
+    var = insights.compute_value_at_risk(strategy_id)
+    # Grand Feature Expansion, Phase 3 Feature 2: Strategy Health Score.
+    # Uses ALL historical trades (no `since` scoping), same reasoning as
+    # Value at Risk above -- a composite trust score should reflect the
+    # strategy's whole track record, not just the current session.
+    health = insights.compute_strategy_health_score(strategy_id)
+    # Grand Feature Expansion, Phase 3 Feature 12: Strategy Aging Analysis.
+    aging = insights.compute_strategy_aging(strategy_id)
+    # Grand Feature Expansion, Phase 3 Feature 8: MAE/MFE aggregate.
+    mae_mfe = insights.compute_mae_mfe_stats(strategy_id)
     paused, pause_reason, paused_at = storage.is_strategy_paused(strategy_id)
 
     lesson_candidates = [c for c in storage.list_paper_lesson_candidates() if c["strategy_id"] == strategy_id]
@@ -101,11 +115,16 @@ def get_strategy_profile(strategy_id, exchange, correlation_warnings=None):
 
     return {
         "id": strategy_id, "name": meta["name"], "status": meta.get("status"),
+        "archived": meta.get("archived", False),
         "walk_forward_status": meta.get("walk_forward_status"),
         "backtest_verdict": backtest_verdict,
         "confidence_score": confidence,
         "streak": streak,
         "risk_metrics": risk,
+        "value_at_risk": var,
+        "health_score": health,
+        "aging": aging,
+        "mae_mfe": mae_mfe,
         "paused": paused, "pause_reason": pause_reason, "paused_at": paused_at,
         "open_position_count": len(open_positions),
         "traded_coin_regimes": regimes,

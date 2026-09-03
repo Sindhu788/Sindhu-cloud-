@@ -4,7 +4,7 @@ tables from the real local SQLite database into a Postgres database
 real strategy configs, open positions, and trading history instead of an
 empty account.
 
-Deliberately copies EXACTLY the 17 curated tables in
+Deliberately copies EXACTLY the curated tables in
 data_engine/db_backend.py's POSTGRES_SCHEMA -- the same tables the cloud
 runner's own code path touches (paper_positions, paper_account_state,
 paper_strategy_config, telegram_message_log, and so on). It does NOT
@@ -76,6 +76,10 @@ CURATED_TABLES = [
     "paper_alerts",
     "confluence_score_log",
     "paper_auto_avoid_rules",
+    # paper_coin_blacklist: Grand Feature Expansion, Phase 5 Feature 1 --
+    # a small, CEO-curated deny-list, same "worth actually carrying over
+    # to a fresh cloud deploy" reasoning as paper_auto_avoid_rules above.
+    "paper_coin_blacklist",
     "paper_strategy_overrides",
     "paper_lesson_candidates",
     "paper_auto_lessons",
@@ -94,6 +98,15 @@ CURATED_TABLES = [
     # actually migrated. paper_trading_settings.json/telegram_settings.json
     # live as local JSON files, not a SQLite table, on the laptop.
     "cloud_settings",
+    # kill_switch_state: same parity-only story -- the local laptop has no
+    # need to migrate its (almost always empty) kill switch state.
+    "kill_switch_state",
+    # activity_log / audit_trail_log: same parity-only story -- these are
+    # live logs that start fresh wherever they run, never migrated from
+    # the laptop's own history.
+    "activity_log",
+    "audit_trail_log",
+    "telegram_retry_queue",
 ]
 
 

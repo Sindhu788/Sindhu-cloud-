@@ -93,6 +93,57 @@ _KNOWN_INDICATORS = {
     # configured_strategy.py gated on the name being in concepts_used.
     "heikin_ashi_reversal", "fibonacci_golden_zone", "frvp_poc_reversal",
     "fvg_equilibrium_entry", "donchian_lwti_volume_confluence",
+    # New Batch 5 (9 strategies, manual construction -- see
+    # data/checkpoints/strategy_batch_sept2026.json). Strategy 1 (Liquidity
+    # Sweep + Engulfing Candle, 4H bias / 5M entry): two Confirmation-
+    # Strictness variants sharing one compute block in
+    # configured_strategy.py, gated on whichever of the two names is
+    # present -- see that block's own comment for the LOOSE/STRICT formula
+    # difference.
+    "liquidity_sweep_engulfing_loose", "liquidity_sweep_engulfing_strict",
+    # New Batch 5, Strategy 2 (Fixed Range Volume Profile, Market Shape
+    # Classification): two entry modes sharing one frvp_market_shape()
+    # compute block, gated on either being present -- see that block's own
+    # comment in configured_strategy.py for the shape/HVN/LVN logic.
+    "frvp_hvn_reaction", "frvp_lvn_breakout",
+    # New Batch 5, Strategy 3 (Support/Resistance + Liquidity Sweep,
+    # Sideways Market): one shared entry concept; the Structure vs
+    # Fixed-RR take-profit variants are selected by a plain marker string
+    # in concepts_used (see configured_strategy.py's own comment), not a
+    # second concept name -- a take-profit-only variant needs no separate
+    # validator registration.
+    "sr_liquidity_sweep_sideways",
+    # New Batch 5, Strategy 4 (FVG Momentum Pullback, Trending Market):
+    # three take-profit variants (Structure/Fixed 1:2/Fixed 1:3) all share
+    # this one entry/SL concept -- they differ only in the StrategyConfig's
+    # own take_profit field (structure vs rr=2.0 vs rr=3.0), not in
+    # concepts_used, so only one name is needed here.
+    "fvg_momentum_pullback",
+    # New Batch 5, Strategy 5 (FVG Pure + Inverse FVG): both the base
+    # pullback entries and the Inverse-FVG reversal entries share this one
+    # concept; the two take-profit variants (Structure/Fixed 1:2) differ
+    # only in the StrategyConfig's own take_profit field.
+    "fvg_pure_inverse",
+    # New Batch 5, Strategy 6 (Order Block Trading): two Confirmation-
+    # Strictness variants sharing one compute block, gated on whichever of
+    # the two names is present -- see that block's own comment.
+    "order_block_trading_loose", "order_block_trading_strict",
+    # New Batch 5, Strategy 7 (Candle Range Theory / CRT): two
+    # Confirmation-Strictness variants sharing one compute block, gated on
+    # whichever of the two names is present.
+    "crt_loose", "crt_strict",
+    # New Batch 5, Strategy 8 (BOS/CHoCH Structure Break + Strong Level
+    # Retest -- narrowed, mechanical extraction; see this strategy's own
+    # excluded/not-mechanized list for what was deliberately left out).
+    "bos_choch_retest",
+    # New Batch 5, Strategy 9 (Ichimoku Cloud System): "ichimoku_system" is
+    # the entry alignment (all three confirmations), shared unchanged
+    # across all 4 timeframe variants and both exit-mode variants (8 total
+    # combinations -- only the StrategyConfig's own timeframes/exit_
+    # conditions/trailing_stop differ, not this concept). "ichimoku_cross"
+    # is a separate, EXIT-only concept (the Conversion/Base crossback used
+    # by the Indicator-Exit variant).
+    "ichimoku_system", "ichimoku_cross",
 }
 
 # Of _KNOWN_INDICATORS above, these are numeric-parameter indicators (take a
@@ -189,6 +240,29 @@ _CONCEPT_REQUIRES_ANY_OF = {
     "frvp_poc_reversal": {"frvp_poc_reversal"},
     "fvg_equilibrium_entry": {"fvg_equilibrium_entry"},
     "donchian_lwti_volume_confluence": {"donchian_lwti_volume_confluence"},
+    # New Batch 5, Strategy 1.
+    "liquidity_sweep_engulfing_loose": {"liquidity_sweep_engulfing_loose"},
+    "liquidity_sweep_engulfing_strict": {"liquidity_sweep_engulfing_strict"},
+    # New Batch 5, Strategy 2.
+    "frvp_hvn_reaction": {"frvp_hvn_reaction"},
+    "frvp_lvn_breakout": {"frvp_lvn_breakout"},
+    # New Batch 5, Strategy 3.
+    "sr_liquidity_sweep_sideways": {"sr_liquidity_sweep_sideways"},
+    # New Batch 5, Strategy 4.
+    "fvg_momentum_pullback": {"fvg_momentum_pullback"},
+    # New Batch 5, Strategy 5.
+    "fvg_pure_inverse": {"fvg_pure_inverse"},
+    # New Batch 5, Strategy 6.
+    "order_block_trading_loose": {"order_block_trading_loose"},
+    "order_block_trading_strict": {"order_block_trading_strict"},
+    # New Batch 5, Strategy 7.
+    "crt_loose": {"crt_loose"},
+    "crt_strict": {"crt_strict"},
+    # New Batch 5, Strategy 8.
+    "bos_choch_retest": {"bos_choch_retest"},
+    # New Batch 5, Strategy 9.
+    "ichimoku_system": {"ichimoku_system"},
+    "ichimoku_cross": {"ichimoku_system"},
 }
 
 # macd_signal_cross/macd_zero_cross are indicator-driven (their columns come
@@ -236,6 +310,37 @@ _STRUCTURE_SL_SOURCES = {
     # "structure" candidate chain, same shape as the six above.
     "heikin_ashi_reversal", "fibonacci_golden_zone", "frvp_poc_reversal",
     "fvg_equilibrium_entry", "donchian_lwti_volume_confluence",
+    # New Batch 5, Strategy 1: both variants feed the same
+    # entry_liqsweep_engulf_sl_bull/bear columns (the sweep candle's own
+    # low/high) into _compute_stop_loss()'s "structure" candidate chain.
+    "liquidity_sweep_engulfing_loose", "liquidity_sweep_engulfing_strict",
+    # New Batch 5, Strategy 2: entry_frvp_sl_bull/bear (the HVN zone's own
+    # outer edge) feed the same "structure" candidate chain.
+    "frvp_hvn_reaction", "frvp_lvn_breakout",
+    # New Batch 5, Strategy 3: entry_sr_sweep_sl_bull/bear (the long-wick
+    # candle's own low/high) feed the same "structure" candidate chain.
+    "sr_liquidity_sweep_sideways",
+    # New Batch 5, Strategy 4: entry_fvgmp_sl_bull/bear (the FVG zone's own
+    # outer edge) feed the same "structure" candidate chain. Only the
+    # "Structure" TP variant relies on the generic entry_resistance/
+    # entry_support fallback for take-profit -- the Fixed-RR variants use
+    # take_profit.type="rr" directly, no structure TP source needed.
+    "fvg_momentum_pullback",
+    # New Batch 5, Strategy 5: entry_fvgpi_sl_bull/bear feed the same
+    # "structure" candidate chain.
+    "fvg_pure_inverse",
+    # New Batch 5, Strategy 6: entry_obtrade_sl_bull/bear (the Order
+    # Block's own outer edge) feed the same "structure" candidate chain.
+    "order_block_trading_loose", "order_block_trading_strict",
+    # New Batch 5, Strategy 7: entry_crt_sl_bull/bear (below CRL / above
+    # CRH) feed the same "structure" candidate chain.
+    "crt_loose", "crt_strict",
+    # New Batch 5, Strategy 8: entry_bosc_sl_bull/bear (the broken Strong
+    # Level) feed the same "structure" candidate chain.
+    "bos_choch_retest",
+    # New Batch 5, Strategy 9: entry_ichimoku_sl_bull/bear (the crossover
+    # candle's own low/high) feed the same "structure" candidate chain.
+    "ichimoku_system",
 }
 
 # The engine resamples to these exact interval strings (data_engine.config

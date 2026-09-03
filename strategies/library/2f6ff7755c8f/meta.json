@@ -1,0 +1,18 @@
+{
+  "id": "2f6ff7755c8f",
+  "name": "Candle Range Theory (Loose) [Manual Build]",
+  "tags": [
+    "concept_based_strategy",
+    "manual_build",
+    "crt_loose",
+    "1h",
+    "new_batch_5"
+  ],
+  "favourite": false,
+  "archived": false,
+  "created_at": "2026-09-02T00:05:26.716172+00:00",
+  "updated_at": "2026-09-02T00:05:26.716172+00:00",
+  "current_version": 1,
+  "safety_status": "ready",
+  "safety_reasons": []
+}

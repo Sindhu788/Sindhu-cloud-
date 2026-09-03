@@ -60,6 +60,42 @@ def test_repeated_calls_within_ttl_return_the_same_cached_list(test_db):
     assert len(first["strategies"]) == 1
 
 
+def test_a_completed_batch_writes_a_backtest_snapshot_for_the_cloud_page(test_db, monkeypatch):
+    """Master Task 3, Phase 0.7: this is the write side of the dual-row
+    Strategies table -- once this strategy has a completed local batch,
+    _compute_strategies_list must persist a snapshot (win_rate,
+    profit_factor, ...) into meta.json via strategy_library.
+    save_backtest_snapshot, using the exact numbers it already computed for
+    the local page (no extra queries)."""
+    sid = _make_strategy("Snapshot Source Strategy")
+
+    monkeypatch.setattr(
+        backtesting, "_strategy_last_batch_result",
+        lambda name, recent_batches, batch_results_cache=None: {
+            "batch_id": "batchXYZ", "status": "completed", "created_at": "2026-02-01T00:00:00+00:00",
+            "total_trades": 80, "symbols_tested": 10, "win_rate": 57.5, "avg_profit_pct": 3.2,
+        },
+    )
+    monkeypatch.setattr(
+        backtesting, "evaluate_strategy_performance",
+        lambda strategy_id, recent_batches=None, batch_results_cache=None: {
+            "verdict": "GREEN", "label": "Aage Badhao", "failed_factors": [],
+            "factors": [{"factor": "profit_factor", "passed": True, "available": True, "value": 1.62}],
+            "batch_id": "batchXYZ", "symbols_tested": 10,
+        },
+    )
+
+    result = backtesting._compute_strategies_list("")
+    row = next(r for r in result if r["id"] == sid)
+    assert row["last_batch_result"]["win_rate"] == 57.5
+
+    snapshot = lib._read_meta(sid)["backtest_snapshot"]
+    assert snapshot == {
+        "win_rate": 57.5, "profit_factor": 1.62, "total_trades": 80,
+        "batch_id": "batchXYZ", "computed_at": "2026-02-01T00:00:00+00:00",
+    }
+
+
 def test_saving_a_strategy_invalidates_the_cache_immediately(test_db):
     backtesting.list_strategies(q="")  # warm the cache with zero strategies
     req = backtesting.SaveRequest(config=StrategyConfig(

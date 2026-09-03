@@ -140,6 +140,7 @@ def test_schema_contains_every_table_the_lightweight_runner_needs():
         "paper_decision_log", "paper_strategy_stat_archives", "telegram_message_log",
         "lessons", "paper_strategy_performance", "paper_lesson_performance",
         "bot_strategies", "bot_lessons", "auth_credentials", "auth_sessions", "cloud_settings",
+        "kill_switch_state", "activity_log", "audit_trail_log", "telegram_retry_queue",
     }
     for table in expected_tables:
         assert f"CREATE TABLE IF NOT EXISTS {table} (" in db_backend.POSTGRES_SCHEMA, table
@@ -165,6 +166,7 @@ def test_every_on_conflict_target_has_a_matching_constraint_in_the_schema():
         ("paper_auto_avoid_rules", {"strategy_id", "symbol", "market_state", "session"}),
         ("paper_strategy_overrides", {"strategy_id"}),
         ("paper_lesson_candidates", {"strategy_id", "symbol", "market_state", "session"}),
+        ("kill_switch_state", {"id"}),
     ]
     schema = db_backend.POSTGRES_SCHEMA
     for table, cols in checks:

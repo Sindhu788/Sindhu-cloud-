@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from data_engine import config, feature_toggles
 from data_engine.paths import DATABASE_DIR, DB_PATH
 from data_engine.logging_setup import log
+from sindhu_web import sync
 
 router = APIRouter()
 
@@ -27,22 +28,30 @@ def _now_stamp():
     return datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
 
-def create_backup():
+def _hot_copy(dest_path):
     """Safe hot-copy of the live database via sqlite3's own backup API --
     correct even while the desktop app / web server has it open, unlike a
-    raw file copy which could grab a half-written page."""
-    os.makedirs(_BACKUP_DIR, exist_ok=True)
-    backup_name = f"sindhu_{_now_stamp()}.db"
-    backup_path = os.path.join(_BACKUP_DIR, backup_name)
-
+    raw file copy which could grab a half-written page. Shared by
+    create_backup() (the rolling 6-hourly backup) and
+    weekly_snapshot.create_weekly_snapshot() (Grand Feature Expansion,
+    Phase 7 Feature 3) -- the actual copy mechanism is identical, only the
+    destination folder/filename and retention policy differ."""
     src = sqlite3.connect(DB_PATH)
-    dst = sqlite3.connect(backup_path)
+    dst = sqlite3.connect(dest_path)
     try:
         src.backup(dst)
     finally:
         src.close()
         dst.close()
+
+
+def create_backup():
+    os.makedirs(_BACKUP_DIR, exist_ok=True)
+    backup_name = f"sindhu_{_now_stamp()}.db"
+    backup_path = os.path.join(_BACKUP_DIR, backup_name)
+    _hot_copy(backup_path)
     log(f"Backup created: {backup_name}")
+    sync.notify("backup", "created", f"Database backup created: {backup_name}")
     _prune_old_backups()
     return backup_name
 
@@ -110,6 +119,7 @@ def restore_backup(req: RestoreRequest):
         src.close()
         dst.close()
     log(f"Database restored from backup: {req.backup_name}")
+    sync.notify("backup", "restored", f"Database restored from backup: {req.backup_name}")
     return {"ok": True}
 
 

@@ -1,0 +1,19 @@
+{
+  "id": "5a26c66ffa42",
+  "name": "FVG Momentum Pullback (Fixed 1:2) [Manual Build]",
+  "tags": [
+    "concept_based_strategy",
+    "manual_build",
+    "fvg_momentum_pullback",
+    "1h",
+    "new_batch_5",
+    "fixed_2"
+  ],
+  "favourite": false,
+  "archived": false,
+  "created_at": "2026-09-01T23:44:43.007944+00:00",
+  "updated_at": "2026-09-01T23:44:43.007944+00:00",
+  "current_version": 1,
+  "safety_status": "ready",
+  "safety_reasons": []
+}

@@ -30,7 +30,7 @@ NAV_ICONS = {
     "signal_tracker": "target", "strategy_lab": "flask",
     "clarification_center": "book", "external_signals": "send",
     "compare": "mirror", "live_logs": "spark", "project_status": "news",
-    "strategy_lifecycle": "layers",
+    "strategy_lifecycle": "layers", "incidents": "flask",
 }
 
 # Navigation Audit + Reorganization: every page now belongs to exactly one
@@ -62,6 +62,11 @@ NAV_PAGES = [
     # sindhu_web/api/strategy_lifecycle.py.
     {"id": "strategy_lifecycle", "label": "Strategy Lifecycle", "enabled": True,
      "icon": NAV_ICONS["strategy_lifecycle"], "group": "Project"},
+    # Incident Management (Grand Feature Expansion, Phase 1 Feature 4): a
+    # structured problem -> detection -> root cause -> fix -> test ->
+    # resolution record. See sindhu_web/api/incidents.py.
+    {"id": "incidents", "label": "Incidents", "enabled": True,
+     "icon": NAV_ICONS["incidents"], "group": "Project"},
     # Concepts Library is still a standalone static page (concepts.html),
     # not ported into the SPA's hash-routed PAGES{} -- external_url makes
     # app.js's renderNav() link straight to it instead of a `#hash`, so it's

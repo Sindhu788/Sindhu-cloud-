@@ -133,6 +133,46 @@ def granular_breakdown():
     }
 
 
+# --------------------------------------------------------------- Best Combination Auto-Suggest (multi-strategy)
+# Grand Feature Expansion, Phase 5 Feature 11: the existing
+# granular_breakdown() above already auto-suggests the single best
+# strategy+coin PAIRING -- this extends it to a genuine multi-strategy
+# PORTFOLIO suggestion. Still read-only analysis (this module's own
+# module docstring: "nothing here is read by the trading engine"),
+# purely informational -- a human applies the idea via each strategy's
+# own existing enable/pause controls, nothing here activates anything.
+
+def suggest_best_portfolio(top_n=3):
+    """Top `top_n` DISTINCT strategies' best coin each, ranked by real PnL,
+    filtered to combinations with enough trades to statistically trust
+    (pattern_stats.MIN_SAMPLE_SIZE) -- never suggests the same strategy
+    twice (running one strategy several times isn't a diversified
+    portfolio), and never fabricates a suggestion when nothing has enough
+    real history yet."""
+    breakdown = granular_breakdown()
+    trusted = [c for c in breakdown["by_combination"] if c["total_closed_trades"] >= pattern_stats.MIN_SAMPLE_SIZE]
+
+    portfolio = []
+    seen_strategies = set()
+    for c in trusted:
+        if c["strategy_id"] in seen_strategies:
+            continue
+        seen_strategies.add(c["strategy_id"])
+        portfolio.append(c)
+        if len(portfolio) >= top_n:
+            break
+
+    combined_pnl = round(sum(c["total_pnl"] for c in portfolio), 2)
+    reason = (
+        f"Top {len(portfolio)} distinct, statistically-trusted strategy+coin combination(s) by real PnL "
+        f"(each with {pattern_stats.MIN_SAMPLE_SIZE}+ closed trades), one coin per strategy."
+        if portfolio else
+        f"No strategy+coin combination has reached {pattern_stats.MIN_SAMPLE_SIZE} closed trades yet -- "
+        f"nothing statistically trustworthy to suggest as a portfolio."
+    )
+    return {"portfolio": portfolio, "combined_pnl": combined_pnl, "reason": reason}
+
+
 # --------------------------------------------------------------- Level 2: consistency check
 
 def consistency_check(strategy_id, symbol, window_days=CONSISTENCY_WINDOW_DAYS):

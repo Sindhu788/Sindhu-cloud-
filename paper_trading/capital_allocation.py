@@ -69,3 +69,52 @@ def recompute_all_allocations():
         storage.set_strategy_capital_multiplier(sid, multiplier, reason, now)
         updated.append({"strategy_id": sid, "multiplier": multiplier, "reason": reason})
     return updated
+
+
+# --------------------------------------------------------- Optimal Risk % Per Strategy
+# Grand Feature Expansion, Phase 5 Feature 6: the multiplier above already
+# adjusts effective CAPITAL per strategy from its Sharpe Ratio -- this uses
+# the exact same bounded, transparent formula shape (same clamp, same
+# "too little data -> no change" rule) to instead recommend a risk_pct
+# specifically, since risk_manager.py never reads the multiplier for that.
+# Deliberately a SUGGESTION only, surfaced for a human to apply via the
+# already-existing, already-validated per-strategy override endpoint
+# (POST .../strategy-config/{id}/overrides) -- never auto-applied, same
+# "recommend, human decides" pattern as Auto-Retirement Suggestion.
+RISK_PCT_MIN_MULTIPLIER = 0.5
+RISK_PCT_MAX_MULTIPLIER = 1.5
+_MEANINGFUL_CHANGE_PCT_POINTS = 0.1  # ignore a recommendation that barely differs from today's setting
+
+
+def compute_recommended_risk_pct(base_risk_pct, sharpe_ratio):
+    multiplier = compute_multiplier(sharpe_ratio)
+    return round(base_risk_pct * multiplier, 3)
+
+
+def compute_all_risk_pct_recommendations(base_risk_pct_default):
+    """Only returns a recommendation where it would actually change
+    something meaningful -- a strategy with too little trade history (see
+    compute_multiplier's own sample-size gate) or whose recommendation
+    barely differs from its current setting is left out entirely, so this
+    never nags about a rounding-sized difference."""
+    since = insights.fresh_session_start()
+    recommendations = []
+    for meta in lib.list_all():
+        sid = meta["id"]
+        metrics = insights.compute_risk_metrics(sid, since=since)
+        if metrics["sample_size"] < 5:
+            continue
+        overrides = storage.get_paper_strategy_config(sid)
+        current_risk_pct = overrides.get("risk_pct_override") or base_risk_pct_default
+        recommended = compute_recommended_risk_pct(current_risk_pct, metrics["sharpe_ratio"])
+        if abs(recommended - current_risk_pct) < _MEANINGFUL_CHANGE_PCT_POINTS:
+            continue
+        direction = "increase" if recommended > current_risk_pct else "decrease"
+        recommendations.append({
+            "strategy_id": sid, "strategy_name": meta["name"],
+            "current_risk_pct": round(current_risk_pct, 3), "recommended_risk_pct": recommended,
+            "sharpe_ratio": metrics["sharpe_ratio"],
+            "reason": f"Sharpe Ratio {metrics['sharpe_ratio']:.2f} suggests a {direction} "
+                      f"from {round(current_risk_pct, 3)}% to {recommended}% risk per trade.",
+        })
+    return recommendations

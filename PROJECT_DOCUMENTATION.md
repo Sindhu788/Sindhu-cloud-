@@ -1,6 +1,6 @@
 # SINDHU — Project Documentation (A to Z)
 
-> **Version 2 — 2026-08-26.** Ye document sirf real code, files aur folders scan karke banaya gaya hai. Koi bhi cheez guess nahi ki gayi — agar kuch clear nahi tha to "TBD" likha hai. (V1 sirf architecture/modules tak thi, "Extraction Reliability Crisis" era tak — is update mein Sections 14-19 naye add kiye gaye hain jo us waqt ke baad ka poora kaam cover karte hain: 18 strategies ka final state, dual-TP experiment, engine gaps, nayi pages, aur infra work.)
+> **Version 3 — 2026-09-04.** Ye document sirf real code, files aur folders scan karke banaya gaya hai. Koi bhi cheez guess nahi ki gayi — agar kuch clear nahi tha to "TBD" likha hai. (V1 sirf architecture/modules tak thi, "Extraction Reliability Crisis" era tak. V2 mein Sections 14-19 add hue jo us waqt ke baad ka kaam cover karte hain. **V3 mein Section 20 naya add hua hai — "Grand Feature Expansion" jo ~110 features, 7 phases mein, ek hi lambe session mein add kiye gaye: Safety & Reliability, Telegram, Analytics & Visibility, Strategy Management & UX, Profitability Optimization, Evolution & Self-Learning, aur Infrastructure & Sync. Poori honest report `GRAND_EXPANSION_REPORT.md` mein hai — ye section sirf architectural summary deta hai.**)
 
 ---
 
@@ -346,9 +346,10 @@ Desktop app aur Web app **dono same database** safely share karte hain (WAL mode
 | v6 | AI Knowledge Learning Engine | ✅ Complete | Deep understanding, hidden rule detection, YouTube import |
 | v7 | AI-Native Structured Extraction | ✅ Complete | AI seedha StrategyConfig banata hai, old parser sirf offline mode mein |
 | v8 | Final Architecture Upgrade | ✅ Complete | Confidence gate (60%), pre-AI dedup cache, Debug Mode diagnostics |
-| 8 | (Next phase) | ⏳ Pending | CEO ka decision baaki hai |
+| 7A | Evolution Core Engine + SINDHU Strategy Generator | ✅ Complete | `evolution_engine/` (Governor, Champion Engine, 100-trade gate + auto-rollback), `sindhu_strategy/` (11 daily candidates) |
+| 8 | **Grand Feature Expansion (~110 features, 7 phases)** | ✅ Complete | Safety & Reliability, Telegram, Analytics & Visibility, Strategy Management & UX, Profitability Optimization, Evolution & Self-Learning, Infrastructure & Sync — poori detail Section 20 mein |
 
-**Agla milestone:** Phase 8 abhi define nahi hua — CEO ki direction ka wait hai. `PROJECT_PLAN.md` (original roadmap) ke mutabiq possible candidates: News Monitoring, Telegram Alerts, Manager/Agent orchestration layer, ya Reflection/Evolution ko standalone pages banana.
+**Agla milestone:** Grand Feature Expansion ke andar hi 4 items CEO ke faisle par rukay hue hain (Section 20.8 dekhein — Emergency Contact Alert, Chart Attachment, Mobile Push Notifications, aur 3 execution-gate items jo ek grouped decision hain). In sab ka jawab milte hi wo bhi build ho sakte hain. Uske baad agla phase abhi define nahi hua.
 
 ---
 
@@ -420,30 +421,32 @@ E:\sindhu\
 
 ## 11. Future Roadmap
 
-Code mein disabled nav items aur `PROJECT_PLAN.md`/`PROGRESS.md` ke "What's NOT Built" section se confirmed:
+**Update (Grand Feature Expansion ke baad, Section 20 dekhein):** Neeche ki list mein se **Telegram Alerts ab fully bana hua hai** (real-time signals, weekly/monthly/evolution/infra digests, incoming bot commands, multi-channel routing, silent hours — Section 20.2/20.7 dekhein) — is item ko is list se hata diya gaya hai. Baaki sab abhi bhi waisi hi hai jaisi thi:
 
 - **Reflection** — standalone dashboard page (abhi Paper Trading ke andar internal hai; Evolution ab standalone hai, Phase 7A mein bana)
 - **News Monitoring** — bilkul nahi bana (nav mein disabled entry hai)
-- **Telegram Alerts** — bilkul nahi bana (nav mein disabled entry hai)
 - **Live/Real Trading Execution** — Paper Trading simulation-only hai, real order execution nahi
 - **Local LLM Provider** — `ai_integration/config.py` mein sirf mention hai, koi actual local LLM runtime connect nahi hai
 - **Manager/Agent orchestration layer** — original `PROJECT_PLAN.md` ka Phase 9 idea, abhi tak nahi bana
+- **Mobile Push Notifications** — CEO ke faisle par ruka hua (Section 20.8 dekhein: naya Python dependency ya third-party service, dono options)
 
 ---
 
 ## 12. Known Issues / TODO
 
-**Current reality (2026-08-26 update — sabse zaroori items upar):**
+**Current reality (2026-08-26 se, Grand Feature Expansion ke baad updates saath mein):**
 
-1. **Paper Trading abhi activate nahi hui hai — ye is waqt ka TOP PRIORITY hai.** 18 strategies backtest ho chuki hain, 4 genuinely profitable hain (Section 14 dekhein), lekin koi bhi strategy abhi live Paper Trading account par nahi chal rahi. Jab tak paper trading shuru nahi hoti, System Maturity Level 1/5 ("Bootstrapping") par hi ruka rahega.
+1. Paper Trading ka activation status yahan assert nahi kiya ja raha (ye CEO ka apna operational decision hai, code se guess nahi kiya ja sakta) — lekin Grand Feature Expansion mein Paper Trading ke upar bohot saara naya safety/risk infrastructure bana hai (Kill Switch, Account-Wide Drawdown Circuit-Breaker, Coin Blacklist, Time-of-Day Filter, Slippage-Aware Filter, Profit-Lock Trailing Stop, Ensemble Voting — Section 20.1/20.5 dekhein), jo isay real trading ke zyada qareeb le aata hai.
 2. **DCA / multi-entry averaging engine gap** — abhi tak fix nahi hua, jaan-boojh kar excluded (Section 16, gap #14 dekhein). Engine ek trade mein sirf EK entry support karta hai; kisi bhi strategy ka "DCA entry" wala hissa isliye represent nahi ho sakta.
 3. **Concepts Library abhi 12 of 22 (55%) complete hai** — 10 concepts abhi "not yet defined" hain (Equal Highs/Lows, Previous High/Low, Premium & Discount, aur Candlestick Patterns category ke 7 baaki: Inverted Hammer, Hanging Man, Spinning Top, Tweezer Top/Bottom, Three White Soldiers, Three Black Crows).
-4. **Telegram Alerts aur VPS deployment dono abhi blocked hain** — koi bhi live signal system abhi nahi bana, aur poora system sirf local machine (`localhost:8420`) par chalta hai, 24/7 uptime ke liye VPS par move nahi hua.
+4. **Telegram Alerts ab fully bana hua hai** (real-time signals, weekly/monthly/evolution/infra digests, incoming commands, multi-channel routing — Section 20.2/20.7 dekhein), lekin **VPS deployment abhi bhi nahi hui** — poora system sirf local machine (`localhost:8420`) par chalta hai (ek separate `cloud_runtime/app.py` cloud entrypoint zaroor bana hai, Section 20.7 dekhein, lekin poore system ka permanent 24/7 VPS move abhi nahi hua).
 5. `requirements.txt` mein package versions pin nahi hain — reproducibility ke liye risk.
-6. Project **git repository nahi hai** — koi commit history available nahi, isliye phases ka exact timeline sirf `PROGRESS.md` se pata chalta hai (jo manually maintain kiya gaya).
+6. Project ab **git repository hai** (ye Section pehle "git nahi hai" kehta tha — ab commit history available hai).
 7. `data/settings/` aur `data/market_data/` folders bane hue hain lekin currently empty/unused (TBD — future use ke liye reserved lagte hain).
-8. Strategy Library do jagah track hoti hai: `strategies/library/*.json` (asli config) aur SQLite ka `strategies` table (sirf naam/module registration, backtest_batches ke liye) — dono ka exact relationship pura clear nahi (TBD).
+8. Strategy Library do jagah track hoti hai: `strategies/library/*.json` (asli USER-owned config) aur SQLite ka `bot_strategies` table (BOT-owned lineages, `evolution_engine`/`sindhu_strategy` se) — dono completely separate systems hain, dono ka scope ab clear hai (Section 20.6 dekhein).
 9. Desktop app (`dashboard/`) sirf 2 tabs tak limited hai — poori tarah web dashboard ke feature-parity mein nahi hai (jaan-boojh kar, kyunki web hi primary interface hai).
+10. **Mobile Push Notifications** — CEO ke faisle par ruka hua, do options hain (Section 20.8 dekhein).
+11. **3 execution-gate items** (Correlation-Aware Position Limiting, Dynamic Confidence Threshold, Regime-Aware Strategy Switching) — code mein pehle se likha hua hai ke ye teeno "kabhi trade block nahi karte" (ek jaan-boojh kar liya gaya design decision), isay palatna CEO ka faisla hai, khud-ba-khud nahi kiya gaya (Section 20.8 dekhein).
 
 ---
 
@@ -530,10 +533,49 @@ Sab 18 strategies **direct-manual-construction** se banayi gayi hain (koi `strat
 
 ---
 
-*(Known Gaps / Pending ka updated version Section 12 mein hai — sabse upar Paper Trading activation ko top priority mark kiya gaya hai.)*
+## 20. Grand Feature Expansion (~110 Features, 7 Phases)
+
+Ek lamba, single continuous session mein SINDHU ke upar ~110 candidate features ki ek list check ki gayi — 7 phases mein organize ki gayi, ek phase poora khatam karke agle par jaana. Har phase se pehle ek dedicated audit (Explore-agent se) chalayi gayi taake koi bhi cheez jo pehle se maujood ho, dobara na banai jaye — is discipline ki wajah se **33 items "already exists" nikle aur dobara nahi banaye gaye**, sirf unka reason record kiya gaya. Poori honest, evidence-based report `GRAND_EXPANSION_REPORT.md` mein hai (har feature ka status, evidence, test count) — ye section sirf ek architectural overview deta hai.
+
+**Overall tally: 110 candidate items → 71 genuinely naye banaye, 33 pehle se maujood the (dobara nahi banaye), 6 CEO ke faisle par rukay hue hain.**
+
+Non-negotiable rules jo poore session mein follow ki gayin: koi bhi existing safety gate (Wilson 25-trade, Evolution 100-trade, rollback, Confluence, Signal Freshness, Incomplete Lock, per-strategy 5-coin cap, Governor limits) kabhi weaken/bypass nahi kiya gaya; koi data delete nahi hui (sirf archive); har naye feature ke baad **poori test suite chalayi gayi** (start ~1037 tests → end **1458 tests, sab pass**); har badi behavior-changing cheez ka apna dedicated test file bana.
+
+### 20.1 Phase 1 — Safety & Reliability (10 items, 6 naye)
+Kill Switch (ek button se sab trading rok do), permanent Audit Trail (kabhi prune nahi hota, activity_log se alag), Incident Management System, Account-Wide Drawdown Circuit-Breaker (poore account ka combined balance apne peak se 20%+ girne par sab strategies ke naye trades rok deta hai), Backtest-vs-Paper Divergence Alert, AI provider rate-limit retry/backoff. 4 already existed (disaster recovery backup, consecutive-loss auto-pause, data freshness indicator, multi-language Telegram support). Emergency Contact Alert CEO ke faisle par ruka (Section 20.8).
+
+### 20.2 Phase 2 — Telegram (15 items, 6 naye)
+Delivery Retry Queue, Weekly Performance Digest (ab Telegram par bhi jata hai, text sparkline ke saath), `/status`/`/pause`/`/resume` incoming bot commands (pehli baar koi Telegram command SINDHU mein AATI hai, sirf bheji nahi jaati), Multi-Channel Routing (per-strategy alag channel), Silent Hours DND. 9 already existed (confidence-filtered sending, profitability labeling, risk disclaimer, challenge-mode tags, min-latency delivery, analytics, daily summary, multi-language). Chart Attachment CEO ke faisle par ruka (Section 20.8).
+
+### 20.3 Phase 3 — Analytics & Visibility (20 items, 16 naye)
+Strategy Health Score (0-100, documented weighted formula), Coin Performance Heatmap, Strategy Correlation Matrix, Portfolio Heat Map, Sortino Ratio, Value at Risk, MAE/MFE tracking, Time-of-Day Performance Breakdown, Win-Rate Decay Detection, Strategy Aging Analysis, Monthly Auto-Report, Backtest Duration Tracker, What-Changed-Today diff view, Coin Deep-Dive Page, Slippage Sensitivity Test, Sanity Check Alert. 4 already existed (regime detection, API rate-limit dashboard, walk-forward analysis, Monte Carlo simulation).
+
+### 20.4 Phase 4 — Strategy Management & UX (27 items, 20 naye)
+Strategy Tagging, Comments, Last-Changed Timestamp, Health Badge, Trade Annotation, Voice Alert (browser speech synthesis, sirf kill switch/drawdown jaisi safety-critical events ke liye), Custom Alert Rules (bounded, fixed metric choices — kabhi arbitrary expression nahi), Strategy Family Tree, Similarity Detector, Auto-Retirement Suggestion, Compare 2 Strategies View, Comparison Snapshot (copy-as-text), Beginner Mode, Onboarding Tour, Today's Focus Widget, Session Checklist, Quick Note Box, Session Handoff Summary, Undo/Rollback for strategy versions, Trade Journal PDF export. 7 already existed (retirement/archive workflow, quick search, glossary tooltips, explain-this-number, dark/light theme, PDF export, similarity — dedup check). Mobile Push Notifications CEO ke faisle par ruka (Section 20.8).
+
+### 20.5 Phase 5 — Profitability Optimization (15 items, 10 naye)
+Coin Blacklist (genuine deny-list, allowlist ranker se alag), Time-of-Day Trading Filter, Optimal Risk % Per Strategy (Sharpe-based suggestion), Slippage-Aware Entry Filter, Profit-Lock Trailing Stop, Ensemble Voting Confirmation (multiple independent strategies ka agreement chahiye), Best Combination Auto-Suggest (multi-strategy portfolio), Position Size Calculator, Historical What-If Simulator, Backtest Replay Visualizer (bar-by-bar candlestick step-through). 2 already existed (volatility-based sizing, multi-timeframe confirmation). **3 items CEO ke faisle par rukay hain** — Correlation-Aware Position Limiting, Dynamic Confidence Threshold, Regime-Aware Strategy Switching (Section 20.8 dekhein, sabse zaroori deferred group).
+
+### 20.6 Phase 6 — Evolution & Self-Learning (13 items, 8 naye)
+Failed Hypothesis Memory (ek pehle se likha function jo kabhi call nahi hota tha, ab wire ho gaya — naye BOT candidates ab past-regressed lineages se apna DNA compare karte hain), Strategy Lineage Explainability (plain-language narrative), Evolution Confidence Score, Automated Weekly Strategy Review, **Regime-Aware Evolution — ek real, pehle se maujood dead-code bug fix kiya gaya** (regime-adaptation ka code likha hua tha lekin `engine.py` kabhi zaroori parameters pass nahi karta tha, isliye kabhi chalta nahi tha), Feature Importance Ranking, Cross-Coin Group Validation, Self-Generated Strategy Variants. 4 already existed (automatic hypothesis generation, genetic parameter tuning, adaptive position sizing, confidence-weighted signals), 1 already correctly integrated (out-of-sample validation gate).
+
+### 20.7 Phase 7 — Infrastructure & Sync (10 items, 3 naye is session mein + 2 pehle se complete)
+Duplicate Exposure Warning (2+ strategies ek hi coin par), Weekly Auto-Snapshot (rolling 6-hourly backup se alag, apni khud ki 2-mahine ki retention), Automated Weekly Digest (system health — backups, incidents, database size — trading/evolution digests se alag content). Cloud-to-Local 24h Sync aur Missing Dashboard Section Audit pehle hi ek separate cloud-focused session mein complete ho chuke the. 5 items ya to pehle se maujood the (Signal Explainer, Strategy Health Score, Failed Hypothesis Memory ka duplicate) ya double-check karne par pata chala **poora page pehle se bana hua tha** (Strategy Lifecycle page — pehli audit pass ne isay miss kiya tha, dobara check karne se ek wasted rebuild bach gaya).
+
+### 20.8 CEO Ke Faisle Par Rukay Hue Items (6)
+Ye sab **technically buildable hain** — sirf isliye ruke hain kyunki inka faisla CEO ka apna hona chahiye, khud-ba-khud nahi kiya gaya:
+
+1. **Emergency Contact Alert** (Phase 1) — agar SINDHU down ho jaye to kise, kaise batayen? Ek non-Telegram channel chahiye (email/SMS/doosra Telegram bot) + ek external uptime pinger (UptimeRobot jaisa).
+2. **Chart Attachment with Signals** (Phase 2) — Telegram signals mein real chart IMAGE (naya Python dependency chahiye, abhi kahin nahi installed) ya text-based visual (bina dependency ke, abhi jaisa Weekly Report ka sparkline hai)?
+3. **Mobile Push Notifications** (Phase 4) — native browser Web Push (naya dependency + VAPID setup) ya third-party relay jaisa ntfy.sh/Pushover (koi naya Python dependency nahi, lekin ek external service account chahiye)?
+4. **Correlation-Aware Position Limiting**, **Dynamic Confidence Threshold**, **Regime-Aware Strategy Switching** (Phase 5) — teeno ka code mein pehle se explicitly likha hai ke "yeh kabhi trade block/influence nahi karta" — ek jaan-boojh kar liya gaya design decision. Isay palatna (asal trade-execution ko affect karna shuru karna) ek genuinely bara faisla hai, isliye khud-ba-khud nahi kiya gaya.
+
+---
+
+*(Known Gaps / Pending ka updated version Section 12 mein hai.)*
 
 ---
 
 ## 19. Quick Summary (5 Lines)
 
-SINDHU ek self-learning crypto trading system hai jahan CEO sirf ek strategy ya YouTube link paste karta hai, aur AI (sirf import ke waqt, ek dafa) use hoke poori strategy ko samajh kar directly executable structure mein badal deta hai — uske baad AI ki zaroorat kabhi nahi padti. Ye structured data phir Backtesting Engine aur Paper Trading Engine dono mein bilkul same tarah chalta hai (multi-timeframe, auto-resampling, real indicators/patterns), aur sab kuch ek single SQLite database + JSON files mein permanently save hota hai. Poora system ek FastAPI web dashboard (`localhost:8420`) se control hota hai jo mobile aur laptop dono par chalta hai. 15+ phases already complete hain (Data, Backtesting, Knowledge, Paper Trading, aur AI Knowledge Learning Engine ke 3 versions v6/v7/v8). Library mein ab **18 direct-manual-construction strategies** hain, jinme se **4 genuinely profitable** hain (Section 14) — sab real 50-coin backtests se verified. Live trading, Telegram alerts, News monitoring, Reflection/Evolution ko standalone pages banana, aur sabse zaroori — **Paper Trading ko activate karna** — ye sab abhi future roadmap/pending items mein hain (Section 12).
+SINDHU ek self-learning crypto trading system hai jahan CEO sirf ek strategy ya YouTube link paste karta hai, aur AI (sirf import ke waqt, ek dafa) use hoke poori strategy ko samajh kar directly executable structure mein badal deta hai — uske baad AI ki zaroorat kabhi nahi padti. Ye structured data phir Backtesting Engine aur Paper Trading Engine dono mein bilkul same tarah chalta hai (multi-timeframe, auto-resampling, real indicators/patterns), aur sab kuch ek single SQLite database + JSON files mein permanently save hota hai. Poora system ek FastAPI web dashboard (`localhost:8420`) se control hota hai jo mobile aur laptop dono par chalta hai. Data/Backtesting/Knowledge/Paper Trading ke phases, AI Knowledge Learning Engine ke 3 versions (v6/v7/v8), Evolution Core Engine + SINDHU Strategy Generator (Phase 7A), aur sabse aakhir mein ek **Grand Feature Expansion (~110 features, 7 phases — Safety, Telegram, Analytics, Strategy Management, Profitability, Evolution, Infrastructure)** — sab complete hain (Section 20). Library mein **18 direct-manual-construction strategies** hain, jinme se **4 genuinely profitable** hain (Section 14), plus ab BOT-generated strategies ka poora separate ecosystem bhi hai (`evolution_engine`/`sindhu_strategy`). Live/real trading execution, News monitoring, Reflection ko standalone page banana, aur 6 CEO-decision-pending items (Section 20.8) — ye sab abhi baaki hain (Section 11/12).

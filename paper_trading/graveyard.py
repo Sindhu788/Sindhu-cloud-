@@ -50,6 +50,30 @@ def bury_if_abandoned(strategy_id, strategy_name):
     return detail
 
 
+def compute_retirement_suggestions():
+    """Grand Feature Expansion, Phase 4 Feature 4: Auto-Retirement
+    Suggestion -- the human-approval layer bury_if_abandoned() itself
+    deliberately doesn't have (it only writes a permanent, informational
+    graveyard record; it never touches meta["archived"], per its own
+    module docstring: "burial is a RECORD, not an action"). A buried
+    strategy that is STILL ACTIVE (never archived) is exactly the gap
+    worth surfacing: the automatic detection already happened, but turning
+    that into an actual retirement is a genuinely separate, deliberate
+    action a human approves via the existing, fully reversible
+    strategy_library.set_archived() -- never automatic, never a second
+    burial mechanism."""
+    suggestions = []
+    for g in storage.list_graveyard():
+        meta = next((m for m in lib.list_all() if m["id"] == g["strategy_id"]), None)
+        if not meta or meta.get("archived"):
+            continue  # strategy no longer exists, or already archived -- nothing to suggest
+        suggestions.append({
+            "strategy_id": g["strategy_id"], "strategy_name": g["strategy_name"],
+            "reason": g["reason_detail"], "buried_at": g["buried_at"],
+        })
+    return suggestions
+
+
 def check_similarity_warnings(concepts_used):
     """Called when a NEW strategy is being reviewed/imported -- compares its
     concepts against every buried strategy's concepts and returns a plain-

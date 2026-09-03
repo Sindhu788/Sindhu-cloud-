@@ -98,6 +98,19 @@ def strategy_match_table():
             and telegram_closed >= pattern_stats.MIN_SAMPLE_SIZE
             and abs(paper_win_rate - telegram_win_rate) >= DIVERGENCE_THRESHOLD_PCT
         )
+        # Grand Feature Expansion, Phase 1 Feature 8: the comparison the
+        # feature is actually named for -- does live paper performance
+        # still hold up against what the backtest showed? -- distinct from
+        # `diverges` above (paper vs the Telegram-sent SUBSET). Gated the
+        # same way: only once paper trading itself has enough closed trades
+        # to trust (a completed backtest's own win rate is already a fixed,
+        # trusted figure from a full historical run, so only the paper side
+        # needs the sample-size floor).
+        backtest_vs_paper_diverges = (
+            backtest_win_rate is not None and paper_win_rate is not None
+            and paper_closed >= pattern_stats.MIN_SAMPLE_SIZE
+            and abs(backtest_win_rate - paper_win_rate) >= DIVERGENCE_THRESHOLD_PCT
+        )
 
         rows.append({
             "strategy_id": sid, "strategy_name": name,
@@ -105,6 +118,7 @@ def strategy_match_table():
             "paper_win_rate": paper_win_rate, "paper_closed_trades": paper_closed,
             "telegram_win_rate": telegram_win_rate, "telegram_closed_trades": telegram_closed,
             "diverges": diverges,
+            "backtest_vs_paper_diverges": backtest_vs_paper_diverges,
         })
 
     rows.sort(key=lambda r: r["paper_closed_trades"], reverse=True)
@@ -113,3 +127,43 @@ def strategy_match_table():
         "divergence_threshold_pct": DIVERGENCE_THRESHOLD_PCT,
         "min_sample_size": pattern_stats.MIN_SAMPLE_SIZE,
     }
+
+
+# Grand Feature Expansion, Phase 1 Feature 8: this table's backtest_vs_paper_diverges
+# flag was purely passive (a badge nobody would see without opening this
+# page) -- this turns a real divergence into an actual alert, reusing the
+# existing paper_alerts table/Alerts dashboard section rather than a new
+# notification channel. Throttled so the SAME still-diverging strategy is
+# not re-alerted on every check -- only once per ALERT_RECHECK_HOURS.
+ALERT_RECHECK_HOURS = 24
+
+
+def check_and_alert_divergence(now_iso=None):
+    """Call periodically (see paper_trading.engine's tick loop). Read-only
+    over strategy_match_table() plus one paper_alerts write per newly (or
+    still, past the recheck window) diverging strategy. Returns the list of
+    strategy_ids a fresh alert was just created for."""
+    from datetime import datetime, timedelta, timezone
+    now_iso = now_iso or datetime.now(timezone.utc).isoformat()
+    since = (datetime.now(timezone.utc) - timedelta(hours=ALERT_RECHECK_HOURS)).isoformat()
+
+    alerted = []
+    table = strategy_match_table()
+    for row in table["strategies"]:
+        if not row["backtest_vs_paper_diverges"]:
+            continue
+        if storage.get_recent_paper_alert("backtest_paper_divergence", row["strategy_id"], since):
+            continue
+        message = (
+            f"{row['strategy_name']}: backtest showed a {row['backtest_win_rate']:.1f}% win rate, "
+            f"but live paper trading is showing {row['paper_win_rate']:.1f}% over "
+            f"{row['paper_closed_trades']} closed trades -- a "
+            f"{abs(row['backtest_win_rate'] - row['paper_win_rate']):.1f} point gap. "
+            f"Worth reviewing whether market conditions have changed or the backtest was overfit."
+        )
+        storage.create_paper_alert(
+            "backtest_paper_divergence", row["strategy_id"], row["strategy_name"],
+            message, "warning", now_iso,
+        )
+        alerted.append(row["strategy_id"])
+    return alerted

@@ -23,8 +23,34 @@ DEFAULTS = {
     "capital_allocation_enabled": True,
     "backup_enabled": True,
     "weekly_report_enabled": True,
+    "monthly_report_enabled": True,
     "strategy_lab_enabled": True,
     "sindhu_strategy_autogen_enabled": True,
+    # Grand Feature Expansion, Phase 5 Feature 8: Slippage-Aware Entry
+    # Filter -- a brand NEW execution-affecting gate (rejects a real entry
+    # whose estimated slippage would eat too much of its own stop
+    # distance), so it defaults OFF (opt-in) rather than joining the
+    # already-approved toggles above at True, until the CEO has reviewed
+    # it and chooses to turn it on.
+    "slippage_aware_filter_enabled": False,
+    # Grand Feature Expansion, Phase 5 Feature 10: Ensemble Voting
+    # Confirmation -- requires agreement from a minimum number of
+    # INDEPENDENT strategies on the same symbol+direction within the same
+    # tick before any of them can open. Always risk-REDUCING (only makes
+    # trading more conservative), but still a brand-new gate -- off by
+    # default like the other new Phase 5 gates above.
+    "ensemble_voting_enabled": False,
+    # Grand Feature Expansion, Phase 6 Feature 13: Automated Weekly
+    # Strategy Review -- a pure reporting/notification feature (never
+    # touches a trade or a mutation decision), same category as
+    # weekly_report_enabled/monthly_report_enabled above, so it defaults
+    # True like they do.
+    "evolution_weekly_review_enabled": True,
+    # Grand Feature Expansion, Phase 7 Feature 10: Automated Weekly
+    # Digest -- a pure reporting/notification feature (system health only,
+    # never touches a trade or mutation decision), same category as the
+    # other weekly report toggles above, so it defaults True like they do.
+    "infra_weekly_digest_enabled": True,
 }
 
 

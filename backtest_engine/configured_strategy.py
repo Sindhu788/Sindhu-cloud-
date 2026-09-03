@@ -278,6 +278,22 @@ class ConfiguredStrategy(Strategy):
                         # change_of_character), on the bias role's own bars.
                         role_df["structure_trend"] = concepts.valid_structure_trend(role_df)
 
+            _SWEEP_ENGULF_VARIANTS = {"liquidity_sweep_engulfing_loose", "liquidity_sweep_engulfing_strict"}
+            if _SWEEP_ENGULF_VARIANTS & used:
+                # New Batch 5, Strategy 1 (Liquidity Sweep + Engulfing
+                # Candle): "price sweeps a 4H swing low/high" needs a real
+                # 4H swing level, computed on the bias role's OWN bars --
+                # same reasoning as fractal_sweep_reversal's/the Liquidity
+                # Sweep batch's own bias-role blocks above. The sweep EVENT
+                # itself (5m price vs this 4H level) and the engulfing
+                # pattern are both evaluated post-merge in prepare(),
+                # against the entry frame's own low/high/close, matching
+                # the source's literal "sweeps a 4H swing low ON THE 5M
+                # CHART" wording.
+                role_df = ctx.frames.get("bias")
+                if role_df is not None and not role_df.empty and "support" not in role_df.columns:
+                    role_df["support"], role_df["resistance"] = concepts.support_resistance(role_df)
+
             if "range_breakout_volume_confirm" in used:
                 # New Batch 3, Strategy 2: the source names "Bias TF: 1H"
                 # but gives no explicit mechanical trend-gate rule for it
@@ -685,6 +701,560 @@ class ConfiguredStrategy(Strategy):
             # SL: "slightly beyond the POC zone."
             df["frvp_sl_bull"] = poc_low
             df["frvp_sl_bear"] = poc_high
+
+        _frvp_shape_used = {"frvp_hvn_reaction", "frvp_lvn_breakout"} & used
+        if _frvp_shape_used:
+            # New Batch 5, Strategy 2 (Fixed Range Volume Profile, Market
+            # Shape Classification): single-timeframe (1H) per the source's
+            # own "24-hour session volume profile" crypto convention, same
+            # as the existing frvp_poc_reversal strategy above -- entirely
+            # self-contained on the entry frame (this runs on the entry
+            # role's OWN pre-merge frame, exactly like frvp_poc_reversal's
+            # block above -- the "entry_" prefix these columns end up under
+            # is applied later by MultiTimeframeContext.build(), not here).
+            # See concepts.frvp_market_shape()'s own docstring for the
+            # shape/HVN/LVN construction and every builder default it
+            # documents.
+            (poc, vah, val, mshape, hvn_lo_lo, hvn_lo_hi, hvn_hi_lo, hvn_hi_hi,
+             lvn_lo, lvn_hi, p_invalid) = concepts.frvp_market_shape(df)
+            df["frvp2_poc"], df["frvp2_vah"], df["frvp2_val"], df["frvp2_shape"] = poc, vah, val, mshape
+            df["frvp2_hvn_lo_lo"], df["frvp2_hvn_lo_hi"] = hvn_lo_lo, hvn_lo_hi
+            df["frvp2_hvn_hi_lo"], df["frvp2_hvn_hi_hi"] = hvn_hi_lo, hvn_hi_hi
+            df["frvp2_lvn_lo"], df["frvp2_lvn_hi"] = lvn_lo, lvn_hi
+
+            # "LONG entry (HVN/Support): in bullish P-shape or bottom of
+            # D-shape, price respects HVN as support" / "SHORT entry (HVN/
+            # Resistance): in bearish b-shape or top of D-shape" -- D-shape
+            # supports BOTH sides (its own "top of D = resistance, bottom
+            # of D = support" wording), capital_b explicitly supports both
+            # ("both HVNs act as separate support/resistance levels"). A
+            # P-shape long is additionally invalid once price has closed
+            # below the profile's 50% level during this same leg (source's
+            # own explicit invalidation rule).
+            shape_allows_long = mshape.isin(["p", "d", "capital_b"]) & ~((mshape == "p") & p_invalid)
+            shape_allows_short = mshape.isin(["b", "d", "capital_b"])
+
+            if "frvp_hvn_reaction" in used:
+                # "Entry confirmation: wait for a liquidity sweep at the
+                # high-volume level before entering" -- reaction_at_level()
+                # is exactly this (wick beyond the zone's outer edge, close
+                # back inside), anchored to the lower HVN zone's own low
+                # edge (support) and the higher HVN zone's own high edge
+                # (resistance). For p/b/d shapes (one HVN cluster) the low
+                # and high zones are the SAME zone; for capital_b they are
+                # the two genuinely distinct zones.
+                bull_reaction, bear_reaction = concepts.reaction_at_level(df, hvn_lo_lo, hvn_hi_hi)
+                df["frvp_hvn_support_long"] = (bull_reaction & shape_allows_long).fillna(False)
+                df["frvp_hvn_resistance_short"] = (bear_reaction & shape_allows_short).fillna(False)
+                # SL: "below/above the HVN/support (or swing low) that
+                # defined the long entry" -- the zone's own outer edge.
+                df["frvp2_sl_bull"] = hvn_lo_lo
+                df["frvp2_sl_bear"] = hvn_hi_hi
+                # TP (not specified in source -- structure-based default,
+                # "next significant HVN/POC in the direction of the trade"):
+                # the opposite HVN zone's edge when a genuinely separate one
+                # exists (capital_b), else this leg's own Value Area High/
+                # Low as the nearest "next node" fallback.
+                is_capital_b = (mshape == "capital_b")
+                df["frvp2_tp_bull"] = hvn_hi_hi.where(is_capital_b, vah)
+                df["frvp2_tp_bear"] = hvn_lo_lo.where(is_capital_b, val)
+
+            if "frvp_lvn_breakout" in used:
+                # "LONG entry (LVN Breakout): price enters an LVN area from
+                # below" / mirror short -- edge-triggered crossing into the
+                # zone, not plain containment (a fresh arrival event, same
+                # reasoning as fvg_zone's edge-triggered re-entry above).
+                close = df["close"]
+                bull_break = ((close > lvn_lo) & ~(close.shift(1) > lvn_lo.shift(1))).fillna(False)
+                bear_break = ((close < lvn_hi) & ~(close.shift(1) < lvn_hi.shift(1))).fillna(False)
+                # Filter: "avoid high-conviction fast-move trades inside an
+                # HVN zone itself -- only trade LVN breakouts for the fast
+                # move entries, not inside HVN zones."
+                in_any_hvn = (((close >= hvn_lo_lo) & (close <= hvn_lo_hi)) |
+                              ((close >= hvn_hi_lo) & (close <= hvn_hi_hi))).fillna(False)
+                df["frvp_lvn_breakout_long"] = (bull_break & ~in_any_hvn).fillna(False)
+                df["frvp_lvn_breakout_short"] = (bear_break & ~in_any_hvn).fillna(False)
+                if "frvp2_sl_bull" not in df.columns:
+                    df["frvp2_sl_bull"] = hvn_lo_lo
+                    df["frvp2_sl_bear"] = hvn_hi_hi
+                    is_capital_b = (mshape == "capital_b")
+                    df["frvp2_tp_bull"] = hvn_hi_hi.where(is_capital_b, vah)
+                    df["frvp2_tp_bear"] = hvn_lo_lo.where(is_capital_b, val)
+
+        if "sr_liquidity_sweep_sideways" in used:
+            # New Batch 5, Strategy 3 (Support/Resistance + Liquidity
+            # Sweep, Sideways Market): single timeframe (1H per the
+            # source), entirely self-contained on the entry role's own
+            # frame -- same reasoning as frvp_poc_reversal/frvp_market_shape
+            # above. "S/R = a level reacted to at least twice" -- approximated
+            # by the same swing-based support_resistance() every other
+            # strategy in this codebase already uses as its S/R anchor.
+            if "support" not in df.columns:
+                df["support"], df["resistance"] = concepts.support_resistance(df)
+            support, resistance = df["support"], df["resistance"]
+            bull_long_wick, bear_long_wick = concepts.long_wick_candle(df)
+            low, high, close = df["low"], df["high"], df["close"]
+            touch_support = (low <= support).fillna(False)
+            touch_resistance = (high >= resistance).fillna(False)
+            # "Wait for price to enter the zone for the 3rd or 4th time" --
+            # concepts.nth_touch_of_level(), own default n=3 ("3rd or 4th"
+            # reads as "at least a few tests", not one exact count).
+            support_tested = concepts.nth_touch_of_level(touch_support, support, n=3)
+            resistance_tested = concepts.nth_touch_of_level(touch_resistance, resistance, n=3)
+
+            bull_setup = (touch_support & bull_long_wick & support_tested).fillna(False)
+            bear_setup_raw = (touch_resistance & bear_long_wick & resistance_tested).fillna(False)
+            # Filter (source point 22): "do NOT take short positions if the
+            # overall market trend is strongly upward" -- own default for
+            # "strongly upward": concepts.trend_regime()'s own "up" state
+            # (EMA(50)+ATR(14)-based, already the project's established
+            # 3-way trend/sideways default -- reused here, and again for
+            # Strategy 4/7/9's own trend/sideways filters, for consistency).
+            # Longs are NOT similarly filtered -- the source only states
+            # this rule for shorts.
+            trend = concepts.trend_regime(df)
+            bear_setup = (bear_setup_raw & (trend != "up")).fillna(False)
+
+            # Execution: "enter short on the candle immediately following
+            # the long-wick candle" (source, explicit) -- own consistent
+            # default applied to longs too (source's "buy slightly above
+            # the support zone after the long-wick candle forms" reads the
+            # same way: the confirming action happens on the NEXT candle),
+            # matching Strategy 1's identical next_candle_open convention.
+            df["sr_sweep_long_confirm"] = bull_setup
+            df["sr_sweep_short_confirm"] = bear_setup
+            # SL: "slightly below/above the low/high of the long-wick
+            # candle itself" -- sparse (only non-NaN on the exact signal
+            # bar), same technique as range_breakout_volume_confirm's own
+            # breakout-candle SL anchor.
+            df["sr_sweep_sl_bull"] = low.where(bull_setup)
+            df["sr_sweep_sl_bear"] = high.where(bear_setup)
+            # TP, Fixed-RR variant only (source: "1:2.5 for longs, >= 1:2
+            # for shorts" -- two DIFFERENT ratios, which SLTPSpec's single
+            # shared `value` cannot express for a "rr"-type spec covering
+            # both directions at once). Precomputed here as real target
+            # PRICES and delivered through the generic "structure"
+            # take-profit candidate chain instead -- exactly the same
+            # technique Sniper Headshot Entry's structure_or_rr type uses
+            # for its own RR fallback, just applied per-direction. Only
+            # populated when the Fixed-RR variant marker is present in
+            # concepts_used; the Structure variant (recent high/low) needs
+            # no extra column at all -- entry_resistance/entry_support are
+            # ALREADY the generic structure take-profit fallback targets.
+            if "sr_sweep_tp_fixed_rr" in used:
+                risk_bull = (close - df["sr_sweep_sl_bull"]).clip(lower=0)
+                risk_bear = (df["sr_sweep_sl_bear"] - close).clip(lower=0)
+                df["sr_sweep_fixed_tp_bull"] = close + 2.5 * risk_bull
+                df["sr_sweep_fixed_tp_bear"] = close - 2.0 * risk_bear
+
+        if "fvg_momentum_pullback" in used:
+            # New Batch 5, Strategy 4 (FVG Momentum Pullback, Trending
+            # Market): single timeframe (1H, source gives no other role),
+            # self-contained on the entry frame. Reuses fair_value_gap()/
+            # fvg_zone() entirely -- the exact same 3-candle gap
+            # construction the source itself describes ("gap between the
+            # wicks of the candles immediately preceding and following the
+            # momentum candle").
+            if "fvg_bull_low" not in df.columns:
+                (df["fvg_bull_low"], df["fvg_bull_high"],
+                 df["fvg_bear_low"], df["fvg_bear_high"]) = concepts.fvg_zone(df)
+            fvg_bull_low, fvg_bull_high = df["fvg_bull_low"], df["fvg_bull_high"]
+            fvg_bear_low, fvg_bear_high = df["fvg_bear_low"], df["fvg_bear_high"]
+            # "Momentum candle": a large green/red candle -- own default,
+            # same body_pct>=50% threshold this batch already established
+            # for "large/momentum candle" (fractal_sweep_reversal's own
+            # "strong candle" gate), for consistency. The gap's PRODUCING
+            # candle is bar i-1 relative to the gap's own confirmation bar
+            # i (classic 3-candle FVG shape: candle i-2, momentum candle
+            # i-1, candle i) -- so this reads candle i-1's own body_pct via
+            # .shift(1).
+            body = (df["open"] - df["close"]).abs()
+            rng = (df["high"] - df["low"]).replace(0, np.nan)
+            body_pct = (body / rng).fillna(0.0) * 100.0
+            momentum_candle = (body_pct.shift(1) >= 50.0).fillna(False)
+
+            fvg_bull_mid = (fvg_bull_low + fvg_bull_high) / 2.0
+            fvg_bear_mid = (fvg_bear_low + fvg_bear_high) / 2.0
+            close = df["close"]
+            # "Price pulls back into the FVG and reaches/dips slightly
+            # below the 50% line" -- edge-triggered cross INTO the midpoint
+            # from the favorable side (a genuine pullback arrival, not
+            # "is currently below it" -- same containment-vs-event
+            # reasoning as fvg_zone's own edge-triggered re-entry).
+            touch_mid_bull = ((close <= fvg_bull_mid) & (close.shift(1) > fvg_bull_mid.shift(1))).fillna(False)
+            touch_mid_bear = ((close >= fvg_bear_mid) & (close.shift(1) < fvg_bear_mid.shift(1))).fillna(False)
+            bull_raw = (touch_mid_bull & momentum_candle).fillna(False)
+            bear_raw = (touch_mid_bear & momentum_candle).fillna(False)
+            # Filter (source point 22, shared with Strategy 3): "do NOT
+            # take short positions if the overall market trend is strongly
+            # upward" -- same trend_regime() default as Strategy 3, for
+            # consistency across this batch.
+            trend = concepts.trend_regime(df)
+            bull_confirm = concepts.first_signal_per_level(bull_raw, fvg_bull_low)
+            bear_confirm = concepts.first_signal_per_level(
+                (bear_raw & (trend != "up")).fillna(False), fvg_bear_high)
+            df["fvgmp_long_confirm"] = bull_confirm
+            df["fvgmp_short_confirm"] = bear_confirm
+            # SL: "slightly below/above the FVG zone" (source, explicit) --
+            # the zone's own outer edge.
+            df["fvgmp_sl_bull"] = fvg_bull_low
+            df["fvgmp_sl_bear"] = fvg_bear_high
+
+        if "fvg_pure_inverse" in used:
+            # New Batch 5, Strategy 5 (FVG Pure + Inverse FVG): single
+            # timeframe (1H, source gives no other role), self-contained.
+            # Reuses fair_value_gap()/fvg_zone() entirely -- the exact same
+            # 3-candle gap the source itself describes ("2nd candle = very
+            # large momentum candle, zone = high of 1st to low of 3rd").
+            # "Very large" momentum candle: same body_pct>=50% threshold as
+            # Strategy 4, per the task's own explicit "same as Strategy 4,
+            # for consistency" instruction.
+            if "fvg_bull_low" not in df.columns:
+                (df["fvg_bull_low"], df["fvg_bull_high"],
+                 df["fvg_bear_low"], df["fvg_bear_high"]) = concepts.fvg_zone(df)
+            if "bull_fvg" not in df.columns:
+                df["bull_fvg"], df["bear_fvg"] = concepts.fair_value_gap(df)
+            fvg_bull_low, fvg_bull_high = df["fvg_bull_low"], df["fvg_bull_high"]
+            fvg_bear_low, fvg_bear_high = df["fvg_bear_low"], df["fvg_bear_high"]
+            bull_fvg_event, bear_fvg_event = df["bull_fvg"], df["bear_fvg"]
+
+            body = (df["open"] - df["close"]).abs()
+            rng = (df["high"] - df["low"]).replace(0, np.nan)
+            body_pct = (body / rng).fillna(0.0) * 100.0
+            momentum_candle = (body_pct.shift(1) >= 50.0).fillna(False)
+
+            close = df["close"]
+            fvg_bull_mid = (fvg_bull_low + fvg_bull_high) / 2.0
+            fvg_bear_mid = (fvg_bear_low + fvg_bear_high) / 2.0
+
+            # Base setup: "buy when price returns to the 50% midpoint or
+            # slightly below it" -- edge-triggered arrival, same formula as
+            # Strategy 4's own pullback entry.
+            touch_mid_bull = ((close <= fvg_bull_mid) & (close.shift(1) > fvg_bull_mid.shift(1))).fillna(False)
+            touch_mid_bear = ((close >= fvg_bear_mid) & (close.shift(1) < fvg_bear_mid.shift(1))).fillna(False)
+            base_long_raw = (touch_mid_bull & momentum_candle).fillna(False)
+            base_short_raw = (touch_mid_bear & momentum_candle).fillna(False)
+            # Mitigation filter (source point 8: "do NOT trade an FVG if
+            # price has already returned to touch/fill that gap
+            # previously"): interpreted as "each specific FVG zone can only
+            # ever trigger ONE trade, ever" -- concepts.first_signal_per_
+            # level()'s existing "retire once used" mechanism IS this rule
+            # (not concepts.mitigation_blocks(), which measures a
+            # structurally different, BOS-triggered Order-Block-body zone,
+            # unrelated to "has THIS FVG already been touched").
+            base_long_confirm = concepts.first_signal_per_level(base_long_raw, fvg_bull_low)
+            base_short_confirm = concepts.first_signal_per_level(base_short_raw, fvg_bear_high)
+
+            # Inverse FVG (source point 5, genuinely new composite): a
+            # Bullish FVG that gets "broken" (price CLOSES below it) flips
+            # into a bearish reversal trigger -- wait for price to return
+            # to that now-broken zone's own 50% level FROM BELOW, then
+            # short. Mirror for a broken Bearish FVG enabling a long
+            # (source only spelled out the bullish-broken-to-short case
+            # explicitly; the mirror is a structural, not discretionary,
+            # inference, per the task's own instruction).
+            bull_broken_event = ((close < fvg_bull_low) & ~(close.shift(1) < fvg_bull_low.shift(1))).fillna(False)
+            bear_broken_event = ((close > fvg_bear_high) & ~(close.shift(1) > fvg_bear_high.shift(1))).fillna(False)
+            inverse_short_level = fvg_bull_mid.where(bull_broken_event).ffill()
+            inverse_long_level = fvg_bear_mid.where(bear_broken_event).ffill()
+            inverse_short_touch = ((close >= inverse_short_level) & (close.shift(1) < inverse_short_level.shift(1))).fillna(False)
+            inverse_long_touch = ((close <= inverse_long_level) & (close.shift(1) > inverse_long_level.shift(1))).fillna(False)
+            inverse_short_confirm = concepts.first_signal_per_level(inverse_short_touch, inverse_short_level)
+            inverse_long_confirm = concepts.first_signal_per_level(inverse_long_touch, inverse_long_level)
+
+            df["fvgpi_long_confirm"] = (base_long_confirm | inverse_long_confirm).fillna(False)
+            df["fvgpi_short_confirm"] = (base_short_confirm | inverse_short_confirm).fillna(False)
+            # SL: "slightly below/above the FVG zone" (base setup, source's
+            # own wording) -- for the inverse setup, the (now-broken) zone
+            # has flipped polarity (a broken bullish/support zone now acts
+            # as resistance, and vice versa), so its own OTHER edge is the
+            # correct protective side: an inverse LONG (from a broken
+            # BEARISH zone acting as new support) stops below that zone's
+            # own low; an inverse SHORT (from a broken BULLISH zone acting
+            # as new resistance) stops above that zone's own high -- same
+            # "structural zone's outer edge" principle as the base setup,
+            # just applied to the zone that's actually active for this
+            # signal.
+            df["fvgpi_sl_bull"] = fvg_bull_low.where(base_long_confirm, fvg_bear_low)
+            df["fvgpi_sl_bear"] = fvg_bear_high.where(base_short_confirm, fvg_bull_high)
+            # TP, Fixed-RR variant only -- symmetric 1:2 both sides (source:
+            # "OR fixed ratios of 1:2 or 1:3" for the base setup; this
+            # batch's own Strategy 4 already covers 1:3 as a separate
+            # concept, so Strategy 5's own Fixed-RR variant uses 1:2, its
+            # OTHER explicitly-named ratio, to keep the two strategies'
+            # fixed-RR variants distinct rather than duplicating one).
+            # take_profit.type="rr" applies this directly and symmetrically
+            # -- no precomputed column needed (unlike Strategy 3's
+            # asymmetric long/short ratio case).
+
+        _ob_trade_used = {"order_block_trading_loose", "order_block_trading_strict"} & used
+        if _ob_trade_used:
+            # New Batch 5, Strategy 6 (Order Block Trading): single
+            # timeframe, self-contained on the entry frame. The source's
+            # "large green/red momentum candle after a correction" trigger
+            # is approximated by this codebase's own ESTABLISHED, BOS-
+            # triggered Order Block definition (concepts.order_blocks()) --
+            # the exact same operational definition every other Order-
+            # Block strategy in this codebase already uses -- rather than
+            # building a second, parallel momentum-candle-size-triggered OB
+            # detector. Reused entirely, unmodified: order_blocks() (the
+            # zone itself), order_block_validity() (source's own explicit
+            # "do NOT trade a mitigated OB" filter), fair_value_gap()
+            # (source's own explicit "do NOT trade if there's no FVG"
+            # filter), liquidity_sweep() (source's own explicit "do NOT
+            # trade if liquidity was already swept before the OB formed"
+            # filter).
+            bull_ob_low, bull_ob_high, bear_ob_low, bear_ob_high = concepts.order_blocks(df)
+            bull_ob_valid, bear_ob_valid = concepts.order_block_validity(df)
+            bull_fvg_event, bear_fvg_event = concepts.fair_value_gap(df)
+            bull_sweep_event, bear_sweep_event = concepts.liquidity_sweep(df)
+
+            # "Do NOT trade if there is no FVG" -- a genuine gap must have
+            # accompanied THIS specific OB's formation. Held for the OB's
+            # whole lifetime once found near its formation bar (own
+            # default: within a 3-bar window around formation, since a BOS
+            # candle and its accompanying gap don't always land on the
+            # exact same bar index).
+            bull_ob_formed = (bull_ob_low != bull_ob_low.shift(1)) & bull_ob_low.notna()
+            bear_ob_formed = (bear_ob_high != bear_ob_high.shift(1)) & bear_ob_high.notna()
+            fvg_near_bull = bull_fvg_event.rolling(3, min_periods=1).max().astype(bool)
+            fvg_near_bear = bear_fvg_event.rolling(3, min_periods=1).max().astype(bool)
+            has_fvg_bull = fvg_near_bull.where(bull_ob_formed).ffill().fillna(False).astype(bool)
+            has_fvg_bear = fvg_near_bear.where(bear_ob_formed).ffill().fillna(False).astype(bool)
+
+            # "Do NOT trade if liquidity was already swept in the candle
+            # BEFORE the Order Block formed" -- own default: no sweep
+            # event in the 3 bars immediately before formation, held for
+            # the OB's whole lifetime, same technique as the FVG check
+            # above.
+            sweep_before_bull = bull_sweep_event.shift(1).rolling(3, min_periods=1).max().astype(bool)
+            sweep_before_bear = bear_sweep_event.shift(1).rolling(3, min_periods=1).max().astype(bool)
+            no_prior_sweep_bull = (~sweep_before_bull.where(bull_ob_formed).ffill().fillna(False).astype(bool))
+            no_prior_sweep_bear = (~sweep_before_bear.where(bear_ob_formed).ffill().fillna(False).astype(bool))
+
+            # "Buy limit order at the high of the OB zone, for when price
+            # returns to it" -- a wick touching that exact level while the
+            # OB is still valid and passes both filters above.
+            low, high = df["low"], df["high"]
+            touch_bull = ((low <= bull_ob_high) & (high >= bull_ob_high)).fillna(False)
+            touch_bear = ((low <= bear_ob_low) & (high >= bear_ob_low)).fillna(False)
+            bull_raw = (touch_bull & bull_ob_valid & has_fvg_bull & no_prior_sweep_bull).fillna(False)
+            bear_raw = (touch_bear & bear_ob_valid & has_fvg_bear & no_prior_sweep_bear).fillna(False)
+
+            if "order_block_trading_strict" in used:
+                # STRICT (shared "General Filters & Confirmations"
+                # checklist source): price above/below BOTH the 200 EMA
+                # and 50 EMA in the trade direction. Requires the strategy
+                # to have declared both as entry-role indicators (see the
+                # StrategyConfig builder) -- if either is missing, the
+                # strict gate simply never opens (no crash), same
+                # "declared but not computed = always False" convention
+                # used throughout this codebase.
+                close = df["close"]
+                ema200 = df.get("ema_200")
+                ema50 = df.get("ema_50")
+                if ema200 is not None and ema50 is not None:
+                    trend_ok_bull = ((close > ema200) & (close > ema50)).fillna(False)
+                    trend_ok_bear = ((close < ema200) & (close < ema50)).fillna(False)
+                else:
+                    trend_ok_bull = pd.Series(False, index=df.index)
+                    trend_ok_bear = pd.Series(False, index=df.index)
+                bull_raw = (bull_raw & trend_ok_bull).fillna(False)
+                bear_raw = (bear_raw & trend_ok_bear).fillna(False)
+
+            df["obtrade_long_confirm"] = concepts.first_signal_per_level(bull_raw, bull_ob_low)
+            df["obtrade_short_confirm"] = concepts.first_signal_per_level(bear_raw, bear_ob_high)
+            # SL: "a little below/above the Order Block zone" -- the zone's
+            # own outer edge.
+            df["obtrade_sl_bull"] = bull_ob_low
+            df["obtrade_sl_bear"] = bear_ob_high
+            # TP (not specified in source -- structure-based default,
+            # "next significant opposite swing point"): the generic
+            # entry_resistance/entry_support fallback turns out to be
+            # structurally USELESS for an Order Block continuation trade
+            # (confirmed directly against real trade data: 0/35 BTCUSDT
+            # trades got a take-profit before this fix, a guaranteed-
+            # loss-by-construction bug matching the exact failure mode
+            # already documented elsewhere in this file) -- a bullish OB's
+            # own swing "resistance" is, by definition, the OLD level price
+            # already broke ABOVE to create this uptrend, so it sits BELOW
+            # the current entry price and fails the generic branch's own
+            # "zone > price" requirement on every single trade. A genuinely
+            # forward reference is needed instead: the highest high (long)
+            # / lowest low (short) of a wide rolling window, own default
+            # 100 bars, standing in for "the next level price would need
+            # to clear to keep going."
+            df["obtrade_tp_bull"] = concepts.rolling_high(df["high"], 100)
+            df["obtrade_tp_bear"] = concepts.rolling_low(df["low"], 100)
+
+        _crt_used = {"crt_loose", "crt_strict"} & used
+        if _crt_used:
+            # New Batch 5, Strategy 7 (Candle Range Theory / CRT): single
+            # timeframe (1H, source's own stated minimum). "Large red/green
+            # candle" -- same body_pct>=50% momentum-candle convention as
+            # Strategies 4/5/6, for consistency. CRH/CRL = that candle's
+            # own high/low, held (ffilled) until the next qualifying
+            # momentum candle redraws it -- own simplification of the
+            # source's own "if the sweep fails, redraw the range on the
+            # current candle" refinement (not built as a separate stateful
+            # rule; a failed sweep simply leaves the existing range active
+            # until the next genuine momentum candle appears, the same
+            # "active zone" convention every other composite in this file
+            # already uses).
+            open_, close, high, low = df["open"], df["close"], df["high"], df["low"]
+            body = (open_ - close).abs()
+            rng = (high - low).replace(0, np.nan)
+            body_pct = (body / rng).fillna(0.0) * 100.0
+            large_red = ((close < open_) & (body_pct >= 50.0)).fillna(False)
+            large_green = ((close > open_) & (body_pct >= 50.0)).fillna(False)
+            crl = low.where(large_red).ffill()
+            crh = high.where(large_green).ffill()
+
+            # "Wait for the NEXT candle to move below CRL then close back
+            # ABOVE CRL" -- concepts.liquidity_sweep()'s exact same-bar
+            # wick-beyond-then-close-back-inside formula, copied against
+            # this strategy's own CRL/CRH anchor instead of a same-frame
+            # swing level (same technique as fractal_sweep_reversal's own
+            # h4_support/h4_resistance copy).
+            bull_sweep_reclaim = ((low < crl) & (close > crl)).fillna(False)
+            bear_sweep_reclaim = ((high > crh) & (close < crh)).fillna(False)
+            # "If the sweep candle is not a genuine long-wick candle,
+            # discard the range" -- reuses Strategy 3's long_wick_candle()
+            # unmodified, at the same 50% wick-fraction default.
+            bull_wick, bear_wick = concepts.long_wick_candle(df)
+            bull_ok = (bull_sweep_reclaim & bull_wick).fillna(False)
+            bear_ok = (bear_sweep_reclaim & bear_wick).fillna(False)
+
+            # Filter (source): "do NOT trade if the market is in a sideways
+            # trend" -- same trend_regime() default as Strategies 3/4/9.
+            trend = concepts.trend_regime(df)
+            bull_ok = (bull_ok & (trend != "sideways")).fillna(False)
+            bear_ok = (bear_ok & (trend != "sideways")).fillna(False)
+
+            if "crt_strict" in used:
+                # STRICT (shared checklist source with Strategy 6): EMA200
+                # + EMA50 trend alignment, same convention as Strategy 6's
+                # own strict gate, PLUS Fibonacci confirmation -- price
+                # (at the CRT signal bar) sitting within a small ATR-scaled
+                # band of the most recent swing's 50% or 61.8% retracement
+                # level (concepts.fibonacci_retracement_zone() already only
+                # computes 38.2/50/61.8 -- the 78%/23% levels the source
+                # explicitly excludes were never options here at all, so
+                # nothing extra needs disabling; 0%/100% are support/
+                # resistance themselves, per that function's own docstring,
+                # not separately checked here since the sweep-reclaim logic
+                # already anchors directly to CRL/CRH).
+                ema200 = df.get("ema_200")
+                ema50 = df.get("ema_50")
+                if ema200 is not None and ema50 is not None:
+                    trend_ok_bull = ((close > ema200) & (close > ema50)).fillna(False)
+                    trend_ok_bear = ((close < ema200) & (close < ema50)).fillna(False)
+                else:
+                    trend_ok_bull = pd.Series(False, index=df.index)
+                    trend_ok_bear = pd.Series(False, index=df.index)
+                if "atr_14" not in df.columns:
+                    df["atr_14"] = concepts.atr(df, 14)
+                fib_618, fib_50, _fib_382, _fib_dir = concepts.fibonacci_retracement_zone(df)
+                near_fib = (
+                    concepts.within_level_zone(df, fib_50, df["atr_14"], frac=0.25) |
+                    concepts.within_level_zone(df, fib_618, df["atr_14"], frac=0.25)
+                ).fillna(False)
+                bull_ok = (bull_ok & trend_ok_bull & near_fib).fillna(False)
+                bear_ok = (bear_ok & trend_ok_bear & near_fib).fillna(False)
+
+            df["crt_long_confirm"] = bull_ok
+            df["crt_short_confirm"] = bear_ok
+            # SL: "below CRL" (long, explicit) / "a little above CRH"
+            # (short, explicit "a little" -- standard buffer).
+            df["crt_sl_bull"] = crl
+            df["crt_sl_bear"] = crh
+
+        if "bos_choch_retest" in used:
+            # New Batch 5, Strategy 8 (BOS/CHoCH Structure Break + Strong
+            # Level Retest -- narrowed, mechanical extraction). "HH/HL vs
+            # LH/LL trend, BOS = continuation break, CHoCH = reversal
+            # break" are exactly concepts.break_of_structure()/change_of_
+            # character(), reused unmodified. "Strong Level" = the swing
+            # level that got broken (support_resistance()'s own resistance/
+            # support at the break bar), held until the break is retested
+            # -- same "broken level -> retest via reaction_at_level() ->
+            # sequential_event() ordering" composition the existing
+            # mss_reversal strategy already uses for its own CHoCH-only
+            # case, generalized here to (BOS | CHoCH) since the source
+            # treats both as "a break that creates a Strong Level to
+            # retest," not just reversals. "Do not assume a CHoCH is valid
+            # until the confirming candle is fully closed" is already
+            # guaranteed by construction -- every concept here only ever
+            # reads fully-closed bars, no intra-bar state exists to jump
+            # the gun on.
+            if "support" not in df.columns:
+                df["support"], df["resistance"] = concepts.support_resistance(df)
+            support, resistance = df["support"], df["resistance"]
+            bullish_bos, bearish_bos = concepts.break_of_structure(df)
+            bullish_choch, bearish_choch = concepts.change_of_character(df)
+            bull_break_event = (bullish_bos | bullish_choch).fillna(False)
+            bear_break_event = (bearish_bos | bearish_choch).fillna(False)
+
+            strong_level_bull = resistance.where(bull_break_event).ffill()
+            strong_level_bear = support.where(bear_break_event).ffill()
+            bull_retest, bear_retest = concepts.reaction_at_level(df, strong_level_bull, strong_level_bear)
+            # max_gap=30 1h bars (~5 trading days): own default -- the
+            # source requires a retest but gives no exact reaction window.
+            df["bosc_long_confirm"] = concepts.sequential_event(bull_break_event, bull_retest, max_gap=30)
+            df["bosc_short_confirm"] = concepts.sequential_event(bear_break_event, bear_retest, max_gap=30)
+            # SL: "slightly below/above the Strong Level" -- the broken
+            # level itself.
+            df["bosc_sl_bull"] = strong_level_bull
+            df["bosc_sl_bear"] = strong_level_bear
+            # TP (not specified in source -- structure-based default,
+            # "next opposite significant swing point"): reuses Strategy 6's
+            # own fix directly -- the generic entry_resistance/entry_
+            # support fallback is the SAME kind of already-broken,
+            # behind-price level a continuation retest would hit (confirmed
+            # bug pattern, not re-derived here), so a genuinely forward
+            # 100-bar rolling high/low is used instead, same as Strategy 6.
+            df["bosc_tp_bull"] = concepts.rolling_high(df["high"], 100)
+            df["bosc_tp_bear"] = concepts.rolling_low(df["low"], 100)
+
+        if "ichimoku_system" in used:
+            # New Batch 5, Strategy 9 (Ichimoku Cloud System). Shared by
+            # all 4 timeframe variants and both exit-mode variants (8
+            # combinations) -- only the StrategyConfig's own timeframes/
+            # exit_conditions/trailing_stop differ, not this block.
+            conversion, base, span_a, span_b, lag_above, lag_below = concepts.ichimoku_cloud(df)
+            cross_above_event = ((conversion > base) & ~(conversion.shift(1) > base.shift(1))).fillna(False)
+            cross_below_event = ((conversion < base) & ~(conversion.shift(1) < base.shift(1))).fillna(False)
+            df["ichimoku_cross_above"] = cross_above_event
+            df["ichimoku_cross_below"] = cross_below_event
+
+            conversion_above_state = (conversion > base)
+            cloud_green = (span_a > span_b)
+            cloud_red = (span_a < span_b)
+            # "Ordering rule (STRICT): all three confirmations must align
+            # together -- do not enter on the crossover alone." Edge-
+            # triggered on the combined AND of all three STATES (not a
+            # sequential_event() ordering of two distinct events): fires
+            # exactly once, on whichever bar all three first become
+            # simultaneously true -- "may be the crossover candle itself
+            # or a subsequent one" (source's own exact wording for the
+            # short case, applied symmetrically to longs too since the
+            # underlying logic doesn't differ).
+            bull_aligned = (conversion_above_state & lag_above & cloud_green).fillna(False)
+            bear_aligned = (~conversion_above_state & lag_below & cloud_red).fillna(False)
+            bull_raw = (bull_aligned & ~bull_aligned.shift(1).fillna(False)).fillna(False)
+            bear_raw = (bear_aligned & ~bear_aligned.shift(1).fillna(False)).fillna(False)
+
+            # Filter: "do NOT use in a sideways market" -- same
+            # trend_regime() default as Strategies 3/4/7.
+            trend = concepts.trend_regime(df)
+            df["ichimoku_long_confirm"] = (bull_raw & (trend != "sideways")).fillna(False)
+            df["ichimoku_short_confirm"] = (bear_raw & (trend != "sideways")).fillna(False)
+            # SL: "below/above the candle in which the crossover occurred"
+            # -- held from the crossover event until the (possibly later)
+            # aligned entry consumes it.
+            df["ichimoku_sl_bull"] = df["low"].where(cross_above_event).ffill()
+            df["ichimoku_sl_bear"] = df["high"].where(cross_below_event).ffill()
+
         if "fvg_equilibrium_entry" in used:
             # New Batch 4, Strategy 4 (FVG 50% Equilibrium Entry): reuses
             # fair_value_gap()/fvg_zone() entirely, no new detection logic.
@@ -1450,6 +2020,52 @@ class ConfiguredStrategy(Strategy):
             df["entry_liqsweep_cisd_long_confirm"] = concepts.sequential_event(cisd_long_confirm_event, touch_cisd_long, max_gap=30)
             df["entry_liqsweep_cisd_short_confirm"] = concepts.sequential_event(cisd_short_confirm_event, touch_cisd_short, max_gap=30)
 
+        _sweep_engulf_used = {"liquidity_sweep_engulfing_loose", "liquidity_sweep_engulfing_strict"} & set(self.config.concepts_used)
+        if _sweep_engulf_used:
+            # New Batch 5, Strategy 1: "the 4H sweep MUST occur before the
+            # 5M engulfing pattern is checked" -- bias_support/
+            # bias_resistance (the 4H swing level, already causally merged
+            # onto this 5m entry frame) checked against the entry frame's
+            # own low/high/close, then ordered against the entry role's own
+            # engulfing pattern (entry_bull_engulfing/entry_bear_engulfing,
+            # already computed by _compute_concept_columns since "engulfing"
+            # is required alongside this concept -- body-only, per
+            # concepts.engulfing_candle()'s own docstring) via
+            # sequential_event(). LOOSE: any sweep (a wick beyond the level,
+            # OR a body close through it) counts -- support/resistance
+            # comparison alone. STRICT: only concepts.liquidity_sweep()'s
+            # own same-bar wick-beyond-then-close-back-inside formula counts
+            # (source's own wording for the strict variant), applied against
+            # the merged 4H level instead of a same-frame swing (same
+            # technique as fractal_sweep_reversal's h4_support/h4_resistance
+            # copy above).
+            bias_support = df.get("bias_support")
+            bias_resistance = df.get("bias_resistance")
+            bull_engulf = df.get("entry_bull_engulfing")
+            bear_engulf = df.get("entry_bear_engulfing")
+            if bias_support is not None and bias_resistance is not None and bull_engulf is not None:
+                low, high, close = df["low"], df["high"], df["close"]
+                if "liquidity_sweep_engulfing_strict" in _sweep_engulf_used:
+                    bull_sweep = ((low < bias_support) & (close >= bias_support)).fillna(False)
+                    bear_sweep = ((high > bias_resistance) & (close <= bias_resistance)).fillna(False)
+                else:
+                    bull_sweep = (low < bias_support).fillna(False)
+                    bear_sweep = (high > bias_resistance).fillna(False)
+                # max_gap=60 5m bars (~5 hours, roughly one 4H bar's length):
+                # own default -- the source mandates the ordering but gives
+                # no exact reaction window between the sweep and the
+                # engulfing candle forming.
+                df["entry_liqsweep_engulf_long_confirm"] = concepts.sequential_event(bull_sweep, bull_engulf, max_gap=60)
+                df["entry_liqsweep_engulf_short_confirm"] = concepts.sequential_event(bear_sweep, bear_engulf, max_gap=60)
+                # Stop-loss anchor: "below/above the low/high of the sweep
+                # candle" (source, explicit) -- held (ffilled) from the
+                # sweep bar until the entry that follows it consumes it.
+                df["entry_liqsweep_engulf_sl_bull"] = low.where(bull_sweep).ffill()
+                df["entry_liqsweep_engulf_sl_bear"] = high.where(bear_sweep).ffill()
+            else:
+                df["entry_liqsweep_engulf_long_confirm"] = pd.Series(False, index=df.index)
+                df["entry_liqsweep_engulf_short_confirm"] = pd.Series(False, index=df.index)
+
         if "ote_liquidity_sweep_reversal" in self.config.concepts_used:
             # OTE Liquidity Sweep Reversal: the ONE genuinely new formula
             # this batch adds -- a plain, deterministic 62%-79% Fibonacci
@@ -2157,6 +2773,25 @@ class ConfiguredStrategy(Strategy):
                 "frvp_poc_reversal": (_rcol("frvp_long_confirm"), _rcol("frvp_short_confirm")),
                 "fvg_equilibrium_entry": (_rcol("fvg_eq_long_confirm"), _rcol("fvg_eq_short_confirm")),
                 "donchian_lwti_volume_confluence": (_rcol("donchian_long_confirm"), _rcol("donchian_short_confirm")),
+                # New Batch 5, Strategy 1: both variants share the same
+                # confirm columns (only one is ever in concepts_used per run).
+                "liquidity_sweep_engulfing_loose": (_rcol("liqsweep_engulf_long_confirm"), _rcol("liqsweep_engulf_short_confirm")),
+                "liquidity_sweep_engulfing_strict": (_rcol("liqsweep_engulf_long_confirm"), _rcol("liqsweep_engulf_short_confirm")),
+                # New Batch 5, Strategy 2: two distinct entry modes, each
+                # bidirectional (direction picks which side of the same
+                # computed columns to read) -- selected via entry_rule_groups.
+                "frvp_hvn_reaction": (_rcol("frvp_hvn_support_long"), _rcol("frvp_hvn_resistance_short")),
+                "frvp_lvn_breakout": (_rcol("frvp_lvn_breakout_long"), _rcol("frvp_lvn_breakout_short")),
+                "sr_liquidity_sweep_sideways": (_rcol("sr_sweep_long_confirm"), _rcol("sr_sweep_short_confirm")),
+                "fvg_momentum_pullback": (_rcol("fvgmp_long_confirm"), _rcol("fvgmp_short_confirm")),
+                "fvg_pure_inverse": (_rcol("fvgpi_long_confirm"), _rcol("fvgpi_short_confirm")),
+                "order_block_trading_loose": (_rcol("obtrade_long_confirm"), _rcol("obtrade_short_confirm")),
+                "order_block_trading_strict": (_rcol("obtrade_long_confirm"), _rcol("obtrade_short_confirm")),
+                "crt_loose": (_rcol("crt_long_confirm"), _rcol("crt_short_confirm")),
+                "crt_strict": (_rcol("crt_long_confirm"), _rcol("crt_short_confirm")),
+                "bos_choch_retest": (_rcol("bosc_long_confirm"), _rcol("bosc_short_confirm")),
+                "ichimoku_system": (_rcol("ichimoku_long_confirm"), _rcol("ichimoku_short_confirm")),
+                "ichimoku_cross": (_rcol("ichimoku_cross_above"), _rcol("ichimoku_cross_below")),
             }
             if cond.name in _DMC_VARIANTS:
                 # Computed post-merge in prepare() (not per-role in
@@ -2489,7 +3124,7 @@ class ConfiguredStrategy(Strategy):
                 # this column is NaN and the search falls through to
                 # entry_fvg_bull_low below unchanged, i.e. "slightly beyond
                 # the FVG zone" for the normal case with no new code.
-                for col in ("entry_range_vol_sl_bull", "entry_confluence_sl_bull",
+                for col in ("entry_ichimoku_sl_bull", "entry_bosc_sl_bull", "entry_crt_sl_bull", "entry_obtrade_sl_bull", "entry_fvgpi_sl_bull", "entry_fvgmp_sl_bull", "entry_sr_sweep_sl_bull", "entry_frvp2_sl_bull", "entry_liqsweep_engulf_sl_bull", "entry_range_vol_sl_bull", "entry_confluence_sl_bull",
                             "entry_ha_sl_bull", "entry_fib_sl_bull", "entry_frvp_sl_bull", "entry_fvg_eq_sl_bull",
                             "entry_laxman_trigger_low", "daily_tf_next_prior_swing_low",
                             "entry_doji_pending_low", "entry_hammer_pending_low", "entry_morning_star_low",
@@ -2504,7 +3139,7 @@ class ConfiguredStrategy(Strategy):
                 # -- shorts run on the "short_tf" (15m) role, a genuinely
                 # different entry timeframe than the long side's "entry"
                 # (5m), see StrategyConfig.timeframes_by_role.
-                for col in ("entry_range_vol_sl_bear", "entry_confluence_sl_bear",
+                for col in ("entry_ichimoku_sl_bear", "entry_bosc_sl_bear", "entry_crt_sl_bear", "entry_obtrade_sl_bear", "entry_fvgpi_sl_bear", "entry_fvgmp_sl_bear", "entry_sr_sweep_sl_bear", "entry_frvp2_sl_bear", "entry_liqsweep_engulf_sl_bear", "entry_range_vol_sl_bear", "entry_confluence_sl_bear",
                             "entry_ha_sl_bear", "entry_fib_sl_bear", "entry_frvp_sl_bear", "entry_fvg_eq_sl_bear",
                             "short_tf_laxman_trigger_high", "daily_tf_next_prior_swing_high",
                             "entry_doji_pending_high", "entry_shooting_star_pending_high", "entry_evening_star_high",
@@ -2580,13 +3215,13 @@ class ConfiguredStrategy(Strategy):
                 # the plain entry_resistance already in this list (DMC's
                 # own stated alternative target: "next major structure
                 # level") if the origin snapshot isn't available yet.
-                for col in ("daily_tf_move_origin_for_support", "entry_bear_ob_high", "entry_fvg_bear_high",
+                for col in ("entry_bosc_tp_bull", "entry_obtrade_tp_bull", "entry_sr_sweep_fixed_tp_bull", "entry_frvp2_tp_bull", "daily_tf_move_origin_for_support", "entry_bear_ob_high", "entry_fvg_bear_high",
                             "bias_resistance", "entry_resistance", "entry_pdh"):
                     zone = self._get(df, i, col)
                     if zone is not None and zone > price:
                         return zone
             else:
-                for col in ("daily_tf_move_origin_for_resistance", "entry_bull_ob_low", "entry_fvg_bull_low",
+                for col in ("entry_bosc_tp_bear", "entry_obtrade_tp_bear", "entry_sr_sweep_fixed_tp_bear", "entry_frvp2_tp_bear", "daily_tf_move_origin_for_resistance", "entry_bull_ob_low", "entry_fvg_bull_low",
                             "bias_support", "entry_support", "entry_pdl"):
                     zone = self._get(df, i, col)
                     if zone is not None and zone < price:

@@ -1,0 +1,18 @@
+{
+  "id": "eba4cc77ee31",
+  "name": "Candle Range Theory (Strict) [Manual Build]",
+  "tags": [
+    "concept_based_strategy",
+    "manual_build",
+    "crt_strict",
+    "1h",
+    "new_batch_5"
+  ],
+  "favourite": false,
+  "archived": false,
+  "created_at": "2026-09-02T00:05:26.737832+00:00",
+  "updated_at": "2026-09-02T00:05:26.737832+00:00",
+  "current_version": 1,
+  "safety_status": "ready",
+  "safety_reasons": []
+}

@@ -41,21 +41,21 @@ def test_stopping_the_engine_persists_enabled_false():
     assert pt_config.load()["engine_enabled"] is False
 
 
-def test_resume_starts_the_engine_when_it_was_on():
+def test_resume_starts_the_engine_when_it_was_on(test_db):
     pt_config.update(engine_enabled=True)
     with patch.object(engine, "start", return_value=True) as mock_start:
         resume_engine_on_startup()
     mock_start.assert_called_once()
 
 
-def test_resume_never_forces_the_engine_on_when_it_was_off():
+def test_resume_never_forces_the_engine_on_when_it_was_off(test_db):
     pt_config.update(engine_enabled=False)
     with patch.object(engine, "start", return_value=True) as mock_start:
         resume_engine_on_startup()
     mock_start.assert_not_called()
 
 
-def test_resume_respects_a_deliberate_off_even_after_a_prior_on_session():
+def test_resume_respects_a_deliberate_off_even_after_a_prior_on_session(test_db):
     """The user turns it on, then explicitly off again -- resume must
     honor the LATEST explicit choice, not just "was it ever on"."""
     pt_config.update(engine_enabled=True)
@@ -65,7 +65,7 @@ def test_resume_respects_a_deliberate_off_even_after_a_prior_on_session():
     mock_start.assert_not_called()
 
 
-def test_state_survives_without_any_graceful_shutdown_call():
+def test_state_survives_without_any_graceful_shutdown_call(test_db):
     """No clean-exit hook is involved in persisting this at all -- the
     write already happened synchronously the instant start()/stop() was
     called (pt_config.update -> base_config.save_config, a plain
@@ -78,3 +78,16 @@ def test_state_survives_without_any_graceful_shutdown_call():
     with patch.object(engine, "start", return_value=True) as mock_start:
         resume_engine_on_startup()
     mock_start.assert_called_once()
+
+
+def test_resume_stays_off_when_kill_switch_is_active(test_db):
+    """Grand Feature Expansion, Phase 1 Feature 1 (Kill-Switch): a kill
+    switch left active from before a restart must win over even an
+    explicit engine_enabled=True -- resume_engine_on_startup() must never
+    quietly bring trading back after an emergency stop."""
+    from paper_trading import kill_switch
+    pt_config.update(engine_enabled=True)
+    kill_switch.activate(reason="test", close_positions=False)
+    with patch.object(engine, "start", return_value=True) as mock_start:
+        resume_engine_on_startup()
+    mock_start.assert_not_called()

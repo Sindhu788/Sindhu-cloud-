@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException
 
 from data_engine import storage
 from evolution_engine.engine import engine
-from evolution_engine import champion, generation_manager, mutator, history
+from evolution_engine import champion, generation_manager, mutator, history, evolution_confidence, lineage_explainer
 
 router = APIRouter()
 
@@ -61,6 +61,18 @@ def strategy_lineage(base_id: str):
     return {"base_id": base_id, "generations": history}
 
 
+@router.get("/api/evolution/strategies/{base_id}/explain")
+def strategy_lineage_explanation(base_id: str):
+    """Grand Feature Expansion, Phase 6 Feature 7: Strategy Lineage
+    Explainability -- a plain-language narrative synthesized from data
+    already shown separately elsewhere (generation history, mutation
+    reasons, rollback verdicts). Computes nothing new."""
+    result = lineage_explainer.explain_lineage(base_id)
+    if result is None:
+        raise HTTPException(404, "no BOT strategy lineage with that base_id")
+    return result
+
+
 @router.get("/api/evolution/ranking")
 def strategy_ranking(base_id: str = None):
     return {"ranking": mutator.rank_strategies(base_id=base_id)}
@@ -91,8 +103,34 @@ def evolution_comparisons(base_id: str = None, limit: int = 200):
     """Task 2's before/after audit trail -- every evolution event (a
     mutation that crossed the 100-completed-trades gate), with the parent's
     "before" numbers, the child's "after" numbers once it has enough trades
-    of its own to be judged fairly, and whether it was rolled back."""
-    return {"comparisons": storage.list_evolution_comparisons(base_id=base_id, limit=limit)}
+    of its own to be judged fairly, and whether it was rolled back.
+
+    Grand Feature Expansion, Phase 6 Feature 10: each already-judged
+    comparison also carries a "confidence" block (evolution_confidence.
+    compute_confidence) -- how much to trust THIS tuning outcome, computed
+    fresh at read time from the same before/after numbers already shown,
+    never stored redundantly."""
+    comparisons = storage.list_evolution_comparisons(base_id=base_id, limit=limit)
+    for c in comparisons:
+        c["confidence"] = evolution_confidence.compute_confidence(c)
+    return {"comparisons": comparisons}
+
+
+@router.get("/api/evolution/weekly-reviews")
+def get_evolution_weekly_reviews(limit: int = 20):
+    """Grand Feature Expansion, Phase 6 Feature 13: Automated Weekly
+    Strategy Review -- distinct from paper_trading's own weekly/monthly
+    reports (trading performance only); this covers evolution/tuning
+    activity (mutations, rollbacks)."""
+    return {"reports": storage.list_evolution_weekly_reports(limit=limit)}
+
+
+@router.post("/api/evolution/weekly-reviews/generate-now")
+def generate_evolution_weekly_review_now():
+    """Manual trigger, bypassing the 7-day gate -- for testing/on-demand use."""
+    from evolution_engine import weekly_review
+    result = weekly_review.generate_weekly_review()
+    return {"ok": True, "report_text": result["report_text"]}
 
 
 @router.get("/api/evolution/history")

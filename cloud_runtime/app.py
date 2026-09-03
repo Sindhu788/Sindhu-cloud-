@@ -144,6 +144,13 @@ async def _lifespan(app: FastAPI):
     from paper_trading import cloud_sync
     cloud_sync.start_cloud_sync_scheduler_thread()
 
+    # Grand Feature Expansion, Phase 2 Features 20-21: /status, /pause,
+    # /resume Telegram bot commands. Long-polling, so it needs no public
+    # webhook URL/setup step -- works identically here and on the local
+    # laptop (see sindhu_web/server.py's own lifespan for that side).
+    from paper_trading import telegram_commands
+    telegram_commands.start_command_polling_thread()
+
     task = asyncio.create_task(_broadcast_loop())
     yield
     task.cancel()

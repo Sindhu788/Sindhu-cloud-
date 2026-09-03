@@ -59,6 +59,47 @@ def test_strategy_with_zero_trades_shows_real_zeros_not_placeholders(test_db):
     assert row["in_paper_trading"] is False
 
 
+def test_strategy_with_no_local_backtest_shows_no_backtest_block(test_db):
+    """Master Task 3, Phase 0.7: the dual-row Strategies table's top
+    (Backtest) row must be honestly absent, not a fabricated 0/placeholder,
+    for a strategy that has never completed a local backtest batch."""
+    sid = lib.create(_make_strategy(name="Never Backtested"))
+    row = next(r for r in pt_api.get_strategy_overview()["strategies"] if r["strategy_id"] == sid)
+    assert row["backtest"] is None
+
+
+def test_strategy_overview_surfaces_a_saved_backtest_snapshot(test_db):
+    """The other half of the dual-row wiring: once
+    strategy_library.save_backtest_snapshot has written a snapshot (done by
+    sindhu_web/api/backtesting.py's _compute_strategies_list on the local
+    machine), this cloud-reachable endpoint must surface it unchanged --
+    this is the exact channel that lets a cloud deploy (no backtest_*
+    tables of its own) show real backtest numbers at all."""
+    sid = lib.create(_make_strategy(name="Backtested Strategy"))
+    snapshot = {
+        "win_rate": 62.5, "profit_factor": 1.85, "total_trades": 140,
+        "batch_id": "batch123", "computed_at": "2026-01-01T00:00:00+00:00",
+    }
+    lib.save_backtest_snapshot(sid, snapshot)
+
+    row = next(r for r in pt_api.get_strategy_overview()["strategies"] if r["strategy_id"] == sid)
+    assert row["backtest"] == snapshot
+
+
+def test_save_backtest_snapshot_skips_the_write_when_unchanged(test_db, monkeypatch):
+    sid = lib.create(_make_strategy(name="Unchanged Snapshot"))
+    snapshot = {"win_rate": 50.0, "profit_factor": 1.1, "total_trades": 30, "batch_id": "b1", "computed_at": "2026-01-01T00:00:00+00:00"}
+    lib.save_backtest_snapshot(sid, snapshot)
+
+    write_calls = []
+    monkeypatch.setattr(lib, "_write_meta", lambda strategy_id, meta: write_calls.append(meta))
+    lib.save_backtest_snapshot(sid, snapshot)  # identical snapshot -- must not write again
+    assert write_calls == []
+
+    lib.save_backtest_snapshot(sid, {**snapshot, "win_rate": 51.0})  # genuinely changed -- must write
+    assert len(write_calls) == 1
+
+
 def test_fixed_rr_strategy_shows_its_configured_ratio_not_an_average(test_db):
     """take_profit.type == 'rr' means this strategy always targets the same
     multiple -- the table must show that fixed number (2.5), not whatever

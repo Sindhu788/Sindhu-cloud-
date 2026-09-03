@@ -1,0 +1,19 @@
+{
+  "id": "d781b37694ef",
+  "name": "Ichimoku 1d Indicator-Exit [Manual Build]",
+  "tags": [
+    "concept_based_strategy",
+    "manual_build",
+    "ichimoku_system",
+    "1d",
+    "indicator",
+    "new_batch_5"
+  ],
+  "favourite": false,
+  "archived": false,
+  "created_at": "2026-09-02T00:17:01.542588+00:00",
+  "updated_at": "2026-09-02T00:17:01.542588+00:00",
+  "current_version": 1,
+  "safety_status": "ready",
+  "safety_reasons": []
+}

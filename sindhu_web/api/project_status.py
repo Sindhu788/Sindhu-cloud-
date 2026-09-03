@@ -15,6 +15,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from data_engine import storage
+from data_engine import what_changed as what_changed_mod
 from backtest_engine import strategy_library
 from sindhu_web import cache
 from sindhu_web.jobs import job_manager
@@ -324,6 +325,29 @@ def _doc_currency_status(doc_mtime_iso):
     return "blocked" if doc_dt < latest_change else "in progress"
 
 
+@router.get("/api/what-changed")
+def what_changed(period: str = "today"):
+    """Grand Feature Expansion, Phase 3 Feature 15: a genuine, automatic
+    diff of system activity from audit_trail_log -- distinct from
+    changelog.json below, which stays a manually-curated highlight reel."""
+    since = _period_bounds(period) if period != "all" else None
+    since_iso = since.isoformat() if since else "2000-01-01T00:00:00+00:00"
+    return what_changed_mod.summarize_period(since_iso)
+
+
+@router.get("/api/session-handoff")
+def session_handoff(period: str = "today"):
+    """Grand Feature Expansion, Phase 4 Feature 20: Session Handoff
+    Auto-Summary -- a narrative version of what_changed above (readable
+    prose, not raw counts) plus a forward-looking "what's next" section
+    from live current state, meant to be copied/pasted as a real handoff
+    note when ending a work session."""
+    from data_engine import session_handoff as session_handoff_mod
+    since = _period_bounds(period) if period != "all" else None
+    since_iso = since.isoformat() if since else "2000-01-01T00:00:00+00:00"
+    return session_handoff_mod.generate_handoff_summary(since_iso)
+
+
 @router.get("/api/project-status")
 def project_status(period: str = "all"):
     since = _period_bounds(period)
@@ -448,4 +472,34 @@ class FeedbackStatusUpdate(BaseModel):
 def update_feedback_status(feedback_id: int, req: FeedbackStatusUpdate):
     status = req.status if req.status in ("open", "addressed") else "open"
     storage.set_feedback_status(feedback_id, status)
+    return {"ok": True}
+
+
+# ---------------------------------------------------------- Quick Note Box
+# Grand Feature Expansion, Phase 4 Feature 21: an instant, unstructured
+# scratch-pad -- distinct from user_feedback above (a structured
+# type+status request/backlog workflow). No type, no status, no workflow.
+
+class QuickNoteCreate(BaseModel):
+    content: str
+
+
+@router.post("/api/quick-notes")
+def create_quick_note(req: QuickNoteCreate):
+    content = req.content.strip()
+    if not content:
+        return {"ok": False, "error": "empty content"}
+    now_iso = datetime.now(timezone.utc).isoformat()
+    note_id = storage.create_quick_note(content, now_iso)
+    return {"ok": True, "id": note_id}
+
+
+@router.get("/api/quick-notes")
+def get_quick_notes():
+    return {"notes": storage.list_quick_notes(50)}
+
+
+@router.delete("/api/quick-notes/{note_id}")
+def remove_quick_note(note_id: int):
+    storage.delete_quick_note(note_id)
     return {"ok": True}

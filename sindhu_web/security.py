@@ -9,6 +9,7 @@ import ipaddress
 import json
 import os
 import secrets
+from datetime import datetime, timezone
 
 from fastapi import Request
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -18,6 +19,7 @@ from data_engine.paths import CONFIG_DIR, ensure_folders
 from sindhu_web import auth
 
 _TOKEN_PATH = os.path.join(CONFIG_DIR, "api_token.json")
+_TOKEN_CLOUD_SETTING_KEY = "api_token"
 
 _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 _EXEMPT_PATHS = {"/", "/api/token"}
@@ -79,6 +81,30 @@ def _is_lan_client(host):
 
 
 def get_or_create_token():
+    """Master Task 3, Phase 0.3: on a host with DATABASE_URL set (Postgres),
+    this is persisted in the cloud_settings table instead of the local file
+    below -- the local file lives on Render's ephemeral filesystem, wiped on
+    every restart/redeploy/sleep-wake. A browser tab that already cached the
+    old token in localStorage would then send a now-invalid X-Sindhu-Token
+    on every state-changing request (Start/Stop Engine, Dry Run toggle,
+    ...), which the server correctly rejects with 401 -- from the CEO's
+    side this looked exactly like "the buttons don't respond." Same
+    Postgres-backed persistence pattern already used for login credentials/
+    sessions and Paper Trading settings (see paper_trading/config.py's
+    identical comment). Local laptop behavior (DATABASE_URL unset) is
+    completely unchanged."""
+    from data_engine import db_backend, storage
+
+    if db_backend.IS_POSTGRES:
+        saved = storage.get_cloud_setting(_TOKEN_CLOUD_SETTING_KEY)
+        if saved and saved.get("token"):
+            return saved["token"]
+        token = secrets.token_hex(16)
+        storage.save_cloud_setting(
+            _TOKEN_CLOUD_SETTING_KEY, {"token": token}, datetime.now(timezone.utc).isoformat()
+        )
+        return token
+
     ensure_folders()
     if os.path.exists(_TOKEN_PATH):
         with open(_TOKEN_PATH, "r", encoding="utf-8") as f:

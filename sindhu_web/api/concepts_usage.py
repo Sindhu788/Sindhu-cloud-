@@ -67,3 +67,32 @@ def get_concepts_usage():
         matched = sorted({name for name, used in configs if used & set(keys)})
         usage[concept_name] = {"count": len(matched), "strategies": matched}
     return {"total_active_strategies": len(active), "usage": usage}
+
+
+@router.get("/api/concepts/family-tree")
+def get_strategy_family_tree():
+    """Grand Feature Expansion, Phase 4 Feature 1: Strategy Family Tree --
+    strategies GROUPED by their shared Concepts Library entry, the inverse
+    presentation of get_concepts_usage() above (concept -> strategies).
+    Reuses the exact same matching data -- never re-derived -- filtered to
+    genuine families (2+ member strategies; a single-strategy "family"
+    isn't really one) and sorted largest-first. Also reports strategies
+    that belong to NO family yet, so this doubles as "which strategies
+    aren't clustered with anything" visibility."""
+    usage_result = get_concepts_usage()
+    usage = usage_result["usage"]
+
+    families = [
+        {"concept": name, "member_count": data["count"], "strategies": data["strategies"]}
+        for name, data in usage.items() if data["count"] >= 2
+    ]
+    families.sort(key=lambda f: f["member_count"], reverse=True)
+
+    all_active_names = {s["name"] for s in strategy_library.list_all() if not s.get("archived")}
+    grouped_names = {name for f in families for name in f["strategies"]}
+    ungrouped = sorted(all_active_names - grouped_names)
+
+    return {
+        "families": families, "ungrouped_strategies": ungrouped,
+        "total_active_strategies": usage_result["total_active_strategies"],
+    }

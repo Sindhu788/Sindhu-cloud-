@@ -10,8 +10,14 @@ import threading
 from datetime import datetime, timezone
 
 from data_engine import storage, feature_toggles
-from evolution_engine import generation_manager
+from evolution_engine import generation_manager, failed_hypothesis_memory
 from sindhu_strategy import ai_builder, deterministic_builder
+
+# Grand Feature Expansion, Phase 6 Feature 3: Failed Hypothesis Memory --
+# a candidate whose DNA is too similar to a lineage that was already tried
+# and rolled back for regressing is skipped in favor of trying the next
+# index instead, rather than knowingly repeating a known-bad idea.
+_MAX_SKIPS_PER_SLOT = 20
 
 DAILY_CAP = 11
 _SCHEDULER_CHECK_INTERVAL_SECONDS = 3600  # hourly is plenty for a once-a-day cap
@@ -57,12 +63,27 @@ def generate_daily_candidates(now_iso=None, timeframe="5m"):
             pass
 
     # -- B.2: fill every remaining slot with zero-AI deterministic candidates. --
+    # Failed Hypothesis Memory's regressed-lineage DNA is loaded ONCE per
+    # call (not once per candidate) -- it never changes mid-loop, and this
+    # loop can try many indices in a row.
+    regressed_history = failed_hypothesis_memory.regressed_dna_history()
     index = 0
+    skips_this_slot = 0
     while True:
         log = storage.get_daily_generation(today)
         if log["candidates_generated"] >= DAILY_CAP:
             break
         config_dict, dna_tags, reason = deterministic_builder.build_candidate(index, timeframe=timeframe)
+        known_failure = failed_hypothesis_memory.matches_a_known_failure(dna_tags, history=regressed_history)
+        if known_failure and skips_this_slot < _MAX_SKIPS_PER_SLOT:
+            # Too similar to a lineage already tried and rolled back for
+            # regressing -- try the next index instead of knowingly
+            # repeating a known-bad idea. Bounded so a DNA landscape with
+            # many past failures can never hang candidate generation.
+            skips_this_slot += 1
+            index += 1
+            continue
+        skips_this_slot = 0
         sid = generation_manager.create_new_strategy_lineage(
             config_dict.get("name") or f"SINDHU Deterministic Candidate #{index + 1}",
             config_dict, dna_tags, "sindhu_deterministic", False, reason, now_iso,

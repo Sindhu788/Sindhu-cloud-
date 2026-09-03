@@ -284,6 +284,40 @@
   const HELP_TEXT = {
     confidence_score: "How sure the system is that a trade setup is a good one, from 0-100%. Higher means more of the system's own checks agreed with each other before it acted. It is not a guarantee of profit -- it just means the setup looked stronger by the system's own rules.",
     sharpe_ratio: "A single number for \"how smooth were the profits\" -- it compares how much a strategy made to how bumpy the ride was to get there. Roughly: above 1 is good, above 2 is very good, below 0 means it lost money on average. Two strategies can make the same profit, but the one with the higher Sharpe Ratio got there with fewer scary swings.",
+    sortino_ratio: "Like the Sharpe Ratio, but it only counts the LOSING swings as \"bumpy\" -- big winning trades don't count against it. Two strategies with the same Sharpe Ratio can have very different Sortino Ratios; a higher Sortino means its ups and downs were mostly big wins and small, steady losses, not the other way around.",
+    value_at_risk: "A realistic worst-case single-trade loss, based on this strategy's own real trade history (not a guess) -- \"Value at Risk (95%)\" means 95% of past trades lost less than this amount; only the worst 5% were worse. It needs at least 25 finished trades before it means anything.",
+    health_score: "One number out of 100 that combines win rate, profit factor, how bad the worst losing streak was, and how much real trade history backs it up -- a quick way to compare strategies at a glance. Above 70 is strong, 40-70 is mixed/early, below 40 needs attention. It's a plain weighted formula, not a black box -- open the strategy's detail view to see exactly which part of the score is pulling it up or down.",
+    strategy_correlation: "How much two strategies tend to win and lose on the SAME days, based on their real day-by-day profit history -- not their coins or setups, their actual results. A high number (shown in red) means running both together gives less real diversification than it looks like, since a bad day for one is often a bad day for the other too. A negative number (blue) means they tend to balance each other out.",
+    strategy_similarity: "How much a new strategy overlaps with an existing one, based on the trading concepts they share (not their name or wording). 80% or higher triggers a warning before saving, so you don't accidentally build a near-duplicate strategy without realizing it -- you can still save it anyway if the overlap is intentional.",
+    strategy_family_tree: "Strategies grouped by the core trading idea they're built on -- e.g. every strategy using Order Blocks together, every one using Fair Value Gaps together. A strategy can belong to more than one family if it combines multiple ideas. Only groups of 2 or more show up as a real 'family' -- a strategy with a genuinely unique concept isn't forced into one.",
+    custom_alert_rules: "Your own personal 'tell me if this happens' rules, on top of everything the system already watches automatically. For example: alert me if a specific strategy's realized profit drops below $0, or if the whole account's drawdown goes above 15%. Checked about once an hour; once triggered, the same rule waits a few hours before checking again so it doesn't spam you.",
+    coin_blacklist: "Coins you never want any strategy to trade -- maybe it's too illiquid, too erratic, or you've simply decided to avoid it. A blacklisted coin is removed before it's even considered, no matter how good its numbers might otherwise look. Different from the automatic top-N coin ranking, which only decides which ALLOWED coins get priority.",
+    time_of_day_filter: "Blocks the system from opening any NEW trade during a set window of hours (UTC), e.g. hours you've noticed tend to be too quiet or unpredictable. Any trade already open when the window starts keeps running normally -- this only ever stops something from starting, never forces something to close.",
+    risk_pct_recommendation: "A suggested risk-per-trade percentage for this strategy, based on its own Sharpe Ratio -- the same bounded, transparent formula the Capital Allocation Engine already uses for capital, just applied to risk % instead. Purely a suggestion: nothing changes until you click Apply, which simply fills in that strategy's existing manual risk-per-trade override.",
+    evolution_weekly_review: "A weekly summary of the EVOLUTION/TUNING side of the system -- how many strategies mutated, how many changes were kept vs. automatically rolled back for performing worse -- separate from the Weekly Auto-Report, which covers trading performance (wins/losses/PnL) only.",
+    strategy_lineage_explainer: "A plain-language story of how this BOT strategy lineage got to where it is -- every generation it went through, why each change was made, and whether that change was kept or automatically rolled back for performing worse. Nothing new is computed here; it just ties together facts that already exist separately (generation history, mutation reasons, rollback results) into one readable summary.",
+    evolution_confidence: "How much to trust THIS specific evolution result (0-100), not how good the strategy itself is. Combines how many real trades backed the 'after' numbers, how big the swing between before and after actually was, and how many of the 4 core metrics could even be compared. A small, thin improvement scores lower here than a big, clearly-measured one, even if both technically 'improved.'",
+    backtest_replay: "Step through this coin's real backtest bar by bar (or press Play to watch it automatically), with every real trade's entry marked on the chart -- green if it ended in profit, red if it lost. Different from Trade Audit, which only shows one static window around a single trade you pick, not the whole run in sequence.",
+    best_portfolio_suggestion: "The top few DIFFERENT strategies (never the same one twice), each paired with its own best-performing coin, ranked by real profit -- and only combinations with enough real closed trades to actually trust. Purely a suggestion: nothing here turns any strategy on or off by itself.",
+    infra_weekly_digest: "A weekly summary of the SYSTEM itself -- how many backups were made, how many incidents were opened or resolved, and the current database/disk size -- separate from the Weekly Auto-Report (trading performance) and the Evolution Weekly Review (tuning activity), which cover different subjects entirely.",
+    weekly_snapshot: "A database copy taken once a week and kept for about 2 months, separate from the regular rolling backup above (which only keeps its last 10 copies, roughly 1-2 days of history at the default schedule). Useful for going back further in time than the rolling backup allows.",
+    duplicate_exposure_warning: "A heads-up that 2 or more DIFFERENT strategies are all trading the SAME coin right now, regardless of whether that coin is statistically correlated with anything else (see Correlation Warning above for that separate check). It doesn't mean anything is wrong -- it just means more of your real risk is concentrated in one coin than a quick glance at each strategy separately would suggest.",
+    strategy_variants: "Creates a few sibling versions of this strategy -- each one swaps a single entry condition for a related alternative (e.g. a different liquidity concept) -- and tests all of them side-by-side in one go, alongside the original. Different from the Evolution Engine, which only ever produces one next generation at a time, sequentially. Nothing here changes the real saved strategy; it's purely a side-by-side comparison.",
+    cross_coin_validation: "Splits this batch's real, already-tested coins into three groups by how volatile each one actually is (low/medium/high, computed fresh from real price data -- never a fixed list), and compares this strategy's win rate and PnL across those groups. A strategy that only does well in ONE volatility group might be overfit to that specific kind of coin rather than genuinely robust.",
+    feature_importance: "Tests what would happen if this strategy lost each of its own entry/confirmation conditions, one at a time, and re-runs a real (bounded, ~30 day) backtest each time. A condition whose removal hurts PnL a lot is doing real work; one that barely changes anything when removed might not be adding much.",
+    what_if_simulator: "A genuine re-simulation against this batch's own real historical data, with ONE parameter (like risk % or stop-loss) changed -- different from Monte Carlo (which just reshuffles the order of already-recorded trades) and from Slippage Sensitivity (which recomputes PnL on the same trades without re-running anything). Bounded to about 30 days and a few coins to stay fast -- treat it as a quick preview, not a full validation; a promising result is still worth a full re-backtest before trusting it.",
+    position_size_calculator: "A what-if tool -- type in a balance, entry price, stop-loss, and risk %, and see exactly what position size the system would actually open, without opening a real trade. Uses the exact same sizing math the real engine uses for every live trade.",
+    ensemble_voting: "When turned on (Feature Control Center), a coin will only actually be traded if at least this many INDEPENDENT strategies agree on the same direction at the same time -- a single strategy's signal alone is never enough. This can only make trading more cautious, never more aggressive, since it just adds an extra requirement on top of everything else.",
+    profit_lock: "Once a trade has moved far enough in your favor (the 'Trigger', measured in multiples of the original risk -- 1.0 means it's up by as much as it was risking), the stop-loss moves up to guarantee at least the 'Lock In %' of that gain, and keeps trailing as the trade moves further in profit. The stop-loss only ever tightens from here, never loosens -- worst case from that point on is a smaller win, never the original full loss.",
+    voice_alerts: "When the kill switch or account-wide drawdown circuit-breaker activates, an open browser tab speaks it out loud immediately, in real time -- not on the next page refresh. Uses your browser's own built-in text-to-speech, nothing installed or downloaded. Mute it per-browser from this Settings page if you don't want the sound.",
+    health_badge: "A one-word summary of this strategy's overall state: 'Stable' (Health Score 70+), 'Unproven' (still building a track record or scoring in the middle), 'Weak' (Health Score under 40), or 'Archived' (retired, kept for reference but no longer traded). A quick-glance label -- open the Health Score card for the actual number and its breakdown.",
+    mae_mfe: "How far a trade moved AGAINST the position (Maximum Adverse Excursion) or IN ITS FAVOR (Maximum Favorable Excursion) before it closed, regardless of how it ended. A winning trade that first dipped deep into the red before recovering had a real MAE even though it won -- this can reveal whether a stop-loss is placed too tight (winners routinely almost get stopped out) or a take-profit too greedy (losers were often in profit first, before reversing).",
+    duration_tracker: "How long backtests are actually taking, based on real, permanently-recorded start and finish times -- not a live 'in progress' status, but a genuine history so you can see if backtests are getting slower over time or which ones are the biggest time sinks.",
+    slippage_sensitivity: "Slippage is the small price difference between what you expected to pay and what you actually got, due to the market moving in the split-second it takes to fill an order. This test checks how much WORSE the strategy's real backtested trades could have gone if slippage had been higher than assumed -- a strategy whose profit disappears at a small extra slippage has a thin, fragile edge; one that stays profitable even at high extra slippage has a sturdier one.",
+    what_changed_today: "An automatic, honest list of everything that actually happened today, built directly from the permanent Audit Trail -- not a hand-written summary someone has to remember to update. If nothing changed, it says so plainly instead of making something up.",
+    strategy_aging: "Whether this strategy is getting BETTER or WORSE over time, not just how it's doing right now. Its trade history is split into equal-sized chunks in order; if the win rate in the newest chunks is at least 10 points higher than the oldest chunks it's 'Improving', 10+ points lower is 'Weakening', otherwise 'Stable'. Needs at least 30 closed trades (3 full chunks) before it can show a real trend.",
+    portfolio_heat_map: "Where your real risk is concentrated right now, across every strategy combined -- by coin, by strategy, or by direction (long vs short). Even if each strategy looks balanced on its own, the whole portfolio could secretly be leaning heavily on one coin, one strategy, or one direction -- this view is built to catch that.",
+    coin_heatmap: "Whether a coin is RELIABLY good, not just profitable overall. \"Consistency\" is the percentage of strategies that traded this coin and came out ahead on it -- a coin where only 1 of 5 strategies made money can still show a big total profit number elsewhere, but this view would correctly flag it as inconsistent (shown in red/orange) rather than reliably good (green).",
     max_drawdown: "The biggest drop a strategy's balance took from its highest point before recovering, shown as a percentage. A 20% max drawdown means that at its worst, this strategy was down 20% from its best-ever balance. Lower is safer -- it's the number that best answers \"how bad could it get?\"",
     confluence_score: "How many independent signals (like trend direction, momentum, and market condition) all agree, out of everything the system checked for this trade. A high confluence score means many separate signals pointed the same way, not just one.",
     market_regime: "A simple label for what the market is currently doing: \"Trending\" means prices are moving clearly in one direction, \"Ranging\" means prices are bouncing sideways without a clear direction, and \"High Volatility\" means prices are moving fast and unpredictably. Strategies often perform very differently depending on which of these is happening.",
@@ -478,6 +512,41 @@
     }
   });
 
+  // Grand Feature Expansion, Phase 4 Feature 26: Voice Alert on critical
+  // events. Uses the browser's built-in speechSynthesis (no new
+  // dependency, no audio file to host) -- fires from the SAME real-time
+  // WebSocket sync.notify() events already broadcast for every
+  // significant action (see Phase 1's Audit Trail), so this reacts the
+  // instant the event happens, on whichever page the user is currently on,
+  // not on the next poll. Deliberately narrow: only the two truly
+  // safety-critical events (kill switch, account-wide drawdown pause) --
+  // routine notifications (a strategy tag changed, a backup ran) should
+  // never interrupt with sound.
+  const VOICE_ALERT_EVENTS = {
+    "kill_switch:activated": "Emergency: the kill switch has been activated. All trading is halted.",
+    "account_drawdown:paused": "Warning: the account-wide drawdown circuit breaker has activated. New trades are paused for every strategy.",
+  };
+
+  function _speak(text) {
+    try {
+      if (!("speechSynthesis" in window)) return;
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 0.95;
+      window.speechSynthesis.speak(utterance);
+    } catch (e) { /* best-effort only -- never let a speech failure break the app */ }
+  }
+
+  function speakCriticalAlert(text) {
+    if (localStorage.getItem("sindhu_voice_alerts_muted") === "true") return;
+    _speak(text);
+  }
+
+  onGlobalLive((msg) => {
+    if (msg.channel !== "sync") return;
+    const key = `${msg.entity}:${msg.action}`;
+    if (VOICE_ALERT_EVENTS[key]) speakCriticalAlert(VOICE_ALERT_EVENTS[key]);
+  });
+
   // App-wide toast banner -- survives navigation (lives in #toastStack,
   // outside #content which route() wipes on every page change).
   function showToast({ title, body, isError, actionLabel, onAction, timeoutMs }) {
@@ -660,6 +729,125 @@
   };
   document.documentElement.setAttribute("data-theme", localStorage.getItem("sindhu_theme") || "dark");
 
+  // Grand Feature Expansion, Phase 4 Feature 17: Beginner Mode -- a
+  // per-browser display preference (localStorage only, like Voice Alert's
+  // mute toggle) that highlights every existing "?" help icon via a body
+  // class, so someone new to trading/SINDHU notices they can click any of
+  // them for a plain-language explanation. Never hides or changes a real
+  // number -- purely a visibility nudge on top of the glossary tooltip
+  // mechanism that already exists everywhere.
+  function applyBeginnerModeClass() {
+    document.body.classList.toggle("beginner-mode", localStorage.getItem("sindhu_beginner_mode") === "true");
+  }
+  applyBeginnerModeClass();
+
+  // Grand Feature Expansion, Phase 4 Feature 16: Onboarding Tutorial -- a
+  // short, dependency-free spotlight tour over the sidebar, shown once
+  // automatically (localStorage flag) and replayable anytime from
+  // Settings. Steps with a `selector` are anchored to a real nav element
+  // (a transparent cutout via box-shadow, no canvas/image); steps without
+  // one are shown as a centered tooltip (welcome/closing steps).
+  function onboardingSteps() {
+    const en = getLang() === "en";
+    return [
+      { selector: null,
+        title: en ? "Welcome to SINDHU" : "SINDHU Mein Khush Aamdeed",
+        text: en ? "A quick 30-second look around -- click Next, or Skip if you'd rather explore on your own."
+                 : "Chaliye 30 second mein ek chakkar laga lete hain -- Next par click karein, ya khud explore karne ke liye Skip karein." },
+      { selector: 'a[data-id="home"]',
+        title: en ? "Home" : "Home",
+        text: en ? "Your overall system status at a glance -- including Today's Focus, the single most important thing to check right now."
+                 : "Ek nazar mein poore system ka haal -- Aaj Ka Focus bhi yahin hai, abhi sabse zaroori cheez check karne ke liye." },
+      { selector: 'a[data-id="backtesting"]',
+        title: en ? "Backtesting" : "Backtesting",
+        text: en ? "Test a trading strategy against real historical price data before ever risking real money on it."
+                 : "Kisi trading strategy ko asal purani price data par test karein, real paisa lagane se pehle." },
+      { selector: 'a[data-id="paper_trading"]',
+        title: en ? "Paper Trading" : "Paper Trading",
+        text: en ? "SINDHU trades with fake (simulated) money in real-time market conditions -- see how strategies actually perform live, with zero real risk."
+                 : "SINDHU nakli (simulated) paise se real-time market mein trade karta hai -- dekhein strategies asal mein kaisi perform karti hain, bilkul risk ke bina." },
+      { selector: 'a[data-id="ceo"]',
+        title: en ? "SINDHU CEO" : "SINDHU CEO",
+        text: en ? "Settings, Beginner Mode, backups, and a system-wide checkup all live here."
+                 : "Settings, Beginner Mode, backups, aur poore system ka checkup -- sab yahan milta hai." },
+      { selector: null,
+        title: en ? "One more thing" : "Aik Aur Baat",
+        text: en ? "Anywhere you see a small \"?\" icon next to a number or term, click it for a plain-language explanation -- no coding or trading background needed."
+                 : "Jahan bhi kisi number ya term ke saath chhota sa \"?\" icon dikhe, click karke plain-language explanation dekhein -- coding ya trading ka background zaroori nahi." },
+    ];
+  }
+
+  function startOnboardingTour() {
+    const steps = onboardingSteps();
+    let idx = 0;
+    const dim = document.createElement("div");
+    dim.className = "tour-dim";
+    const spotlight = document.createElement("div");
+    spotlight.className = "tour-spotlight";
+    spotlight.style.display = "none";
+    const tooltip = document.createElement("div");
+    tooltip.className = "tour-tooltip";
+    document.body.append(dim, spotlight, tooltip);
+
+    function cleanup() {
+      dim.remove(); spotlight.remove(); tooltip.remove();
+      localStorage.setItem("sindhu_onboarding_seen", "true");
+    }
+
+    function renderStep() {
+      const step = steps[idx];
+      const en = getLang() === "en";
+      const target = step.selector ? document.querySelector(step.selector) : null;
+      if (target) {
+        const r = target.getBoundingClientRect();
+        spotlight.style.display = "block";
+        spotlight.style.top = `${r.top - 6}px`;
+        spotlight.style.left = `${r.left - 6}px`;
+        spotlight.style.width = `${r.width + 12}px`;
+        spotlight.style.height = `${r.height + 12}px`;
+        let top = r.bottom + 10;
+        let left = r.left;
+        if (top + 160 > window.innerHeight) top = Math.max(10, r.top - 170);
+        if (left + 300 > window.innerWidth) left = Math.max(10, window.innerWidth - 312);
+        tooltip.style.top = `${top}px`;
+        tooltip.style.left = `${left}px`;
+      } else {
+        spotlight.style.display = "none";
+        tooltip.style.top = "40%";
+        tooltip.style.left = "50%";
+        tooltip.style.transform = "translate(-50%, -50%)";
+      }
+      if (target) tooltip.style.transform = "none";
+      tooltip.innerHTML = `
+        <div class="tour-title">${esc(step.title)}</div>
+        <div class="tour-body">${esc(step.text)}</div>
+        <div class="tour-footer">
+          <span class="tour-step-count">${idx + 1} / ${steps.length}</span>
+          <span class="btn-row">
+            ${idx > 0 ? `<button class="btn-ghost" id="tourBack">${en ? "Back" : "Peechay"}</button>` : ""}
+            <button class="btn-ghost" id="tourSkip">${en ? "Skip" : "Skip"}</button>
+            <button class="btn" id="tourNext">${idx === steps.length - 1 ? (en ? "Finish" : "Khatam") : (en ? "Next" : "Agla")}</button>
+          </span>
+        </div>`;
+      document.getElementById("tourSkip").onclick = cleanup;
+      document.getElementById("tourNext").onclick = () => {
+        if (idx === steps.length - 1) { cleanup(); return; }
+        idx += 1; renderStep();
+      };
+      const backBtn = document.getElementById("tourBack");
+      if (backBtn) backBtn.onclick = () => { idx -= 1; renderStep(); };
+    }
+    renderStep();
+  }
+
+  if (localStorage.getItem("sindhu_onboarding_seen") !== "true") {
+    // Give the nav a moment to render (it loads via its own async fetch)
+    // before anchoring the first real step's spotlight to it.
+    setTimeout(() => {
+      if (document.querySelector('a[data-id="home"]')) startOnboardingTour();
+    }, 1200);
+  }
+
   const langToggle = document.getElementById("langToggle");
   langToggle.textContent = LANG === "ur" ? "UR" : "EN";
   langToggle.title = LANG === "ur" ? "Switch to English" : "Roman Urdu mein dekhein";
@@ -697,6 +885,35 @@
   }
   refreshTopbarStatus();
   setInterval(refreshTopbarStatus, 20000);
+
+  // Master Task 3, Phase 0.8a/0.8c/0.8e: System Status Banner, visible from
+  // every page. Reuses the same /api/paper-trading/status the Paper
+  // Trading page itself polls -- no new endpoint needed for the numbers
+  // (running/started_at/last_tick_at/trades_today), just a second consumer
+  // of data that already exists.
+  function _fmtClock(iso) {
+    if (!iso) return "--";
+    try { return new Date(iso).toLocaleTimeString(); } catch (e) { return "--"; }
+  }
+  async function refreshEngineStatusBanner() {
+    const banner = document.getElementById("engineStatusBanner");
+    if (!banner) return;
+    const s = await apiGet("/api/paper-trading/status").catch(() => null);
+    if (!s) { banner.style.display = "none"; document.documentElement.style.setProperty("--banner-h", "0px"); return; }
+    const en = getLang() === "en";
+    const runningLabel = s.running
+      ? `<span class="esb-running">🟢 ${en ? "RUNNING" : "CHAL RAHA HAI"}${s.started_at ? ` (${en ? "since" : "se"} ${_fmtClock(s.started_at)})` : ""}</span>`
+      : `<span class="esb-stopped">🔴 ${en ? "STOPPED" : "BAND HAI"}</span>`;
+    banner.innerHTML = `
+      <span class="esb-item">${runningLabel}</span>
+      <span class="esb-item esb-muted">${en ? "Last heartbeat" : "Aakhri Dhadkan"}: ${_fmtClock(s.last_tick_at)}</span>
+      <span class="esb-item esb-muted">${en ? "Today" : "Aaj"}: ${s.trades_today || 0} ${en ? "trades" : "trades"}</span>`;
+    banner.style.display = "flex";
+    document.documentElement.style.setProperty("--banner-h", "30px");
+  }
+  refreshEngineStatusBanner();
+  setInterval(refreshEngineStatusBanner, 20000);
+  onGlobalLive((msg) => { if (msg.channel === "paper") refreshEngineStatusBanner(); });
 
   // Notifications dropdown, backed by the Activity Feed.
   let lastSeenActivityAt = localStorage.getItem("sindhu_last_seen_activity") || "";
@@ -758,6 +975,28 @@
   document.getElementById("qaRestart").onclick = async () => {
     await apiPost("/api/system/restart-services");
     appendLog("Services soft-restarted (server caches cleared).");
+  };
+  // Master Task 3, Phase 0.8f: One-Click Health Check -- "Test Everything"
+  // runs a quick self-check (database, engine state, live candle/ticker
+  // fetch) and reports pass/fail per item, right from the dashboard, no
+  // logs or terminal access needed (especially useful on the cloud deploy).
+  document.getElementById("qaHealthCheck").onclick = async () => {
+    appendLog("Running health check...");
+    let r;
+    try {
+      r = await apiGet("/api/paper-trading/health-check", 20000);
+    } catch (e) {
+      showToast({ title: "Health check failed to run", body: e.message, isError: true });
+      return;
+    }
+    const lines = r.checks.map(c => `${c.ok ? "✓" : "✗"} ${c.name}: ${c.detail}`).join("\n");
+    appendLog(`Health check (${r.all_ok ? "ALL OK" : "ISSUE FOUND"}):\n${lines}`);
+    showToast({
+      title: r.all_ok ? "Health Check: All Good ✓" : "Health Check: Issue Found ✗",
+      body: lines,
+      isError: !r.all_ok,
+      timeoutMs: 20000,
+    });
   };
 
   // Global search across coins / strategies / lessons / reports / trades.
@@ -1294,7 +1533,7 @@
   // Paper Trading's own real history -- there is no backtest database in
   // this runner (see db_backend.py), so win rate/PnL are live-trading
   // numbers, not backtest ones.
-  let strategyOverviewSort = { key: "total_pnl", dir: "desc" };
+  let strategyOverviewSort = "total_pnl";
 
   function strategyOverviewRrCell(row, en) {
     if (row.risk_reward == null) return `<span class="muted">${en ? "Not enough data yet" : "Abhi kaafi data nahi"}</span>`;
@@ -1304,8 +1543,52 @@
   function strategyOverviewSortValue(row, key) {
     if (key === "name") return (row.name || "").toLowerCase();
     if (key === "status") return row.in_paper_trading ? 1 : 0;
+    if (key === "backtest_win_rate") return (row.backtest && row.backtest.win_rate) ?? -Infinity;
     const v = row[key];
     return v == null ? -Infinity : v;
+  }
+
+  // Master Task 3, Phase 0.7: dual-row Strategies table -- each strategy is
+  // one card with two clearly-labeled sub-rows (Backtest expectation from
+  // the local machine's own last completed batch vs real Paper Trading
+  // history), so backtest promises and live reality sit side by side
+  // instead of the CEO having to remember one number while looking at the
+  // other page. Replaces the old single-row table (win rate/PnL/R:R only,
+  // paper-trading numbers exclusively) that this cloud-only page used to
+  // render -- same data source (/api/paper-trading/strategy-overview) plus
+  // the new "backtest" field it now also returns.
+  function strategyOverviewCard(s, en) {
+    const bt = s.backtest;
+    const statusPill = s.in_paper_trading
+      ? `<span class="pill pill-up">${en ? "Active" : "Active"}</span>`
+      : `<span class="pill pill-muted">${en ? "Not yet added" : "Shamil Nahi"}</span>`;
+    return `
+      <div class="card" data-strategy-card="${esc(s.strategy_id)}">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px;">
+          <b style="font-size:13.5px;">${esc(s.name)}</b>
+          ${statusPill}
+        </div>
+        <div class="muted" style="font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;">${en ? "Backtest (local)" : "Backtest (Local)"}</div>
+        <div style="font-size:12.5px;display:flex;flex-wrap:wrap;gap:4px 14px;margin-bottom:10px;">
+          ${bt
+            ? `<span>${en ? "Win Rate" : "Win Rate"}: <b>${bt.win_rate != null ? bt.win_rate.toFixed(1) + "%" : "-"}</b></span>
+               <span>R:R: <b>${bt.risk_reward != null ? "1:" + Number(bt.risk_reward).toFixed(2) : (s.risk_reward != null ? "1:" + s.risk_reward.toFixed(2) : "-")}</b></span>
+               <span>${en ? "Profit Factor" : "Profit Factor"}: <b>${bt.profit_factor != null ? bt.profit_factor.toFixed(2) : "-"}</b></span>`
+            : `<span class="muted">${en ? "No local backtest recorded yet for this strategy." : "Is strategy ka abhi tak koi local backtest record nahi."}</span>`}
+        </div>
+        <div class="muted" style="font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;">${en ? "Paper Trading (live)" : "Paper Trading (Live)"}</div>
+        <div style="font-size:12.5px;display:flex;flex-wrap:wrap;gap:4px 14px;margin-bottom:10px;">
+          <span>${en ? "Win Rate" : "Win Rate"}: <b>${s.closed_trades > 0 ? s.win_rate.toFixed(1) + "%" : "-"}</b></span>
+          <span>${en ? "PnL" : "PnL"}: ${s.closed_trades > 0 ? pnlSpan(s.total_pnl) : "<b>$0.00</b>"}</span>
+          <span>${en ? "Trades" : "Trades"}: <b>${s.closed_trades}</b></span>
+        </div>
+        ${s.in_paper_trading
+          ? ""
+          : s.can_activate
+            ? `<button class="btn" style="font-size:12px;" data-activate="${esc(s.strategy_id)}">${en ? "Move to Paper Trading" : "Paper Trading Mein Bhejein"}</button>`
+            : `<button class="btn" style="font-size:12px;" disabled title="${esc(s.activation_blocked_reason || "")}">${en ? "Move to Paper Trading" : "Paper Trading Mein Bhejein"}</button>
+               <div class="muted" style="font-size:11px;">${esc(s.activation_blocked_reason || "")}</div>`}
+      </div>`;
   }
 
   async function renderStrategyOverview() {
@@ -1315,63 +1598,44 @@
     if (isStaleRoute(myToken)) return;
     const strategies = data.strategies || [];
 
-    const COLUMNS = [
-      { key: "name", label: en ? "Strategy" : "Strategy" },
-      { key: "win_rate", label: en ? "Win Rate" : "Win Rate" },
-      { key: "total_pnl", label: en ? "Net PnL" : "Net PnL" },
-      { key: "risk_reward", label: "R:R" },
+    const SORT_OPTIONS = [
+      { key: "total_pnl", label: en ? "Paper PnL" : "Paper PnL" },
+      { key: "name", label: en ? "Name" : "Naam" },
+      { key: "win_rate", label: en ? "Paper Win Rate" : "Paper Win Rate" },
+      { key: "backtest_win_rate", label: en ? "Backtest Win Rate" : "Backtest Win Rate" },
       { key: "status", label: en ? "Status" : "Status" },
     ];
 
     function renderTable() {
       const sorted = [...strategies].sort((a, b) => {
-        const av = strategyOverviewSortValue(a, strategyOverviewSort.key);
-        const bv = strategyOverviewSortValue(b, strategyOverviewSort.key);
-        if (av < bv) return strategyOverviewSort.dir === "asc" ? -1 : 1;
-        if (av > bv) return strategyOverviewSort.dir === "asc" ? 1 : -1;
+        const av = strategyOverviewSortValue(a, strategyOverviewSort);
+        const bv = strategyOverviewSortValue(b, strategyOverviewSort);
+        if (av < bv) return 1;
+        if (av > bv) return -1;
         return 0;
       });
 
-      const rows = sorted.map(s => `
-        <tr>
-          <td>${esc(s.name)}</td>
-          <td>${s.closed_trades > 0 ? s.win_rate.toFixed(1) + "%" : `<span class="muted">${en ? "No trades yet" : "Abhi trades nahi"}</span>`}</td>
-          <td>${s.closed_trades > 0 ? pnlSpan(s.total_pnl) : `<span class="muted">$0.00</span>`}</td>
-          <td>${strategyOverviewRrCell(s, en)}</td>
-          <td>${s.in_paper_trading
-            ? `<span class="pill pill-up">${en ? "Active in Paper Trading" : "Paper Trading Mein Active"}</span>`
-            : `<span class="pill pill-muted">${en ? "Not yet added" : "Abhi Shamil Nahi"}</span>`}</td>
-          <td>
-            ${s.in_paper_trading
-              ? `<span class="muted" style="font-size:12px;">${s.closed_trades} ${en ? "trades so far" : "trades ab tak"}</span>`
-              : s.can_activate
-                ? `<button class="btn" style="font-size:12px;" data-activate="${esc(s.strategy_id)}">${en ? "Move to Paper Trading" : "Paper Trading Mein Bhejein"}</button>`
-                : `<button class="btn" style="font-size:12px;" disabled title="${esc(s.activation_blocked_reason || "")}">${en ? "Move to Paper Trading" : "Paper Trading Mein Bhejein"}</button>
-                   <div class="muted" style="font-size:11px;max-width:220px;">${esc(s.activation_blocked_reason || "")}</div>`}
-          </td>
-        </tr>`).join("");
+      const cards = sorted.map(s => strategyOverviewCard(s, en)).join("");
 
       content.innerHTML = `
-        <div class="section-title">${en ? "Strategies" : "Strategies"}</div>
-        <p class="muted" style="font-size:12px;margin:0 0 12px;">${en
-          ? "Every strategy currently in the system. Win rate and PnL come from real Paper Trading history -- a strategy not yet added shows $0.00 until it actually starts trading. Click a column heading to sort."
-          : "System mein maujood har strategy. Win rate aur PnL asli Paper Trading history se hain -- jo strategy abhi shamil nahi hui uska $0.00 dikhega jab tak trading shuru nahi hoti. Column ke naam par click karke sort karein."}</p>
-        <div class="table-wrap"><table>
-          <thead><tr>${COLUMNS.map(c => `<th data-sort-key="${c.key}" style="cursor:pointer;">${c.label}${strategyOverviewSort.key === c.key ? (strategyOverviewSort.dir === "asc" ? " &#9650;" : " &#9660;") : ""}</th>`).join("")}<th></th></tr></thead>
-          <tbody>${rows || `<tr><td colspan="6">${en ? "No strategies saved yet." : "Abhi koi strategy save nahi hui."}</td></tr>`}</tbody>
-        </table></div>`;
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:6px;">
+          <div class="section-title" style="margin:0;">${en ? "Strategies" : "Strategies"}</div>
+          <label style="font-size:12px;display:flex;align-items:center;gap:6px;">
+            ${en ? "Sort by" : "Sort Karein"}:
+            <select id="strategyOverviewSortSelect">
+              ${SORT_OPTIONS.map(o => `<option value="${o.key}" ${strategyOverviewSort === o.key ? "selected" : ""}>${o.label}</option>`).join("")}
+            </select>
+          </label>
+        </div>
+        <p class="muted" style="font-size:12px;margin:0 0 14px;">${en
+          ? "Every strategy currently in the system, one card each -- the top row is what the backtest predicted (from the local machine's own last completed batch), the bottom row is what Paper Trading has actually done since. A strategy not yet added shows $0.00 until it starts trading."
+          : "System mein maujood har strategy, ek-ek card mein -- upar wali row backtest ne kya predict kiya (local machine ke aakhri complete batch se), neeche wali row Paper Trading ne asal mein kya kiya hai. Jo strategy abhi shamil nahi hui uska $0.00 dikhega jab tak trading shuru nahi hoti."}</p>
+        <div class="grid">${cards || `<p class="muted">${en ? "No strategies saved yet." : "Abhi koi strategy save nahi hui."}</p>`}</div>`;
 
-      content.querySelectorAll("[data-sort-key]").forEach(th => {
-        th.onclick = () => {
-          const key = th.dataset.sortKey;
-          if (strategyOverviewSort.key === key) {
-            strategyOverviewSort = { key, dir: strategyOverviewSort.dir === "asc" ? "desc" : "asc" };
-          } else {
-            strategyOverviewSort = { key, dir: key === "name" ? "asc" : "desc" };
-          }
-          renderTable();
-        };
-      });
+      document.getElementById("strategyOverviewSortSelect").onchange = (e) => {
+        strategyOverviewSort = e.target.value;
+        renderTable();
+      };
 
       content.querySelectorAll("[data-activate]").forEach(btn => {
         btn.onclick = async () => {
@@ -1406,6 +1670,72 @@
   // side only (the full list is already fetched), remembered per-tab-switch
   // like the Project Status period tabs use the exact same pill pattern.
   let compareFilter = "all";
+
+  // Grand Feature Expansion, Phase 4 Feature 5: Compare 2 Strategies View --
+  // a focused side-by-side of exactly two strategies, using data already
+  // computed by the existing per-strategy profile endpoint (health score,
+  // Sharpe/Sortino, Value at Risk, MAE/MFE, streak) rather than the Main
+  // Strategies table's PF-only row. Purely additive: the all-strategies
+  // table above is completely untouched.
+  let compare2StrategyA = null, compare2StrategyB = null;
+
+  // Grand Feature Expansion, Phase 4 Feature 6: Strategy Comparison
+  // Snapshot -- a shareable export of the Compare 2 Strategies result.
+  // Deliberately dependency-free (no image/chart library exists anywhere
+  // in this codebase, per the same reasoning Weekly Report's text
+  // sparkline used over a real chart image): "Copy as Text" builds a
+  // plain-text version of the exact same rows shown on screen using the
+  // browser's built-in Clipboard API, pasteable into Telegram/WhatsApp/
+  // notes -- no new dependency, no CDN, nothing to break on a cloud deploy.
+  function compare2Rows(en, profileA, profileB) {
+    const fNum = (v, suffix = "") => v == null ? "-" : `${v.toFixed(2)}${suffix}`;
+    const fInt = (v) => v == null ? "-" : fmtNum(v);
+    const fStreak = (s) => !s || !s.count ? "-" : `${s.count} ${s.type === "win" ? (en ? "wins" : "jeet") : (en ? "losses" : "haar")}`;
+    const yn = (v) => v ? (en ? "Yes" : "Haan") : (en ? "No" : "Nahi");
+    return [
+      [en ? "Health Score" : "Health Score", fInt(profileA.health_score && profileA.health_score.health_score), fInt(profileB.health_score && profileB.health_score.health_score)],
+      [en ? "Confidence Score" : "Confidence Score", fNum(profileA.confidence_score), fNum(profileB.confidence_score)],
+      [en ? "Current Streak" : "Current Streak", fStreak(profileA.streak), fStreak(profileB.streak)],
+      ["Sharpe Ratio", fNum(profileA.risk_metrics && profileA.risk_metrics.sharpe_ratio), fNum(profileB.risk_metrics && profileB.risk_metrics.sharpe_ratio)],
+      ["Sortino Ratio", fNum(profileA.risk_metrics && profileA.risk_metrics.sortino_ratio), fNum(profileB.risk_metrics && profileB.risk_metrics.sortino_ratio)],
+      [en ? "Max Drawdown" : "Max Drawdown", fNum(profileA.risk_metrics && profileA.risk_metrics.max_drawdown_pct, "%"), fNum(profileB.risk_metrics && profileB.risk_metrics.max_drawdown_pct, "%")],
+      [en ? "Value at Risk (95%)" : "Value at Risk (95%)", fNum(profileA.value_at_risk && profileA.value_at_risk.var_amount), fNum(profileB.value_at_risk && profileB.value_at_risk.var_amount)],
+      [en ? "Avg. Winner MFE" : "Avg. Winner MFE", fNum(profileA.mae_mfe && profileA.mae_mfe.winners && profileA.mae_mfe.winners.avg_mfe), fNum(profileB.mae_mfe && profileB.mae_mfe.winners && profileB.mae_mfe.winners.avg_mfe)],
+      [en ? "Avg. Loser MAE" : "Avg. Loser MAE", fNum(profileA.mae_mfe && profileA.mae_mfe.losers && profileA.mae_mfe.losers.avg_mae), fNum(profileB.mae_mfe && profileB.mae_mfe.losers && profileB.mae_mfe.losers.avg_mae)],
+      [en ? "Aging Trend" : "Aging Trend", (profileA.aging && profileA.aging.trend) || "-", (profileB.aging && profileB.aging.trend) || "-"],
+      [en ? "Open Positions" : "Open Positions", fInt(profileA.open_position_count), fInt(profileB.open_position_count)],
+      [en ? "Currently Paused" : "Currently Paused", yn(profileA.paused), yn(profileB.paused)],
+      [en ? "Archived" : "Archived", yn(profileA.archived), yn(profileB.archived)],
+    ];
+  }
+
+  function compare2Html(en, profileA, profileB) {
+    const rows = compare2Rows(en, profileA, profileB);
+    return `
+      <div class="table-wrap"><table>
+        <thead><tr>
+          <th>${en ? "Metric" : "Metric"}</th>
+          <th>${esc(profileA.name)}</th>
+          <th>${esc(profileB.name)}</th>
+        </tr></thead>
+        <tbody>
+          ${rows.map(([label, av, bv]) => `<tr><td class="stat-secondary">${esc(label)}</td><td>${esc(av)}</td><td>${esc(bv)}</td></tr>`).join("")}
+        </tbody>
+      </table></div>
+      <div class="btn-row" style="margin-top:8px;">
+        <button class="btn-ghost" id="btnCompare2Snapshot">${en ? "Copy as Text" : "Text Ke Taur Par Copy Karein"}</button>
+      </div>
+    `;
+  }
+
+  function compare2SnapshotText(en, profileA, profileB) {
+    const rows = compare2Rows(en, profileA, profileB);
+    const lines = [
+      `${en ? "Strategy Comparison" : "Strategy Comparison"}: ${profileA.name} vs ${profileB.name}`,
+      ...rows.map(([label, av, bv]) => `${label}: ${av}  |  ${bv}`),
+    ];
+    return lines.join("\n");
+  }
 
   function compareRowsHtml(rows, en) {
     return rows.map(r => `
@@ -1445,9 +1775,10 @@
 
   async function renderCompare() {
     const en = getLang() === "en";
-    const [d, dtp] = await Promise.all([
+    const [d, dtp, familyTree] = await Promise.all([
       apiGet("/api/compare-strategies"),
       apiGet("/api/compare-strategies/dual-tp").catch(() => null),
+      apiGet("/api/concepts/family-tree").catch(() => ({ families: [], ungrouped_strategies: [] })),
     ]);
     const losingCount = d.total_strategies - d.profitable_count;
     const best = d.strategies.find(r => r.profitable) || d.strategies[0] || null;
@@ -1493,6 +1824,27 @@
         </table></div>
       </div>
 
+      <div class="section-card">
+        <div class="section-title">${en ? "Compare 2 Strategies" : "2 Strategies Compare Karein"}</div>
+        <p class="muted" style="font-size:12.5px; margin:-4px 0 12px;">
+          ${en
+            ? `Pick any two strategies for a focused, side-by-side look at health score, risk metrics, and more -- deeper than the Profit Factor row above.`
+            : `Koi bhi 2 strategies chunein aur health score, risk metrics waghera ka side-by-side moazna dekhein -- upar ki Profit Factor row se zyada gehra.`}
+        </p>
+        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+          <select id="compare2SelectA" style="max-width:220px;">
+            <option value="">${en ? "Strategy A..." : "Strategy A..."}</option>
+            ${d.strategies.map(r => `<option value="${esc(r.id)}">${esc(r.name)}</option>`).join("")}
+          </select>
+          <select id="compare2SelectB" style="max-width:220px;">
+            <option value="">${en ? "Strategy B..." : "Strategy B..."}</option>
+            ${d.strategies.map(r => `<option value="${esc(r.id)}">${esc(r.name)}</option>`).join("")}
+          </select>
+          <button id="btnCompare2" class="btn-ghost">${en ? "Compare" : "Compare Karein"}</button>
+        </div>
+        <div id="compare2Result" style="margin-top:12px;"></div>
+      </div>
+
       ${dtp ? `
       <div class="section-card compare-archived-section">
         <div class="section-title">
@@ -1533,6 +1885,20 @@
       </div>
       ` : ""}
 
+      ${familyTree.families.length ? `
+      <div class="section-card">
+        <div class="section-title">${en ? "Strategy Family Tree" : "Strategy Family Tree"} ${helpIcon("strategy_family_tree")}</div>
+        <p class="muted" style="font-size:12.5px; margin:-4px 0 12px;">${en ? "Strategies grouped by which core trading concept they share." : "Strategies apne shared trading concept ke hisaab se grouped."}</p>
+        ${familyTree.families.map(f => `
+          <div class="card" style="margin-bottom:8px;">
+            <div class="label">${esc(f.concept)} <span class="pill pill-muted">${f.member_count}</span></div>
+            <div style="font-size:12px;margin-top:4px;">${f.strategies.map(esc).join(", ")}</div>
+          </div>`).join("")}
+        ${familyTree.ungrouped_strategies.length ? `
+        <div class="muted" style="font-size:12px;margin-top:8px;">${en ? "Not yet part of any family" : "Abhi tak kisi family ka hissa nahi"} (${familyTree.ungrouped_strategies.length}): ${familyTree.ungrouped_strategies.map(esc).join(", ")}</div>` : ""}
+      </div>
+      ` : ""}
+
       <p class="muted" style="font-size:12px; margin-top:16px;">${en ? "Generated" : "Bana"}: ${esc(d.generated_at)}</p>
     `;
 
@@ -1549,6 +1915,43 @@
         wireCompareRowClicks(tbody);
       };
     });
+
+    const compare2SelA = document.getElementById("compare2SelectA");
+    const compare2SelB = document.getElementById("compare2SelectB");
+    if (compare2StrategyA) compare2SelA.value = compare2StrategyA;
+    if (compare2StrategyB) compare2SelB.value = compare2StrategyB;
+    document.getElementById("btnCompare2").onclick = async () => {
+      compare2StrategyA = compare2SelA.value;
+      compare2StrategyB = compare2SelB.value;
+      const resultEl = document.getElementById("compare2Result");
+      if (!compare2StrategyA || !compare2StrategyB) {
+        resultEl.innerHTML = `<p class="muted" style="font-size:12.5px;">${en ? "Pick both strategies first." : "Pehle dono strategies chunein."}</p>`;
+        return;
+      }
+      if (compare2StrategyA === compare2StrategyB) {
+        resultEl.innerHTML = `<p class="muted" style="font-size:12.5px;">${en ? "Pick two different strategies." : "Do alag strategies chunein."}</p>`;
+        return;
+      }
+      resultEl.innerHTML = `<p class="muted" style="font-size:12.5px;">${en ? "Loading..." : "Load ho raha hai..."}</p>`;
+      try {
+        const [profileA, profileB] = await Promise.all([
+          apiGet(`/api/paper-trading/strategy-profile/${compare2StrategyA}`),
+          apiGet(`/api/paper-trading/strategy-profile/${compare2StrategyB}`),
+        ]);
+        resultEl.innerHTML = compare2Html(en, profileA, profileB);
+        document.getElementById("btnCompare2Snapshot").onclick = async () => {
+          const text = compare2SnapshotText(en, profileA, profileB);
+          try {
+            await navigator.clipboard.writeText(text);
+            showToast({ title: en ? "Copied" : "Copy Ho Gaya", body: en ? "Comparison copied -- paste it anywhere." : "Comparison copy ho gaya -- kahin bhi paste karein." });
+          } catch (e) {
+            showToast({ title: en ? "Could not copy" : "Copy Nahi Ho Saka", body: en ? "Your browser blocked clipboard access." : "Browser ne clipboard access block kar diya.", isError: true });
+          }
+        };
+      } catch (e) {
+        resultEl.innerHTML = `<p class="muted" style="font-size:12.5px;">${en ? "Could not load one of these strategies." : "In mein se ek strategy load nahi ho saki."}</p>`;
+      }
+    };
 
     // Arrived here via a strategy's own Profile page's "View on Compare"
     // link -- scroll to and briefly flash that exact row so the CEO doesn't
@@ -1580,9 +1983,21 @@
   async function renderLiveLogs() {
     const en = getLang() === "en";
     async function load() {
-      const d = await apiGet("/api/live-logs");
+      const [d, auditRes, changedRes] = await Promise.all([
+        apiGet("/api/live-logs"),
+        apiGet("/api/audit-trail?limit=30").catch(() => ({ audit_trail: [], total_count: 0 })),
+        apiGet("/api/what-changed?period=today").catch(() => ({ total_events: 0, summary_lines: [] })),
+      ]);
       content.innerHTML = `
         <div class="section-title">${en ? "Live Logs" : "Live Logs"}</div>
+
+        <div class="section-title" style="font-size:13px;">${en ? "What Changed Today" : "Aaj Kya Badla"} ${helpIcon("what_changed_today")}</div>
+        <div class="card">
+          ${changedRes.total_events === 0
+            ? `<p class="muted" style="margin:0;">${en ? "Nothing has changed yet today." : "Aaj tak kuch nahi badla."}</p>`
+            : `<p class="muted" style="font-size:12px;margin-top:0;">${en ? `${changedRes.total_events} events recorded today (from the permanent Audit Trail).` : `Aaj ${changedRes.total_events} events record hue (permanent Audit Trail se).`}</p>
+               <ul style="margin:0;padding-left:18px;">${changedRes.summary_lines.map(line => `<li>${esc(line)}</li>`).join("")}</ul>`}
+        </div>
 
         <div class="section-title" style="font-size:13px;">${en ? "Running Now" : "Abhi Chal Raha Hai"}</div>
         ${d.running_now.length ? `<div class="grid">${d.running_now.map(j => `
@@ -1619,10 +2034,110 @@
             <tr><td>${esc(a.entity)}</td><td>${esc(a.action)}</td><td>${esc(a.message)}</td><td>${esc((a.created_at || "").replace("T", " ").slice(0, 19))}</td></tr>
           `).join("") || `<tr><td colspan="4">${en ? "No activity logged yet." : "Abhi koi sargarmi nahi."}</td></tr>`}</tbody>
         </table></div>
+
+        <div class="section-title" style="font-size:13px;">${en ? "Audit Trail (Permanent Record)" : "Audit Trail (Mustaqil Record)"} <span class="muted">(${fmtNum(auditRes.total_count)} ${en ? "total events, never deleted" : "kul events, kabhi delete nahi hote"})</span></div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>${en ? "Entity" : "Entity"}</th><th>${en ? "Action" : "Action"}</th><th>${en ? "Message" : "Message"}</th><th>${en ? "When" : "Kab"}</th></tr></thead>
+          <tbody>${(auditRes.audit_trail || []).map(a => `
+            <tr><td>${esc(a.entity)}</td><td>${esc(a.action)}</td><td>${esc(a.message)}</td><td>${esc((a.created_at || "").replace("T", " ").slice(0, 19))}</td></tr>
+          `).join("") || `<tr><td colspan="4">${en ? "No audit events yet." : "Abhi koi audit event nahi."}</td></tr>`}</tbody>
+        </table></div>
       `;
     }
     await load();
     autoRefresh(load, 8);
+  }
+
+  // -------------------------------------------------------------- Incidents
+  // Grand Feature Expansion, Phase 1 Feature 4: a structured record for
+  // problem -> detection -> root cause -> fix -> test -> resolution.
+  // Backed by /api/incidents (data_engine/storage.py's incidents table).
+  const INCIDENT_SEVERITIES = ["low", "medium", "high", "critical"];
+  const INCIDENT_STATUSES = ["open", "root_cause_found", "fix_in_progress", "fixed", "resolved"];
+
+  async function renderIncidents() {
+    const myToken = activeRouteToken;
+    let statusFilter = "";
+    const render = async () => {
+      const res = await apiGet(`/api/incidents?limit=100${statusFilter ? `&status=${statusFilter}` : ""}`);
+      if (isStaleRoute(myToken)) return;
+      const incidents = res.incidents || [];
+      content.innerHTML = `
+        <div class="section-title">Incident Management</div>
+        <p class="muted">Track a problem from the moment it's noticed through root cause, fix, test, and resolution -- nothing here is ever deleted.</p>
+
+        <div class="card">
+          <div class="section-title" style="font-size:13px;">Report a New Incident</div>
+          <div class="btn-row">
+            <input id="incTitle" placeholder="Short title" style="flex:2;">
+            <select id="incSeverity">${INCIDENT_SEVERITIES.map(s => `<option value="${s}" ${s === "medium" ? "selected" : ""}>${s}</option>`).join("")}</select>
+          </div>
+          <textarea id="incProblem" placeholder="What happened? Be specific." style="width:100%;margin-top:8px;min-height:60px;"></textarea>
+          <div class="btn-row" style="margin-top:8px;">
+            <input id="incDetectedBy" placeholder="Detected by (optional)" style="flex:1;">
+            <button class="btn" id="incCreateBtn">Report Incident</button>
+          </div>
+          <span id="incCreateStatus" class="muted"></span>
+        </div>
+
+        <div class="section-title" style="font-size:13px;">Filter</div>
+        <div class="btn-row">
+          <button class="btn-ghost ${!statusFilter ? "active" : ""}" data-status="">All</button>
+          ${INCIDENT_STATUSES.map(s => `<button class="btn-ghost ${statusFilter === s ? "active" : ""}" data-status="${s}">${s.replace(/_/g, " ")}</button>`).join("")}
+        </div>
+
+        <div class="table-wrap"><table>
+          <thead><tr><th>Title</th><th>Severity</th><th>Status</th><th>Detected</th><th>Root Cause</th><th>Fix</th><th>Actions</th></tr></thead>
+          <tbody>${incidents.map(inc => `
+            <tr>
+              <td>${esc(inc.title)}</td>
+              <td><span class="pill ${inc.severity === "critical" || inc.severity === "high" ? "pill-down" : "pill-muted"}">${esc(inc.severity)}</span></td>
+              <td><span class="pill ${inc.status === "resolved" ? "pill-up" : "pill-muted"}">${esc(inc.status.replace(/_/g, " "))}</span></td>
+              <td style="font-size:12px;">${esc((inc.detected_at || "").slice(0, 19))}</td>
+              <td style="font-size:12px;max-width:180px;">${esc(inc.root_cause || "-")}</td>
+              <td style="font-size:12px;max-width:180px;">${esc(inc.fix_description || "-")}</td>
+              <td>${inc.status !== "resolved" ? `<button class="btn-ghost inc-edit" data-id="${inc.id}" style="font-size:12px;">Update</button>` : ""}</td>
+            </tr>
+          `).join("") || `<tr><td colspan="7">No incidents recorded${statusFilter ? ` with status "${statusFilter}"` : ""}.</td></tr>`}</tbody>
+        </table></div>
+      `;
+
+      content.querySelectorAll("[data-status]").forEach(b => b.onclick = () => { statusFilter = b.dataset.status; render(); });
+
+      document.getElementById("incCreateBtn").onclick = async () => {
+        const title = document.getElementById("incTitle").value.trim();
+        const problem = document.getElementById("incProblem").value.trim();
+        const statusEl = document.getElementById("incCreateStatus");
+        if (!title || !problem) { statusEl.textContent = "Title and problem description are required."; return; }
+        await apiPost("/api/incidents", {
+          title, problem,
+          detected_by: document.getElementById("incDetectedBy").value.trim() || null,
+          severity: document.getElementById("incSeverity").value,
+        });
+        statusEl.textContent = "Reported.";
+        render();
+      };
+
+      content.querySelectorAll(".inc-edit").forEach(b => b.onclick = () => {
+        const inc = incidents.find(i => i.id === b.dataset.id);
+        const rootCause = prompt("Root cause (leave blank to skip):", inc.root_cause || "");
+        const fixDescription = prompt("Fix description (leave blank to skip):", inc.fix_description || "");
+        const testDescription = prompt("How was the fix tested/verified? (leave blank to skip):", inc.test_description || "");
+        const newStatus = prompt(`Status (one of: ${INCIDENT_STATUSES.join(", ")}):`, inc.status);
+        const fields = {};
+        if (rootCause) fields.root_cause = rootCause;
+        if (fixDescription) fields.fix_description = fixDescription;
+        if (testDescription) fields.test_description = testDescription;
+        const wantsResolve = newStatus === "resolved";
+        if (newStatus && INCIDENT_STATUSES.includes(newStatus) && !wantsResolve) fields.status = newStatus;
+        (async () => {
+          if (Object.keys(fields).length > 0) await apiPost(`/api/incidents/${inc.id}/update`, fields);
+          if (wantsResolve) await apiPost(`/api/incidents/${inc.id}/resolve`, {});
+          render();
+        })();
+      });
+    };
+    await render();
   }
 
   // ---------------------------------------------------------- Project Status
@@ -1633,6 +2148,27 @@
 
   async function renderProjectStatus() {
     const en = getLang() === "en";
+
+    async function loadQuickNotes() {
+      const qn = await apiGet("/api/quick-notes");
+      const list = document.getElementById("psQuickNotesList");
+      if (!list) return;
+      list.innerHTML = qn.notes.map(n => `
+        <div class="card" style="margin-bottom:6px;display:flex;justify-content:space-between;gap:8px;align-items:flex-start;">
+          <div>
+            <div style="white-space:pre-wrap;">${esc(n.content)}</div>
+            <div class="muted" style="font-size:11px;margin-top:4px;">${esc((n.created_at || "").replace("T", " ").slice(0, 19))}</div>
+          </div>
+          <button class="btn-ghost quick-note-delete" data-id="${n.id}">${en ? "Delete" : "Hataayein"}</button>
+        </div>
+      `).join("") || `<p class="muted">${en ? "No quick notes yet." : "Abhi koi quick note nahi."}</p>`;
+      list.querySelectorAll(".quick-note-delete").forEach(btn => {
+        btn.onclick = async () => {
+          await apiDelete(`/api/quick-notes/${btn.dataset.id}`);
+          await loadQuickNotes();
+        };
+      });
+    }
 
     async function loadFeedback() {
       const fb = await apiGet("/api/feedback");
@@ -1648,13 +2184,28 @@
     }
 
     async function load(period) {
-      const d = await apiGet(`/api/project-status?period=${period}`);
+      const [d, handoff] = await Promise.all([
+        apiGet(`/api/project-status?period=${period}`),
+        apiGet(`/api/session-handoff?period=${period}`).catch(() => null),
+      ]);
       content.innerHTML = `
         <div class="section-title">${en ? "Project Status" : "Project Status"}</div>
 
         <div class="period-tabs">${PS_PERIOD_TABS.map(([id, label]) => `
           <button class="period-tab ${id === period ? "active" : ""}" data-ps-period="${id}">${label}</button>
         `).join("")}</div>
+
+        ${handoff ? `
+        <div class="section-title" style="font-size:13px;">${en ? "Session Handoff" : "Session Handoff"}</div>
+        <div class="card" style="margin-bottom:8px;">
+          <p class="muted" style="font-size:12px;margin:0 0 8px;">${en
+            ? "A ready-to-paste note summarizing this period and what to check next -- useful when handing off to someone else, or to your future self."
+            : "Is period ka khulasa aur aage kya dekhna hai -- kisi aur ko handoff dete waqt, ya khud apne liye baad mein, kaam aata hai."}</p>
+          <div style="white-space:pre-wrap;font-size:13px;">${esc(handoff.text)}</div>
+          <div class="btn-row" style="margin-top:8px;">
+            <button class="btn-ghost" id="btnCopyHandoff">${en ? "Copy as Text" : "Text Ke Taur Par Copy Karein"}</button>
+          </div>
+        </div>` : ""}
 
         <div class="section-title" style="font-size:13px;">${en ? "What Changed" : "Kya Badla"}</div>
         ${d.changelog.length ? d.changelog.map(c => `
@@ -1684,6 +2235,18 @@
           </div>
         `).join("")}
 
+        <div class="section-title" style="font-size:13px;">${en ? "Quick Notes" : "Quick Notes"}</div>
+        <p class="muted" style="font-size:12.5px; margin:-4px 0 12px;">
+          ${en ? "An instant scratch-pad -- jot anything down, no type or status needed. Different from Feedback / Requests below, which is a tracked backlog." : "Ek turant scratch-pad -- kuch bhi likh dein, koi type ya status nahi chahiye. Neeche ki Feedback/Requests se alag hai, wo ek tracked backlog hai."}
+        </p>
+        <div class="card">
+          <div class="form-row">
+            <textarea id="psQuickNoteText" rows="2" style="width:100%;" placeholder="${en ? "Quick note..." : "Quick note..."}"></textarea>
+          </div>
+          <button class="btn" id="psQuickNoteSubmit" style="margin-top:8px;">${en ? "Add Note" : "Note Jodein"}</button>
+        </div>
+        <div id="psQuickNotesList" style="margin-top:12px;"></div>
+
         <div class="section-title" style="font-size:13px;">${en ? "Feedback / Requests" : "Feedback / Guzarish"}</div>
         <div class="card">
           <div class="form-row">
@@ -1706,6 +2269,17 @@
       content.querySelectorAll("[data-ps-period]").forEach(btn => {
         btn.onclick = () => load(btn.dataset.psPeriod);
       });
+      const copyHandoffBtn = document.getElementById("btnCopyHandoff");
+      if (copyHandoffBtn && handoff) {
+        copyHandoffBtn.onclick = async () => {
+          try {
+            await navigator.clipboard.writeText(handoff.text);
+            showToast({ title: en ? "Copied" : "Copy Ho Gaya", body: en ? "Handoff note copied -- paste it anywhere." : "Handoff note copy ho gaya -- kahin bhi paste karein." });
+          } catch (e) {
+            showToast({ title: en ? "Could not copy" : "Copy Nahi Ho Saka", body: en ? "Your browser blocked clipboard access." : "Browser ne clipboard access block kar diya.", isError: true });
+          }
+        };
+      }
       const submitBtn = document.getElementById("psFeedbackSubmit");
       if (submitBtn) {
         submitBtn.onclick = async () => {
@@ -1724,6 +2298,24 @@
           }
         };
       }
+      const quickNoteBtn = document.getElementById("psQuickNoteSubmit");
+      if (quickNoteBtn) {
+        quickNoteBtn.onclick = async () => {
+          const content = document.getElementById("psQuickNoteText").value.trim();
+          if (!content) return;
+          quickNoteBtn.disabled = true;
+          try {
+            await apiPost("/api/quick-notes", { content });
+            document.getElementById("psQuickNoteText").value = "";
+            await loadQuickNotes();
+          } catch (e) {
+            alert(`${en ? "Could not save" : "Save nahi ho saka"}: ${e.message}`);
+          } finally {
+            quickNoteBtn.disabled = false;
+          }
+        };
+      }
+      await loadQuickNotes();
       await loadFeedback();
     }
     await load("all");
@@ -1746,6 +2338,7 @@
     clarification_center: renderClarificationCenter,
     external_signals: renderExternalSignals,
     compare: renderCompare, live_logs: renderLiveLogs, project_status: renderProjectStatus,
+    incidents: renderIncidents,
     strategy_lifecycle: renderStrategyLifecycle,
     strategy_overview: renderStrategyOverview,
   };
@@ -1825,7 +2418,7 @@
     const myToken = activeRouteToken;
     const settings = await apiGet("/api/settings").catch(() => ({ refresh_speed_seconds: 10 }));
     const render = async () => {
-      const [h, net, act, bw, strats, tgAlert, stratSummary] = await Promise.all([
+      const [h, net, act, bw, strats, tgAlert, stratSummary, killSwitch, drawdown, openIncidents, paperAlerts, retirementSug] = await Promise.all([
         apiGet("/api/home"),
         apiGet("/api/network").catch(() => null),
         apiGet("/api/activity?limit=20").catch(() => ({ activity: [] })),
@@ -1833,6 +2426,11 @@
         apiGet("/api/backtesting/strategies").catch(() => ({ strategies: [] })),
         apiGet(`/api/paper-trading/telegram/alert-status?lang=${getLang()}`).catch(() => ({ stale: false })),
         apiGet("/api/strategy-summary").catch(() => null),
+        apiGet("/api/paper-trading/kill-switch/status").catch(() => ({ active: false })),
+        apiGet("/api/paper-trading/account-drawdown-status").catch(() => ({ paused: false })),
+        apiGet("/api/incidents?status=open&limit=20").catch(() => ({ incidents: [] })),
+        apiGet("/api/paper-trading/alerts?limit=20").catch(() => ({ alerts: [] })),
+        apiGet("/api/paper-trading/retirement-suggestions").catch(() => ({ suggestions: [] })),
       ]);
       if (isStaleRoute(myToken)) return;
 
@@ -1840,6 +2438,76 @@
       const zeroTradeAlerts = (strats.strategies || []).filter(s =>
         s.last_batch_result && s.last_batch_result.status === "completed" && s.last_batch_result.total_trades === 0
       );
+
+      // Grand Feature Expansion, Phase 4 Feature 19: Today's Focus Widget --
+      // synthesizes the single most important thing to look at right now
+      // from several already-computed, already-cheap sources (kill switch,
+      // account drawdown pause, open high/critical incidents, paper_alerts
+      // -- which itself already aggregates win-rate decay/divergence/custom-
+      // rule triggers, retirement suggestions, plus the zero-trade/Telegram-
+      // stale alerts already computed above) rather than re-running the CEO
+      // page's ~20 heavier per-module checks, which would reintroduce the
+      // same N-calls-per-poll cost this codebase has already fixed elsewhere.
+      // Fixed, documented severity order -- most safety-critical first.
+      const focusItems = [];
+      if (killSwitch.active) {
+        focusItems.push({ severity: "critical", text: getLang() === "en"
+          ? `Kill switch is ACTIVE${killSwitch.reason ? ` (${killSwitch.reason})` : ""} -- all trading is halted.`
+          : `Kill switch ACTIVE hai${killSwitch.reason ? ` (${killSwitch.reason})` : ""} -- saari trading ruki hui hai.` });
+      }
+      if (drawdown.paused) {
+        focusItems.push({ severity: "critical", text: getLang() === "en"
+          ? `Account-wide drawdown protection is active${drawdown.paused_reason ? ` (${drawdown.paused_reason})` : ""} -- new trades are paused for every strategy.`
+          : `Account-wide drawdown protection active hai${drawdown.paused_reason ? ` (${drawdown.paused_reason})` : ""} -- har strategy ke naye trades paused hain.` });
+      }
+      (openIncidents.incidents || []).filter(i => i.severity === "critical" || i.severity === "high").forEach(i => {
+        focusItems.push({ severity: i.severity === "critical" ? "critical" : "high", text: getLang() === "en"
+          ? `Open incident (${i.severity}): ${i.title}` : `Khula incident (${i.severity}): ${i.title}` });
+      });
+      (paperAlerts.alerts || []).filter(a => a.severity === "critical" || a.severity === "error" || a.severity === "warning").slice(0, 5).forEach(a => {
+        focusItems.push({ severity: a.severity === "critical" || a.severity === "error" ? "high" : "medium", text: a.message });
+      });
+      (retirementSug.suggestions || []).forEach(s => {
+        focusItems.push({ severity: "medium", text: getLang() === "en"
+          ? `"${s.strategy_name}" was auto-retired long ago and is still active -- consider archiving it.`
+          : `"${s.strategy_name}" bohot pehle retire ho chuki thi aur abhi bhi active hai -- archive karne par ghor karein.` });
+      });
+      zeroTradeAlerts.forEach(s => {
+        focusItems.push({ severity: "medium", text: getLang() === "en"
+          ? `Strategy "${s.name}" produced 0 trades -- check its entry conditions.`
+          : `Strategy "${s.name}" ne 0 trades diye -- entry conditions check karein.` });
+      });
+      if (tgAlert.stale) {
+        focusItems.push({ severity: "low", text: tgAlert.message });
+      }
+      const severityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
+      focusItems.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
+      const todaysFocus = focusItems[0] || null;
+
+      // Grand Feature Expansion, Phase 4 Feature 18: Onboarding Checklist
+      // Per Session -- genuinely distinct from Real-Trading Readiness (a
+      // one-time go-live gate) and Project Status's pending[] (a
+      // persistent project backlog): a fresh "what to actually look at
+      // today" list that resets every calendar day, mixing a few standing
+      // routine checks with today's own Today's Focus items rendered as
+      // checkable tasks instead of a passive alert. Stored per-browser in
+      // localStorage keyed by today's date, so it naturally starts empty
+      // (unchecked) again tomorrow with zero backend/schedule needed.
+      const todayKey = new Date().toISOString().slice(0, 10);
+      const checklistStorageKey = `sindhu_session_checklist_${todayKey}`;
+      const routineChecklistItems = getLang() === "en" ? [
+        "Review any open positions on the Paper Trading page",
+        "Check the Telegram Signals delivery status",
+        "Skim Live Logs for anything unusual",
+      ] : [
+        "Paper Trading page par open positions dekhein",
+        "Telegram Signals ki delivery status check karein",
+        "Live Logs mein kuch ajeeb to nahi, dekh lein",
+      ];
+      const checklistItems = [
+        ...routineChecklistItems,
+        ...focusItems.map(f => (getLang() === "en" ? `Resolve: ${f.text}` : `Hal karein: ${f.text}`)),
+      ];
 
       const moduleRows = Object.entries(h.module_status || {})
         .map(([name, status]) => `<tr><td>${esc(name)}</td><td>${moduleStatusPill(status)}</td></tr>`).join("");
@@ -1871,6 +2539,18 @@
             : `Latest <b>backtest</b> ke numbers, live account ke nahi`);
 
       content.innerHTML = `
+        <div class="card" style="border-left:3px solid ${todaysFocus ? (todaysFocus.severity === "critical" ? "var(--red, #e5484d)" : todaysFocus.severity === "high" ? "var(--red, #e5484d)" : todaysFocus.severity === "medium" ? "var(--orange, #d68910)" : "var(--muted-fg, #888)") : "var(--green, #2fb344)"}; margin-bottom:14px;">
+          <div style="font-weight:600;font-size:13px;">${getLang() === "en" ? "Today's Focus" : "Aaj Ka Focus"}</div>
+          <div style="margin-top:6px;">${todaysFocus ? esc(todaysFocus.text) : (getLang() === "en" ? "Nothing urgent -- everything looks fine right now." : "Kuch bhi zaroori nahi -- abhi sab kuch theek lag raha hai.")}</div>
+          ${focusItems.length > 1 ? `<div class="muted" style="font-size:11px;margin-top:6px;">${getLang() === "en" ? `+${focusItems.length - 1} more thing(s) to check (System Alerts, Alerts, Incidents, Strategies pages).` : `+${focusItems.length - 1} aur cheezein check karne ke liye (System Alerts, Alerts, Incidents, Strategies pages).`}</div>` : ""}
+        </div>
+
+        <div class="card" id="sessionChecklistCard" style="margin-bottom:14px;">
+          <div style="font-weight:600;font-size:13px;">${getLang() === "en" ? "Today's Checklist" : "Aaj Ki Checklist"}</div>
+          <p class="muted" style="font-size:11.5px;margin:4px 0 8px;">${getLang() === "en" ? "Resets fresh every day -- just for this browser." : "Har din nayi ho jaati hai -- sirf is browser ke liye."}</p>
+          <div id="sessionChecklistBody"></div>
+        </div>
+
         <div class="section-head">
           <div class="section-title">${t("Overview")}</div>
           ${lb ? `<div class="section-sub">${sourceNote}</div>` : ""}
@@ -2045,6 +2725,32 @@
       document.getElementById("ccBackup").onclick = async () => { await apiPost("/api/backup/create"); appendLog("Manual backup created."); };
       document.getElementById("ccLogs").onclick = () => document.getElementById("logsPanel").classList.toggle("open");
       document.getElementById("ccRestart").onclick = async () => { await apiPost("/api/system/restart-services"); appendLog("Services soft-restarted."); };
+
+      // Today's Checklist (Feature 18) -- rendered/wired separately from
+      // the innerHTML template above since checkbox state comes from
+      // localStorage, read fresh on every render() call (including the
+      // periodic auto-refresh), not from the server.
+      let checked = {};
+      try { checked = JSON.parse(localStorage.getItem(checklistStorageKey) || "{}"); } catch (e) { checked = {}; }
+      const checklistBody = document.getElementById("sessionChecklistBody");
+      if (checklistBody) {
+        // Keyed by the item's own text (not array index) so a checked box
+        // stays correctly attached to its item even if the list's content
+        // shifts between renders (e.g. a new alert appears above it).
+        checklistBody.innerHTML = checklistItems.map((text) => `
+          <label style="display:flex;align-items:flex-start;gap:8px;padding:4px 0;font-size:13px;">
+            <input type="checkbox" class="session-checklist-item" data-text="${esc(text)}" style="width:auto;margin-top:3px;" ${checked[text] ? "checked" : ""}>
+            <span style="${checked[text] ? "text-decoration:line-through;opacity:.55;" : ""}">${esc(text)}</span>
+          </label>`).join("") || `<p class="muted">${getLang() === "en" ? "Nothing on today's list." : "Aaj ki list khaali hai."}</p>`;
+        checklistBody.querySelectorAll(".session-checklist-item").forEach(cb => {
+          cb.onchange = () => {
+            checked[cb.dataset.text] = cb.checked;
+            localStorage.setItem(checklistStorageKey, JSON.stringify(checked));
+            cb.nextElementSibling.style.textDecoration = cb.checked ? "line-through" : "none";
+            cb.nextElementSibling.style.opacity = cb.checked ? ".55" : "1";
+          };
+        });
+      }
     };
     await render();
     autoRefresh(render, settings.refresh_speed_seconds || 10);
@@ -2800,9 +3506,10 @@
       const q = searchEl ? searchEl.value : "";
       const showArchivedEl = document.getElementById("stratShowArchived");
       const showArchived = showArchivedEl ? showArchivedEl.checked : false;
-      const [res, riskRes] = await Promise.all([
+      const [res, riskRes, retirementRes] = await Promise.all([
         apiGet(`/api/backtesting/strategies?q=${encodeURIComponent(q)}&include_archived=${showArchived}`).catch(() => ({ strategies: [] })),
         apiGet("/api/paper-trading/risk-metrics-all").catch(() => ({ metrics: {} })),
+        apiGet("/api/paper-trading/retirement-suggestions").catch(() => ({ suggestions: [] })),
       ]);
       if (isStaleRoute(myToken)) return;
       const riskMetrics = riskRes.metrics || {};
@@ -2819,7 +3526,14 @@
       const rows = res.strategies.map(s => `
         <tr${s.archived ? ' style="opacity:0.55;"' : ""}>
           <td>${s.favourite ? "★" : "☆"}</td>
-          <td>${esc(s.name)} ${s.archived ? '<span class="pill pill-muted">Archived</span>' : ""} ${performanceBadge(s.performance_verdict, s.performance_label, s.performance_failed_factors)}</td>
+          <td>${esc(s.name)} ${s.archived ? '<span class="pill pill-muted">Archived</span>' : ""} ${performanceBadge(s.performance_verdict, s.performance_label, s.performance_failed_factors)}
+            <div style="font-size:11px;margin-top:2px;">
+              ${(s.tags || []).map(tag => `<span class="pill pill-muted" style="margin-right:3px;">${esc(tag)}</span>`).join("")}
+              <button class="btn-ghost strat-edit-tags" data-id="${s.id}" data-tags="${esc((s.tags || []).join(", "))}" title="Edit tags" style="padding:0 4px;font-size:11px;">🏷</button>
+              <button class="btn-ghost strat-edit-comment" data-id="${s.id}" data-comment="${esc(s.ceo_comment || "")}" title="${esc(s.ceo_comment || "Add a note")}" style="padding:0 4px;font-size:11px;">${s.ceo_comment ? "📝" : "🗒"}</button>
+            </div>
+            <div class="muted" style="font-size:10px;">Last changed: ${s.updated_at ? esc(s.updated_at.slice(0, 16).replace("T", " ")) : "-"}</div>
+          </td>
           <td>${(s.concepts_used || []).join(", ") || "-"}</td>
           <td>${Object.entries(s.timeframes || {}).map(([role, tf]) => `${role}:${tf}`).join(", ") || "-"}</td>
           <td>${conditionRolesCell(s.condition_roles)}</td>
@@ -2842,6 +3556,15 @@
 
       content.innerHTML = `
         <div class="section-title">${t("Strategies")}</div>
+        ${(retirementRes.suggestions || []).length ? `
+        <div class="card" style="border:1px solid var(--orange,#d68910);background:rgba(214,137,16,0.08);margin-bottom:10px;">
+          <div style="font-weight:600;">Retirement Suggestions ${helpIcon("retirement_suggestion")}</div>
+          ${retirementRes.suggestions.map(s => `
+            <div style="padding:4px 0;border-top:1px solid var(--border,#333);font-size:13px;display:flex;justify-content:space-between;align-items:center;gap:8px;">
+              <span><b>${esc(s.strategy_name)}</b> -- ${esc(s.reason)}</span>
+              <button class="btn-ghost retirement-archive" data-id="${s.strategy_id}" data-name="${esc(s.strategy_name)}">Archive</button>
+            </div>`).join("")}
+        </div>` : ""}
         <div class="btn-row">
           <input id="stratLibSearch" placeholder="${t("Search strategies...")}" style="max-width:280px;" value="${esc(q)}">
           <button class="btn" id="btnNewStrategy">${t("New Strategy")}</button>
@@ -2947,6 +3670,19 @@
       document.getElementById("stratLibSearch").addEventListener("input", debounce(render, 300));
       document.getElementById("btnNewStrategy").onclick = () => { showImportChoiceModal(); };
       document.getElementById("stratShowArchived").addEventListener("change", render);
+      document.querySelectorAll(".retirement-archive").forEach(btn => btn.onclick = async () => {
+        // Grand Feature Expansion, Phase 4 Feature 4: reuses the EXACT
+        // same reversible archive endpoint the row-level Archive action
+        // uses -- this suggestion never has its own separate action.
+        if (!confirm(`Archive "${btn.dataset.name}"? It will disappear from the active list but can be restored any time -- nothing is deleted.`)) return;
+        try {
+          await apiPost(`/api/backtesting/strategies/${btn.dataset.id}/archive`, { confirm: true });
+          appendLog(`Archived "${btn.dataset.name}" (retirement suggestion accepted).`);
+          render();
+        } catch (e) {
+          alert(e.message || "Could not archive.");
+        }
+      });
       document.querySelectorAll(".strat-unarchive").forEach(btn => btn.onclick = async () => {
         await apiPost(`/api/backtesting/strategies/${btn.dataset.id}/unarchive`, {});
         appendLog(`Restored "${btn.dataset.name}" from archive.`);
@@ -2959,6 +3695,19 @@
       });
       document.querySelectorAll(".strat-fav").forEach(btn => btn.onclick = async () => {
         await apiPost(`/api/backtesting/strategies/${btn.dataset.id}/favourite?favourite=${btn.dataset.fav === "true" ? "false" : "true"}`);
+        render();
+      });
+      document.querySelectorAll(".strat-edit-tags").forEach(btn => btn.onclick = async () => {
+        const input = prompt("Tags (comma-separated):", btn.dataset.tags || "");
+        if (input === null) return;
+        const tags = input.split(",").map(t => t.trim()).filter(Boolean);
+        await apiPost(`/api/backtesting/strategies/${btn.dataset.id}/tags`, { tags });
+        render();
+      });
+      document.querySelectorAll(".strat-edit-comment").forEach(btn => btn.onclick = async () => {
+        const comment = prompt("Note about this strategy:", btn.dataset.comment || "");
+        if (comment === null) return;
+        await apiPost(`/api/backtesting/strategies/${btn.dataset.id}/comment`, { comment });
         render();
       });
       document.querySelectorAll(".strat-dup").forEach(btn => btn.onclick = async () => {
@@ -3001,11 +3750,46 @@
               ${card(`Confidence Score ${helpIcon("confidence_score")}`, p.confidence_score != null ? p.confidence_score : "No data yet")}
               ${card("Current Streak", p.streak ? `${p.streak.count} ${p.streak.type}${p.streak.count !== 1 ? "es" : ""}` : "-")}
               ${p.risk_metrics.sharpe_ratio != null ? card(`Sharpe ${helpIcon("sharpe_ratio")} / Max DD ${helpIcon("max_drawdown")}`, `${p.risk_metrics.sharpe_ratio.toFixed(2)} / ${p.risk_metrics.max_drawdown_pct.toFixed(1)}%`) : card("Sharpe / Max DD", "Not enough data")}
+              ${p.risk_metrics.sortino_ratio != null ? card(`Sortino ${helpIcon("sortino_ratio")}`, p.risk_metrics.sortino_ratio.toFixed(2)) : card(`Sortino ${helpIcon("sortino_ratio")}`, "Not enough data")}
+              ${p.value_at_risk.var_amount != null ? card(`Value at Risk (95%) ${helpIcon("value_at_risk")}`, `$${p.value_at_risk.var_amount.toFixed(2)}`) : card(`Value at Risk ${helpIcon("value_at_risk")}`, `Needs ${p.value_at_risk.min_sample_size}+ closed trades`)}
+              ${(() => {
+                // Grand Feature Expansion, Phase 4 Feature 11: Health Badge
+                // -- a plain stable/unproven/archived LABEL, distinct from
+                // the 3 existing badges elsewhere (READY/NEEDS_REVIEW status,
+                // GREEN/RED performance, Archived pill) and from the raw
+                // Health Score number itself, computed client-side from data
+                // already on this page (no new backend call).
+                const hs = p.health_score.health_score;
+                const badge = p.archived ? { label: "Archived", cls: "" }
+                  : hs == null ? { label: "Unproven -- no closed trades yet", cls: "" }
+                  : hs >= 70 ? { label: "Stable", cls: "positive" }
+                  : hs >= 40 ? { label: "Unproven", cls: "" }
+                  : { label: "Weak", cls: "negative" };
+                return cardClass(`Health Badge ${helpIcon("health_badge")}`, badge.label, badge.cls);
+              })()}
+              ${p.health_score.health_score != null ? cardClass(`Health Score ${helpIcon("health_score")}`, `${p.health_score.health_score}/100`, p.health_score.health_score >= 70 ? "positive" : p.health_score.health_score >= 40 ? "" : "negative") : card(`Health Score ${helpIcon("health_score")}`, "No closed trades yet")}
+              ${p.aging.trend != null ? cardClass(`Aging Trend ${helpIcon("strategy_aging")}`, p.aging.trend === "improving" ? "Improving" : p.aging.trend === "weakening" ? "Weakening" : "Stable", p.aging.trend === "improving" ? "positive" : p.aging.trend === "weakening" ? "negative" : "") : card(`Aging Trend ${helpIcon("strategy_aging")}`, p.aging.reason || "Not enough data")}
               ${cardClass("Drawdown Protection", p.paused ? "Paused" : "Active", p.paused ? "negative" : "positive")}
               ${card("Backtest Verdict", p.backtest_verdict || "-")}
               ${card("Walk-Forward", p.walk_forward_status || "not yet run")}
             </div>
             ${p.paused ? `<div class="card" style="margin-bottom:16px;"><b>Why paused:</b> ${esc(p.pause_reason)}</div>` : ""}
+
+            ${(p.aging.windows || []).length ? `
+            <div class="section-title">Performance Over Time (${p.aging.window_size}-trade windows) ${helpIcon("strategy_aging")}</div>
+            <div class="table-wrap"><table>
+              <thead><tr><th>Window</th><th>Trades</th><th>Win Rate</th><th>PnL</th></tr></thead>
+              <tbody>${p.aging.windows.map(w => `
+                <tr><td>#${w.window_index + 1}</td><td>${w.trade_count}</td><td>${w.win_rate_pct.toFixed(1)}%</td>
+                <td class="${w.total_pnl >= 0 ? "pill-up" : "pill-down"}">${w.total_pnl.toFixed(2)}</td></tr>`).join("")}</tbody>
+            </table></div>` : ""}
+
+            ${p.mae_mfe.sample_size > 0 ? `
+            <div class="section-title">Max Adverse/Favorable Excursion ${helpIcon("mae_mfe")}</div>
+            <div class="grid">
+              ${p.mae_mfe.winners ? card("Winners -- Avg Worst Dip Before Working Out", `$${p.mae_mfe.winners.avg_mae.toFixed(2)} (${p.mae_mfe.winners.count} trades)`) : ""}
+              ${p.mae_mfe.losers ? card("Losers -- Avg Best Point Before Reversing", `$${p.mae_mfe.losers.avg_mfe.toFixed(2)} (${p.mae_mfe.losers.count} trades)`) : ""}
+            </div>` : ""}
 
             <div class="section-title">Balance History (Fake Money)</div>
             <div class="card">${sparklineSvg(balSeries)}</div>
@@ -3089,16 +3873,39 @@
         const v = await apiGet(`/api/backtesting/strategies/${strategyId}/versions`).catch(() => ({ versions: [] }));
         document.getElementById("versionHistoryTitle").textContent = `Version History -- ${btn.dataset.name}`;
         const versions = v.versions || [];
+        const currentVersion = versions.length ? Math.max(...versions.map(ver => ver.version)) : null;
+        const en = getLang() === "en";
         // Item 6: shows WHY each version was saved (never fabricated -- null
         // for versions saved before this existed), and a "vs previous"
         // diff button for every version after the first.
+        // Grand Feature Expansion, Phase 4 Feature 22: Undo/Rollback -- a
+        // Restore button on every non-current version, reusing this same
+        // history view rather than a separate page.
         document.getElementById("versionHistoryBody").innerHTML = versions.slice().reverse().map(ver => `
           <tr>
-            <td>V${ver.version}</td><td>${esc((ver.modified_at || "").slice(0, 19))}</td>
+            <td>V${ver.version}${ver.version === currentVersion ? ` <span class="pill pill-muted">${en ? "Current" : "Current"}</span>` : ""}</td>
+            <td>${esc((ver.modified_at || "").slice(0, 19))}</td>
             <td class="muted">${esc(ver.reason || "--")}</td>
-            <td>${ver.version > 1 ? `<button class="btn btn-ghost btn-version-diff" data-id="${esc(strategyId)}" data-a="${ver.version - 1}" data-b="${ver.version}">Compare to V${ver.version - 1}</button>` : ""}</td>
+            <td>
+              ${ver.version > 1 ? `<button class="btn btn-ghost btn-version-diff" data-id="${esc(strategyId)}" data-a="${ver.version - 1}" data-b="${ver.version}">Compare to V${ver.version - 1}</button>` : ""}
+              ${ver.version !== currentVersion ? `<button class="btn btn-ghost btn-version-restore" data-id="${esc(strategyId)}" data-version="${ver.version}" data-name="${esc(btn.dataset.name)}">${en ? "Restore" : "Restore Karein"}</button>` : ""}
+            </td>
           </tr>
         `).join("") || '<tr><td colspan="4">No version history</td></tr>';
+
+        document.querySelectorAll(".btn-version-restore").forEach(rbtn => rbtn.onclick = async () => {
+          const confirmMsg = en
+            ? `Restore "${rbtn.dataset.name}" to V${rbtn.dataset.version}? This creates a NEW version copied from V${rbtn.dataset.version} -- nothing is deleted, and you can restore back to the current version the same way afterwards.`
+            : `"${rbtn.dataset.name}" ko V${rbtn.dataset.version} par restore karna hai? Yeh V${rbtn.dataset.version} se copy ki gayi ek NAYI version banata hai -- kuch bhi delete nahi hota, aur baad mein isi tarah wapas current version par bhi restore kar sakte hain.`;
+          if (!confirm(confirmMsg)) return;
+          try {
+            await apiPost(`/api/backtesting/strategies/${rbtn.dataset.id}/restore-version`, { version: parseInt(rbtn.dataset.version, 10) });
+            appendLog(`Restored "${rbtn.dataset.name}" to V${rbtn.dataset.version} (saved as a new version).`);
+            btn.click(); // Re-open the version history so it reflects the newly created version.
+          } catch (e) {
+            alert(e.message || (en ? "Could not restore." : "Restore nahi ho saka."));
+          }
+        });
         document.getElementById("versionHistoryBox").style.display = "block";
         document.getElementById("versionDiffBox").style.display = "none";
         document.getElementById("versionHistoryBox").scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -3956,6 +4763,23 @@
 
     document.getElementById("btnSave").onclick = async () => {
       if (!currentConfig) return;
+      // Grand Feature Expansion, Phase 4 Feature 2: only checked for a
+      // genuinely NEW strategy (no currentStrategyId yet) -- editing an
+      // existing one isn't "building something new", so it's not checked
+      // on every autosave/re-save.
+      if (!currentStrategyId) {
+        const sim = await apiPost("/api/backtesting/strategies/similarity-check", {
+          concepts_used: currentConfig.concepts_used || [],
+        }).catch(() => ({ warnings: [] }));
+        if (sim.warnings && sim.warnings.length) {
+          const top = sim.warnings[0];
+          const proceed = confirm(
+            `This looks ${top.similarity_pct}% similar to "${top.strategy_name}" (based on shared concepts). ` +
+            `Save it anyway as a separate strategy?`
+          );
+          if (!proceed) return;
+        }
+      }
       const res = await apiPost("/api/backtesting/strategies", { config: currentConfig, tags: [], strategy_id: currentStrategyId });
       currentStrategyId = res.id;
       appendLog(`Saved strategy: ${currentConfig.name}`);
@@ -4151,8 +4975,15 @@
         const profitCls = c.avg_profit_pct > 0 ? "positive" : c.avg_profit_pct < 0 ? "negative" : "";
         return `<tr><td>${esc(c.symbol)}</td><td>${c.total_trades}</td><td>${c.win_rate}%</td>` +
           `<td class="${profitCls}">${c.avg_profit_pct}%</td><td class="${pnlCls}">${c.total_pnl}</td>` +
-          `<td>${c.max_drawdown_pct}%</td></tr>`;
-      }).join("") || '<tr><td colspan="6">No completed coins in this batch yet.</td></tr>';
+          `<td>${c.max_drawdown_pct}%</td>` +
+          `<td>${ids.replayBox ? `<button class="btn-ghost hist-replay-btn" data-symbol="${esc(c.symbol)}">Replay</button>` : ""}</td></tr>`;
+      }).join("") || '<tr><td colspan="7">No completed coins in this batch yet.</td></tr>';
+
+    if (ids.replayBox) {
+      document.querySelectorAll(".hist-replay-btn").forEach(btn => {
+        btn.onclick = () => loadBacktestReplay(batchId, btn.dataset.symbol, ids.replayBox);
+      });
+    }
 
     let cum = 0, peak = 0;
     const equity = [0], drawdown = [0];
@@ -4398,6 +5229,11 @@
       box.style.display = "block";
       loadComparisonBox(box, batchId).catch(console.error);
       loadMonteCarloBox(batchId).catch(console.error);
+      loadSlippageSensitivityBox(batchId).catch(console.error);
+      loadWhatIfBox(batchId);
+      loadFeatureImportanceBox(batchId);
+      loadCrossCoinBox(batchId).catch(console.error);
+      loadVariantsBox(batchId);
       wireTradeAuditForm(batchId);
       wireStressTestForm();
       return renderBatchDetailInto(batchId, histDetailIds);
@@ -4467,6 +5303,319 @@
       };
     }
 
+    // Slippage Sensitivity Test (Grand Feature Expansion, Phase 3 Feature
+    // 18): recomputes this batch's own real trades' PnL under
+    // progressively worse slippage (never re-runs the full simulation).
+    async function loadSlippageSensitivityBox(batchId) {
+      const box = document.getElementById("histSlippageBox");
+      box.innerHTML = `<button class="btn" id="btnRunSlippageTest">Run Slippage Sensitivity Test</button>`;
+      document.getElementById("btnRunSlippageTest").onclick = async () => {
+        box.innerHTML = `<span class="muted">Testing...</span>`;
+        const r = await apiGet(`/api/backtesting/slippage-sensitivity/${batchId}`);
+        if (!r.levels || !r.levels.length) {
+          box.innerHTML = `<span class="muted">${esc(r.reason || "Not enough trades for this test.")}</span>`;
+          return;
+        }
+        box.innerHTML = `
+          <div class="table-wrap"><table>
+            <thead><tr><th>Extra Slippage</th><th>Total PnL</th><th>Win Rate</th></tr></thead>
+            <tbody>${r.levels.map(lvl => `
+              <tr><td>${lvl.extra_slippage_pct === 0 ? "None (actual result)" : `+${lvl.extra_slippage_pct}%`}</td>
+              <td class="${lvl.total_pnl >= 0 ? "pill-up" : "pill-down"}">$${lvl.total_pnl.toFixed(2)}</td>
+              <td>${lvl.win_rate.toFixed(1)}%</td></tr>`).join("")}</tbody>
+          </table></div>
+          <div class="muted" style="font-size:12px;margin-top:6px;">
+            ${r.breakeven_extra_slippage_pct != null
+              ? `This strategy's edge goes to $0 once slippage worsens by about +${r.breakeven_extra_slippage_pct}% per fill${r.fragile ? " -- fragile: that's a small real-world margin." : "."}`
+              : "This strategy stayed profitable across every slippage level tested -- a durable edge."}
+          </div>`;
+      };
+    }
+
+    // Historical What-If Simulator (Grand Feature Expansion, Phase 5
+    // Feature 14): a real re-simulation (not a PnL recompute like
+    // Slippage Sensitivity above) with ONE parameter changed, bounded to
+    // the last ~30 days and a few coins for speed -- an honest, fast
+    // preview, not a full-dataset validation pass.
+    function loadWhatIfBox(batchId) {
+      const box = document.getElementById("histWhatIfBox");
+      const en = getLang() === "en";
+      box.innerHTML = `
+        <p class="muted" style="font-size:12px;margin-top:0;">${en
+          ? "A fast preview (~30 days, up to 3 coins) of what would have happened with ONE parameter changed -- not a full validation."
+          : "Ek tez preview (~30 din, 3 tak coins) ke saath dekhein agar EK parameter badla jata to kya hota -- yeh poori validation nahi hai."}</p>
+        <div class="btn-row">
+          <select id="wiParam">
+            <option value="risk_pct">${en ? "Risk % per Trade" : "Risk % per Trade"}</option>
+            <option value="stop_loss">${en ? "Stop-Loss %" : "Stop-Loss %"}</option>
+            <option value="take_profit">${en ? "Take-Profit %" : "Take-Profit %"}</option>
+          </select>
+          <input id="wiValue" type="number" step="0.1" placeholder="${en ? "New value" : "Naya value"}" style="max-width:140px;">
+          <button class="btn" id="btnRunWhatIf">${en ? "Run What-If" : "What-If Chalayein"}</button>
+        </div>
+        <div id="wiResult" style="margin-top:8px;"></div>`;
+      document.getElementById("btnRunWhatIf").onclick = async () => {
+        const resultEl = document.getElementById("wiResult");
+        const param = document.getElementById("wiParam").value;
+        const value = parseFloat(document.getElementById("wiValue").value);
+        if (isNaN(value)) { resultEl.innerHTML = `<p class="muted">${en ? "Enter a value." : "Value dalein."}</p>`; return; }
+        const parameterChanges = param === "risk_pct" ? { risk_pct: value } : { [param]: { type: "fixed_pct", value } };
+        resultEl.innerHTML = `<p class="muted">${en ? "Running..." : "Chal raha hai..."}</p>`;
+        try {
+          const r = await apiPost("/api/backtesting/what-if", { batch_id: batchId, parameter_changes: parameterChanges });
+          const diff = r.modified.net_profit - r.original.net_profit;
+          resultEl.innerHTML = `
+            <div class="grid">
+              ${card(en ? "Original Net PnL" : "Original Net PnL", `$${r.original.net_profit.toLocaleString()}`)}
+              ${cardClass(en ? "What-If Net PnL" : "What-If Net PnL", `$${r.modified.net_profit.toLocaleString()}`, diff >= 0 ? "positive" : "negative")}
+              ${card(en ? "Original Trades" : "Original Trades", r.original.total_trades)}
+              ${card(en ? "What-If Trades" : "What-If Trades", r.modified.total_trades)}
+            </div>
+            <div class="muted" style="font-size:11.5px;margin-top:6px;">
+              ${en ? `Based on ${r.symbols.join(", ")}, last ${r.window_days} days of this batch's own real data.`
+                   : `${r.symbols.join(", ")} par, is batch ke asal data ke aakhri ${r.window_days} dinon ke hisaab se.`}
+            </div>`;
+        } catch (e) {
+          resultEl.innerHTML = `<p class="muted">${esc(e.message)}</p>`;
+        }
+      };
+    }
+
+    // Backtest Replay Visualizer (Grand Feature Expansion, Phase 5
+    // Feature 15): a full-run, bar-by-bar step-through of one coin's real
+    // backtest candles + real trade entry/exit markers -- distinct from
+    // the per-trade static candle window in Trade Audit above. Hand-rolled
+    // inline SVG, same convention as sparklineSvg/barChartSvg elsewhere in
+    // this file -- no charting library.
+    function candleReplaySvg(candles, trades, uptoIndex) {
+      const shown = candles.slice(0, uptoIndex + 1);
+      if (shown.length < 2) return `<div class="muted">Not enough bars yet.</div>`;
+      const w = 760, h = 260, padTop = 10, padBottom = 20, padLeft = 4, padRight = 4;
+      const lo = Math.min(...shown.map(c => c.low)), hi = Math.max(...shown.map(c => c.high));
+      const range = (hi - lo) || 1;
+      const chartW = w - padLeft - padRight, chartH = h - padTop - padBottom;
+      const barW = chartW / shown.length;
+      const yOf = (price) => padTop + chartH - ((price - lo) / range) * chartH;
+      const xOf = (i) => padLeft + i * barW + barW / 2;
+
+      const bars = shown.map((c, i) => {
+        const x = xOf(i);
+        const color = c.close >= c.open ? "var(--green)" : "var(--red)";
+        const bodyTop = yOf(Math.max(c.open, c.close));
+        const bodyBottom = yOf(Math.min(c.open, c.close));
+        return `
+          <line x1="${x}" y1="${yOf(c.high)}" x2="${x}" y2="${yOf(c.low)}" style="stroke:${color};stroke-width:1;"/>
+          <rect x="${(x - barW * 0.35).toFixed(1)}" y="${bodyTop.toFixed(1)}" width="${(barW * 0.7).toFixed(1)}"
+                height="${Math.max(1, bodyBottom - bodyTop).toFixed(1)}" style="fill:${color};stroke:none;"/>`;
+      }).join("");
+
+      const timeByIndex = new Map(shown.map((c, i) => [c.time, i]));
+      const markers = trades.filter(t => shown.length && t.entry_time >= shown[0].time && t.entry_time <= shown[shown.length - 1].time)
+        .map(t => {
+          // Nearest visible bar to this trade's entry time -- real trade
+          // timestamps rarely land exactly on a resampled bar boundary.
+          let nearest = 0, bestDiff = Infinity;
+          shown.forEach((c, i) => { const diff = Math.abs(c.time - t.entry_time); if (diff < bestDiff) { bestDiff = diff; nearest = i; } });
+          const x = xOf(nearest);
+          const isLong = t.side === "long" || t.side === "bullish";
+          const y = isLong ? yOf(shown[nearest].low) + 10 : yOf(shown[nearest].high) - 10;
+          const color = t.pnl == null ? "var(--text-dim)" : (t.pnl >= 0 ? "var(--green)" : "var(--red)");
+          return `<circle cx="${x}" cy="${y}" r="4" style="fill:${color};stroke:#fff;stroke-width:1;"><title>Trade #${t.trade_num} ${esc(t.side)} pnl=${t.pnl != null ? t.pnl.toFixed(2) : "-"}</title></circle>`;
+        }).join("");
+
+      return `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}">${bars}${markers}</svg>`;
+    }
+
+    async function loadBacktestReplay(batchId, symbol, containerId) {
+      const box = document.getElementById(containerId);
+      const en = getLang() === "en";
+      box.innerHTML = `<p class="muted">${en ? "Loading..." : "Load ho raha hai..."}</p>`;
+      let data;
+      try {
+        data = await apiGet(`/api/backtesting/replay/${batchId}/${symbol}`);
+      } catch (e) {
+        box.innerHTML = `<p class="muted">${esc(e.message)}</p>`;
+        return;
+      }
+      if (!data.candles.length) {
+        box.innerHTML = `<p class="muted">${en ? "No candle data available for this coin." : "Is coin ke liye candle data mojood nahi."}</p>`;
+        return;
+      }
+      let step = 0;
+      let playTimer = null;
+      const render = () => {
+        document.getElementById("replayChart").innerHTML = candleReplaySvg(data.candles, data.trades, step);
+        document.getElementById("replayStepLabel").textContent = `${step + 1} / ${data.candles.length}`;
+      };
+      box.innerHTML = `
+        <div class="muted" style="font-size:11.5px;margin-bottom:6px;">
+          ${esc(symbol)} -- ${esc(data.timeframe)}${data.truncated ? ` (${en ? "showing the most recent" : "sabse haal ke"} ${data.candles.length} ${en ? "bars only" : "bars hi"})` : ""}
+        </div>
+        <div id="replayChart"></div>
+        <div class="btn-row" style="margin-top:8px;align-items:center;">
+          <button class="btn-ghost" id="replayStepBack">&laquo; ${en ? "Step" : "Step"}</button>
+          <button class="btn" id="replayPlayPause">${en ? "Play" : "Play"}</button>
+          <button class="btn-ghost" id="replayStepForward">${en ? "Step" : "Step"} &raquo;</button>
+          <button class="btn-ghost" id="replayReset">${en ? "Reset" : "Reset"}</button>
+          <span id="replayStepLabel" class="muted"></span>
+        </div>`;
+      step = data.candles.length > 1 ? 1 : 0;
+      render();
+
+      const stop = () => {
+        if (playTimer) { clearInterval(playTimer); playTimer = null; }
+        document.getElementById("replayPlayPause").textContent = en ? "Play" : "Play";
+      };
+      document.getElementById("replayStepForward").onclick = () => {
+        stop();
+        step = Math.min(data.candles.length - 1, step + 1);
+        render();
+      };
+      document.getElementById("replayStepBack").onclick = () => {
+        stop();
+        step = Math.max(1, step - 1);
+        render();
+      };
+      document.getElementById("replayReset").onclick = () => {
+        stop();
+        step = 1;
+        render();
+      };
+      document.getElementById("replayPlayPause").onclick = () => {
+        if (playTimer) { stop(); return; }
+        document.getElementById("replayPlayPause").textContent = en ? "Pause" : "Pause";
+        playTimer = setInterval(() => {
+          if (step >= data.candles.length - 1) { stop(); return; }
+          step += 1;
+          render();
+        }, 180);
+      };
+    }
+
+    // Feature Importance Ranking (Grand Feature Expansion, Phase 6
+    // Feature 6): leave-one-out ablation over this strategy's own entry/
+    // confirmation conditions, reusing the same bounded fast-window
+    // re-simulation infrastructure as the What-If Simulator above.
+    function loadFeatureImportanceBox(batchId) {
+      const box = document.getElementById("histFeatureImportanceBox");
+      const en = getLang() === "en";
+      box.innerHTML = `
+        <p class="muted" style="font-size:12px;margin-top:0;">${en
+          ? "Removes each of this strategy's own entry/confirmation conditions one at a time and re-tests (~30 days, up to 3 coins) to see which ones actually matter most."
+          : "Is strategy ki har entry/confirmation condition ko baari baari hata kar dobara test karta hai (~30 din, 3 tak coins) takay pata chale kaun si condition sabse zyada zaroori hai."}</p>
+        <div class="btn-row">
+          <button class="btn" id="btnRunFeatureImportance">${en ? "Run Feature Importance" : "Feature Importance Chalayein"}</button>
+        </div>
+        <div id="fiResult" style="margin-top:8px;"></div>`;
+      document.getElementById("btnRunFeatureImportance").onclick = async () => {
+        const resultEl = document.getElementById("fiResult");
+        resultEl.innerHTML = `<p class="muted">${en ? "Running..." : "Chal raha hai..."}</p>`;
+        try {
+          const r = await apiPost("/api/backtesting/feature-importance", { batch_id: batchId });
+          if (!r.conditions.length) {
+            resultEl.innerHTML = `<p class="muted">${esc(r.reason || (en ? "Not enough conditions to compare." : "Compare karne ke liye kaafi conditions nahi."))}</p>`;
+            return;
+          }
+          resultEl.innerHTML = `
+            <p class="muted" style="font-size:11.5px;">${en ? "Baseline net PnL" : "Baseline net PnL"}: $${r.baseline_net_profit.toLocaleString()} (${r.symbols.join(", ")}, ${en ? "last" : "aakhri"} ${r.window_days} ${en ? "days" : "din"})</p>
+            <div class="table-wrap"><table>
+              <thead><tr><th>${en ? "Condition" : "Condition"}</th><th>${en ? "Net PnL Without It" : "Iske Bina Net PnL"}</th><th>${en ? "Impact" : "Impact"}</th></tr></thead>
+              <tbody>${r.conditions.map(c => `
+                <tr>
+                  <td>${esc(c.label)}</td>
+                  <td>$${c.net_profit_without.toLocaleString()}</td>
+                  <td class="${c.impact >= 0 ? "positive" : "negative"}">${c.impact >= 0 ? "+" : ""}$${c.impact.toLocaleString()}</td>
+                </tr>`).join("")}</tbody>
+            </table></div>
+            <div class="muted" style="font-size:11px;margin-top:6px;">${en ? "Higher impact = removing it hurt PnL more = this condition is doing more of the real work." : "Zyada impact = hatane se PnL zyada gira = yeh condition zyada asal kaam kar rahi hai."}</div>`;
+        } catch (e) {
+          resultEl.innerHTML = `<p class="muted">${esc(e.message)}</p>`;
+        }
+      };
+    }
+
+    // Cross-Coin Group Validation (Grand Feature Expansion, Phase 6
+    // Feature 8): whether this batch's real results hold up similarly
+    // across low/medium/high volatility groups, computed fresh from real
+    // data (never a hardcoded coin list) -- distinct from the flat
+    // per-coin ranking table shown elsewhere on this page.
+    async function loadCrossCoinBox(batchId) {
+      const box = document.getElementById("histCrossCoinBox");
+      const en = getLang() === "en";
+      box.innerHTML = `<p class="muted">${en ? "Loading..." : "Load ho raha hai..."}</p>`;
+      try {
+        const r = await apiGet(`/api/backtesting/cross-coin-validation/${batchId}`);
+        if (!r.groups.length) {
+          box.innerHTML = `<p class="muted">${esc(r.reason || (en ? "Not enough data." : "Kaafi data nahi."))}</p>`;
+          return;
+        }
+        const groupLabel = (g) => ({ low_volatility: en ? "Low Volatility" : "Kam Volatility",
+          medium_volatility: en ? "Medium Volatility" : "Darmiyani Volatility",
+          high_volatility: en ? "High Volatility" : "Zyada Volatility" }[g] || g);
+        box.innerHTML = `
+          <div class="table-wrap"><table>
+            <thead><tr><th>${en ? "Group" : "Group"}</th><th>${en ? "Coins" : "Coins"}</th><th>${en ? "Trades" : "Trades"}</th><th>${en ? "Win Rate" : "Win Rate"}</th><th>${en ? "Net PnL" : "Net PnL"}</th></tr></thead>
+            <tbody>${r.groups.map(g => `
+              <tr>
+                <td>${groupLabel(g.group)}</td>
+                <td>${g.coin_count}</td>
+                <td>${g.total_trades}</td>
+                <td>${g.win_rate != null ? g.win_rate + "%" : "-"}</td>
+                <td class="${g.net_pnl >= 0 ? "positive" : "negative"}">${g.net_pnl >= 0 ? "+" : ""}$${g.net_pnl.toLocaleString()}</td>
+              </tr>`).join("")}</tbody>
+          </table></div>
+          ${r.consistent_across_groups != null ? `
+            <div class="muted" style="font-size:12px;margin-top:6px;">${r.consistent_across_groups
+              ? (en ? "Consistent -- win rate holds up similarly across every volatility group tested." : "Consistent -- win rate har volatility group mein takriban barabar hai.")
+              : (en ? "Inconsistent -- win rate swings by more than 20 points between the best and worst volatility group, a sign this strategy may be overfit to one specific type of coin." : "Inconsistent -- best aur worst volatility group ke darmiyan win rate 20 points se zyada farq karta hai, ho sakta hai yeh strategy sirf ek khaas tarah ke coin par overfit ho.")}</div>
+          ` : (r.reason ? `<div class="muted" style="font-size:12px;margin-top:6px;">${esc(r.reason)}</div>` : "")}`;
+      } catch (e) {
+        box.innerHTML = `<p class="muted">${esc(e.message)}</p>`;
+      }
+    }
+
+    // Self-Generated Strategy Variants (Grand Feature Expansion, Phase 6
+    // Feature 5): several PARALLEL sibling variants tested side-by-side in
+    // one pass -- distinct from the sequential, one-generation-per-tick
+    // Evolution Engine mutations shown on the Evolution page.
+    function loadVariantsBox(batchId) {
+      const box = document.getElementById("histVariantsBox");
+      const en = getLang() === "en";
+      box.innerHTML = `
+        <p class="muted" style="font-size:12px;margin-top:0;">${en
+          ? "Generates a few sibling variants of this strategy (each swapping one entry condition for a related alternative) and tests them all side-by-side (~30 days, up to 3 coins)."
+          : "Is strategy ki chand sibling variants banata hai (har ek mein ek entry condition ko related alternative se badal kar) aur sabko saath test karta hai (~30 din, 3 tak coins)."}</p>
+        <div class="btn-row">
+          <button class="btn" id="btnRunVariants">${en ? "Generate & Test Variants" : "Variants Banayein Aur Test Karein"}</button>
+        </div>
+        <div id="variantsResult" style="margin-top:8px;"></div>`;
+      document.getElementById("btnRunVariants").onclick = async () => {
+        const resultEl = document.getElementById("variantsResult");
+        resultEl.innerHTML = `<p class="muted">${en ? "Running..." : "Chal raha hai..."}</p>`;
+        try {
+          const r = await apiPost("/api/backtesting/strategy-variants", { batch_id: batchId });
+          if (!r.variants.length) {
+            resultEl.innerHTML = `<p class="muted">${esc(r.reason || (en ? "No variants to test." : "Test karne ke liye koi variant nahi."))}</p>`;
+            return;
+          }
+          resultEl.innerHTML = `
+            <p class="muted" style="font-size:11.5px;">${en ? "Baseline (original) net PnL" : "Baseline (original) net PnL"}: $${r.baseline_net_profit.toLocaleString()} (${r.symbols.join(", ")}, ${en ? "last" : "aakhri"} ${r.window_days} ${en ? "days" : "din"})</p>
+            <div class="table-wrap"><table>
+              <thead><tr><th>${en ? "Variant" : "Variant"}</th><th>${en ? "Net PnL" : "Net PnL"}</th><th>${en ? "vs. Original" : "Original Se"}</th></tr></thead>
+              <tbody>${r.variants.map(v => `
+                <tr>
+                  <td>${esc(v.label)}</td>
+                  <td>$${v.net_profit.toLocaleString()}</td>
+                  <td class="${v.improvement >= 0 ? "positive" : "negative"}">${v.improvement >= 0 ? "+" : ""}$${v.improvement.toLocaleString()}</td>
+                </tr>`).join("")}</tbody>
+            </table></div>
+            <div class="muted" style="font-size:11px;margin-top:6px;">${en ? "A variant is a throwaway test -- nothing here changes the strategy's real saved config. Save it as a new version yourself if one looks genuinely better." : "Variant sirf ek test hai -- yahan strategy ka asal saved config nahi badalta. Agar koi genuinely behtar lage to khud naye version ke taur par save karein."}</div>`;
+        } catch (e) {
+          resultEl.innerHTML = `<p class="muted">${esc(e.message)}</p>`;
+        }
+      };
+    }
+
     // Trade Audit Engine (Group 6 #5): look up any single trade by its
     // coordinates and see the exact entry/exit rule plus raw candles --
     // manual end-to-end verification without touching the database.
@@ -4510,11 +5659,14 @@
       equityBox: "histEquityChartBox", drawdownBox: "histDrawdownChartBox",
       zeroSection: "histZeroTradeSection", zeroBody: "histZeroTradeBody", zeroDiagnosis: "histZeroDiagnosis",
       tradeLogBody: "histTradeLogBody", failedSection: "histFailedSection", failedBody: "histFailedBody",
+      replayBox: "histReplayBox",
     };
 
     content.innerHTML = `
       <div class="section-title">Backtest History</div>
       <p class="muted">Every completed backtest batch, permanently -- stored in the database, not just live progress.</p>
+      <div class="section-title" style="font-size:13px;">Time Spent Backtesting ${helpIcon("duration_tracker")}</div>
+      <div id="histDurationBox" class="grid" style="margin-bottom:12px;"></div>
       <div class="table-wrap"><table>
         <thead><tr><th>Date</th><th>Strategy</th><th>Coins</th><th>Trades</th><th>Win Rate</th><th>Total PnL</th><th></th></tr></thead>
         <tbody id="histTableBody"><tr><td colspan="7">Loading...</td></tr></tbody>
@@ -4534,6 +5686,21 @@
         <div class="section-title">Monte Carlo Simulation</div>
         <div id="histMonteCarloBox" class="card"></div>
 
+        <div class="section-title">Slippage Sensitivity Test ${helpIcon("slippage_sensitivity")}</div>
+        <div id="histSlippageBox" class="card"></div>
+
+        <div class="section-title">${getLang() === "en" ? "Historical What-If Simulator" : "Historical What-If Simulator"} ${helpIcon("what_if_simulator")}</div>
+        <div id="histWhatIfBox" class="card"></div>
+
+        <div class="section-title">${getLang() === "en" ? "Feature Importance Ranking" : "Feature Importance Ranking"} ${helpIcon("feature_importance")}</div>
+        <div id="histFeatureImportanceBox" class="card"></div>
+
+        <div class="section-title">${getLang() === "en" ? "Cross-Coin Group Validation" : "Cross-Coin Group Validation"} ${helpIcon("cross_coin_validation")}</div>
+        <div id="histCrossCoinBox" class="card"></div>
+
+        <div class="section-title">${getLang() === "en" ? "Self-Generated Strategy Variants" : "Self-Generated Strategy Variants"} ${helpIcon("strategy_variants")}</div>
+        <div id="histVariantsBox" class="card"></div>
+
         <div class="section-title">Trade Audit -- Inspect Any Trade</div>
         <div id="histTradeAuditBox" class="card"></div>
 
@@ -4541,9 +5708,11 @@
         <div id="histStressTestBox" class="card"></div>
         <div class="section-title">Per-Coin Breakdown</div>
         <div class="table-wrap"><table>
-          <thead><tr><th>Coin</th><th>Trades</th><th>Win Rate</th><th>Profit %</th><th>Total PnL</th><th>Max Drawdown</th></tr></thead>
+          <thead><tr><th>Coin</th><th>Trades</th><th>Win Rate</th><th>Profit %</th><th>Total PnL</th><th>Max Drawdown</th><th></th></tr></thead>
           <tbody id="histCoinBreakdownBody"></tbody>
         </table></div>
+        <div class="section-title">${getLang() === "en" ? "Backtest Replay" : "Backtest Replay"} ${helpIcon("backtest_replay")}</div>
+        <div id="histReplayBox" class="card"><p class="muted">${getLang() === "en" ? "Click Replay on a coin above to step through its real backtest bar by bar." : "Upar kisi coin par Replay click karke uska asal backtest bar-by-bar dekhein."}</p></div>
         <div class="section-title">Equity Curve</div>
         <div id="histEquityChartBox" class="chart-box"></div>
         <div class="section-title">Drawdown</div>
@@ -4561,6 +5730,21 @@
           <tbody id="histTradeLogBody"></tbody>
         </table></div>
       </div>`;
+
+    // Session Time-Tracker (Grand Feature Expansion, Phase 3 Feature 14):
+    // loaded once, independent of renderList()'s own polling -- this
+    // doesn't change as often as the batch list itself.
+    apiGet("/api/backtesting/duration-stats").then(d => {
+      if (isStaleRoute(myToken)) return;
+      const box = document.getElementById("histDurationBox");
+      if (!d.count) { box.innerHTML = `<p class="muted">No completed backtests yet.</p>`; return; }
+      box.innerHTML = `
+        ${card("Backtests Timed", fmtNum(d.count))}
+        ${card("Average Duration", fmtElapsed(d.avg_duration_seconds))}
+        ${card("Total Time Spent", fmtElapsed(d.total_time_spent_seconds))}
+        ${d.slowest[0] ? card("Slowest Batch", `${esc(d.slowest[0].strategy_name)} (${fmtElapsed(d.slowest[0].duration_seconds)})`) : ""}
+      `;
+    }).catch(() => {});
 
     await renderList();
 
@@ -5114,7 +6298,7 @@
     const myToken = activeRouteToken;
 
     async function render() {
-      const [status, championsRes, strategiesRes, lessonsRes, versionsRes, correlationsRes, comparisonsRes] = await Promise.all([
+      const [status, championsRes, strategiesRes, lessonsRes, versionsRes, correlationsRes, comparisonsRes, weeklyReviewsRes] = await Promise.all([
         apiGet("/api/evolution/status"),
         apiGet("/api/evolution/champions"),
         apiGet("/api/evolution/strategies"),
@@ -5122,6 +6306,7 @@
         apiGet("/api/evolution/knowledge-versions?limit=1"),
         apiGet("/api/evolution/research/dna-correlations?min_sample=1"),
         apiGet("/api/evolution/comparisons?limit=50"),
+        apiGet("/api/evolution/weekly-reviews?limit=1").catch(() => ({ reports: [] })),
       ]);
       if (isStaleRoute(myToken)) return;
 
@@ -5176,7 +6361,7 @@
 
         <div class="section-title">BOT Strategies (${strategies.length})</div>
         <div class="table-wrap"><table>
-          <thead><tr><th>ID</th><th>Generation</th><th>Origin</th><th>Evolution Score</th><th>Created</th></tr></thead>
+          <thead><tr><th>ID</th><th>Generation</th><th>Origin</th><th>Evolution Score</th><th>Created</th><th></th></tr></thead>
           <tbody>
             ${strategies.slice(0, 100).map(s => `
               <tr>
@@ -5185,14 +6370,27 @@
                 <td><span class="pill ${s.made_with_ai ? "pill-bullish" : "pill-muted"}">${s.origin}</span></td>
                 <td>${s.evolution_score != null ? Number(s.evolution_score).toFixed(2) : "not backtested"}</td>
                 <td>${esc((s.created_at || "").slice(0, 19))}</td>
-              </tr>`).join("") || '<tr><td colspan="5">No BOT strategies yet -- the Evolution Engine mutates existing lineages, and SINDHU Strategy creates new ones.</td></tr>'}
+                <td><button class="btn-ghost evo-explain-btn" data-base-id="${esc(s.base_id)}">Explain ${helpIcon("strategy_lineage_explainer")}</button></td>
+              </tr>`).join("") || '<tr><td colspan="6">No BOT strategies yet -- the Evolution Engine mutates existing lineages, and SINDHU Strategy creates new ones.</td></tr>'}
           </tbody>
         </table></div>
+        <div id="evoExplainBox" class="card" style="display:none;"></div>
+
+        <div class="section-title">${getLang() === "en" ? "Automated Weekly Strategy Review" : "Automated Weekly Strategy Review"} ${helpIcon("evolution_weekly_review")}</div>
+        <div class="card">
+          ${weeklyReviewsRes.reports.length ? `
+            <div style="white-space:pre-wrap;font-size:13px;">${esc(weeklyReviewsRes.reports[0].report_text)}</div>
+            <div class="muted" style="font-size:11px;margin-top:6px;">${esc((weeklyReviewsRes.reports[0].created_at || "").slice(0, 19))}</div>
+          ` : `<p class="muted">${getLang() === "en" ? "No weekly review generated yet." : "Abhi tak koi weekly review nahi bani."}</p>`}
+          <div class="btn-row" style="margin-top:8px;">
+            <button class="btn-ghost" id="btnGenEvoWeeklyReview">${getLang() === "en" ? "Generate Now" : "Abhi Banayein"}</button>
+          </div>
+        </div>
 
         <div class="section-title">Evolution Before/After Comparisons (${comparisons.length})</div>
         <p class="muted">Every time a BOT strategy lineage crosses a 100-completed-trades milestone (100, 200, 300...), it evolves into a new generation. This shows the parent's real numbers ("before") against the new generation's real numbers ("after") once it has 100 trades of its own -- and whether it was automatically rolled back for performing worse.</p>
         <div class="table-wrap"><table>
-          <thead><tr><th>Lineage</th><th>Trades Threshold</th><th>Win Rate (before -&gt; after)</th><th>Net PnL (before -&gt; after)</th><th>Profit Factor (before -&gt; after)</th><th>Max Drawdown (before -&gt; after)</th><th>Result</th></tr></thead>
+          <thead><tr><th>Lineage</th><th>Trades Threshold</th><th>Win Rate (before -&gt; after)</th><th>Net PnL (before -&gt; after)</th><th>Profit Factor (before -&gt; after)</th><th>Max Drawdown (before -&gt; after)</th><th>Result</th><th>Confidence ${helpIcon("evolution_confidence")}</th></tr></thead>
           <tbody>
             ${comparisons.map(c => {
               const fmt = (v, suffix = "") => v == null ? "-" : `${Number(v).toFixed(2)}${suffix}`;
@@ -5202,6 +6400,9 @@
                 : c.rolled_back
                   ? `<span class="pill pill-bearish">Rolled back to parent</span>`
                   : `<span class="pill pill-bullish">Kept -- improved</span>`;
+              const conf = c.confidence && c.confidence.confidence_score != null
+                ? `<span class="${c.confidence.confidence_score >= 70 ? "positive" : c.confidence.confidence_score >= 40 ? "" : "negative"}">${c.confidence.confidence_score}/100</span>`
+                : `<span class="muted">-</span>`;
               return `
               <tr>
                 <td>${esc(c.base_id)} <span class="muted">(${esc(c.parent_id)} -&gt; ${esc(c.child_id)})</span></td>
@@ -5211,8 +6412,9 @@
                 <td>${pair("avg_profit_factor")}</td>
                 <td>${pair("max_drawdown_pct", "%")}</td>
                 <td>${resultPill}</td>
+                <td>${conf}</td>
               </tr>`;
-            }).join("") || '<tr><td colspan="7">No evolution events yet -- a lineage needs 100 completed backtest trades before it evolves.</td></tr>'}
+            }).join("") || '<tr><td colspan="8">No evolution events yet -- a lineage needs 100 completed backtest trades before it evolves.</td></tr>'}
           </tbody>
         </table></div>
 
@@ -5252,6 +6454,30 @@
         try { await apiPost("/api/evolution/run-tick"); document.getElementById("evoStatusMsg").textContent = "Done."; await render(); }
         catch (e) { document.getElementById("evoStatusMsg").textContent = `Failed: ${e.message}`; }
       };
+      document.getElementById("btnGenEvoWeeklyReview").onclick = async () => {
+        try {
+          await apiPost("/api/evolution/weekly-reviews/generate-now");
+          await render();
+        } catch (e) {
+          alert(e.message || "Could not generate.");
+        }
+      };
+      document.querySelectorAll(".evo-explain-btn").forEach(btn => {
+        btn.onclick = async () => {
+          const box = document.getElementById("evoExplainBox");
+          box.style.display = "block";
+          box.innerHTML = `<p class="muted">Loading...</p>`;
+          box.scrollIntoView({ behavior: "smooth", block: "nearest" });
+          try {
+            const r = await apiGet(`/api/evolution/strategies/${btn.dataset.baseId}/explain`);
+            box.innerHTML = `
+              <div class="label">Lineage ${esc(r.base_id)} -- ${r.generation_count} generation(s), currently on Gen ${r.active_generation}</div>
+              <p style="margin-top:8px;line-height:1.5;">${esc(r.narrative)}</p>`;
+          } catch (e) {
+            box.innerHTML = `<p class="muted">${esc(e.message)}</p>`;
+          }
+        };
+      });
     }
 
     await render();
@@ -6248,7 +7474,8 @@
             <th>${en ? "Backtest Win Rate" : "Backtest Win Rate"}</th>
             <th>${en ? "Paper Win Rate" : "Paper Win Rate"}</th>
             <th>${en ? "Telegram-Sent Win Rate" : "Telegram-Sent Win Rate"}</th>
-            <th>${en ? "Status" : "Status"}</th>
+            <th>${en ? "Backtest vs Paper" : "Backtest vs Paper"}</th>
+            <th>${en ? "Paper vs Telegram-Sent" : "Paper vs Telegram-Sent"}</th>
           </tr></thead>
           <tbody>
             ${table.strategies.map(s => `<tr>
@@ -6256,10 +7483,13 @@
               <td>${fmtRate(s.backtest_win_rate)}</td>
               <td>${fmtRate(s.paper_win_rate)} <span class="muted">(${s.paper_closed_trades})</span></td>
               <td>${fmtRate(s.telegram_win_rate)} <span class="muted">(${s.telegram_closed_trades})</span></td>
+              <td>${s.backtest_vs_paper_diverges
+                ? `<span class="pill pill-bearish" title="${en ? "An alert is also raised on the Alerts page once this is detected." : "Alerts page par bhi alert ban jaata hai jab yeh detect hota hai."}">${en ? "Diverges" : "Farq Hai"}</span>`
+                : `<span class="pill pill-bullish">${en ? "In line" : "Theek Match"}</span>`}</td>
               <td>${s.diverges
                 ? `<span class="pill pill-bearish">${en ? "Diverges" : "Farq Hai"}</span>`
                 : `<span class="pill pill-bullish">${en ? "In line" : "Theek Match"}</span>`}</td>
-            </tr>`).join("") || `<tr><td colspan="5">${en ? "No strategies with closed trades yet." : "Abhi tak koi strategy ka trade band nahi hua."}</td></tr>`}
+            </tr>`).join("") || `<tr><td colspan="6">${en ? "No strategies with closed trades yet." : "Abhi tak koi strategy ka trade band nahi hua."}</td></tr>`}
           </tbody>
         </table></div>`;
     }
@@ -6496,9 +7726,11 @@
     let ptStrategySectionFilter = "profitable";
     const render = async () => {
       const [status, positionsRes, tradesRes, decisionsRes, stratPerfRes, lessonPerfRes,
-             settings, strategiesRes, lessonsRes, allTimeAnalytics, alertsRes, sessionsRes,
-             candidatesRes, portfolioRes, riskScoreRes, exposureRes, corrWarningsRes, patternReliabilityRes,
-             lifecycleRes, configsRes, pausedRes] = await Promise.all([
+             settings, strategiesRes, lessonsRes, allTimeAnalytics, alertsRes, sessionsRes, hourOfDayRes,
+             candidatesRes, portfolioRes, riskScoreRes, exposureRes, corrWarningsRes, strategyCorrMatrixRes, coinHeatmapRes,
+             strategyExposureRes, directionExposureRes, customRulesRes, patternReliabilityRes,
+             lifecycleRes, configsRes, pausedRes, killSwitch, acctDrawdown, coinBlacklistRes,
+             riskPctRecsRes, dupExposureRes] = await Promise.all([
         apiGet("/api/paper-trading/status"),
         apiGet("/api/paper-trading/positions"),
         apiGet("/api/paper-trading/trades?limit=50"),
@@ -6511,15 +7743,26 @@
         apiGet("/api/paper-trading/analytics?period=all"),
         apiGet("/api/paper-trading/alerts?limit=10").catch(() => ({ alerts: [] })),
         apiGet("/api/paper-trading/session-stats").catch(() => ({ sessions: [] })),
+        apiGet("/api/paper-trading/hour-of-day-stats").catch(() => ({ hours: [] })),
         apiGet("/api/paper-trading/lesson-candidates").catch(() => ({ candidates: [] })),
         apiGet("/api/paper-trading/portfolio").catch(() => null),
         apiGet("/api/paper-trading/portfolio-risk-score").catch(() => null),
         apiGet("/api/paper-trading/coin-exposure").catch(() => ({ exposure: [] })),
         apiGet("/api/paper-trading/correlation-warnings").catch(() => ({ warnings: [] })),
+        apiGet("/api/paper-trading/strategy-correlation-matrix").catch(() => ({ strategies: [], matrix: [] })),
+        apiGet("/api/paper-trading/coin-heatmap").catch(() => ({ coins: [] })),
+        apiGet("/api/paper-trading/strategy-exposure").catch(() => ({ exposure: [] })),
+        apiGet("/api/paper-trading/direction-exposure").catch(() => ({ long: null, short: null })),
+        apiGet("/api/paper-trading/custom-alert-rules").catch(() => ({ rules: [], metric_choices: [], comparison_choices: [] })),
         apiGet("/api/paper-trading/pattern-reliability").catch(() => ({ min_sample_size: 25, patterns: [] })),
         apiGet("/api/strategy-lifecycle").catch(() => ({ rows: [] })),
         apiGet("/api/paper-trading/strategy-configs").catch(() => ({ configs: {} })),
         apiGet("/api/paper-trading/paused-strategies").catch(() => ({ paused: [] })),
+        apiGet("/api/paper-trading/kill-switch/status").catch(() => ({ active: false })),
+        apiGet("/api/paper-trading/account-drawdown-status").catch(() => ({ paused: false })),
+        apiGet("/api/paper-trading/coin-blacklist").catch(() => ({ blacklist: [] })),
+        apiGet("/api/paper-trading/risk-pct-recommendations").catch(() => ({ recommendations: [] })),
+        apiGet("/api/paper-trading/duplicate-exposure-warnings").catch(() => ({ warnings: [] })),
       ]);
       if (isStaleRoute(myToken)) return;
 
@@ -6528,6 +7771,8 @@
       const paperConfigs = configsRes.configs || {};
       const pausedIds = {};
       (pausedRes.paused || []).forEach(x => { pausedIds[x.strategy_id] = x; });
+      const strategyNameById = {};
+      (strategiesRes.strategies || []).forEach(s => { strategyNameById[s.id] = s.name; });
 
       // Overview cards use the real all-time totals (allTimeAnalytics), not
       // just the 50 most-recently-fetched trades -- with 700+ trades in a
@@ -6587,9 +7832,63 @@
             </div>`).join("")}
         </div>` : ""}
 
+        <div class="section-title">Custom Alert Rules ${helpIcon("custom_alert_rules")}</div>
+        <div class="card">
+          <p class="muted" style="font-size:12px;margin-top:0;">Define your own "alert me if X" rules on top of the system's built-in alerts.</p>
+          <div class="btn-row">
+            <select id="carMetric">
+              <option value="strategy_pnl">Strategy realized PnL</option>
+              <option value="strategy_win_rate">Strategy win rate %</option>
+              <option value="consecutive_losses">Strategy consecutive losses</option>
+              <option value="account_drawdown_pct">Account-wide drawdown %</option>
+            </select>
+            <select id="carStrategy"><option value="">(account-wide metrics only)</option>${(strategiesRes.strategies || []).map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join("")}</select>
+            <select id="carComparison"><option value="below">drops below</option><option value="above">goes above</option></select>
+            <input id="carThreshold" type="number" step="any" placeholder="Threshold" style="max-width:120px;">
+            <button class="btn" id="btnAddCustomRule">Add Rule</button>
+          </div>
+          <div id="carStatus" class="muted"></div>
+          <div class="table-wrap" style="margin-top:8px;"><table>
+            <thead><tr><th>Name</th><th>Rule</th><th>Enabled</th><th>Last Triggered</th><th></th></tr></thead>
+            <tbody>${(customRulesRes.rules || []).map(r => `
+              <tr>
+                <td>${esc(r.name)}</td>
+                <td style="font-size:12px;">${esc(r.metric)}${r.strategy_id ? ` (${esc(strategyNameById[r.strategy_id] || r.strategy_id)})` : ""} ${esc(r.comparison)} ${r.threshold}</td>
+                <td><input type="checkbox" class="car-toggle" data-id="${r.id}" ${r.enabled ? "checked" : ""}></td>
+                <td style="font-size:12px;">${r.last_triggered_at ? esc(r.last_triggered_at.slice(0, 16).replace("T", " ")) : "-"}</td>
+                <td><button class="btn-ghost car-delete" data-id="${r.id}">Delete</button></td>
+              </tr>`).join("") || `<tr><td colspan="5">No custom rules yet.</td></tr>`}</tbody>
+          </table></div>
+        </div>
+
+        <div class="section-title">${getLang() === "en" ? "Coin Blacklist" : "Coin Blacklist"} ${helpIcon("coin_blacklist")}</div>
+        <div class="card">
+          <p class="muted" style="font-size:12px;margin-top:0;">${getLang() === "en"
+            ? "Coins listed here are never traded by any strategy -- removed before they're even ranked, no matter how strong their activity score would otherwise be."
+            : "Yahan listed coins kisi bhi strategy se trade nahi hote -- ranking se pehle hi hata diye jaate hain, chahe unka activity score kitna hi acha ho."}</p>
+          <div class="btn-row">
+            <input id="cblSymbol" placeholder="${getLang() === "en" ? "e.g. DOGEUSDT" : "misaal: DOGEUSDT"}" style="max-width:160px;text-transform:uppercase;">
+            <input id="cblReason" placeholder="${getLang() === "en" ? "Reason (optional)" : "Wajah (optional)"}" style="max-width:220px;">
+            <button class="btn" id="btnAddCoinBlacklist">${getLang() === "en" ? "Add" : "Jodein"}</button>
+          </div>
+          <div class="table-wrap" style="margin-top:8px;"><table>
+            <thead><tr><th>${getLang() === "en" ? "Symbol" : "Symbol"}</th><th>${getLang() === "en" ? "Reason" : "Wajah"}</th><th>${getLang() === "en" ? "Added" : "Joda Gaya"}</th><th></th></tr></thead>
+            <tbody>${(coinBlacklistRes.blacklist || []).map(b => `
+              <tr>
+                <td>${esc(b.symbol)}</td>
+                <td style="font-size:12px;">${esc(b.reason || "-")}</td>
+                <td style="font-size:12px;">${esc((b.added_at || "").slice(0, 16).replace("T", " "))}</td>
+                <td><button class="btn-ghost cbl-remove" data-symbol="${esc(b.symbol)}">${getLang() === "en" ? "Remove" : "Hataayein"}</button></td>
+              </tr>`).join("") || `<tr><td colspan="4">${getLang() === "en" ? "No coins blacklisted." : "Koi coin blacklist nahi."}</td></tr>`}</tbody>
+          </table></div>
+        </div>
+
         </div>
 
         <div class="pt-tab-panel" data-pt-tab="challenge">
+        <div class="section-title">${getLang() === "en" ? "Best Portfolio Suggestion" : "Best Portfolio Suggestion"} ${helpIcon("best_portfolio_suggestion")}</div>
+        <div id="bestPortfolioBox" class="card"><p class="muted">Loading...</p></div>
+
         <div class="section-title">Challenge Mode</div>
         <p class="muted plain-note">Set a starting amount, a target, and a number of days. Instead of one blended guess across everything, the system checks each strategy on each coin separately against its own real trade history and tells you honestly which single combination &mdash; if any &mdash; has actually been performing fast enough to get there.</p>
         <div id="challengeBox"><p class="muted">Loading...</p></div>
@@ -6618,6 +7917,15 @@
             </div>`).join("")}
         </div>` : ""}
 
+        ${(dupExposureRes.warnings || []).length ? `
+        <div class="section-title">${getLang() === "en" ? "Duplicate Exposure Warnings" : "Duplicate Exposure Warnings"} ${helpIcon("duplicate_exposure_warning")}</div>
+        <div class="card">
+          ${dupExposureRes.warnings.map(w => `
+            <div style="padding:4px 0;border-bottom:1px solid var(--border,#333);font-size:13px;">
+              <span class="pill pill-pending">${getLang() === "en" ? "Info" : "Info"}</span> ${esc(w.message)}
+            </div>`).join("")}
+        </div>` : ""}
+
         ${(exposureRes.exposure || []).length ? `
         <div class="section-title">Exposure Per Coin (All Strategies)</div>
         <div class="table-wrap"><table>
@@ -6631,6 +7939,62 @@
               <td>$${e.total_risk.toFixed(2)}</td>
             </tr>`).join("")}</tbody>
         </table></div>` : ""}
+
+        ${(strategyExposureRes.exposure || []).length ? `
+        <div class="section-title">Exposure Per Strategy ${helpIcon("portfolio_heat_map")}</div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Strategy</th><th>Open Positions</th><th>Coins</th><th>Total Notional</th><th>Total Risk</th></tr></thead>
+          <tbody>${strategyExposureRes.exposure.slice(0, 15).map(e => `
+            <tr>
+              <td>${esc(strategyNameById[e.strategy_id] || e.strategy_id)}</td>
+              <td>${e.position_count}</td>
+              <td>${e.coin_count}</td>
+              <td>$${e.total_notional.toFixed(2)}</td>
+              <td>$${e.total_risk.toFixed(2)}</td>
+            </tr>`).join("")}</tbody>
+        </table></div>` : ""}
+
+        ${directionExposureRes.long ? `
+        <div class="section-title">Exposure By Direction ${helpIcon("portfolio_heat_map")}</div>
+        <div class="grid">
+          ${card("Long", `${directionExposureRes.long.position_count} positions -- $${directionExposureRes.long.total_notional.toFixed(2)} (${directionExposureRes.long.pct_of_total_notional}%)`)}
+          ${card("Short", `${directionExposureRes.short.position_count} positions -- $${directionExposureRes.short.total_notional.toFixed(2)} (${directionExposureRes.short.pct_of_total_notional}%)`)}
+        </div>` : ""}
+
+        ${(strategyCorrMatrixRes.strategies || []).length >= 2 ? `
+        <div class="section-title">Strategy Correlation Matrix ${helpIcon("strategy_correlation")}</div>
+        <div class="table-wrap"><table>
+          <thead><tr><th></th>${strategyCorrMatrixRes.strategies.map(sid => `<th style="font-size:11px;">${esc((strategyNameById[sid] || sid).slice(0, 14))}</th>`).join("")}</tr></thead>
+          <tbody>${strategyCorrMatrixRes.strategies.map((sid, i) => `
+            <tr>
+              <td style="font-size:11px;font-weight:600;">${esc((strategyNameById[sid] || sid).slice(0, 14))}</td>
+              ${strategyCorrMatrixRes.matrix[i].map(c => {
+                if (c == null) return `<td class="muted" style="text-align:center;">-</td>`;
+                const bg = c >= 0.7 ? "rgba(220,50,50,0.35)" : c >= 0.4 ? "rgba(220,150,50,0.25)" : c <= -0.4 ? "rgba(50,150,220,0.25)" : "transparent";
+                return `<td style="text-align:center;background:${bg};">${c.toFixed(2)}</td>`;
+              }).join("")}
+            </tr>`).join("")}</tbody>
+        </table></div>
+        <p class="muted" style="font-size:12px;">Based on each strategy's daily realized PnL over the last 30 days (needs at least ${strategyCorrMatrixRes.min_aligned_days || 10} overlapping days -- shown as "-" otherwise). Red = strategies that tend to win/lose on the same days (less real diversification than it looks); blue = strategies that tend to move opposite each other.</p>
+        ` : ""}
+
+        ${(coinHeatmapRes.coins || []).length ? `
+        <div class="section-title">Coin-Performance Heatmap ${helpIcon("coin_heatmap")}</div>
+        <p class="muted" style="font-size:12px;">Click a coin to see every strategy's own performance on it, side by side.</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Coin</th><th>Strategies Traded It</th><th>Consistency</th><th>Avg Win Rate</th><th>Total PnL</th></tr></thead>
+          <tbody>${coinHeatmapRes.coins.slice(0, 20).map(c => {
+            const bg = c.consistency_pct >= 70 ? "rgba(50,180,80,0.2)" : c.consistency_pct >= 40 ? "rgba(220,150,50,0.2)" : "rgba(220,50,50,0.2)";
+            return `<tr style="background:${bg};cursor:pointer;" class="pt-coin-deep-dive-row" data-symbol="${esc(c.symbol)}">
+              <td>${esc(c.symbol)}</td>
+              <td>${c.profitable_strategy_count}/${c.strategy_count} profitable</td>
+              <td>${c.consistency_pct.toFixed(0)}%</td>
+              <td>${c.avg_win_rate.toFixed(1)}%</td>
+              <td class="${c.total_pnl >= 0 ? "pill-up" : "pill-down"}">${c.total_pnl.toFixed(2)}</td>
+            </tr>`;
+          }).join("")}</tbody>
+        </table></div>
+        <div id="ptCoinDeepDive" class="card" style="display:none;"></div>` : ""}
         </div>
 
         <div class="pt-tab-panel" data-pt-tab="analytics">
@@ -6646,14 +8010,34 @@
         </div>
 
         <div class="section-title">${t("Control Center")}</div>
+        ${acctDrawdown.paused ? `
+        <div class="card" style="border:2px solid var(--orange,#d68910);background:rgba(214,137,16,0.08);margin-bottom:10px;">
+          <div style="font-weight:700;color:var(--orange,#d68910);">⛔ Account-Wide Drawdown Circuit-Breaker ACTIVE -- new trades paused for every strategy</div>
+          <div class="muted" style="font-size:12px;margin-top:4px;">${esc(acctDrawdown.paused_reason || "-")}</div>
+          <div class="muted" style="font-size:12px;">Existing open positions are unaffected -- only new entries are blocked.</div>
+          <div class="btn-row" style="margin-top:8px;">
+            <button class="btn" id="ptAcctDrawdownResume">Resume Account-Wide Trading</button>
+          </div>
+        </div>` : `
+        <div class="muted" style="font-size:12px;margin-bottom:10px;">Account drawdown from peak: ${acctDrawdown.drawdown_pct != null ? acctDrawdown.drawdown_pct.toFixed(1) : "0.0"}% (circuit-breaker trips at ${settings.account_drawdown_pause_pct_threshold ?? 20}%)</div>`}
+        ${killSwitch.active ? `
+        <div class="card" style="border:2px solid var(--red,#c0392b);background:rgba(192,57,43,0.08);margin-bottom:10px;">
+          <div style="font-weight:700;color:var(--red,#c0392b);">🛑 KILL SWITCH ACTIVE -- all trading is halted</div>
+          <div class="muted" style="font-size:12px;margin-top:4px;">Reason: ${esc(killSwitch.reason || "-")} &middot; Activated by ${esc(killSwitch.activated_by || "-")} at ${esc((killSwitch.activated_at || "").slice(0,19))}</div>
+          <div class="muted" style="font-size:12px;">Engine cannot be started again until this is deactivated below.</div>
+          <div class="btn-row" style="margin-top:8px;">
+            <button class="btn" id="ptKillSwitchDeactivate">Deactivate Kill Switch</button>
+          </div>
+        </div>` : ""}
         <div class="btn-row">
-          <button class="btn" id="ptStart" ${status.running ? "disabled" : ""}>${t("Start Engine")}</button>
+          <button class="btn" id="ptStart" ${status.running || killSwitch.active ? "disabled" : ""}>${t("Start Engine")}</button>
           <button class="btn-ghost" id="ptStop" ${status.running ? "" : "disabled"}>${t("Stop Engine")}</button>
           <button class="btn-ghost" id="ptRunTick">${t("Run One Tick Now")}</button>
           <label style="display:flex;align-items:center;gap:6px;width:auto;">
             <input type="checkbox" id="ptDryRun" ${settings.dry_run ? "checked" : ""} style="width:auto;"> Dry Run Mode
           </label>
           <button class="btn-ghost" id="ptResetBalance" style="border-color:var(--red,#c0392b);color:var(--red,#c0392b);">${t("Reset Balance")}</button>
+          ${!killSwitch.active ? `<button class="btn" id="ptKillSwitchActivate" style="background:var(--red,#c0392b);border-color:var(--red,#c0392b);color:#fff;">🛑 EMERGENCY STOP</button>` : ""}
           <span id="ptStatusMsg" class="muted"></span>
         </div>
         ${status.running ? `<div class="muted pt-engine-status-line" style="font-size:12px;">Started ${esc((status.started_at||"").slice(0,19))} -- tick #${status.tick_count}${
@@ -6688,9 +8072,78 @@
               </select>
             </div>
             <div class="form-row"><label>Daily Goal %</label><input id="ptDailyGoal" type="number" step="0.1" value="${settings.daily_goal_pct}"></div>
+            <div class="form-row"><label>${getLang() === "en" ? "Ensemble Voting: Min. Agreeing Strategies" : "Ensemble Voting: Min. Agreeing Strategies"} ${helpIcon("ensemble_voting")}</label><input id="ptEnsembleMinAgree" type="number" min="1" step="1" value="${settings.ensemble_voting_min_agreeing_strategies}"></div>
           </div>
           <span id="ptSettingsStatus" class="muted"></span>
         </div>
+
+        <div class="section-title">${getLang() === "en" ? "Position Size Calculator" : "Position Size Calculator"} ${helpIcon("position_size_calculator")}</div>
+        <div class="card" style="max-width:560px;">
+          <p class="muted" style="font-size:12px;margin-top:0;">${getLang() === "en"
+            ? "A what-if tool -- given a balance, entry, stop, and risk %, see exactly what size would be opened. Purely a calculation; never opens a real trade."
+            : "Ek what-if tool -- balance, entry, stop, aur risk % dekar, exact size dekhein jo khulti. Sirf calculation hai; koi asal trade nahi khulti."}</p>
+          <div class="two-col">
+            <div class="form-row"><label>${getLang() === "en" ? "Balance" : "Balance"}</label><input id="pscBalance" type="number" value="10000"></div>
+            <div class="form-row"><label>${getLang() === "en" ? "Risk %" : "Risk %"}</label><input id="pscRiskPct" type="number" step="0.1" value="1"></div>
+            <div class="form-row"><label>${getLang() === "en" ? "Entry Price" : "Entry Price"}</label><input id="pscEntry" type="number" step="any"></div>
+            <div class="form-row"><label>${getLang() === "en" ? "Stop-Loss" : "Stop-Loss"}</label><input id="pscStop" type="number" step="any"></div>
+            <div class="form-row"><label>${getLang() === "en" ? "Take-Profit (optional)" : "Take-Profit (optional)"}</label><input id="pscTarget" type="number" step="any"></div>
+            <div class="form-row"><label>${getLang() === "en" ? "Leverage" : "Leverage"}</label><input id="pscLeverage" type="number" step="0.1" value="1"></div>
+          </div>
+          <div class="btn-row" style="margin-top:8px;">
+            <button class="btn-ghost" id="btnCalcPositionSize">${getLang() === "en" ? "Calculate" : "Calculate Karein"}</button>
+          </div>
+          <div id="pscResult" style="margin-top:8px;font-size:13px;"></div>
+        </div>
+
+        <div class="section-title">${getLang() === "en" ? "Time-of-Day Trading Filter" : "Time-of-Day Trading Filter"} ${helpIcon("time_of_day_filter")}</div>
+        <div class="card" style="max-width:560px;">
+          <p class="muted" style="font-size:12px;margin-top:0;">${getLang() === "en"
+            ? "Blocks NEW entries during a UTC hour window -- existing open positions are never affected. Off by default."
+            : "UTC ke ek time window mein NAYE trades block karta hai -- pehle se khuli positions par asar nahi hota. Default mein OFF hai."}</p>
+          <label style="display:flex;align-items:center;gap:6px;width:auto;margin-bottom:8px;">
+            <input type="checkbox" id="ptTimeFilterEnabled" style="width:auto;" ${settings.time_filter_enabled ? "checked" : ""}> ${getLang() === "en" ? "Enable" : "Chalu Karein"}
+          </label>
+          <div class="two-col">
+            <div class="form-row"><label>${getLang() === "en" ? "Block From (UTC)" : "Kab Se Block (UTC)"}</label><input id="ptTimeFilterStart" type="time" value="${esc(settings.time_filter_block_start_utc || "00:00")}"></div>
+            <div class="form-row"><label>${getLang() === "en" ? "Block Until (UTC)" : "Kab Tak Block (UTC)"}</label><input id="ptTimeFilterEnd" type="time" value="${esc(settings.time_filter_block_end_utc || "00:00")}"></div>
+          </div>
+          <div class="btn-row" style="margin-top:8px;">
+            <button class="btn-ghost" id="btnSaveTimeFilter">${getLang() === "en" ? "Save" : "Save Karein"}</button>
+          </div>
+          <span id="ptTimeFilterStatus" class="muted"></span>
+        </div>
+
+        <div class="section-title">${getLang() === "en" ? "Profit-Lock Trailing Stop" : "Profit-Lock Trailing Stop"} ${helpIcon("profit_lock")}</div>
+        <div class="card" style="max-width:560px;">
+          <p class="muted" style="font-size:12px;margin-top:0;">${getLang() === "en"
+            ? "Once a trade moves far enough in its favor, its stop-loss trails up to lock in part of that gain -- it only ever tightens, never loosens. Off by default."
+            : "Jab trade kaafi favor mein chali jaaye, uska stop-loss upar trail hota hai takay munafa lock ho -- yeh sirf tight hota hai, kabhi loose nahi. Default mein OFF hai."}</p>
+          <label style="display:flex;align-items:center;gap:6px;width:auto;margin-bottom:8px;">
+            <input type="checkbox" id="ptProfitLockEnabled" style="width:auto;" ${settings.profit_lock_enabled ? "checked" : ""}> ${getLang() === "en" ? "Enable" : "Chalu Karein"}
+          </label>
+          <div class="two-col">
+            <div class="form-row"><label>${getLang() === "en" ? "Trigger (R-multiple)" : "Trigger (R-multiple)"}</label><input id="ptProfitLockTriggerR" type="number" step="0.1" value="${settings.profit_lock_trigger_r}"></div>
+            <div class="form-row"><label>${getLang() === "en" ? "Lock In (% of gain)" : "Lock In (% of gain)"}</label><input id="ptProfitLockTrailPct" type="number" step="1" value="${settings.profit_lock_trail_pct}"></div>
+          </div>
+          <div class="btn-row" style="margin-top:8px;">
+            <button class="btn-ghost" id="btnSaveProfitLock">${getLang() === "en" ? "Save" : "Save Karein"}</button>
+          </div>
+          <span id="ptProfitLockStatus" class="muted"></span>
+        </div>
+
+        ${(riskPctRecsRes.recommendations || []).length ? `
+        <div class="section-title">${getLang() === "en" ? "Risk % Recommendations" : "Risk % Recommendations"} ${helpIcon("risk_pct_recommendation")}</div>
+        <div class="card">
+          <p class="muted" style="font-size:12px;margin-top:0;">${getLang() === "en"
+            ? "Suggestions only -- nothing here changes automatically. Applying one just fills in that strategy's existing risk-per-trade override."
+            : "Sirf suggestions hain -- yahan kuch bhi apne aap nahi badalta. Apply karne se sirf us strategy ka pehle se maujood risk-per-trade override set hota hai."}</p>
+          ${riskPctRecsRes.recommendations.map(r => `
+            <div style="padding:6px 0;border-top:1px solid var(--border,#333);font-size:13px;display:flex;justify-content:space-between;align-items:center;gap:8px;">
+              <span><b>${esc(r.strategy_name)}</b> -- ${esc(r.reason)}</span>
+              <button class="btn-ghost risk-pct-apply" data-id="${r.strategy_id}" data-value="${r.recommended_risk_pct}">${getLang() === "en" ? "Apply" : "Apply Karein"}</button>
+            </div>`).join("")}
+        </div>` : ""}
 
         <div class="grid">
           ${card("Strategies Available", fmtNum((strategiesRes.strategies || []).length))}
@@ -6766,6 +8219,9 @@
 
         <div class="pt-tab-panel" data-pt-tab="history">
         <div class="section-title">Closed Trades (most recent 30 of ${allTimeSummary.closed_trades})</div>
+        <div class="btn-row" style="margin-bottom:8px;">
+          <button class="btn-ghost" id="btnExportTradeJournal">${getLang() === "en" ? "Export Trade Journal (PDF)" : "Trade Journal Export Karein (PDF)"}</button>
+        </div>
         <div class="table-wrap"><table>
           <thead><tr><th>Strategy</th><th>Coin</th><th>Direction</th><th>Entry</th><th>Exit</th><th>PnL</th><th>PnL%</th><th>Result</th><th>Why</th><th></th></tr></thead>
           <tbody>${trades.slice(0, 30).map((t, idx) => `
@@ -6779,7 +8235,10 @@
               <td class="${(t.pnl_pct||0) >= 0 ? "pill-up" : "pill-down"}">${t.pnl_pct != null ? t.pnl_pct.toFixed(2) : "-"}%</td>
               <td style="font-size:12px;">${esc(t.win_loss_tag || t.exit_reason || "-")}</td>
               <td style="font-size:12px;max-width:220px;">${esc(t.reason_plain || "-")}</td>
-              <td><button class="btn-ghost pt-view-trade" data-idx="${idx}">Replay</button></td>
+              <td>
+                <button class="btn-ghost pt-view-trade" data-idx="${idx}">Replay</button>
+                <button class="btn-ghost pt-trade-note" data-id="${t.id}" data-note="${esc(t.user_note || "")}" title="${esc(t.user_note || "Add a personal note")}">${t.user_note ? "📝" : "🗒"}</button>
+              </td>
             </tr>`).join("") || '<tr><td colspan="10">No closed trades yet.</td></tr>'}</tbody>
         </table></div>
         <div id="ptTradeDetail" class="card" style="display:none;white-space:pre-wrap;font-family:Consolas,monospace;font-size:12px;"></div>
@@ -6833,6 +8292,19 @@
                 <td class="${s.total_pnl >= 0 ? "pill-up" : "pill-down"}">${s.total_pnl.toFixed(2)}</td></tr>`).join("") || '<tr><td colspan="4">No data yet.</td></tr>'}</tbody>
             </table></div>
           </div>
+          <div>
+            <div class="section-title">By Hour of Day (UTC)</div>
+            <div class="table-wrap" style="max-height:240px;overflow-y:auto;"><table>
+              <thead><tr><th>Hour</th><th>Trades</th><th>Win Rate</th><th>PnL</th></tr></thead>
+              <tbody>${(hourOfDayRes.hours || []).map(h => `
+                <tr><td>${String(h.hour_utc).padStart(2, "0")}:00</td><td>${h.closed_trades}</td>
+                <td>${h.win_rate.toFixed(1)}%</td>
+                <td class="${h.total_pnl >= 0 ? "pill-up" : "pill-down"}">${h.total_pnl.toFixed(2)}</td></tr>`).join("") || '<tr><td colspan="4">No data yet.</td></tr>'}</tbody>
+            </table></div>
+          </div>
+        </div>
+
+        <div class="two-col">
           <div>
             <div class="section-title">Lesson Performance</div>
             <div class="table-wrap"><table>
@@ -6907,17 +8379,106 @@
 
       loadPaperAnalytics("ptAnalyticsBox", "pt", "today");
       loadChallenge();
+      loadBestPortfolio();
 
       document.getElementById("ptStart").onclick = async () => {
-        await apiPost("/api/paper-trading/start");
-        appendLog("Paper Trading engine started.");
+        // Master Task 3, Phase 0.8h: Start/Stop are real trading state
+        // changes -- a confirm prompt (already the convention for the kill
+        // switch / account-drawdown-resume buttons above) prevents an
+        // accidental click.
+        if (!confirm("Start the Paper Trading engine? It will begin scanning for real signals and opening trades (or dry-run entries, if Dry Run Mode is on).")) return;
+        try {
+          await apiPost("/api/paper-trading/start");
+          appendLog("Paper Trading engine started.");
+          document.getElementById("ptStatusMsg").textContent = "✓ Done -- engine started.";
+        } catch (e) {
+          document.getElementById("ptStatusMsg").textContent = `✗ Failed: ${e.message}`;
+          showToast({ title: "Start Engine failed", body: e.message, isError: true });
+        }
         render();
       };
       document.getElementById("ptStop").onclick = async () => {
-        await apiPost("/api/paper-trading/stop");
+        if (!confirm("Stop the Paper Trading engine? It will stop scanning for new signals (existing open positions stay open and keep being monitored).")) return;
+        try {
+          await apiPost("/api/paper-trading/stop");
+          document.getElementById("ptStatusMsg").textContent = "✓ Done -- engine stopped.";
+        } catch (e) {
+          document.getElementById("ptStatusMsg").textContent = `✗ Failed: ${e.message}`;
+          showToast({ title: "Stop Engine failed", body: e.message, isError: true });
+          render();
+          return;
+        }
         appendLog("Paper Trading engine stopped.");
         render();
       };
+      const killActivateBtn = document.getElementById("ptKillSwitchActivate");
+      if (killActivateBtn) killActivateBtn.onclick = async () => {
+        if (!confirm("EMERGENCY STOP: this immediately halts the engine, stops all Telegram signals, and closes every open position at the current market price. Continue?")) return;
+        const reason = prompt("Reason for kill switch (optional):", "") || "manual emergency stop";
+        await apiPost("/api/paper-trading/kill-switch/activate", { reason, close_positions: true });
+        appendLog("KILL SWITCH ACTIVATED.");
+        render();
+      };
+      const killDeactivateBtn = document.getElementById("ptKillSwitchDeactivate");
+      if (killDeactivateBtn) killDeactivateBtn.onclick = async () => {
+        if (!confirm("Deactivate the kill switch? Trading will stay OFF until you press Start Engine again.")) return;
+        await apiPost("/api/paper-trading/kill-switch/deactivate", {});
+        appendLog("Kill switch deactivated.");
+        render();
+      };
+      const acctDrawdownResumeBtn = document.getElementById("ptAcctDrawdownResume");
+      if (acctDrawdownResumeBtn) acctDrawdownResumeBtn.onclick = async () => {
+        if (!confirm("Resume account-wide trading? Every strategy will be allowed to open new trades again.")) return;
+        await apiPost("/api/paper-trading/account-drawdown-resume", {});
+        appendLog("Account-wide drawdown circuit-breaker resumed.");
+        render();
+      };
+      const btnAddCustomRule = document.getElementById("btnAddCustomRule");
+      if (btnAddCustomRule) btnAddCustomRule.onclick = async () => {
+        const status = document.getElementById("carStatus");
+        const threshold = parseFloat(document.getElementById("carThreshold").value);
+        if (isNaN(threshold)) { status.textContent = "Enter a threshold number."; return; }
+        const metric = document.getElementById("carMetric").value;
+        const strategyId = document.getElementById("carStrategy").value || null;
+        if (metric !== "account_drawdown_pct" && !strategyId) { status.textContent = "Pick a strategy for this metric."; return; }
+        try {
+          await apiPost("/api/paper-trading/custom-alert-rules", {
+            name: `${metric} ${document.getElementById("carComparison").value} ${threshold}`,
+            metric, comparison: document.getElementById("carComparison").value, threshold, strategy_id: strategyId,
+          });
+          status.textContent = "Added.";
+          render();
+        } catch (e) { status.textContent = `Failed: ${e.message}`; }
+      };
+      document.querySelectorAll(".car-toggle").forEach(cb => cb.onchange = async () => {
+        await apiPost(`/api/paper-trading/custom-alert-rules/${cb.dataset.id}/enabled?enabled=${cb.checked}`, {});
+      });
+      document.querySelectorAll(".car-delete").forEach(btn => btn.onclick = async () => {
+        await apiSend("DELETE", `/api/paper-trading/custom-alert-rules/${btn.dataset.id}`);
+        render();
+      });
+      const btnAddCoinBlacklist = document.getElementById("btnAddCoinBlacklist");
+      if (btnAddCoinBlacklist) btnAddCoinBlacklist.onclick = async () => {
+        const symbol = document.getElementById("cblSymbol").value.trim().toUpperCase();
+        if (!symbol) return;
+        const reason = document.getElementById("cblReason").value.trim() || null;
+        await apiPost("/api/paper-trading/coin-blacklist", { symbol, reason });
+        render();
+      };
+      document.querySelectorAll(".cbl-remove").forEach(btn => btn.onclick = async () => {
+        await apiSend("DELETE", `/api/paper-trading/coin-blacklist/${btn.dataset.symbol}`);
+        render();
+      });
+      document.querySelectorAll(".risk-pct-apply").forEach(btn => btn.onclick = async () => {
+        // Reuses the EXACT SAME, already-validated per-strategy override
+        // endpoint the manual risk-pct-override UI already calls -- this
+        // suggestion never has its own separate apply path.
+        await apiPost(`/api/paper-trading/strategy-config/${btn.dataset.id}/overrides`, {
+          risk_pct_override: parseFloat(btn.dataset.value),
+        });
+        appendLog(`Applied recommended risk %: ${btn.dataset.value}% for this strategy.`);
+        render();
+      });
       document.getElementById("ptRunTick").onclick = async () => {
         document.getElementById("ptStatusMsg").textContent = "Running tick...";
         const res = await apiPost("/api/paper-trading/run-tick-now");
@@ -6970,18 +8531,79 @@
             priority_rule: document.getElementById("ptPriorityRule").value,
             opposite_signal_policy: document.getElementById("ptOppositePolicy").value,
             daily_goal_pct: parseFloat(document.getElementById("ptDailyGoal").value),
+            ensemble_voting_min_agreeing_strategies: parseInt(document.getElementById("ptEnsembleMinAgree").value, 10),
           });
           status.textContent = "Saved";
         } catch (e) {
           status.textContent = "Save failed (will retry)";
         }
       }, 600);
-      ["ptMaxOpen", "ptCooldown", "ptRiskPct", "ptBalance", "ptTopN", "ptTickInterval", "ptDailyGoal"].forEach(id => {
+      ["ptMaxOpen", "ptCooldown", "ptRiskPct", "ptBalance", "ptTopN", "ptTickInterval", "ptDailyGoal", "ptEnsembleMinAgree"].forEach(id => {
         document.getElementById(id).addEventListener("input", saveEngineSettings);
       });
       ["ptPriorityRule", "ptOppositePolicy"].forEach(id => {
         document.getElementById(id).addEventListener("change", saveEngineSettings);
       });
+
+      document.getElementById("btnCalcPositionSize").onclick = async () => {
+        const resultEl = document.getElementById("pscResult");
+        const entry = parseFloat(document.getElementById("pscEntry").value);
+        if (!entry || entry <= 0) {
+          resultEl.innerHTML = `<p class="muted">${getLang() === "en" ? "Enter an entry price." : "Entry price dalein."}</p>`;
+          return;
+        }
+        const stopVal = document.getElementById("pscStop").value;
+        const targetVal = document.getElementById("pscTarget").value;
+        try {
+          const r = await apiPost("/api/paper-trading/position-size-calculator", {
+            balance: parseFloat(document.getElementById("pscBalance").value) || 0,
+            entry_price: entry,
+            stop_loss: stopVal ? parseFloat(stopVal) : null,
+            risk_pct: parseFloat(document.getElementById("pscRiskPct").value) || 1.0,
+            take_profit: targetVal ? parseFloat(targetVal) : null,
+            leverage: parseFloat(document.getElementById("pscLeverage").value) || 1.0,
+          });
+          resultEl.innerHTML = `
+            <div class="two-col">
+              ${card(getLang() === "en" ? "Size" : "Size", r.size)}
+              ${card(getLang() === "en" ? "Notional" : "Notional", `$${r.notional.toLocaleString()}`)}
+              ${card(getLang() === "en" ? "Risk Amount" : "Risk Amount", r.risk_amount != null ? `$${r.risk_amount.toLocaleString()}` : "-")}
+              ${card(getLang() === "en" ? "Reward Amount" : "Reward Amount", r.reward_amount != null ? `$${r.reward_amount.toLocaleString()}` : "-")}
+              ${card(getLang() === "en" ? "Risk:Reward" : "Risk:Reward", r.risk_reward_ratio != null ? `1:${r.risk_reward_ratio}` : "-")}
+            </div>`;
+        } catch (e) {
+          resultEl.innerHTML = `<p class="muted">${getLang() === "en" ? "Could not calculate" : "Calculate nahi ho saka"}: ${esc(e.message)}</p>`;
+        }
+      };
+      document.getElementById("btnSaveTimeFilter").onclick = async () => {
+        const status = document.getElementById("ptTimeFilterStatus");
+        status.textContent = getLang() === "en" ? "Saving..." : "Save ho raha hai...";
+        try {
+          await apiPost("/api/paper-trading/settings", {
+            time_filter_enabled: document.getElementById("ptTimeFilterEnabled").checked,
+            time_filter_block_start_utc: document.getElementById("ptTimeFilterStart").value || "00:00",
+            time_filter_block_end_utc: document.getElementById("ptTimeFilterEnd").value || "00:00",
+          });
+          status.textContent = getLang() === "en" ? "Saved." : "Save ho gaya.";
+        } catch (e) {
+          status.textContent = getLang() === "en" ? "Save failed." : "Save nahi ho saka.";
+        }
+      };
+
+      document.getElementById("btnSaveProfitLock").onclick = async () => {
+        const status = document.getElementById("ptProfitLockStatus");
+        status.textContent = getLang() === "en" ? "Saving..." : "Save ho raha hai...";
+        try {
+          await apiPost("/api/paper-trading/settings", {
+            profit_lock_enabled: document.getElementById("ptProfitLockEnabled").checked,
+            profit_lock_trigger_r: parseFloat(document.getElementById("ptProfitLockTriggerR").value),
+            profit_lock_trail_pct: parseFloat(document.getElementById("ptProfitLockTrailPct").value),
+          });
+          status.textContent = getLang() === "en" ? "Saved." : "Save ho gaya.";
+        } catch (e) {
+          status.textContent = getLang() === "en" ? "Save failed." : "Save nahi ho saka.";
+        }
+      };
 
       document.querySelectorAll(".pt-close-position").forEach(btn => {
         btn.onclick = async () => {
@@ -7085,6 +8707,28 @@
         };
       });
 
+      document.querySelectorAll(".pt-coin-deep-dive-row").forEach(row => {
+        row.onclick = async () => {
+          const symbol = row.dataset.symbol;
+          const res = await apiGet(`/api/paper-trading/coin-deep-dive/${encodeURIComponent(symbol)}`);
+          const box = document.getElementById("ptCoinDeepDive");
+          box.style.display = "block";
+          box.innerHTML = `
+            <div class="section-title" style="margin-top:0;">${esc(symbol)} -- Every Strategy's Performance</div>
+            <div class="table-wrap"><table>
+              <thead><tr><th>Strategy</th><th>Closed Trades</th><th>Win Rate</th><th>Total PnL</th></tr></thead>
+              <tbody>${(res.strategies || []).map(s => `
+                <tr>
+                  <td>${esc(strategyNameById[s.strategy_id] || s.strategy_id)}</td>
+                  <td>${s.closed_trades}</td>
+                  <td>${s.win_rate.toFixed(1)}%</td>
+                  <td class="${s.total_pnl >= 0 ? "pill-up" : "pill-down"}">${s.total_pnl.toFixed(2)}</td>
+                </tr>`).join("") || `<tr><td colspan="4">No data.</td></tr>`}</tbody>
+            </table></div>
+            <div class="muted" style="font-size:12px;margin-top:6px;">${res.profitable_strategy_count}/${res.strategy_count} strategies profitable on ${esc(symbol)} -- ${res.total_closed_trades} total closed trades, ${res.total_pnl >= 0 ? "+" : ""}$${res.total_pnl.toFixed(2)} combined.</div>`;
+        };
+      });
+
       document.querySelectorAll(".pt-view-trade").forEach(btn => {
         btn.onclick = () => {
           const t = trades[parseInt(btn.dataset.idx, 10)];
@@ -7093,14 +8737,29 @@
           const r = t.reflection || {};
           box.textContent =
             `${t.symbol} ${t.direction} -- entry ${t.entry_price} -> exit ${t.exit_price}\n` +
-            `PnL: ${t.pnl} (${t.pnl_pct}%)  Duration: ${r.duration_minutes || "-"} min\n\n` +
+            `PnL: ${t.pnl} (${t.pnl_pct}%)  Duration: ${r.duration_minutes || "-"} min\n` +
+            `Worst point against this trade (MAE): ${t.mae_amount != null ? "$" + t.mae_amount.toFixed(2) : "-"}  ` +
+            `Best point in its favor (MFE): ${t.mfe_amount != null ? "$" + t.mfe_amount.toFixed(2) : "-"}\n\n` +
             `Why Enter: ${r.why_enter || t.entry_reason || "-"}\n` +
             `Why Exit: ${r.why_exit || t.exit_reason || "-"}\n\n` +
             `Success: ${(r.success || []).join(" | ") || "-"}\n` +
             `Mistakes: ${(r.mistakes || []).join(" | ") || "-"}\n\n` +
+            `Your Note: ${t.user_note || "(none -- click 🗒 in the table to add one)"}\n\n` +
             `Market State at Entry: ${JSON.stringify(t.market_snapshot || {}, null, 2)}`;
         };
       });
+      document.querySelectorAll(".pt-trade-note").forEach(btn => {
+        btn.onclick = async () => {
+          const note = prompt("Your note on this trade:", btn.dataset.note || "");
+          if (note === null) return;
+          await apiPost(`/api/paper-trading/positions/${btn.dataset.id}/note`, { note });
+          render();
+        };
+      });
+      const exportJournalBtn = document.getElementById("btnExportTradeJournal");
+      if (exportJournalBtn) exportJournalBtn.onclick = () => {
+        window.open("/api/paper-trading/trade-journal/export-pdf", "_blank");
+      };
 
       wireConfidenceFilter();
 
@@ -7115,6 +8774,31 @@
           .catch(() => {});
       });
     };
+
+    // Grand Feature Expansion, Phase 5 Feature 11: Best Combination
+    // Auto-Suggest, extended to a multi-strategy portfolio. Purely
+    // informational -- loaded independently like Challenge Mode below,
+    // never touches trading behavior.
+    async function loadBestPortfolio() {
+      const box = document.getElementById("bestPortfolioBox");
+      if (!box) return;
+      const en = getLang() === "en";
+      const r = await apiGet("/api/paper-trading/challenge/best-portfolio").catch(() => null);
+      if (!r || !r.portfolio.length) {
+        box.innerHTML = `<p class="muted">${esc((r && r.reason) || (en ? "Not enough real trade history yet." : "Abhi kaafi real trade history nahi hai."))}</p>`;
+        return;
+      }
+      box.innerHTML = `
+        <p class="muted" style="font-size:12px;margin-top:0;">${esc(r.reason)}</p>
+        ${r.portfolio.map(p => `
+          <div style="padding:6px 0;border-top:1px solid var(--border,#333);font-size:13px;">
+            <b>${esc(p.strategy_name)}</b> -- ${esc(p.symbol)} &middot;
+            ${p.total_closed_trades} ${en ? "trades" : "trades"} &middot;
+            ${en ? "win rate" : "win rate"} ${p.win_rate_pct}% &middot;
+            <span class="${p.total_pnl >= 0 ? "positive" : "negative"}">${p.total_pnl >= 0 ? "+" : ""}$${p.total_pnl.toFixed(2)}</span>
+          </div>`).join("")}
+        <div class="muted" style="font-size:12px;margin-top:8px;">${en ? "Combined PnL" : "Combined PnL"}: <b class="${r.combined_pnl >= 0 ? "positive" : "negative"}">${r.combined_pnl >= 0 ? "+" : ""}$${r.combined_pnl.toFixed(2)}</b></div>`;
+    }
 
     // Batch 9, Task 4: Challenge Mode. Deliberately loaded independently
     // of the big Promise.all above -- it's a small, self-contained
@@ -7293,6 +8977,13 @@
     }
 
     await render();
+    // Master Task 3, Phase 0.8d: a real-time WebSocket event (onLive below)
+    // already re-renders the instant a trade opens/closes, but this page
+    // also shows account-drawdown/kill-switch state, challenge progress,
+    // and other data that can change without a "paper" channel event --
+    // and a dropped/reconnecting WebSocket (see connectWs's own retry
+    // loop) must never leave this page silently stale in the meantime.
+    autoRefresh(render, 30);
     onLive((msg) => {
       if (msg.channel !== "paper") return;
       // Batch 10, Task 3: a real "position_opened" event (paper_trading.
@@ -7370,10 +9061,54 @@
         <div id="healthErrors" class="activity-feed muted">Loading...</div>
       </div>
 
+      <div class="section-title">Voice Alerts ${helpIcon("voice_alerts")}</div>
+      <div class="card" style="max-width:480px;">
+        <p class="muted" style="font-size:12px;margin-top:0;">When the kill switch or the account-wide drawdown circuit-breaker activates, this browser tab speaks it out loud immediately -- useful if the dashboard isn't the thing you're actively looking at.</p>
+        <label style="display:flex;align-items:center;gap:6px;width:auto;">
+          <input type="checkbox" id="voiceAlertsMuted" style="width:auto;"> Mute voice alerts on this browser
+        </label>
+        <div class="btn-row" style="margin-top:8px;">
+          <button class="btn-ghost" id="btnTestVoiceAlert">Test Voice Alert</button>
+        </div>
+      </div>
+
+      <div class="section-title">${getLang() === "en" ? "Beginner Mode" : "Beginner Mode"}</div>
+      <div class="card" style="max-width:480px;">
+        <p class="muted" style="font-size:12px;margin-top:0;">${getLang() === "en"
+          ? `Highlights every "?" help icon across the app so it's obvious you can click any of them for a plain-language explanation -- useful if you're new to trading or to SINDHU itself. A per-browser display setting only; it never hides or changes any real number.`
+          : `App mein har "?" help icon ko highlight karta hai taake pata chale aap kisi bhi icon par click karke plain-language explanation dekh sakte hain -- agar aap trading ya SINDHU mein naye hain to useful hai. Sirf is browser ka display setting hai; koi asal number nahi chhupata ya badalta.`}</p>
+        <label style="display:flex;align-items:center;gap:6px;width:auto;">
+          <input type="checkbox" id="beginnerModeToggle" style="width:auto;"> ${getLang() === "en" ? "Turn on Beginner Mode" : "Beginner Mode Chalu Karein"}
+        </label>
+        <div class="btn-row" style="margin-top:8px;">
+          <button class="btn-ghost" id="btnRetakeTour">${getLang() === "en" ? "Take the Tour Again" : "Dobara Tour Lein"}</button>
+        </div>
+      </div>
+
       <div class="section-title">Backup</div>
       <div class="card">
         <div class="btn-row"><button class="btn" id="btnBackupNow">Create Backup Now</button></div>
         <div id="backupList" class="table-wrap"></div>
+      </div>
+
+      <div class="section-title">${getLang() === "en" ? "Weekly Snapshot" : "Weekly Snapshot"} ${helpIcon("weekly_snapshot")}</div>
+      <div class="card">
+        <p class="muted" style="font-size:12px;margin-top:0;">${getLang() === "en"
+          ? "A separate, once-a-week database snapshot, kept for about 2 months -- distinct from the rolling backup above, which keeps only its last 10 copies (roughly 1-2 days at the default interval)."
+          : "Ek alag, hafte mein ek baar database snapshot, taqreeban 2 mahine ke liye rakha jata hai -- upar wali rolling backup se alag, jo sirf apni aakhri 10 copies rakhti hai (default interval par taqreeban 1-2 din)."}</p>
+        <div class="btn-row"><button class="btn" id="btnWeeklySnapshotNow">${getLang() === "en" ? "Create Weekly Snapshot Now" : "Abhi Weekly Snapshot Banayein"}</button></div>
+        <div id="weeklySnapshotList" class="table-wrap"></div>
+      </div>
+
+      <div class="section-title">${getLang() === "en" ? "Automated Weekly Digest" : "Automated Weekly Digest"} ${helpIcon("infra_weekly_digest")}</div>
+      <div class="card">
+        <p class="muted" style="font-size:12px;margin-top:0;">${getLang() === "en"
+          ? "A weekly summary of SYSTEM health -- backups, incidents, database/disk size -- separate from the trading and evolution weekly reports."
+          : "System ki weekly halat -- backups, incidents, database/disk size -- trading aur evolution ke weekly reports se alag."}</p>
+        <div id="infraDigestBody"></div>
+        <div class="btn-row" style="margin-top:8px;">
+          <button class="btn-ghost" id="btnGenInfraDigest">${getLang() === "en" ? "Generate Now" : "Abhi Banayein"}</button>
+        </div>
       </div>
 
       <div class="section-title">Telegram Integration</div>
@@ -7402,6 +9137,24 @@
           <span id="tgProxyStatus" class="muted"></span>
         </div>
       </div>
+      <div class="section-title">Silent Hours (Do-Not-Disturb)</div>
+      <div class="card" style="max-width:480px;">
+        <p class="muted" style="font-size:12px;margin-top:0;">Signals still send and are fully logged during this window -- only the phone notification sound/vibration is muted (Telegram's own silent-message feature). Times are in UTC.</p>
+        <div class="form-row"><label><input id="tgSilentEnabled" type="checkbox" style="width:auto;"> Enable Silent Hours</label></div>
+        <div class="form-row"><label>Start (UTC, HH:MM)</label><input id="tgSilentStart" placeholder="23:00"></div>
+        <div class="form-row"><label>End (UTC, HH:MM)</label><input id="tgSilentEnd" placeholder="07:00"></div>
+        <div class="btn-row">
+          <button class="btn" id="btnSaveTelegramSilentHours">Save</button>
+          <span id="tgSilentStatus" class="muted"></span>
+        </div>
+      </div>
+
+      <div class="section-title">Multi-Channel Routing</div>
+      <div class="card" style="max-width:520px;">
+        <p class="muted" style="font-size:12px;margin-top:0;">Send a specific strategy's signals to a DIFFERENT Telegram channel than the default above -- same bot, just a different destination. Leave a strategy's box empty to keep it on the default channel.</p>
+        <div id="tgChannelOverridesBox" class="table-wrap"></div>
+      </div>
+
       <div class="section-title">Telegram Message Log</div>
       <div class="table-wrap"><table>
         <thead><tr><th>Time</th><th>Trigger</th><th>Strategy</th><th>Result</th></tr></thead>
@@ -7453,6 +9206,26 @@
     });
     document.getElementById("btnSaveSettings").onclick = saveSettings;
 
+    const voiceAlertsMutedEl = document.getElementById("voiceAlertsMuted");
+    voiceAlertsMutedEl.checked = localStorage.getItem("sindhu_voice_alerts_muted") === "true";
+    voiceAlertsMutedEl.onchange = () => {
+      localStorage.setItem("sindhu_voice_alerts_muted", voiceAlertsMutedEl.checked ? "true" : "false");
+    };
+    document.getElementById("btnTestVoiceAlert").onclick = () => {
+      _speak("This is a test of the SINDHU voice alert.");  // bypasses mute -- a deliberate manual test
+    };
+
+    const beginnerModeEl = document.getElementById("beginnerModeToggle");
+    beginnerModeEl.checked = localStorage.getItem("sindhu_beginner_mode") === "true";
+    beginnerModeEl.onchange = () => {
+      localStorage.setItem("sindhu_beginner_mode", beginnerModeEl.checked ? "true" : "false");
+      applyBeginnerModeClass();
+    };
+    document.getElementById("btnRetakeTour").onclick = () => {
+      location.hash = "#home";
+      setTimeout(startOnboardingTour, 300);
+    };
+
     async function loadBackups() {
       const b = await apiGet("/api/backup/list");
       document.getElementById("backupList").innerHTML = `<table>
@@ -7467,6 +9240,35 @@
     };
     loadBackups();
 
+    async function loadWeeklySnapshots() {
+      const s = await apiGet("/api/weekly-snapshot/list");
+      document.getElementById("weeklySnapshotList").innerHTML = `<table>
+        <thead><tr><th>Name</th><th>Size</th><th>Modified</th></tr></thead>
+        <tbody>${s.snapshots.map(x => `<tr><td>${esc(x.name)}</td><td>${fmtBytes(x.size_bytes)}</td><td>${esc(x.modified_at.slice(0,19))}</td></tr>`).join("") || '<tr><td colspan="3">No weekly snapshots yet.</td></tr>'}</tbody>
+      </table>`;
+    }
+    document.getElementById("btnWeeklySnapshotNow").onclick = async () => {
+      await apiPost("/api/weekly-snapshot/create-now");
+      appendLog("Weekly snapshot created.");
+      loadWeeklySnapshots();
+    };
+    loadWeeklySnapshots();
+
+    async function loadInfraDigest() {
+      const d = await apiGet("/api/infra-weekly-digest?limit=1");
+      const body = document.getElementById("infraDigestBody");
+      body.innerHTML = d.digests.length
+        ? `<div style="white-space:pre-wrap;font-size:13px;">${esc(d.digests[0].report_text)}</div>
+           <div class="muted" style="font-size:11px;margin-top:6px;">${esc((d.digests[0].created_at || "").slice(0, 19))}</div>`
+        : `<p class="muted">${getLang() === "en" ? "No weekly digest generated yet." : "Abhi tak koi weekly digest nahi bani."}</p>`;
+    }
+    document.getElementById("btnGenInfraDigest").onclick = async () => {
+      await apiPost("/api/infra-weekly-digest/generate-now");
+      appendLog("Infrastructure weekly digest generated.");
+      loadInfraDigest();
+    };
+    loadInfraDigest();
+
     async function loadTelegramSettings() {
       const s = await apiGet("/api/paper-trading/telegram/settings").catch(() => null);
       if (!s) return;
@@ -7476,6 +9278,45 @@
       document.getElementById("tgToken").placeholder = s.token_configured ? "Token already set -- enter to replace" : "Enter to set/replace";
       document.getElementById("tgProxyEnabled").checked = !!s.proxy_enabled;
       document.getElementById("tgProxyUrl").placeholder = s.proxy_configured ? "Proxy URL already set -- enter to replace" : "socks5://user:pass@host:port or http://user:pass@host:port";
+      document.getElementById("tgSilentEnabled").checked = !!s.silent_hours_enabled;
+      document.getElementById("tgSilentStart").value = s.silent_hours_start_utc || "23:00";
+      document.getElementById("tgSilentEnd").value = s.silent_hours_end_utc || "07:00";
+    }
+    document.getElementById("btnSaveTelegramSilentHours").onclick = async () => {
+      const status = document.getElementById("tgSilentStatus");
+      status.textContent = "Saving...";
+      await apiPost("/api/paper-trading/telegram/settings", {
+        silent_hours_enabled: document.getElementById("tgSilentEnabled").checked,
+        silent_hours_start_utc: document.getElementById("tgSilentStart").value.trim() || "23:00",
+        silent_hours_end_utc: document.getElementById("tgSilentEnd").value.trim() || "07:00",
+      });
+      status.textContent = "Saved.";
+    };
+    async function loadTelegramChannelOverrides() {
+      const [s, stratsRes] = await Promise.all([
+        apiGet("/api/paper-trading/telegram/settings").catch(() => ({ strategy_channel_overrides: {} })),
+        apiGet("/api/backtesting/strategies").catch(() => ({ strategies: [] })),
+      ]);
+      const overrides = s.strategy_channel_overrides || {};
+      const strategies = stratsRes.strategies || [];
+      const box = document.getElementById("tgChannelOverridesBox");
+      box.innerHTML = `<table>
+        <thead><tr><th>Strategy</th><th>Channel ID</th><th></th></tr></thead>
+        <tbody>${strategies.map(st => `
+          <tr>
+            <td>${esc(st.name)}</td>
+            <td><input class="tg-channel-override-input" data-strategy-id="${esc(st.id)}" value="${esc(overrides[st.id] || "")}" placeholder="default channel"></td>
+            <td><button class="btn-ghost tg-channel-override-save" data-strategy-id="${esc(st.id)}" style="font-size:12px;">Save</button></td>
+          </tr>`).join("") || `<tr><td colspan="3">No strategies yet.</td></tr>`}</tbody>
+      </table>`;
+      box.querySelectorAll(".tg-channel-override-save").forEach(btn => btn.onclick = async () => {
+        const sid = btn.dataset.strategyId;
+        const input = box.querySelector(`.tg-channel-override-input[data-strategy-id="${CSS.escape(sid)}"]`);
+        await apiPost(`/api/paper-trading/telegram/channel-override/${encodeURIComponent(sid)}`, {
+          channel_id: input.value.trim() || null,
+        });
+        appendLog(`Telegram routing updated for ${sid}.`);
+      });
     }
     async function loadTelegramLog() {
       const r = await apiGet("/api/paper-trading/telegram/log").catch(() => ({ messages: [] }));
@@ -7527,6 +9368,7 @@
       status.textContent = r.ok ? `Proxy works -- outbound IP is ${r.exit_ip}.` : `Failed: ${r.error}`;
     };
     loadTelegramSettings();
+    loadTelegramChannelOverrides();
     loadTelegramLog();
   }
 

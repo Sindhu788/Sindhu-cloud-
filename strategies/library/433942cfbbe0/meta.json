@@ -1,0 +1,19 @@
+{
+  "id": "433942cfbbe0",
+  "name": "Fixed Range Volume Profile -- Market Shape [Manual Build]",
+  "tags": [
+    "concept_based_strategy",
+    "manual_build",
+    "frvp_hvn_reaction",
+    "frvp_lvn_breakout",
+    "1h",
+    "new_batch_5"
+  ],
+  "favourite": false,
+  "archived": false,
+  "created_at": "2026-09-01T23:22:48.898666+00:00",
+  "updated_at": "2026-09-01T23:22:48.898666+00:00",
+  "current_version": 1,
+  "safety_status": "ready",
+  "safety_reasons": []
+}

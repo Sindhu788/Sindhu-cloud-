@@ -127,3 +127,88 @@ def compute_coin_exposure(exchange):
         })
     result.sort(key=lambda r: r["total_risk"], reverse=True)
     return result
+
+
+def detect_duplicate_exposure_warnings(exchange, min_strategies=2):
+    """Grand Feature Expansion, Phase 7 Feature 1: Duplicate Exposure
+    Warning -- flags when 2+ INDEPENDENT strategies are all trading the
+    SAME coin right now, purely on strategy_count. Genuinely distinct from
+    paper_trading.correlation.py's warning, which requires two DIFFERENT
+    symbols to be statistically price-correlated (>=0.7) -- it never fires
+    on a single coin alone, so it can never catch "3 strategies are all
+    independently long BTCUSDT" the way this does. Reuses
+    compute_coin_exposure()'s existing strategy_count field, computes
+    nothing new. Purely informational, same as every other warning system
+    in this project -- never blocks a trade."""
+    exposure = compute_coin_exposure(exchange)
+    warnings = []
+    for row in exposure:
+        if row["strategy_count"] >= min_strategies:
+            warnings.append({
+                "symbol": row["symbol"], "strategy_count": row["strategy_count"],
+                "position_count": row["position_count"], "total_risk": row["total_risk"],
+                "message": f"{row['strategy_count']} different strategies are all trading {row['symbol']} right now "
+                           f"({row['position_count']} open position(s), ${row['total_risk']:.2f} combined risk).",
+            })
+    return warnings
+
+
+def compute_strategy_exposure(exchange):
+    """Grand Feature Expansion, Phase 3 Feature 5: total risk/notional
+    allocated per STRATEGY across every currently-open position -- exact
+    same shape/reasoning as compute_coin_exposure above, just grouped by
+    strategy_id instead of symbol, to answer 'where is portfolio risk
+    concentrated by strategy' rather than 'by coin'."""
+    open_positions = storage.get_open_paper_positions(exchange)
+    by_strategy = {}
+    for p in open_positions:
+        sid = p.get("strategy_id") or "lessons"
+        row = by_strategy.setdefault(sid, {
+            "strategy_id": sid, "position_count": 0, "symbols": set(),
+            "total_notional": 0.0, "total_risk": 0.0,
+        })
+        row["position_count"] += 1
+        row["symbols"].add(p["symbol"])
+        row["total_notional"] += abs(p["entry_price"] * p["size"])
+        row["total_risk"] += p.get("risk_amount") or 0
+
+    result = []
+    for row in by_strategy.values():
+        result.append({
+            "strategy_id": row["strategy_id"],
+            "position_count": row["position_count"],
+            "coin_count": len(row["symbols"]),
+            "total_notional": round(row["total_notional"], 2),
+            "total_risk": round(row["total_risk"], 2),
+        })
+    result.sort(key=lambda r: r["total_risk"], reverse=True)
+    return result
+
+
+def compute_direction_exposure(exchange):
+    """Grand Feature Expansion, Phase 3 Feature 5: total risk/notional
+    split by direction (long vs short) across every currently-open
+    position, combined across all strategies -- answers 'is the whole
+    portfolio secretly leaning one direction' even though every individual
+    strategy's own book looks balanced."""
+    open_positions = storage.get_open_paper_positions(exchange)
+    by_direction = {"long": {"position_count": 0, "total_notional": 0.0, "total_risk": 0.0},
+                    "short": {"position_count": 0, "total_notional": 0.0, "total_risk": 0.0}}
+    for p in open_positions:
+        row = by_direction.get(p["direction"])
+        if row is None:
+            continue
+        row["position_count"] += 1
+        row["total_notional"] += abs(p["entry_price"] * p["size"])
+        row["total_risk"] += p.get("risk_amount") or 0
+
+    total_notional_all = sum(r["total_notional"] for r in by_direction.values())
+    return {
+        direction: {
+            "position_count": row["position_count"],
+            "total_notional": round(row["total_notional"], 2),
+            "total_risk": round(row["total_risk"], 2),
+            "pct_of_total_notional": round(row["total_notional"] / total_notional_all * 100, 1) if total_notional_all else 0.0,
+        }
+        for direction, row in by_direction.items()
+    }

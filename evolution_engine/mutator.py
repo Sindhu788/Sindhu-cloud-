@@ -79,6 +79,36 @@ def compare_generations(base_id):
     return generation_manager.lineage_history(base_id)
 
 
+def regime_context_for(base_id):
+    """Grand Feature Expansion, Phase 6 Feature 9: Regime-Aware Evolution --
+    mutate_strategy's own regime-adaptation branch below already existed,
+    but was effectively DEAD CODE: its only real caller (evolution_engine.
+    engine._tick) never passed exchange/symbol/timeframe, so the branch
+    never fired in production. Derives all 3 from the lineage's own latest
+    real backtest (sindhu_strategy.lifecycle.validate_and_backtest already
+    records batch_id in backtest_summary) -- the same real coin/exchange
+    this lineage was actually just tested against, not an arbitrary guess.
+    Returns (None, None, None) when the lineage has no backtested batch
+    yet, in which case mutate_strategy's regime branch simply stays
+    skipped, exactly as it always has."""
+    latest = rollback.effective_generation(base_id)
+    if not latest:
+        return None, None, None
+    batch_id = (latest.get("backtest_summary") or {}).get("batch_id")
+    if not batch_id:
+        return None, None, None
+    batch = storage.get_batch(batch_id)
+    if not batch:
+        return None, None, None
+    symbols = (batch.get("settings") or {}).get("symbols") or []
+    if not symbols:
+        return None, None, None
+    timeframe = (latest.get("config") or {}).get("timeframes", {}).get("entry")
+    if not timeframe:
+        return None, None, None
+    return batch["exchange"], symbols[0], timeframe
+
+
 def mutate_strategy(base_id, governor, now_iso, exchange=None, symbol=None, timeframe=None):
     """A.2's "Improve/Mutate/Generate new generations" for ONE existing BOT
     strategy lineage. Branches the newest generation's config by nudging a

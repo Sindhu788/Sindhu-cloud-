@@ -24,7 +24,8 @@ from sindhu_web.api import (
     research as research_api, feature_control as feature_control_api, manager_chat as manager_chat_api,
     strategy_lab as strategy_lab_api, wizard as wizard_api, external_signals as external_signals_api,
     project_status as project_status_api, strategy_lifecycle as strategy_lifecycle_api,
-    concepts_usage as concepts_usage_api, auth as auth_api,
+    concepts_usage as concepts_usage_api, auth as auth_api, incidents as incidents_api,
+    weekly_snapshot as weekly_snapshot_api, infra_weekly_digest as infra_weekly_digest_api,
 )
 
 _STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -146,12 +147,22 @@ async def _lifespan(app: FastAPI):
     from sindhu_strategy.generator import start_daily_scheduler_thread
     start_daily_scheduler_thread()
     backup.start_auto_backup_thread()
+    weekly_snapshot_api.start_weekly_snapshot_scheduler_thread()
+    infra_weekly_digest_api.start_infra_weekly_digest_scheduler_thread()
     from paper_trading.weekly_report import start_weekly_report_scheduler_thread
     start_weekly_report_scheduler_thread()
+    from paper_trading.monthly_report import start_monthly_report_scheduler_thread
+    start_monthly_report_scheduler_thread()
+    from evolution_engine.weekly_review import start_evolution_weekly_review_scheduler_thread
+    start_evolution_weekly_review_scheduler_thread()
     from paper_trading.strategy_lab import start_strategy_lab_scheduler_thread
     start_strategy_lab_scheduler_thread()
     from paper_trading.daily_report import start_daily_report_scheduler_thread
     start_daily_report_scheduler_thread()
+    from paper_trading.telegram_commands import start_command_polling_thread
+    start_command_polling_thread()
+    from backtest_engine.result_plausibility import start_plausibility_sweep_thread
+    start_plausibility_sweep_thread()
     # Batch 9, Task 3: restore Paper Trading + report Telegram's current
     # state, so a restart (including an ungraceful one -- power loss,
     # laptop shutdown) never silently leaves either off just because
@@ -199,7 +210,8 @@ def create_app():
                    evolution_api.router, sindhu_strategy_api.router, research_api.router,
                    feature_control_api.router, manager_chat_api.router, strategy_lab_api.router,
                    wizard_api.router, external_signals_api.router, project_status_api.router,
-                   strategy_lifecycle_api.router, concepts_usage_api.router, auth_api.router):
+                   strategy_lifecycle_api.router, concepts_usage_api.router, auth_api.router,
+                   incidents_api.router, weekly_snapshot_api.router, infra_weekly_digest_api.router):
         app.include_router(router)
 
     @app.get("/api/token")

@@ -1828,6 +1828,278 @@ def fixed_range_volume_profile(df, lookback=2, bins=24, min_bars=5):
     return pd.Series(poc, index=df.index), pd.Series(direction, index=df.index)
 
 
+def frvp_market_shape(df, lookback=2, bins=24, min_bars=5, value_area_pct=0.70,
+                       low_node_frac=0.25, high_node_frac=1.5):
+    """New Batch 5, Strategy 2 (Fixed Range Volume Profile): the richer
+    profile fixed_range_volume_profile() above deliberately doesn't compute
+    -- Value Area High/Low, High/Low Volume Node ZONES (not just a POC
+    point), and a Market Shape classification (D/P/b/Thin/Capital-B),
+    anchored to the same swing-to-swing leg construction as
+    fixed_range_volume_profile() (re-drawn every time a new leg confirms; a
+    leg shorter than min_bars is skipped and the previous leg's profile
+    carries forward -- identical anchoring rules, so the two functions never
+    disagree about WHICH leg is active).
+
+    Shape classification is a real, testable measure (the source itself
+    calls this subjective and asks for one) -- builder default, documented
+    here since nothing in the source gives an exact number:
+      - "thin": no bucket exceeds high_node_frac x the leg's average bucket
+        volume at all -- no real high-volume node exists anywhere.
+      - "capital_b": 2+ SEPARATED high-volume-node clusters (a valley of
+        normal/low volume between them) -- a genuine double distribution.
+      - "p": otherwise, >= 65% of the leg's total volume sits above the
+        leg's own 50% price midpoint (aggressive buyers pushed price up
+        through most of the volume).
+      - "b": otherwise, >= 65% of the leg's total volume sits BELOW the 50%
+        midpoint (mirror of "p").
+      - "d": otherwise (volume roughly balanced around the midpoint).
+    high_node_frac/low_node_frac reuse volume_nodes_previous_day()'s own
+    already-established thresholds (1.5x / 0.25x average bucket volume) for
+    consistency across the codebase rather than inventing new ones.
+
+    hvn_low_zone/hvn_high_zone: the lower-priced and higher-priced
+    high-volume-node cluster (by price, not by rank) -- for p/b/d shapes
+    (a single HVN cluster) these are the SAME zone, used as support (long
+    setups) or resistance (short setups) depending on the shape; for
+    capital_b they are genuinely the two distinct zones the source
+    describes ("both HVNs act as separate support/resistance levels").
+    lvn_zone: the single most prominent (widest) low-volume-node cluster in
+    the leg -- own default for "which LVN" when several exist, since price
+    most naturally makes its fast move through the LVN immediately
+    surrounding the dominant high-volume node it is leaving.
+
+    p_shape_invalidated: per the source's own explicit rule, True from the
+    first bar price closes below the leg's 50% midpoint onward, for the
+    remainder of a leg classified "p" (that shape's long setup should no
+    longer be trusted once this flips True).
+
+    Returns (poc, vah, val, shape, hvn_low_zone_lo, hvn_low_zone_hi,
+    hvn_high_zone_lo, hvn_high_zone_hi, lvn_zone_lo, lvn_zone_hi,
+    p_shape_invalidated) -- eleven per-bar Series, same zero-look-ahead
+    causal guarantee as fixed_range_volume_profile()."""
+    swing_high, swing_low = swing_points(df, lookback)
+    high, low = df["high"].values, df["low"].values
+    close, volume = df["close"].values, df["volume"].values
+    sh, sl = swing_high.values, swing_low.values
+    n = len(df)
+
+    poc = np.full(n, np.nan)
+    vah = np.full(n, np.nan)
+    val = np.full(n, np.nan)
+    shape = np.array([None] * n, dtype=object)
+    hvn_lo_lo = np.full(n, np.nan)
+    hvn_lo_hi = np.full(n, np.nan)
+    hvn_hi_lo = np.full(n, np.nan)
+    hvn_hi_hi = np.full(n, np.nan)
+    lvn_lo = np.full(n, np.nan)
+    lvn_hi = np.full(n, np.nan)
+    p_invalid = np.full(n, False)
+
+    last_low_i = last_high_i = None
+    cached = None  # tuple of the 10 scalar values above, held until the next usable leg
+    p_leg_active = False
+    p_invalid_state = False
+
+    def _clusters(idx_array):
+        if len(idx_array) == 0:
+            return []
+        groups = np.split(idx_array, np.where(np.diff(idx_array) != 1)[0] + 1)
+        return [tuple(g) for g in groups]
+
+    for i in range(n):
+        new_leg = False
+        leg_start_i = leg_end_i = None
+        if sl[i]:
+            last_low_i = i
+            if last_high_i is not None and last_high_i < last_low_i:
+                leg_start_i, leg_end_i = last_high_i, last_low_i
+                new_leg = True
+        if sh[i]:
+            last_high_i = i
+            if last_low_i is not None and last_low_i < last_high_i:
+                leg_start_i, leg_end_i = last_low_i, last_high_i
+                new_leg = True
+
+        if new_leg and (leg_end_i - leg_start_i) >= min_bars:
+            seg_high = high[leg_start_i:leg_end_i + 1]
+            seg_low = low[leg_start_i:leg_end_i + 1]
+            seg_close = close[leg_start_i:leg_end_i + 1]
+            seg_vol = volume[leg_start_i:leg_end_i + 1]
+            lo, hi = seg_low.min(), seg_high.max()
+            if hi > lo and seg_vol.sum() > 0:
+                edges = np.linspace(lo, hi, bins + 1)
+                centers = (edges[:-1] + edges[1:]) / 2
+                bucket_idx = np.clip(np.digitize(seg_close, edges) - 1, 0, bins - 1)
+                bucket_volume = np.zeros(bins)
+                np.add.at(bucket_volume, bucket_idx, seg_vol)
+                total = bucket_volume.sum()
+
+                poc_i = int(np.argmax(bucket_volume))
+                leg_poc = centers[poc_i]
+
+                target = total * value_area_pct
+                lo_i = hi_i = poc_i
+                enclosed = bucket_volume[poc_i]
+                while enclosed < target and (lo_i > 0 or hi_i < bins - 1):
+                    next_lo = bucket_volume[lo_i - 1] if lo_i > 0 else -1.0
+                    next_hi = bucket_volume[hi_i + 1] if hi_i < bins - 1 else -1.0
+                    if next_hi >= next_lo:
+                        hi_i += 1
+                        enclosed += bucket_volume[hi_i]
+                    else:
+                        lo_i -= 1
+                        enclosed += bucket_volume[lo_i]
+                leg_vah, leg_val = edges[hi_i + 1], edges[lo_i]
+
+                avg = bucket_volume.mean()
+                mid_price = (lo + hi) / 2.0
+                upper_frac = bucket_volume[centers > mid_price].sum() / total if total > 0 else 0.0
+
+                hvn_clusters = _clusters(np.where(bucket_volume > high_node_frac * avg)[0]) if avg > 0 else []
+                lvn_clusters = _clusters(np.where(bucket_volume < low_node_frac * avg)[0]) if avg > 0 else []
+
+                if not hvn_clusters:
+                    leg_shape = "thin"
+                elif len(hvn_clusters) >= 2:
+                    leg_shape = "capital_b"
+                elif upper_frac >= 0.65:
+                    leg_shape = "p"
+                elif upper_frac <= 0.35:
+                    leg_shape = "b"
+                else:
+                    leg_shape = "d"
+
+                if hvn_clusters:
+                    # Rank clusters by their OWN total volume (which HVN is
+                    # "the" dominant one for p/b/d's single-zone case), then
+                    # re-order the top two by PRICE for capital_b's
+                    # low-zone/high-zone semantics.
+                    ranked = sorted(hvn_clusters, key=lambda c: bucket_volume[list(c)].sum(), reverse=True)
+                    top_two = ranked[:2]
+                    top_two_by_price = sorted(top_two, key=lambda c: c[0])
+                    low_cluster = top_two_by_price[0]
+                    high_cluster = top_two_by_price[-1]
+                    leg_hvn_lo_lo, leg_hvn_lo_hi = edges[low_cluster[0]], edges[low_cluster[-1] + 1]
+                    leg_hvn_hi_lo, leg_hvn_hi_hi = edges[high_cluster[0]], edges[high_cluster[-1] + 1]
+                else:
+                    leg_hvn_lo_lo = leg_hvn_lo_hi = leg_hvn_hi_lo = leg_hvn_hi_hi = np.nan
+
+                if lvn_clusters:
+                    widest = max(lvn_clusters, key=len)
+                    leg_lvn_lo, leg_lvn_hi = edges[widest[0]], edges[widest[-1] + 1]
+                else:
+                    leg_lvn_lo = leg_lvn_hi = np.nan
+
+                cached = (leg_poc, leg_vah, leg_val, leg_shape,
+                          leg_hvn_lo_lo, leg_hvn_lo_hi, leg_hvn_hi_lo, leg_hvn_hi_hi,
+                          leg_lvn_lo, leg_lvn_hi, mid_price)
+                p_leg_active = (leg_shape == "p")
+                p_invalid_state = False
+
+        if cached is not None:
+            (poc[i], vah[i], val[i], shape[i],
+             hvn_lo_lo[i], hvn_lo_hi[i], hvn_hi_lo[i], hvn_hi_hi[i],
+             lvn_lo[i], lvn_hi[i], leg_mid) = cached
+            if p_leg_active and not p_invalid_state and close[i] < leg_mid:
+                p_invalid_state = True
+        p_invalid[i] = p_invalid_state
+
+    idx = df.index
+    return (pd.Series(poc, index=idx), pd.Series(vah, index=idx), pd.Series(val, index=idx),
+            pd.Series(shape, index=idx), pd.Series(hvn_lo_lo, index=idx), pd.Series(hvn_lo_hi, index=idx),
+            pd.Series(hvn_hi_lo, index=idx), pd.Series(hvn_hi_hi, index=idx),
+            pd.Series(lvn_lo, index=idx), pd.Series(lvn_hi, index=idx),
+            pd.Series(p_invalid, index=idx))
+
+
+def long_wick_candle(df, wick_frac=0.5):
+    """New Batch 5, Strategies 3 & 7: the generic "long wick candle" =
+    liquidity-sweep/rejection signal both strategies' own source documents
+    describe -- a candle whose LOWER (bullish rejection) or UPPER (bearish
+    rejection) wick alone is at least wick_frac of the candle's own full
+    high-low range. Deliberately body-size-agnostic (unlike pin_bar(),
+    which ALSO requires a small body relative to the wick) -- exactly the
+    source's own "long wick" wording, nothing more. wick_frac=0.5 is this
+    batch's own documented default (neither source gives an exact number),
+    used consistently by both strategies rather than each inventing its
+    own. Returns (bull_long_wick, bear_long_wick)."""
+    high, low, close, open_ = df["high"], df["low"], df["close"], df["open"]
+    rng = (high - low).replace(0, np.nan)
+    body_top = pd.concat([open_, close], axis=1).max(axis=1)
+    body_bottom = pd.concat([open_, close], axis=1).min(axis=1)
+    lower_wick = body_bottom - low
+    upper_wick = high - body_top
+    bull_long_wick = ((lower_wick / rng) >= wick_frac).fillna(False)
+    bear_long_wick = ((upper_wick / rng) >= wick_frac).fillna(False)
+    return bull_long_wick, bear_long_wick
+
+
+def nth_touch_of_level(touch_event, level_series, n=3):
+    """New Batch 5, Strategy 3: True from the Nth time `touch_event` fires
+    against the CURRENT value of `level_series` onward (>= n, not exactly
+    n -- the source's own "the 3rd or 4th time" already reads as a loose
+    "by the time it's been tested a few times", not one exact bar) --
+    "wait for price to enter the zone for the 3rd or 4th time" before a
+    setup counts. Generalizes first_signal_per_level()'s "retire the count
+    when the level itself changes" idea (that function is the n=1 special
+    case, restated as a boolean already-used flag instead of a running
+    count) to a genuine per-level touch counter."""
+    touch = touch_event.fillna(False).to_numpy()
+    levels = level_series.to_numpy()
+    n_bars = len(touch)
+    out = [False] * n_bars
+    current_level = None
+    count = 0
+    for i in range(n_bars):
+        lvl = levels[i]
+        if lvl is None or (isinstance(lvl, float) and np.isnan(lvl)):
+            continue
+        if lvl != current_level:
+            current_level = lvl
+            count = 0
+        if touch[i]:
+            count += 1
+            if count >= n:
+                out[i] = True
+    return pd.Series(out, index=touch_event.index, dtype=bool)
+
+
+def ichimoku_cloud(df, conversion_period=9, base_period=26, span_b_period=52, displacement=26):
+    """New Batch 5, Strategy 9: standard Ichimoku Kinko Hyo -- a
+    well-defined, publicly documented, non-proprietary indicator, genuinely
+    new to this codebase. Conversion Line = (9-period high + 9-period
+    low)/2. Base Line = (26-period high + 26-period low)/2. Leading Span A
+    = (Conversion+Base)/2, Leading Span B = (52-period high + 52-period
+    low)/2, BOTH plotted `displacement` (26) candles AHEAD -- i.e. the
+    cloud edge visible at bar i was computed from data as of bar
+    i-displacement, then carried forward; `.shift(displacement)` (a
+    positive shift, pulling PAST rows into the current one) is exactly
+    this, with zero look-ahead.
+
+    Lagging Span is NOT returned as a plotted line (that would need a
+    genuine negative shift -- today's close plotted `displacement` bars
+    BACK on the chart -- which has no causal, no-look-ahead reading when
+    evaluated for a live trading decision at bar i). What IS causally
+    checkable at bar i is exactly what "Lagging Span is above/below the
+    price candles" means for a trading decision made TODAY: is the
+    CURRENT close above/below the close from `displacement` bars ago (the
+    level today's lagging span value would sit against on the chart)?
+    That comparison uses only past+current data, so it's returned directly
+    as (lagging_above_price, lagging_below_price) booleans instead of a
+    plotted line.
+
+    Returns (conversion, base, span_a, span_b, lagging_above_price,
+    lagging_below_price)."""
+    high, low, close = df["high"], df["low"], df["close"]
+    conversion = (high.rolling(conversion_period).max() + low.rolling(conversion_period).min()) / 2.0
+    base = (high.rolling(base_period).max() + low.rolling(base_period).min()) / 2.0
+    span_a = ((conversion + base) / 2.0).shift(displacement)
+    span_b = ((high.rolling(span_b_period).max() + low.rolling(span_b_period).min()) / 2.0).shift(displacement)
+    lagging_above_price = (close > close.shift(displacement)).fillna(False)
+    lagging_below_price = (close < close.shift(displacement)).fillna(False)
+    return conversion, base, span_a, span_b, lagging_above_price, lagging_below_price
+
+
 def lwti(df, period=25, smoothing=20):
     """LWTI (Linear Weighted Trend Indicator) -- New Batch 4, Strategy 5.
     A standard, publicly-documented (non-proprietary/non-branded) momentum
