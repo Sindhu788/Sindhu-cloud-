@@ -554,6 +554,35 @@ CREATE TABLE IF NOT EXISTS bot_lessons (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+
+-- Master Task 3, Phase 2.9: Multiple Simultaneous Challenges. Mirrors the
+-- local SQLite schema exactly (see data_engine/storage.py) -- Challenge
+-- Mode already runs identically on the cloud deploy (challenge_mode.py's
+-- own cloud_settings dual-write), so this table must exist here too.
+CREATE TABLE IF NOT EXISTS challenges (
+    id TEXT PRIMARY KEY,
+    label TEXT,
+    start_amount REAL NOT NULL,
+    target_amount REAL NOT NULL,
+    timeframe_type TEXT NOT NULL DEFAULT 'custom',
+    days INTEGER NOT NULL,
+    started_at TEXT NOT NULL,
+    scope_strategy_id TEXT,
+    scope_symbol TEXT,
+    baseline_win_rate_pct REAL,
+    telegram_report_enabled INTEGER NOT NULL DEFAULT 0,
+    compounding INTEGER NOT NULL DEFAULT 1,
+    archived INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS challenge_achievability_snapshots (
+    id SERIAL PRIMARY KEY,
+    challenge_id TEXT NOT NULL,
+    achievability_score REAL,
+    recorded_at TEXT NOT NULL
+);
 """
 
 

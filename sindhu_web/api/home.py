@@ -30,7 +30,8 @@ NAV_ICONS = {
     "signal_tracker": "target", "strategy_lab": "flask",
     "clarification_center": "book", "external_signals": "send",
     "compare": "mirror", "live_logs": "spark", "project_status": "news",
-    "strategy_lifecycle": "layers", "incidents": "flask",
+    "strategy_lifecycle": "layers", "incidents": "flask", "self_learning": "spark",
+    "challenge_mode": "target",
 }
 
 # Navigation Audit + Reorganization: every page now belongs to exactly one
@@ -110,10 +111,27 @@ NAV_PAGES = [
     {"id": "market", "label": "Market", "enabled": True, "icon": NAV_ICONS["market"], "group": "Paper Trading"},
     {"id": "data", "label": "Data", "enabled": True, "icon": NAV_ICONS["data"], "group": "Paper Trading"},
 
+    # Master Task 3, Phase 2.1: Challenge Mode gets its own standalone nav
+    # page (the original single-challenge widget stays embedded inside
+    # Paper Trading too, untouched, for backward compatibility) -- this new
+    # page is the one that supports 2-3 simultaneous challenges side by
+    # side plus the rest of Phase 2's analysis features.
+    {"id": "challenge_mode", "label": "Challenge Mode", "enabled": True,
+     "icon": NAV_ICONS["challenge_mode"], "group": "Paper Trading"},
+
     # Intelligence: self-learning / evolutionary systems
     {"id": "evolution", "label": "Evolution", "enabled": True, "icon": NAV_ICONS["evolution"], "group": "Intelligence"},
     {"id": "evolution_history", "label": "Evolution History", "enabled": True,
      "icon": NAV_ICONS["evolution_history"], "group": "Intelligence"},
+
+    # Master Task 3, Phase 1: Self-Learning Engine -- deliberately its own
+    # nav entry, NOT folded into Evolution above: Evolution only tweaks
+    # existing strategies, this discovers brand-new candidate strategies
+    # by combining concepts. Kept in the same "Intelligence" group since
+    # both are automated strategy-improvement systems the CEO checks on
+    # together, just genuinely separate mechanisms underneath.
+    {"id": "self_learning", "label": "Self-Learning Engine", "enabled": True,
+     "icon": NAV_ICONS["self_learning"], "group": "Intelligence"},
 
     # Strategy Lab: a weekly, honest check for a genuinely profitable
     # strategy -- real, after-cost results only, never a losing strategy

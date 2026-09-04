@@ -166,8 +166,24 @@ def monitor_and_close(exchange, symbol, latest_price, high=None, low=None):
                 trail_pct=profit_lock_settings.get("profit_lock_trail_pct", 50.0),
             )
             if new_stop is not None:
+                # Master Task 3, Phase 2.22: detect (never decide/act on)
+                # the stop crossing to break-even-or-better for the FIRST
+                # time, purely to notify Telegram -- no new trading logic,
+                # just a comparison against the already-computed new_stop
+                # and the position's own entry_price.
+                old_stop = pos["stop_loss"]
+                entry = pos["entry_price"]
+                was_at_breakeven = (old_stop is not None) and (
+                    old_stop >= entry if pos["direction"] == "long" else old_stop <= entry
+                )
+                now_at_breakeven = new_stop >= entry if pos["direction"] == "long" else new_stop <= entry
                 storage.update_position_stop_loss(pos["id"], new_stop)
                 pos["stop_loss"] = new_stop
+                if now_at_breakeven and not was_at_breakeven:
+                    try:
+                        telegram_bot.send_breakeven_notification(pos)
+                    except Exception:
+                        pass  # informational only -- never let a notification failure affect trading
 
         reason = _check_exit(pos, latest_price, high, low)
         if reason:

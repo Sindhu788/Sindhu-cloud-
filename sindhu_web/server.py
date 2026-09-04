@@ -26,6 +26,7 @@ from sindhu_web.api import (
     project_status as project_status_api, strategy_lifecycle as strategy_lifecycle_api,
     concepts_usage as concepts_usage_api, auth as auth_api, incidents as incidents_api,
     weekly_snapshot as weekly_snapshot_api, infra_weekly_digest as infra_weekly_digest_api,
+    self_learning as self_learning_api,
 )
 
 _STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -149,10 +150,13 @@ async def _lifespan(app: FastAPI):
     backup.start_auto_backup_thread()
     weekly_snapshot_api.start_weekly_snapshot_scheduler_thread()
     infra_weekly_digest_api.start_infra_weekly_digest_scheduler_thread()
+    self_learning_api.start_self_learning_scheduler_thread()
     from paper_trading.weekly_report import start_weekly_report_scheduler_thread
     start_weekly_report_scheduler_thread()
     from paper_trading.monthly_report import start_monthly_report_scheduler_thread
     start_monthly_report_scheduler_thread()
+    from paper_trading.challenge_multi import start_achievability_snapshot_scheduler_thread
+    start_achievability_snapshot_scheduler_thread()
     from evolution_engine.weekly_review import start_evolution_weekly_review_scheduler_thread
     start_evolution_weekly_review_scheduler_thread()
     from paper_trading.strategy_lab import start_strategy_lab_scheduler_thread
@@ -211,7 +215,8 @@ def create_app():
                    feature_control_api.router, manager_chat_api.router, strategy_lab_api.router,
                    wizard_api.router, external_signals_api.router, project_status_api.router,
                    strategy_lifecycle_api.router, concepts_usage_api.router, auth_api.router,
-                   incidents_api.router, weekly_snapshot_api.router, infra_weekly_digest_api.router):
+                   incidents_api.router, weekly_snapshot_api.router, infra_weekly_digest_api.router,
+                   self_learning_api.router):
         app.include_router(router)
 
     @app.get("/api/token")

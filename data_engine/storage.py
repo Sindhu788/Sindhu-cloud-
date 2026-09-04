@@ -1106,6 +1106,79 @@ CREATE TABLE IF NOT EXISTS external_channel_performance (
     total_rr_sum REAL NOT NULL DEFAULT 0,   -- sum of realized R-multiples, for avg_rr = total_rr_sum / trades
     updated_at TEXT
 );
+
+-- Master Task 3, Phase 1.9/1.11: Self-Learning Engine -- persistent memory
+-- of every concept-combination candidate ever attempted (accepted OR
+-- rejected) plus why, so a future discovery cycle never blindly re-proposes
+-- the same combination without a genuinely new reason to revisit it.
+-- Local-only, like the rest of the backtest pipeline this package depends
+-- on -- not part of the cloud runner's curated Postgres schema.
+CREATE TABLE IF NOT EXISTS self_learning_attempts (
+    id TEXT PRIMARY KEY,
+    dna_combo_json TEXT NOT NULL,
+    concepts_drawn_json TEXT NOT NULL,
+    variant INTEGER NOT NULL DEFAULT 0,
+    strategy_id TEXT,
+    outcome TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    discovery_metrics_json TEXT,
+    validation_metrics_json TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_self_learning_attempts_created
+    ON self_learning_attempts(created_at);
+
+-- One row per completed weekly discovery cycle -- backs the weekly cap
+-- (Phase 1.10) and the explainability report history (Phase 1.12).
+CREATE TABLE IF NOT EXISTS self_learning_cycles (
+    id TEXT PRIMARY KEY,
+    started_at TEXT NOT NULL,
+    completed_at TEXT,
+    status TEXT NOT NULL,
+    report_json TEXT,
+    created_at TEXT NOT NULL
+);
+
+-- Master Task 3, Phase 2.9: Multiple Simultaneous Challenges. Replaces the
+-- single challenge_settings.json/cloud_setting blob (paper_trading/
+-- challenge_mode.py's original single-challenge design, kept as-is and
+-- still working for backward compatibility -- see challenge_mode.py's own
+-- comments) with a real, independently-queryable table so 2-3 challenges
+-- can be tracked side by side. Cloud-reachable, mirrored in db_backend.py's
+-- POSTGRES_SCHEMA, same reasoning as kill_switch_state: Challenge Mode
+-- already runs identically on the cloud deploy.
+CREATE TABLE IF NOT EXISTS challenges (
+    id TEXT PRIMARY KEY,
+    label TEXT,
+    start_amount REAL NOT NULL,
+    target_amount REAL NOT NULL,
+    timeframe_type TEXT NOT NULL DEFAULT 'custom',
+    days INTEGER NOT NULL,
+    started_at TEXT NOT NULL,
+    scope_strategy_id TEXT,
+    scope_symbol TEXT,
+    baseline_win_rate_pct REAL,
+    telegram_report_enabled INTEGER NOT NULL DEFAULT 0,
+    compounding INTEGER NOT NULL DEFAULT 1,
+    archived INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_challenges_archived ON challenges(archived);
+
+-- Master Task 3, Phase 2.20: Achievability Score Trend Line -- a real
+-- historical snapshot table (nothing about Challenge Mode was ever
+-- persisted over time before this; compute_progress() was always
+-- computed fresh/live), sampled periodically so a genuine 7-day trend can
+-- be shown instead of only ever a single current snapshot.
+CREATE TABLE IF NOT EXISTS challenge_achievability_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    challenge_id TEXT NOT NULL,
+    achievability_score REAL,
+    recorded_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_challenge_snapshots_challenge
+    ON challenge_achievability_snapshots(challenge_id, recorded_at);
 """
 
 _COMPILED_DOCUMENT_V6_COLUMNS = {
@@ -4463,6 +4536,210 @@ def get_latest_infra_weekly_digest():
             "SELECT created_at FROM infra_weekly_digests ORDER BY created_at DESC LIMIT 1"
         ).fetchone()
     return row[0] if row else None
+
+
+# --------------------------------------------------------- Self-Learning Engine
+
+def record_self_learning_attempt(
+    attempt_id, dna_combo, concepts_drawn, variant, outcome, reason, now_iso,
+    strategy_id=None, discovery_metrics=None, validation_metrics=None,
+):
+    """Master Task 3, Phase 1.9/1.11: one row per concept-combination
+    candidate ever attempted, whether accepted or rejected -- the
+    'rejected-idea memory' this task requires never blindly repeating a
+    combination without new evidence."""
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO self_learning_attempts
+               (id, dna_combo_json, concepts_drawn_json, variant, strategy_id, outcome, reason,
+                discovery_metrics_json, validation_metrics_json, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (attempt_id, json.dumps(sorted(dna_combo)), json.dumps(sorted(concepts_drawn)), variant,
+             strategy_id, outcome, reason,
+             json.dumps(discovery_metrics) if discovery_metrics is not None else None,
+             json.dumps(validation_metrics) if validation_metrics is not None else None,
+             now_iso),
+        )
+
+
+def list_self_learning_attempts(limit=500):
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, dna_combo_json, concepts_drawn_json, variant, strategy_id, outcome, reason, "
+            "discovery_metrics_json, validation_metrics_json, created_at "
+            "FROM self_learning_attempts ORDER BY created_at DESC LIMIT ?", (limit,),
+        ).fetchall()
+    return [
+        {
+            "id": r[0], "dna_combo": json.loads(r[1]), "concepts_drawn": json.loads(r[2]), "variant": r[3],
+            "strategy_id": r[4], "outcome": r[5], "reason": r[6],
+            "discovery_metrics": json.loads(r[7]) if r[7] else None,
+            "validation_metrics": json.loads(r[8]) if r[8] else None,
+            "created_at": r[9],
+        }
+        for r in rows
+    ]
+
+
+def find_matching_self_learning_attempts(dna_combo, concepts_drawn=None):
+    """Every past attempt at the EXACT same DNA combo (optionally also the
+    exact same drawn concepts) -- used to decide whether a proposed
+    candidate is a genuine repeat, per Phase 1.9/1.11."""
+    combo_key = json.dumps(sorted(dna_combo))
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, dna_combo_json, concepts_drawn_json, variant, strategy_id, outcome, reason, created_at "
+            "FROM self_learning_attempts WHERE dna_combo_json = ? ORDER BY created_at DESC",
+            (combo_key,),
+        ).fetchall()
+    results = [
+        {"id": r[0], "dna_combo": json.loads(r[1]), "concepts_drawn": json.loads(r[2]), "variant": r[3],
+         "strategy_id": r[4], "outcome": r[5], "reason": r[6], "created_at": r[7]}
+        for r in rows
+    ]
+    if concepts_drawn is not None:
+        target = sorted(concepts_drawn)
+        results = [r for r in results if r["concepts_drawn"] == target]
+    return results
+
+
+def save_self_learning_cycle(cycle_id, started_at, now_iso, status="in_progress", completed_at=None, report_json=None):
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO self_learning_cycles (id, started_at, completed_at, status, report_json, created_at)
+               VALUES (?, ?, ?, ?, ?, ?)
+               ON CONFLICT(id) DO UPDATE SET
+                 completed_at=excluded.completed_at, status=excluded.status, report_json=excluded.report_json""",
+            (cycle_id, started_at, completed_at, status, report_json, now_iso),
+        )
+
+
+def list_self_learning_cycles(limit=20):
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, started_at, completed_at, status, report_json, created_at "
+            "FROM self_learning_cycles ORDER BY created_at DESC LIMIT ?", (limit,),
+        ).fetchall()
+    return [
+        {"id": r[0], "started_at": r[1], "completed_at": r[2], "status": r[3],
+         "report_json": json.loads(r[4]) if r[4] else None, "created_at": r[5]}
+        for r in rows
+    ]
+
+
+def get_latest_self_learning_cycle():
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT id, started_at, completed_at, status, report_json, created_at "
+            "FROM self_learning_cycles ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()
+    if not row:
+        return None
+    return {"id": row[0], "started_at": row[1], "completed_at": row[2], "status": row[3],
+            "report_json": json.loads(row[4]) if row[4] else None, "created_at": row[5]}
+
+
+# --------------------------------------------------------------- Challenge Mode (multi)
+
+_CHALLENGE_COLUMNS = [
+    "id", "label", "start_amount", "target_amount", "timeframe_type", "days", "started_at",
+    "scope_strategy_id", "scope_symbol", "baseline_win_rate_pct", "telegram_report_enabled",
+    "compounding", "archived", "created_at", "updated_at",
+]
+
+
+def _row_to_challenge(row):
+    d = dict(zip(_CHALLENGE_COLUMNS, row))
+    d["telegram_report_enabled"] = bool(d["telegram_report_enabled"])
+    d["compounding"] = bool(d["compounding"])
+    d["archived"] = bool(d["archived"])
+    return d
+
+
+def create_challenge(
+    challenge_id, label, start_amount, target_amount, timeframe_type, days, started_at, now_iso,
+    scope_strategy_id=None, scope_symbol=None, baseline_win_rate_pct=None,
+    telegram_report_enabled=False, compounding=True,
+):
+    """Master Task 3, Phase 2.9: one row per independently-tracked
+    challenge -- distinct from paper_trading.challenge_mode's original
+    single-challenge JSON/cloud_setting (kept untouched for backward
+    compatibility with the existing embedded widget and Telegram tagging)."""
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO challenges
+               (id, label, start_amount, target_amount, timeframe_type, days, started_at,
+                scope_strategy_id, scope_symbol, baseline_win_rate_pct, telegram_report_enabled,
+                compounding, archived, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)""",
+            (challenge_id, label, start_amount, target_amount, timeframe_type, days, started_at,
+             scope_strategy_id, scope_symbol, baseline_win_rate_pct, 1 if telegram_report_enabled else 0,
+             1 if compounding else 0, now_iso, now_iso),
+        )
+
+
+def get_challenge(challenge_id):
+    with get_conn() as conn:
+        row = conn.execute(
+            f"SELECT {', '.join(_CHALLENGE_COLUMNS)} FROM challenges WHERE id = ?", (challenge_id,),
+        ).fetchone()
+    return _row_to_challenge(row) if row else None
+
+
+def list_challenges(include_archived=False):
+    query = f"SELECT {', '.join(_CHALLENGE_COLUMNS)} FROM challenges"
+    if not include_archived:
+        query += " WHERE archived = 0"
+    query += " ORDER BY created_at ASC"
+    with get_conn() as conn:
+        rows = conn.execute(query).fetchall()
+    return [_row_to_challenge(r) for r in rows]
+
+
+def update_challenge(challenge_id, now_iso, **fields):
+    """Master Task 3, Phase 2.18: custom deadline flexibility -- extend/
+    shorten `days`, or update any other mutable field, without recreating
+    the challenge (started_at/baseline stay put, so progress isn't reset)."""
+    if not fields:
+        return
+    allowed = set(_CHALLENGE_COLUMNS) - {"id", "created_at"}
+    unknown = set(fields) - allowed
+    if unknown:
+        raise ValueError(f"unknown challenge field(s): {unknown}")
+    bool_fields = {"telegram_report_enabled", "compounding", "archived"}
+    normalized = {k: (1 if v else 0) if k in bool_fields else v for k, v in fields.items()}
+    set_clause = ", ".join(f"{k} = ?" for k in normalized)
+    values = list(normalized.values()) + [now_iso, challenge_id]
+    with get_conn() as conn:
+        conn.execute(f"UPDATE challenges SET {set_clause}, updated_at = ? WHERE id = ?", values)
+
+
+def archive_challenge(challenge_id, now_iso):
+    """Never a hard delete, per this project's global rule -- an archived
+    challenge stays fully queryable (list_challenges(include_archived=True))
+    but drops out of the normal active list/side-by-side view."""
+    update_challenge(challenge_id, now_iso, archived=1)
+
+
+def record_challenge_achievability_snapshot(challenge_id, achievability_score, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO challenge_achievability_snapshots (challenge_id, achievability_score, recorded_at) "
+            "VALUES (?, ?, ?)",
+            (challenge_id, achievability_score, now_iso),
+        )
+
+
+def list_challenge_achievability_snapshots(challenge_id, since_iso=None):
+    query = "SELECT achievability_score, recorded_at FROM challenge_achievability_snapshots WHERE challenge_id = ?"
+    params = [challenge_id]
+    if since_iso:
+        query += " AND recorded_at >= ?"
+        params.append(since_iso)
+    query += " ORDER BY recorded_at ASC"
+    with get_conn() as conn:
+        rows = conn.execute(query, params).fetchall()
+    return [{"achievability_score": r[0], "recorded_at": r[1]} for r in rows]
 
 
 # --------------------------------------------------------------- Strategy Lab

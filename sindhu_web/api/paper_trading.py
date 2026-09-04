@@ -28,6 +28,7 @@ from paper_trading import trade_journal_export
 from paper_trading import coin_blacklist
 from paper_trading import position_size_calculator
 from paper_trading import health_check
+from paper_trading import challenge_ai_advisor
 from paper_trading.engine import engine
 from data_engine import config as base_config
 from sindhu_web import broadcast, cache, sync
@@ -1620,6 +1621,33 @@ class ChallengeWhatIfRequest(BaseModel):
     restrict_strategy_ids: list[str] | None = None
 
 
+class MultiChallengeCreateRequest(BaseModel):
+    """Master Task 3, Phase 2.9/2.4/2.15: the new multi-challenge system --
+    a separate, additive request shape from ChallengeRequest above (which
+    keeps working unchanged for the original single-challenge widget)."""
+    label: str
+    start_amount: float
+    target_amount: float
+    timeframe_type: str  # "daily" | "weekly" | "monthly" | "custom"
+    days: int | None = None
+    scope_strategy_id: str | None = None
+    scope_symbol: str | None = None
+    telegram_report_enabled: bool = False
+    compounding: bool = True
+
+
+class ChallengeExtendRequest(BaseModel):
+    new_days: int
+
+
+class ChallengeReplayRequest(BaseModel):
+    start_amount: float
+    target_amount: float
+    days_ago_started: int
+    strategy_id: str | None = None
+    symbol: str | None = None
+
+
 @router.get("/api/paper-trading/challenge")
 def get_challenge():
     """Batch 9, Task 4: current Challenge Mode progress, or
@@ -1688,6 +1716,135 @@ def post_challenge_recommend(req: ChallengeWhatIfRequest):
         req.start_amount, req.target_amount, req.days,
         restrict_symbols=req.restrict_symbols, restrict_strategy_ids=req.restrict_strategy_ids,
     )
+
+
+# --------------------------------------------------------------- Master Task 3, Phase 2.9+: Multiple Challenges
+# A genuinely separate, ADDITIVE set of endpoints -- every endpoint above
+# this line (the original single challenge_settings.json-backed Challenge
+# Mode) is completely untouched and keeps working exactly as before for
+# the existing embedded widget and Telegram's scope tagging.
+
+@router.get("/api/paper-trading/challenges")
+def list_challenges_with_progress():
+    """Phase 2.9's side-by-side view: every active (non-archived) challenge
+    with its full progress attached, one request."""
+    from paper_trading import challenge_multi
+    return {"challenges": challenge_multi.compute_all_progress()}
+
+
+@router.post("/api/paper-trading/challenges")
+def create_multi_challenge(req: MultiChallengeCreateRequest):
+    from paper_trading import challenge_multi
+    try:
+        challenge = challenge_multi.create_challenge(
+            req.label, req.start_amount, req.target_amount, req.timeframe_type, days=req.days,
+            scope_strategy_id=req.scope_strategy_id, scope_symbol=req.scope_symbol,
+            telegram_report_enabled=req.telegram_report_enabled, compounding=req.compounding,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, "challenge": challenge_multi.compute_progress_for(challenge["id"])}
+
+
+@router.post("/api/paper-trading/challenges/{challenge_id}/archive")
+def archive_multi_challenge(challenge_id: str):
+    from paper_trading import challenge_multi
+    challenge_multi.archive_challenge(challenge_id)
+    return {"ok": True}
+
+
+@router.post("/api/paper-trading/challenges/{challenge_id}/extend")
+def extend_multi_challenge(challenge_id: str, req: ChallengeExtendRequest):
+    """Phase 2.18: custom deadline flexibility -- recalculates live, never
+    resets started_at or any progress already made."""
+    from paper_trading import challenge_multi
+    try:
+        challenge_multi.extend_deadline(challenge_id, req.new_days)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, "challenge": challenge_multi.compute_progress_for(challenge_id)}
+
+
+@router.get("/api/paper-trading/challenges/{challenge_id}/full-analysis")
+def get_challenge_full_analysis(challenge_id: str):
+    """One consolidated read covering the rest of Phase 2's per-challenge
+    features (best/worst/likely range, difficulty rating, adaptive risk
+    suggestion + warning, give-up-point check, loss-streak impact, best
+    historical period, compounding-vs-fixed comparison, achievability
+    trend, AI explanation) -- one request instead of nine round trips."""
+    from paper_trading import challenge_analysis, challenge_multi
+
+    progress = challenge_multi.compute_progress_for(challenge_id)
+    if progress is None:
+        raise HTTPException(404, "challenge not found or archived")
+
+    restrict_strategy_ids = [progress["scope_strategy_id"]] if progress.get("scope_strategy_id") else None
+    restrict_symbols = [progress["scope_symbol"]] if progress.get("scope_symbol") else None
+    range_result = challenge_analysis.best_worst_likely_range(
+        progress["start_amount"], progress["target_amount"], progress["days"] - progress["elapsed_days"],
+        restrict_symbols=restrict_symbols, restrict_strategy_ids=restrict_strategy_ids,
+    )
+    difficulty = challenge_analysis.difficulty_rating(
+        progress["required_daily_rate_pct"], progress["real_demonstrated_daily_rate_pct"])
+
+    current_risk_pct = pt_config.load().get("risk_pct_default", 1.0)
+    risk_suggestion, risk_warning = None, None
+    best_case = range_result.get("best_case")
+    if best_case:
+        recommend = challenge_analysis.recommend_paths(
+            progress["start_amount"], progress["target_amount"], progress["days"],
+            restrict_symbols=restrict_symbols, restrict_strategy_ids=restrict_strategy_ids,
+        )
+        best_path = recommend["paths"][0] if recommend["paths"] else None
+        if best_path:
+            risk_suggestion = challenge_analysis.suggest_adaptive_risk_pct(
+                progress["required_daily_rate_pct"], best_path["avg_r_multiple"],
+                best_path["trades_per_day"], current_risk_pct,
+            )
+            risk_warning = challenge_analysis.risk_level_warning(
+                risk_suggestion["suggested_risk_pct"] if risk_suggestion else None, current_risk_pct)
+
+    give_up = challenge_analysis.give_up_point_check(
+        progress["remaining_days"], best_case["days_to_target"] if best_case else None)
+
+    loss_streak, best_period = None, None
+    if progress.get("scope_strategy_id") and progress.get("scope_symbol"):
+        loss_streak = challenge_analysis.loss_streak_impact(
+            progress["scope_strategy_id"], progress["scope_symbol"], progress["start_amount"])
+        best_period = challenge_analysis.find_best_historical_period(
+            progress["scope_strategy_id"], progress["scope_symbol"], window_days=int(progress["days"]))
+
+    compounding_comparison = challenge_multi.compute_compounding_current_amount(challenge_id)
+    achievability_trend = challenge_multi.achievability_trend(challenge_id)
+    explanation = challenge_ai_advisor.explain(progress, difficulty, best_worst_likely=range_result)
+
+    return {
+        "progress": progress, "difficulty": difficulty, "best_worst_likely": range_result,
+        "risk_suggestion": risk_suggestion, "risk_warning": risk_warning, "give_up_point": give_up,
+        "loss_streak_impact": loss_streak, "best_historical_period": best_period,
+        "compounding_comparison": compounding_comparison, "achievability_trend": achievability_trend,
+        "ai_explanation": explanation,
+    }
+
+
+@router.post("/api/paper-trading/challenges/replay")
+def replay_challenge(req: ChallengeReplayRequest):
+    """Phase 2.7: historical challenge replay -- real trades only, never
+    simulated/invented numbers."""
+    from paper_trading import challenge_analysis
+    return challenge_analysis.replay_challenge(
+        req.start_amount, req.target_amount, req.days_ago_started,
+        strategy_id=req.strategy_id, symbol=req.symbol,
+    )
+
+
+@router.get("/api/paper-trading/challenges/rotation-suggestion")
+def get_rotation_suggestion():
+    """Phase 2.16: system-wide (not tied to one challenge) -- which two
+    strategies' real per-market-condition performance complement each
+    other."""
+    from paper_trading import challenge_analysis
+    return challenge_analysis.strategy_rotation_suggestion()
 
 
 @router.get("/api/paper-trading/confluence/{position_id}")

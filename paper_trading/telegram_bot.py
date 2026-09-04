@@ -32,6 +32,7 @@ import requests
 
 from data_engine import config as base_config, db_backend, storage, feature_toggles
 from paper_trading import challenge_mode, confluence as confluence_mod, insights, pattern_stats, signal_explainer
+from paper_trading import config as pt_config
 
 # Lightweight cloud runner support: on a fresh deploy (or any restart of a
 # container with no persistent volume mounted at data/config/), the local
@@ -532,6 +533,8 @@ _LABELS = {
         "profitable_strategy": "✅ <b>PROFITABLE STRATEGY</b> (live paper-trading record)",
         "strategy_under_evaluation": "\U0001F9EA <b>STRATEGY ABHI UNDER EVALUATION HAI</b> (kaafi trade history nahi hui abhi)",
         "challenge_mode_tag": "\U0001F3C6 <b>CHALLENGE MODE SIGNAL</b>",
+        "trailing_stop_active": "\U0001F3AF Trailing Stop Active",
+        "breakeven_moved": "✅ Stop-loss break-even par move ho gaya -- ab yeh trade risk-free hai.",
     },
     "en": {
         "high_confidence": "⭐ <b>HIGH CONFIDENCE SIGNAL</b> ⭐",
@@ -546,6 +549,8 @@ _LABELS = {
         "profitable_strategy": "✅ <b>PROFITABLE STRATEGY</b> (real live paper-trading record)",
         "strategy_under_evaluation": "\U0001F9EA <b>STRATEGY STILL UNDER EVALUATION</b> (not enough trade history yet)",
         "challenge_mode_tag": "\U0001F3C6 <b>CHALLENGE MODE SIGNAL</b>",
+        "trailing_stop_active": "\U0001F3AF Trailing Stop Active",
+        "breakeven_moved": "✅ Stop-loss moved to break-even -- this trade is now risk-free.",
     },
 }
 
@@ -573,6 +578,15 @@ def format_signal_message(position, confluence_result=None, reliability_result=N
     challenge_tag = _challenge_mode_tag(position, lang)
     if challenge_tag:
         lines.append(challenge_tag)
+    # Master Task 3, Phase 2.22: purely informational -- states whether the
+    # Profit-Lock Trailing Stop feature (paper_trading/profit_lock.py) is
+    # currently active system-wide, which is what "a strategy that uses
+    # the Trailing Stop-Loss feature" resolves to today (there is no
+    # PER-STRATEGY trailing-stop toggle, only the one global
+    # profit_lock_enabled setting every open position is equally subject
+    # to). Adds no new trading logic -- just reads the existing setting.
+    if pt_config.load().get("profit_lock_enabled", False):
+        lines.append(L["trailing_stop_active"])
     profitability_label = _profitability_label(position.get("strategy_id"), lang)
     if profitability_label:
         lines.append(profitability_label)
@@ -1029,6 +1043,39 @@ def send_close_followup(closed_position):
     storage.log_telegram_message(
         position_id, closed_position.get("strategy_id"), closed_position.get("strategy_name"),
         "close_followup", text, ok, err, _now_iso(),
+    )
+    return {"ok": ok, "error": err}
+
+
+def send_breakeven_notification(position):
+    """Master Task 3, Phase 2.22: a brief, purely informational update when
+    an OPEN trade's stop-loss has just moved to break-even (Profit-Lock
+    Trailing Stop, paper_trading/profit_lock.py, reaching/crossing the
+    entry price) -- detected and called from position_manager.
+    monitor_and_close() at the exact point it already updates the stop, no
+    new trading logic added there beyond that comparison. Same gating and
+    'only if a signal was already sent for this position' rule as
+    send_close_followup(), so the channel never gets an update about a
+    trade nobody was told about."""
+    settings = load_settings()
+    if not settings.get("master_send_enabled", True) or feature_toggles.is_master_paused():
+        return None
+    position_id = position["id"]
+    if not storage.has_telegram_signal_for_position(position_id):
+        return None
+
+    lang = settings.get("language", "ur")
+    L = _LABELS[lang if lang in _LABELS else "ur"]
+    lines = [
+        L["breakeven_moved"],
+        f"• {L['strategy']}: {position.get('strategy_name') or L['unknown_strategy']}",
+        f"• {position['symbol']} -- {L['stop_loss']}: {_format_price(position.get('stop_loss'))}",
+    ]
+    text = "\n".join(lines)
+    ok, err = _raw_send(text, channel_id_override=channel_for_strategy(position.get("strategy_id")))
+    storage.log_telegram_message(
+        position_id, position.get("strategy_id"), position.get("strategy_name"),
+        "breakeven_notification", text, ok, err, _now_iso(),
     )
     return {"ok": ok, "error": err}
 

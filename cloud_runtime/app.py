@@ -95,6 +95,11 @@ _CLOUD_NAV_PAGES = [
     # data available" rather than crash on this runner's curated Postgres
     # schema, which never stores backtest_batches/backtest_results.
     {"id": "signal_tracker", "label": "Signal Tracker", "enabled": True, "icon": "activity", "group": "Paper Trading"},
+    # Master Task 3, Phase 2.1: qualifies for the cloud nav (unlike Phase
+    # 1's Self-Learning Engine) -- renderChallengeMode() (app.js) calls
+    # only /api/paper-trading/challenges/* endpoints, all part of
+    # paper_trading_api.router, already mounted above.
+    {"id": "challenge_mode", "label": "Challenge Mode", "enabled": True, "icon": "target", "group": "Paper Trading"},
 ]
 _CLOUD_NAV_GROUPS = ["Paper Trading"]
 
@@ -150,6 +155,13 @@ async def _lifespan(app: FastAPI):
     # laptop (see sindhu_web/server.py's own lifespan for that side).
     from paper_trading import telegram_commands
     telegram_commands.start_command_polling_thread()
+
+    # Master Task 3, Phase 2.20: Challenge Mode's achievability-trend
+    # snapshots -- Challenge Mode is already fully cloud-reachable (its own
+    # cloud_settings dual-write), so this runs here too, not just on the
+    # local laptop's server.py.
+    from paper_trading.challenge_multi import start_achievability_snapshot_scheduler_thread
+    start_achievability_snapshot_scheduler_thread()
 
     task = asyncio.create_task(_broadcast_loop())
     yield

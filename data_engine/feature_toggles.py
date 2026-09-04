@@ -51,6 +51,15 @@ DEFAULTS = {
     # never touches a trade or mutation decision), same category as the
     # other weekly report toggles above, so it defaults True like they do.
     "infra_weekly_digest_enabled": True,
+    # Master Task 3, Phase 1: Self-Learning Engine -- discovers brand-new
+    # candidate strategies (concept combinations) and, if one genuinely
+    # passes the mandatory out-of-sample gate, saves it to the strategy
+    # library. Same category as sindhu_strategy_autogen_enabled above: it
+    # only ever creates a LIBRARY entry, never enables live/paper trading
+    # by itself (a separate, explicit "Move to Paper Trading" action is
+    # always required after, same safety gate every strategy goes
+    # through) -- so it defaults True like that existing generator does.
+    "self_learning_engine_enabled": True,
 }
 
 

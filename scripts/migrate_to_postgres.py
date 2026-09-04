@@ -80,6 +80,10 @@ CURATED_TABLES = [
     # a small, CEO-curated deny-list, same "worth actually carrying over
     # to a fresh cloud deploy" reasoning as paper_auto_avoid_rules above.
     "paper_coin_blacklist",
+    # Master Task 3, Phase 2.9: real, CEO-configured challenges -- worth
+    # carrying over to a fresh cloud deploy, same reasoning as
+    # paper_coin_blacklist above.
+    "challenges",
     "paper_strategy_overrides",
     "paper_lesson_candidates",
     "paper_auto_lessons",
@@ -107,6 +111,9 @@ CURATED_TABLES = [
     "activity_log",
     "audit_trail_log",
     "telegram_retry_queue",
+    # challenge_achievability_snapshots: same parity-only story -- a
+    # rolling analytics log, never migrated from the laptop's own history.
+    "challenge_achievability_snapshots",
 ]
 
 

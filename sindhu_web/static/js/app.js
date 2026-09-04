@@ -2329,7 +2329,8 @@
     ai_center: renderAiCenter, backtest_history: renderBacktestHistory,
     pipeline_history: renderPipelineHistory,
     evolution: renderEvolution, evolution_history: renderEvolutionHistory, sindhu_strategy: renderSindhuStrategy,
-    signal_tracker: renderSignalTracker, strategy_lab: renderStrategyLab,
+    signal_tracker: renderSignalTracker, strategy_lab: renderStrategyLab, self_learning: renderSelfLearning,
+    challenge_mode: renderChallengeMode,
     strategy_wizard: renderStrategyWizard,
     web_sourced_strategies: renderWebSourcedStrategies,
     control_center: renderControlCenter,
@@ -6642,6 +6643,292 @@
     }
 
     await render();
+  }
+
+  // ------------------------------------------------------------ SELF-LEARNING ENGINE
+  // Master Task 3, Phase 1: deliberately its own page, not folded into
+  // Evolution or Strategy Lab -- this discovers brand-new candidate
+  // strategies by combining concepts, a genuinely different mechanism from
+  // both (Evolution only tweaks existing strategies; Strategy Lab only
+  // reads already-existing real records, it invents nothing).
+  async function renderSelfLearning() {
+    const myToken = activeRouteToken;
+    const en = getLang() === "en";
+
+    async function render() {
+      const [status, cycles, attempts, scores] = await Promise.all([
+        apiGet("/api/self-learning/status"),
+        apiGet("/api/self-learning/cycles?limit=10"),
+        apiGet("/api/self-learning/attempts?limit=30"),
+        apiGet("/api/self-learning/combination-scores"),
+      ]);
+      if (isStaleRoute(myToken)) return;
+
+      const latest = status.latest_cycle;
+      const latestReport = latest && latest.report_json;
+
+      content.innerHTML = `
+        <div class="section-title">${en ? "Self-Learning Engine" : "Self-Learning Engine"}</div>
+        <p class="muted">${en
+          ? "Discovers brand-new candidate strategies by combining existing proven concepts in new ways -- distinct from the Evolution Engine, which only tweaks existing strategies. Runs at most once a week, and a candidate is only saved to the strategy library if it independently passes an out-of-sample test in BOTH an earlier and a later period."
+          : "Naye candidate strategies banata hai, existing proven concepts ko naye tareeqon se combine karke -- Evolution Engine se alag, jo sirf existing strategies mein chhoti tabdeeliyan karta hai. Hafte mein ek baar se zyada nahi chalta, aur koi candidate tab hi strategy library mein save hota hai jab wo ek pehle aur ek baad ke period, dono mein alag alag out-of-sample test paas kare."}</p>
+
+        <div class="btn-row">
+          <button class="btn" id="slRunNow" ${status.run_in_progress ? "disabled" : ""}>${status.run_in_progress
+            ? (en ? "Running..." : "Chal Raha Hai...")
+            : (en ? "Run Discovery Cycle Now" : "Abhi Discovery Cycle Chalayein")}</button>
+          <span class="muted" style="font-size:12px;align-self:center;">${status.would_run_now
+            ? (en ? "A new weekly cycle is due." : "Naya weekly cycle due hai.")
+            : (en ? "Not due yet this week (or disabled in Feature Control)." : "Is hafte abhi due nahi (ya Feature Control mein disabled hai).")}</span>
+        </div>
+
+        ${latestReport ? `
+          <div class="section-title">${en ? "Most Recent Discovery Cycle" : "Sabse Haaliya Discovery Cycle"}</div>
+          <div class="grid">
+            ${card(en ? "Concepts Tried" : "Concepts Try Kiye", esc((latestReport.drawn_concepts || []).join(", ") || "-"))}
+            ${cardClass(en ? "Outcome" : "Outcome", esc((latestReport.outcome || latest.status || "-").toUpperCase()),
+              latestReport.outcome === "accepted" ? "positive" : latestReport.outcome === "rejected" ? "negative" : "")}
+            ${card(en ? "AI-Assisted?" : "AI-Assisted?", latestReport.ai_used ? (en ? "Yes" : "Haan") : (en ? "No (real-data ranking only)" : "Nahi (sirf real-data ranking)"))}
+          </div>
+          <p style="white-space:pre-line;font-size:13px;">${esc(latestReport.narrative || "")}</p>
+        ` : `<p class="muted">${en ? "No discovery cycle has run yet." : "Abhi tak koi discovery cycle nahi chala."}</p>`}
+
+        <div class="section-title">${en ? "What The Engine Currently Sees As Best" : "Engine Ko Abhi Kya Best Lag Raha Hai"}</div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>${en ? "Concept Combination" : "Concept Combination"}</th><th>${en ? "Real Score" : "Real Score"}</th><th>${en ? "Sample Size" : "Sample Size"}</th><th>${en ? "Best Coins" : "Best Coins"}</th></tr></thead>
+          <tbody>${(scores.combinations || []).slice(0, 10).map(c => `
+            <tr>
+              <td>${esc(c.dna_combo.join(" + "))}</td>
+              <td>${c.avg_score}</td>
+              <td>${c.sample_size}</td>
+              <td>${esc((c.best_coins || []).slice(0, 3).map(bc => bc.symbol).join(", ") || "-")}</td>
+            </tr>`).join("") || `<tr><td colspan="4">${en ? "Not enough data yet." : "Abhi kaafi data nahi."}</td></tr>`}</tbody>
+        </table></div>
+
+        <div class="section-title">${en ? "Every Attempt (Accepted And Rejected Alike)" : "Har Koshish (Accepted Aur Rejected Dono)"}</div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>${en ? "When" : "Kab"}</th><th>${en ? "Combo" : "Combo"}</th><th>${en ? "Outcome" : "Outcome"}</th><th>${en ? "Reason" : "Reason"}</th></tr></thead>
+          <tbody>${(attempts.attempts || []).map(a => `
+            <tr>
+              <td>${esc((a.created_at || "").slice(0, 16).replace("T", " "))}</td>
+              <td>${esc((a.dna_combo || []).join(" + "))}</td>
+              <td><span class="pill ${a.outcome === "accepted" ? "pill-up" : "pill-down"}">${esc(a.outcome)}</span></td>
+              <td style="max-width:360px;">${esc(a.reason)}</td>
+            </tr>`).join("") || `<tr><td colspan="4">${en ? "No attempts yet." : "Abhi koi koshish nahi hui."}</td></tr>`}</tbody>
+        </table></div>
+      `;
+
+      document.getElementById("slRunNow").onclick = async () => {
+        await apiPost("/api/self-learning/run-now");
+        appendLog("Self-Learning discovery cycle started in the background.");
+        showToast({ title: en ? "Started" : "Shuru Ho Gaya", body: en ? "Running in the background -- refresh this page in a few minutes." : "Background mein chal raha hai -- kuch minute mein yeh page refresh karein." });
+        render();
+      };
+    }
+
+    await render();
+    autoRefresh(render, 30);
+  }
+
+  // ------------------------------------------------------------ CHALLENGE MODE (multi)
+  // Master Task 3, Phase 2.1/2.9: a dedicated dashboard page for the NEW
+  // multi-challenge system (2-3 challenges tracked side by side) --
+  // deliberately separate from the original single-challenge widget still
+  // embedded inside the Paper Trading page (loadChallenge() above), which
+  // is left completely untouched for backward compatibility.
+  let challengeExpandedId = null;
+
+  function challengeDifficultyPill(difficulty, en) {
+    const cls = { "Easy": "pill-bullish", "Moderate": "pill-neutral", "Hard": "pill-bearish",
+                  "Extremely Unlikely": "pill-bearish" }[difficulty] || "pill-muted";
+    return `<span class="pill ${cls}">${esc(difficulty)}</span>`;
+  }
+
+  async function renderChallengeMode() {
+    const myToken = activeRouteToken;
+    const en = getLang() === "en";
+
+    async function render() {
+      const data = await apiGet("/api/paper-trading/challenges");
+      if (isStaleRoute(myToken)) return;
+      const challenges = data.challenges || [];
+
+      const cards = await Promise.all(challenges.map(async (c) => {
+        const isExpanded = challengeExpandedId === c.challenge_id;
+        let analysisHtml = "";
+        if (isExpanded) {
+          const a = await apiGet(`/api/paper-trading/challenges/${c.challenge_id}/full-analysis`).catch(() => null);
+          if (isStaleRoute(myToken)) return "";
+          analysisHtml = a ? challengeAnalysisHtml(a, en) : `<p class="muted">${en ? "Could not load analysis." : "Analysis load nahi hui."}</p>`;
+        }
+        return `
+          <div class="card" data-challenge-card="${esc(c.challenge_id)}">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+              <b>${esc(c.label)}</b>
+              <span class="pill pill-muted">${esc(c.timeframe_type)}</span>
+            </div>
+            <p class="muted" style="font-size:12px;margin:4px 0;">$${c.start_amount} → $${c.target_amount} -- ${c.remaining_days} ${en ? "days left" : "din baaki"}</p>
+            <div class="progress-bar"><div class="progress-bar-fill" style="width:${c.progress_pct}%;"></div></div>
+            <p style="font-size:12.5px;margin:6px 0;">${en ? "Current" : "Abhi"}: <b>$${c.current_amount}</b> (${c.progress_pct}%)
+              ${c.ahead_of_pace ? `<span class="pill pill-bullish">${en ? "Ahead of pace" : "Pace Se Aage"}</span>` : `<span class="pill pill-muted">${en ? "Behind pace" : "Pace Se Peeche"}</span>`}</p>
+            <p class="muted" style="font-size:12px;">${esc(c.honest_note)}</p>
+            <div class="btn-row">
+              <button class="btn-ghost ch-toggle" data-id="${esc(c.challenge_id)}">${isExpanded ? (en ? "Hide Details" : "Details Chupayein") : (en ? "Full Analysis" : "Poori Analysis")}</button>
+              <button class="btn-ghost ch-extend" data-id="${esc(c.challenge_id)}" data-days="${c.days}">${en ? "Extend Deadline" : "Deadline Barhayein"}</button>
+              <button class="btn-ghost ch-archive" data-id="${esc(c.challenge_id)}">${en ? "Archive" : "Archive Karein"}</button>
+            </div>
+            ${analysisHtml ? `<div style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px;">${analysisHtml}</div>` : ""}
+          </div>`;
+      }));
+
+      content.innerHTML = `
+        <div class="section-title">${en ? "Challenge Mode" : "Challenge Mode"}</div>
+        <p class="muted" style="font-size:12px;margin:0 0 14px;">${en
+          ? "Track up to 3 personal targets at once, side by side -- every number here comes from real Paper Trading history. This is tracking/analysis only: it never changes risk %, position sizing, or any trading behavior."
+          : "Ek saath 3 tak personal targets track karein, side by side -- yahan har number real Paper Trading history se hai. Yeh sirf tracking/analysis hai: risk %, position sizing, ya koi bhi trading behavior kabhi nahi badalta."}</p>
+
+        <div class="grid">${cards.join("") || `<p class="muted">${en ? "No active challenges." : "Koi active challenge nahi."}</p>`}</div>
+
+        ${challenges.length < 3 ? `
+          <div class="section-title">${en ? "Start a New Challenge" : "Naya Challenge Shuru Karein"}</div>
+          <div class="card" style="max-width:480px;">
+            <label>${en ? "Label" : "Label"}<input type="text" id="chmLabel" placeholder="${en ? "e.g. Weekly Push" : "misal: Weekly Push"}"></label>
+            <label>${en ? "Starting Amount ($)" : "Shuru Ka Amount ($)"}<input type="number" id="chmStart" step="0.01" min="0.01"></label>
+            <label>${en ? "Target Amount ($)" : "Target Amount ($)"}<input type="number" id="chmTarget" step="0.01" min="0.01"></label>
+            <label>${en ? "Timeframe" : "Timeframe"}
+              <select id="chmTimeframe">
+                <option value="daily">${en ? "Daily" : "Daily"}</option>
+                <option value="weekly" selected>${en ? "Weekly" : "Weekly"}</option>
+                <option value="monthly">${en ? "Monthly" : "Monthly"}</option>
+                <option value="custom">${en ? "Custom (days)" : "Custom (din)"}</option>
+              </select>
+            </label>
+            <label id="chmDaysWrap" style="display:none;">${en ? "Days" : "Din"}<input type="number" id="chmDays" step="1" min="1"></label>
+            <label style="display:flex;align-items:center;gap:8px;width:auto;">
+              <input type="checkbox" id="chmCompounding" checked style="width:auto;"> ${en ? "Compounding risk" : "Compounding Risk"}
+            </label>
+            <button class="btn" id="chmCreate">${en ? "Start Challenge" : "Challenge Shuru Karein"}</button>
+          </div>` : `<p class="muted">${en ? "Maximum 3 active challenges reached -- archive one to start another." : "Zyada se zyada 3 active challenges ho chuke -- naya shuru karne ke liye ek archive karein."}</p>`}
+
+        <div class="section-title">${en ? "Historical Replay" : "Historical Replay"}</div>
+        <p class="muted" style="font-size:12px;">${en ? "If you had started this exact challenge N days ago, what would have really happened -- using real trades only." : "Agar aap ne yeh challenge N din pehle shuru kiya hota, to real trades ke mutabiq kya hota."}</p>
+        <div class="card" style="max-width:480px;">
+          <label>${en ? "Starting Amount ($)" : "Shuru Ka Amount ($)"}<input type="number" id="chmReplayStart" step="0.01" min="0.01" value="1000"></label>
+          <label>${en ? "Target Amount ($)" : "Target Amount ($)"}<input type="number" id="chmReplayTarget" step="0.01" min="0.01" value="2000"></label>
+          <label>${en ? "Started N Days Ago" : "N Din Pehle Shuru"}<input type="number" id="chmReplayDaysAgo" step="1" min="1" value="30"></label>
+          <button class="btn-ghost" id="chmReplayRun">${en ? "Run Replay" : "Replay Chalayein"}</button>
+          <div id="chmReplayResult" style="margin-top:10px;"></div>
+        </div>
+
+        <div class="section-title">${en ? "Strategy Rotation Suggestion" : "Strategy Rotation Suggestion"}</div>
+        <div id="chmRotation" class="card" style="max-width:520px;">
+          <p class="muted">${en ? "Loading..." : "Load ho raha hai..."}</p>
+        </div>
+      `;
+
+      content.querySelectorAll(".ch-toggle").forEach(btn => {
+        btn.onclick = () => {
+          challengeExpandedId = challengeExpandedId === btn.dataset.id ? null : btn.dataset.id;
+          render();
+        };
+      });
+      content.querySelectorAll(".ch-archive").forEach(btn => {
+        btn.onclick = async () => {
+          if (!confirm(en ? "Archive this challenge? It stops being tracked but its history is never deleted." : "Yeh challenge archive karna hai? Track hona band ho jayega lekin history kabhi delete nahi hoti.")) return;
+          await apiPost(`/api/paper-trading/challenges/${btn.dataset.id}/archive`);
+          render();
+        };
+      });
+      content.querySelectorAll(".ch-extend").forEach(btn => {
+        btn.onclick = async () => {
+          const newDays = prompt(en ? "New total number of days:" : "Nayi total din ki tadaad:", btn.dataset.days);
+          if (!newDays) return;
+          await apiSend("POST", `/api/paper-trading/challenges/${btn.dataset.id}/extend`, { new_days: Number(newDays) });
+          render();
+        };
+      });
+
+      const timeframeSelect = document.getElementById("chmTimeframe");
+      if (timeframeSelect) {
+        timeframeSelect.onchange = () => {
+          document.getElementById("chmDaysWrap").style.display = timeframeSelect.value === "custom" ? "" : "none";
+        };
+      }
+      const createBtn = document.getElementById("chmCreate");
+      if (createBtn) {
+        createBtn.onclick = async () => {
+          const timeframe_type = document.getElementById("chmTimeframe").value;
+          const body = {
+            label: document.getElementById("chmLabel").value || (en ? "Untitled Challenge" : "Bila Naam Challenge"),
+            start_amount: Number(document.getElementById("chmStart").value),
+            target_amount: Number(document.getElementById("chmTarget").value),
+            timeframe_type,
+            compounding: document.getElementById("chmCompounding").checked,
+          };
+          if (timeframe_type === "custom") body.days = Number(document.getElementById("chmDays").value);
+          try {
+            await apiPost("/api/paper-trading/challenges", body);
+            render();
+          } catch (e) {
+            showToast({ title: en ? "Could not start challenge" : "Challenge Shuru Nahi Hua", body: e.message, isError: true });
+          }
+        };
+      }
+
+      document.getElementById("chmReplayRun").onclick = async () => {
+        const resultBox = document.getElementById("chmReplayResult");
+        resultBox.innerHTML = `<p class="muted">${en ? "Computing from real trades..." : "Real trades se hisaab lagaya ja raha hai..."}</p>`;
+        try {
+          const r = await apiPost("/api/paper-trading/challenges/replay", {
+            start_amount: Number(document.getElementById("chmReplayStart").value),
+            target_amount: Number(document.getElementById("chmReplayTarget").value),
+            days_ago_started: Number(document.getElementById("chmReplayDaysAgo").value),
+          });
+          resultBox.innerHTML = `<p>${en ? "Ending amount" : "Aakhri Amount"}: <b>$${r.ending_amount}</b> (${r.trades_counted} ${en ? "real trades" : "real trades"}) -- ${r.would_have_reached_target ? `<span class="pill pill-bullish">${en ? "Would have reached target" : "Target Tak Pohanch Jata"}</span>` : `<span class="pill pill-muted">${en ? "Would not have reached target" : "Target Tak Nahi Pohanchta"}</span>`}</p>`;
+        } catch (e) {
+          resultBox.innerHTML = `<p class="muted">${esc(e.message)}</p>`;
+        }
+      };
+
+      apiGet("/api/paper-trading/challenges/rotation-suggestion").then(r => {
+        const box = document.getElementById("chmRotation");
+        if (!box || isStaleRoute(myToken)) return;
+        if (!r.suggestion) {
+          box.innerHTML = `<p class="muted">${esc(r.reason)}</p>`;
+          return;
+        }
+        const s = r.suggestion;
+        box.innerHTML = `<p>${esc(s.strategy_a.strategy_name)} (${en ? "best in" : "best in"} ${esc(s.strategy_a.best_in)}) ↔ ${esc(s.strategy_b.strategy_name)} (${en ? "best in" : "best in"} ${esc(s.strategy_b.best_in)})</p><p class="muted" style="font-size:12px;">${esc(r.reason)}</p>`;
+      }).catch(() => {});
+    }
+
+    await render();
+    autoRefresh(render, 60);
+  }
+
+  function challengeAnalysisHtml(a, en) {
+    const p = a.progress;
+    const bwl = a.best_worst_likely || {};
+    const caseHtml = (label, c) => c ? `<div><b>${label}</b>: ${c.daily_rate_pct}%/${en ? "day" : "din"} (${esc(c.strategy_name)}, ${esc(c.symbol)})${c.days_to_target ? ` -- ${c.days_to_target.toFixed(0)} ${en ? "days" : "din"}` : ""}</div>` : `<div><b>${label}</b>: -</div>`;
+    return `
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+        ${challengeDifficultyPill(a.difficulty, en)}
+        ${a.give_up_point && a.give_up_point.implausible ? `<span class="pill pill-bearish">${en ? "Mathematically implausible" : "Riyazi Tor Par Namumkin"}</span>` : ""}
+      </div>
+      ${a.give_up_point && a.give_up_point.implausible ? `<p class="muted" style="font-size:12.5px;">${esc(a.give_up_point.reason)}</p>` : ""}
+      <div style="font-size:12.5px;margin-bottom:8px;">
+        ${caseHtml(en ? "Best case" : "Best Case", bwl.best_case)}
+        ${caseHtml(en ? "Likely case" : "Likely Case", bwl.likely_case)}
+        ${caseHtml(en ? "Worst case" : "Worst Case", bwl.worst_case)}
+      </div>
+      ${a.risk_suggestion ? `<p style="font-size:12.5px;">${en ? "Suggested risk" : "Tajweez Kardah Risk"}: <b>${a.risk_suggestion.suggested_risk_pct}%</b> (${en ? "currently" : "abhi"} ${a.risk_suggestion.current_risk_pct}%)</p>` : ""}
+      ${a.risk_warning && a.risk_warning.warn ? `<p class="muted" style="font-size:12px;color:var(--red,#c0392b);">${esc(a.risk_warning.messages.join(" "))}</p>` : ""}
+      ${a.loss_streak_impact && a.loss_streak_impact.checked ? `<p class="muted" style="font-size:12px;">${esc(a.loss_streak_impact.note)}</p>` : ""}
+      ${a.best_historical_period ? `<p class="muted" style="font-size:12px;">${en ? "Best historical" : "Behtareen Tareekhi"} ${p.days}-${en ? "day period" : "din period"}: ${a.best_historical_period.growth_multiple}x growth (${a.best_historical_period.trades_in_window} ${en ? "trades" : "trades"}).</p>` : ""}
+      ${a.compounding_comparison ? `<p style="font-size:12.5px;">${en ? "Compounding" : "Compounding"}: $${a.compounding_comparison.compounding_amount} ${en ? "vs Fixed-Risk" : "vs Fixed-Risk"}: $${a.compounding_comparison.fixed_risk_amount}</p>` : ""}
+      ${(a.achievability_trend && a.achievability_trend.length > 1) ? `<p class="muted" style="font-size:12px;">${en ? "Achievability trend (7 days)" : "Achievability Trend (7 din)"}: ${a.achievability_trend.map(s => s.achievability_score).join(" → ")}${a.achievability_trend[a.achievability_trend.length - 1].achievability_score >= a.achievability_trend[0].achievability_score ? ` (${en ? "improving" : "behtar ho raha"})` : ` (${en ? "worsening" : "kharab ho raha"})`}</p>` : ""}
+      <p style="font-size:12.5px;"><b>${en ? "AI Explanation" : "AI Wazahat"}</b>${a.ai_explanation.ai_used ? "" : ` (${en ? "no AI available" : "AI available nahi"})`}: ${esc(a.ai_explanation.explanation)}</p>
+    `;
   }
 
   // ------------------------------------------------------------ STRATEGY WIZARD

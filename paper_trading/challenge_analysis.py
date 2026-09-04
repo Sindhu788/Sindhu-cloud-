@@ -16,7 +16,7 @@ from its own trade history.
 
 import math
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from data_engine import storage
 from paper_trading import config as pt_config, pattern_stats
@@ -364,3 +364,289 @@ def check_drift(strategy_id, symbol, baseline_win_rate_pct, window_trades=DRIFT_
             "Combo abhi bhi apne original baseline ke qareeb perform kar raha hai -- koi warning nahi."
         ),
     }
+
+
+# --------------------------------------------------------------- Master Task 3, Phase 2 (Challenge Mode Part 1)
+# Everything below reuses recommend_paths()/granular_breakdown()'s already-
+# computed real numbers rather than re-querying storage from scratch --
+# same "never fabricate, always derive from real stored trades" boundary
+# this whole module already documents for itself.
+
+DIFFICULTY_BANDS = [
+    (0.5, "Easy"), (1.0, "Moderate"), (2.0, "Hard"),
+]  # multiple = required_daily_rate / real_daily_rate; above the last band's ceiling -> "Extremely Unlikely"
+
+# A suggested risk % this many times the CEO's own configured default is
+# flagged outright -- pushing risk that much higher to chase a target is a
+# materially different (and materially more dangerous) choice than the
+# CEO's own standing default, not a small tweak.
+RISK_WARNING_MULTIPLE = 2.0
+MAX_SANE_RISK_PCT = 5.0  # never suggest risking more than this per trade, full stop
+
+
+def difficulty_rating(required_daily_rate_pct, real_daily_rate_pct):
+    """Phase 2.14: a single plain-language label alongside the detailed
+    numbers -- Easy/Moderate/Hard/Extremely Unlikely, derived from the
+    exact same required-vs-real-pace multiple challenge_mode.py's own
+    UNREALISTIC_MULTIPLE concept already uses, just with finer bands."""
+    if real_daily_rate_pct is None or real_daily_rate_pct <= 0:
+        return "Extremely Unlikely"
+    multiple = required_daily_rate_pct / real_daily_rate_pct
+    for ceiling, label in DIFFICULTY_BANDS:
+        if multiple <= ceiling:
+            return label
+    return "Extremely Unlikely"
+
+
+def best_worst_likely_range(start_amount, target_amount, days, restrict_symbols=None, restrict_strategy_ids=None):
+    """Phase 2.11: instead of one single probability estimate, a real
+    best-case/likely-case/worst-case range -- each case is one REAL
+    strategy+coin combination's own demonstrated pace (the best, median,
+    and worst of recommend_paths()'s own candidate list), never an
+    invented spread around a single number."""
+    result = recommend_paths(start_amount, target_amount, days, restrict_symbols, restrict_strategy_ids)
+    paths = result["paths"]
+    if not paths:
+        return {"best_case": None, "likely_case": None, "worst_case": None,
+                "reason": "No real strategy+coin combination has enough history yet."}
+
+    def _case(path):
+        rate_pct = path["demonstrated_daily_rate_pct"]
+        return {
+            "strategy_name": path["strategy_name"], "symbol": path["symbol"],
+            "daily_rate_pct": rate_pct, "days_to_target": path["projected_days_to_target"],
+            "sample_size": path["sample_size"],
+        }
+
+    by_rate = sorted(paths, key=lambda p: p["demonstrated_daily_rate_pct"], reverse=True)
+    return {
+        "best_case": _case(by_rate[0]),
+        "worst_case": _case(by_rate[-1]),
+        "likely_case": _case(by_rate[len(by_rate) // 2]),
+        "combinations_considered": len(by_rate),
+    }
+
+
+def suggest_adaptive_risk_pct(required_daily_rate_pct, avg_r_multiple, trades_per_day, current_risk_pct):
+    """Phase 2.12: the SPECIFIC risk % that would make a real combination's
+    own demonstrated edge (avg R-multiple * trade frequency) match the
+    required pace -- e.g. '0.75% risk', never a vague 'increase risk'.
+    None when the combination has no positive edge at all (no risk % can
+    fix a strategy with a non-positive expectancy)."""
+    if not avg_r_multiple or avg_r_multiple <= 0 or not trades_per_day:
+        return None
+    needed_risk_pct = round((required_daily_rate_pct / 100) / (avg_r_multiple * trades_per_day) * 100, 3)
+    return {
+        "suggested_risk_pct": needed_risk_pct,
+        "current_risk_pct": current_risk_pct,
+        "increase_multiple": round(needed_risk_pct / current_risk_pct, 2) if current_risk_pct else None,
+    }
+
+
+def risk_level_warning(suggested_risk_pct, current_risk_pct):
+    """Phase 2.8: if hitting a target would require pushing risk % well
+    beyond the CEO's own configured default (or past a hard sanity
+    ceiling), say so plainly instead of silently implying a higher-risk
+    path is fine."""
+    if suggested_risk_pct is None:
+        return None
+    warnings = []
+    if suggested_risk_pct > MAX_SANE_RISK_PCT:
+        warnings.append(
+            f"{suggested_risk_pct}% risk per trade is beyond any reasonable ceiling ({MAX_SANE_RISK_PCT}%) -- "
+            f"this target should not be chased by raising risk at all."
+        )
+    elif current_risk_pct and suggested_risk_pct >= current_risk_pct * RISK_WARNING_MULTIPLE:
+        warnings.append(
+            f"Hitting this target at the demonstrated pace would need {suggested_risk_pct}% risk per trade -- "
+            f"{round(suggested_risk_pct / current_risk_pct, 1)}x your current {current_risk_pct}% default. "
+            f"That is a materially riskier choice, not a small tweak."
+        )
+    return {"warn": bool(warnings), "messages": warnings}
+
+
+def give_up_point_check(remaining_days, best_case_days_to_target):
+    """Phase 2.10: an honest 'this is now mathematically implausible in
+    the time left' alert -- compares the real BEST demonstrated path's own
+    projected days-to-target against how much time is actually left,
+    rather than continuing to show a hopeful-looking progress bar."""
+    if remaining_days <= 0:
+        return {"implausible": True, "reason": "The challenge's deadline has already passed."}
+    if best_case_days_to_target is None:
+        return {"implausible": True,
+                "reason": "No real combination has ever demonstrated a positive pace toward this target."}
+    if best_case_days_to_target > remaining_days:
+        return {"implausible": True,
+                "reason": (
+                    f"Even the single BEST real combination available would need {best_case_days_to_target:.1f} "
+                    f"more days at its own demonstrated pace, but only {remaining_days:.1f} days remain -- "
+                    f"this target is no longer mathematically reachable in time."
+                )}
+    return {"implausible": False, "reason": None}
+
+
+def _max_losing_streak(rows_sorted_by_close):
+    """Phase 2.19: the REAL worst consecutive-loss run in this
+    combination's own history -- mirrors _max_drawdown's same
+    equity-sequence-walk shape above, just counting consecutive losses
+    instead of dollar drawdown."""
+    worst = current = 0
+    for r in rows_sorted_by_close:
+        if r["pnl"] < 0:
+            current += 1
+            worst = max(worst, current)
+        else:
+            current = 0
+    return worst
+
+
+def loss_streak_impact(strategy_id, symbol, start_amount, risk_pct=None):
+    """Phase 2.19: what happens to the timeline if this combination's OWN
+    real worst-ever losing streak (not an invented number) hit again,
+    starting from today -- the dollar cost of that many losses at the
+    combination's own average loss size, and how many extra winning
+    trades (at its own average R-multiple) it would take to recover."""
+    rows = [r for r in _closed_rows(strategy_id, symbol) if r.get("closed_at")]
+    if len(rows) < pattern_stats.MIN_SAMPLE_SIZE:
+        return {"checked": False,
+                "reason": f"only {len(rows)} closed trades so far -- need {pattern_stats.MIN_SAMPLE_SIZE} "
+                          f"before a real worst-streak can be measured"}
+    rows_sorted = sorted(rows, key=lambda r: r["closed_at"])
+    worst_streak = _max_losing_streak(rows_sorted)
+    losses = [r for r in rows if r["pnl"] < 0]
+    avg_loss = abs(sum(r["pnl"] for r in losses) / len(losses)) if losses else 0.0
+    wins = [r for r in rows if r["pnl"] > 0]
+    avg_win = (sum(r["pnl"] for r in wins) / len(wins)) if wins else 0.0
+
+    simulated_cost = round(worst_streak * avg_loss, 2)
+    recovery_trades_needed = math.ceil(simulated_cost / avg_win) if avg_win > 0 else None
+    return {
+        "checked": True, "worst_historical_losing_streak": worst_streak,
+        "avg_loss_per_trade": round(avg_loss, 2), "avg_win_per_trade": round(avg_win, 2),
+        "simulated_cost_if_it_happened_again": simulated_cost,
+        "simulated_cost_pct_of_start_amount": round(simulated_cost / start_amount * 100, 2) if start_amount else None,
+        "recovery_trades_needed_at_own_avg_win": recovery_trades_needed,
+        "note": (
+            f"This combination's worst real losing streak on record is {worst_streak} trades in a row "
+            f"(avg loss ${avg_loss:.2f} each). If that happened again starting today, it would cost about "
+            f"${simulated_cost:.2f}"
+            + (f", needing roughly {recovery_trades_needed} more winning trades at its own average win size "
+               f"just to recover." if recovery_trades_needed else ".")
+        ),
+    }
+
+
+def find_best_historical_period(strategy_id, symbol, window_days):
+    """Phase 2.13: the REAL historical window_days-long period (from this
+    combination's own trade history) where it grew fastest -- 'here's when
+    a similar target was actually achieved, and how' -- never a projection,
+    only what already happened. Compounds each window's own real
+    R-multiples at the configured risk % to get a genuine growth multiple.
+    None if there isn't at least one full window_days span of history yet."""
+    rows = [r for r in _closed_rows(strategy_id, symbol) if r.get("closed_at") and r.get("risk_amount")]
+    if not rows:
+        return None
+    rows.sort(key=lambda r: r["closed_at"])
+    risk_pct = pt_config.load().get("risk_pct_default", 1.0) / 100.0
+
+    best = None
+    for anchor in rows:
+        window_start = datetime.fromisoformat(anchor["closed_at"])
+        window_end = window_start + timedelta(days=window_days)
+        window_trades = [
+            r for r in rows
+            if window_start <= datetime.fromisoformat(r["closed_at"]) < window_end
+        ]
+        if len(window_trades) < 2:
+            continue
+        growth_multiple = 1.0
+        for t in window_trades:
+            growth_multiple *= (1 + (t["pnl"] / t["risk_amount"]) * risk_pct)
+        if best is None or growth_multiple > best["growth_multiple"]:
+            best = {
+                "window_start": window_start.isoformat(), "window_end": window_end.isoformat(),
+                "growth_multiple": round(growth_multiple, 4), "trades_in_window": len(window_trades),
+            }
+    return best
+
+
+def replay_challenge(start_amount, target_amount, days_ago_started, strategy_id=None, symbol=None):
+    """Phase 2.7: 'if I had started this exact challenge N days/weeks ago,
+    what would have happened?' -- uses the exact same real-R-multiple
+    compounding math as challenge_multi.compute_compounding_current_amount,
+    just anchored to an arbitrary past date instead of a real challenge's
+    own started_at, over real trades only."""
+    started_at = (datetime.now(timezone.utc) - timedelta(days=days_ago_started)).isoformat()
+    rows = _closed_rows(strategy_id, symbol) if (strategy_id and symbol) else _closed_rows()
+    trades = sorted(
+        (r for r in rows if r.get("closed_at") and r["closed_at"] >= started_at and r.get("risk_amount")),
+        key=lambda r: r["closed_at"],
+    )
+    risk_pct = pt_config.load().get("risk_pct_default", 1.0) / 100.0
+    balance = start_amount
+    for t in trades:
+        r_multiple = t["pnl"] / t["risk_amount"]
+        balance += r_multiple * (balance * risk_pct)
+
+    return {
+        "started_at": started_at, "ending_amount": round(balance, 2),
+        "trades_counted": len(trades), "would_have_reached_target": balance >= target_amount,
+    }
+
+
+def strategy_rotation_suggestion(candidate_strategy_ids=None):
+    """Phase 2.16: suggests rotating between two strategies based on real,
+    stored per-trade market_state (paper_trading.market_state.classify(),
+    recorded at entry time) -- 'use Strategy A when trending, Strategy B
+    when ranging' grounded in actual historical regime performance, never
+    a guess. Only ever pairs strategies whose OWN best-performing real
+    market condition genuinely differs."""
+    rows = _closed_rows()
+    if candidate_strategy_ids:
+        rows = [r for r in rows if r["strategy_id"] in candidate_strategy_ids]
+
+    by_strategy_state = defaultdict(list)
+    names = {}
+    for r in rows:
+        state = r.get("market_state")
+        if not state:
+            continue
+        names[r["strategy_id"]] = r.get("strategy_name") or r["strategy_id"]
+        by_strategy_state[(r["strategy_id"], state)].append(r)
+
+    per_strategy_best = {}
+    for (sid, state), group in by_strategy_state.items():
+        if len(group) < pattern_stats.MIN_SAMPLE_SIZE:
+            continue
+        m = _metrics_for(group)
+        current = per_strategy_best.get(sid)
+        if current is None or m["total_pnl"] > current["total_pnl"]:
+            per_strategy_best[sid] = {"strategy_id": sid, "strategy_name": names[sid], "best_market_state": state, **m}
+
+    candidates = sorted(per_strategy_best.values(), key=lambda x: -x["total_pnl"])
+    if len(candidates) < 2:
+        return {"suggestion": None,
+                "reason": f"need at least 2 strategies with {pattern_stats.MIN_SAMPLE_SIZE}+ real trades in some "
+                          f"single market condition before a rotation can be suggested"}
+
+    for i, a in enumerate(candidates):
+        for b in candidates[i + 1:]:
+            if a["best_market_state"] != b["best_market_state"]:
+                return {
+                    "suggestion": {
+                        "strategy_a": {"strategy_id": a["strategy_id"], "strategy_name": a["strategy_name"],
+                                       "best_in": a["best_market_state"], "win_rate_pct": a["win_rate_pct"],
+                                       "total_pnl": a["total_pnl"]},
+                        "strategy_b": {"strategy_id": b["strategy_id"], "strategy_name": b["strategy_name"],
+                                       "best_in": b["best_market_state"], "win_rate_pct": b["win_rate_pct"],
+                                       "total_pnl": b["total_pnl"]},
+                    },
+                    "reason": (
+                        f"{a['strategy_name']} performs best in real '{a['best_market_state']}' conditions, "
+                        f"{b['strategy_name']} performs best in real '{b['best_market_state']}' conditions -- "
+                        f"based on actual historical trades, not a guess."
+                    ),
+                }
+    return {"suggestion": None,
+            "reason": "every strategy with enough per-condition history happens to perform best in the SAME "
+                      "real market condition -- no complementary rotation to suggest yet."}

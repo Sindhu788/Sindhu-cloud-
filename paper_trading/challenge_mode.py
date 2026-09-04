@@ -257,12 +257,18 @@ def _honest_note(required_daily_rate, real_daily_rate, closed_trades, realistic)
     )
 
 
-def compute_progress(now_iso=None):
+def compute_progress(now_iso=None, settings=None):
     """Returns None if no challenge is currently configured/enabled.
     Otherwise a full, honest status dict. Read-only: never writes
     anything, never touches risk_pct/position sizing/any trading
-    behavior."""
-    settings = load()
+    behavior.
+
+    `settings`: optional -- defaults to load() (the single legacy
+    challenge). Master Task 3, Phase 2.9's multi-challenge system
+    (paper_trading/challenge_multi.py) passes one row from the new
+    `challenges` table here instead, reusing every bit of math below
+    unchanged rather than forking it."""
+    settings = settings if settings is not None else load()
     if not settings.get("enabled") or not settings.get("start_amount"):
         return None
 

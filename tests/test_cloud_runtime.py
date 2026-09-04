@@ -90,7 +90,7 @@ def test_cloud_nav_only_lists_pages_this_runner_actually_mounts(cloud_app):
     this runner really serves -- a stale nav entry would put a dead link
     in the cloud sidebar with no way to notice except a user clicking it."""
     page_ids = {p["id"] for p in cloud_app._CLOUD_NAV_PAGES}
-    assert page_ids == {"paper_trading", "telegram_dashboard", "strategy_overview", "signal_tracker"}
+    assert page_ids == {"paper_trading", "telegram_dashboard", "strategy_overview", "signal_tracker", "challenge_mode"}
     for group in (p["group"] for p in cloud_app._CLOUD_NAV_PAGES):
         assert group in cloud_app._CLOUD_NAV_GROUPS
 
