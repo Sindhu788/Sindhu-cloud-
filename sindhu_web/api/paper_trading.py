@@ -1464,6 +1464,47 @@ def get_telegram_delivery_log(period: str = "all"):
     }
 
 
+@router.get("/api/paper-trading/telegram/near-misses")
+def get_near_misses(limit: int = 200):
+    """Master Task 5, Part 1.5: the Near-Miss Log. Every real signal that
+    was generated and evaluated for Telegram auto-send but fell short of
+    High Confidence, with a plain-language "how close" measure -- reused
+    directly from telegram_bot._record_near_miss's stored numbers, no new
+    scoring invented here.
+
+    closeness_pct is the confluence-ratio gap (the one genuinely granular
+    number in the gate) expressed as "how far below the required bar, in
+    percentage points" -- 0 means it exactly cleared the confluence
+    portion of the gate (and therefore failed on the statistical
+    pattern-reliability gate instead, which is bucketed separately since
+    it's a trade-count threshold, not a percentage)."""
+    rows = storage.list_near_misses(limit=limit)
+    bands = {}
+    for r in rows:
+        req = r.get("confluence_required_ratio") or 1.0
+        ratio = r.get("confluence_ratio")
+        deficit_pct = round(max(0.0, (req - ratio) * 100), 1) if ratio is not None else None
+        r["confluence_deficit_pct"] = deficit_pct
+        if deficit_pct is None:
+            continue
+        band_floor = min(int(deficit_pct // 10) * 10, 90)
+        band_top = 100 if band_floor == 90 else band_floor + 9
+        band_key = f"{band_floor}-{band_top}% below the confluence bar"
+        bands[band_key] = bands.get(band_key, 0) + 1
+    band_list = sorted(
+        ({"band": k, "count": v} for k, v in bands.items()),
+        key=lambda b: int(b["band"].split("-")[0]),
+    )
+    pattern_insufficient = sum(1 for r in rows if r.get("pattern_status") == "insufficient_data")
+    return {
+        "total": len(rows),
+        "near_misses": rows,
+        "confluence_deficit_bands": band_list,
+        "pattern_gate_insufficient_data_count": pattern_insufficient,
+        "pattern_required_trades": pattern_stats.MIN_SAMPLE_SIZE,
+    }
+
+
 @router.get("/api/paper-trading/telegram/connection-status")
 def get_telegram_connection_status():
     """Is Telegram delivery actually working right now, and if not, why.

@@ -1030,13 +1030,65 @@ def evaluate_auto_send_tier(position_id):
         return "high", reason_high
     should_send_low, reason_low = evaluate_auto_send_low_tier(position_id)
     if not should_send_low:
+        _record_near_miss(position_id, reason_low)
         return None, reason_low
     if load_settings().get("auto_send_high_confidence_only", True):
+        _record_near_miss(position_id, reason_low)
         return None, (
             f"qualified for the Low Confidence tier but not sent -- only High Confidence "
             f"signals are sent to Telegram ({reason_low})"
         )
     return "low", reason_low
+
+
+def _record_near_miss(position_id, reason):
+    """Master Task 5, Part 1.5: Near-Miss Log. Called every time
+    evaluate_auto_send_tier() lands on None -- i.e. a real signal was
+    generated but did not reach High Confidence. Logged ONCE per position
+    (storage.has_near_miss_for_position guards this, and the table's own
+    UNIQUE(position_id) constraint is the final backstop), the first time
+    this function runs for it, whether that's the real-time check right
+    after the position opened or a later hourly sweep re-check.
+
+    Purely observational: recomputes the exact same confluence + pattern
+    reliability numbers the gate functions above already computed for their
+    own decision (cheap, read-only), just so this permanent record captures
+    HOW FAR SHORT the signal fell, not only that it fell short. Never
+    raises -- a logging failure must never break the real send path."""
+    try:
+        settings = load_settings()
+        if not settings.get("auto_send_enabled", False) or feature_toggles.is_master_paused():
+            return  # automation itself is off -- not a real "signal fell short" event
+        if storage.has_near_miss_for_position(position_id):
+            return
+        pos = storage.get_paper_position(position_id)
+        if not pos:
+            return
+        strategy_id = pos.get("strategy_id")
+        exchanges_cfg = base_config.load_or_seed("exchanges.json", base_config.DEFAULTS["exchanges.json"])
+        exchange = exchanges_cfg["default"]
+        conf = confluence_mod.score_confluence(
+            strategy_id, pos["symbol"], exchange, pos.get("market_state"), pos.get("session"), pos["direction"],
+        )
+        if conf.get("total", 0) == 0:
+            return  # nothing meaningful to log yet -- not a real near-miss, just no data
+        reliability = _pattern_reliability_for(strategy_id, pos["symbol"], pos.get("market_state"), pos.get("session"))
+        record = {
+            "position_id": position_id, "strategy_id": strategy_id, "strategy_name": pos.get("strategy_name"),
+            "symbol": pos["symbol"],
+            "confluence_ratio": conf["passed"] / conf["total"], "confluence_passed": conf["passed"],
+            "confluence_total": conf["total"],
+            "confluence_required_ratio": settings.get("auto_send_min_confluence_ratio", 1.0),
+            "confluence_required_count": settings.get("auto_send_min_confluence_count", _DEFAULTS["auto_send_min_confluence_count"]),
+            "pattern_status": reliability.get("status"), "pattern_trades": reliability.get("sample_size"),
+            "pattern_required": reliability.get("min_sample_size", pattern_stats.MIN_SAMPLE_SIZE),
+            "pattern_win_rate_pct": reliability.get("win_rate_pct"),
+            "live_pnl": storage.get_paper_realized_pnl_total(strategy_id) if strategy_id else None,
+            "reason": reason,
+        }
+        storage.save_near_miss(record, _now_iso())
+    except Exception:
+        pass
 
 
 # --------------------------------------------------------------- A5: two-way awareness (close follow-up)

@@ -75,6 +75,10 @@ CURATED_TABLES = [
     "paper_strategy_config",
     "paper_alerts",
     "confluence_score_log",
+    # near_miss_log: Master Task 5, Part 1.5 -- accumulates over time on
+    # both local and cloud, same "worth carrying over" reasoning as
+    # confluence_score_log above.
+    "near_miss_log",
     "paper_auto_avoid_rules",
     # paper_coin_blacklist: Grand Feature Expansion, Phase 5 Feature 1 --
     # a small, CEO-curated deny-list, same "worth actually carrying over

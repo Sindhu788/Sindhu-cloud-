@@ -268,6 +268,28 @@ CREATE TABLE IF NOT EXISTS confluence_score_log (
 CREATE INDEX IF NOT EXISTS idx_confluence_log_strategy
     ON confluence_score_log(strategy_id, created_at DESC);
 
+-- Master Task 5, Part 1.5: Near-Miss Log (see storage.py for full context).
+CREATE TABLE IF NOT EXISTS near_miss_log (
+    id SERIAL PRIMARY KEY,
+    position_id TEXT NOT NULL UNIQUE,
+    strategy_id TEXT,
+    strategy_name TEXT,
+    symbol TEXT,
+    confluence_ratio REAL,
+    confluence_passed INTEGER,
+    confluence_total INTEGER,
+    confluence_required_ratio REAL,
+    confluence_required_count INTEGER,
+    pattern_status TEXT,
+    pattern_trades INTEGER,
+    pattern_required INTEGER,
+    pattern_win_rate_pct REAL,
+    live_pnl REAL,
+    reason TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_near_miss_log_created ON near_miss_log(created_at DESC);
+
 CREATE TABLE IF NOT EXISTS paper_auto_avoid_rules (
     id SERIAL PRIMARY KEY,
     strategy_id TEXT NOT NULL,

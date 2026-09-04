@@ -505,6 +505,34 @@ CREATE TABLE IF NOT EXISTS confluence_score_log (
 );
 CREATE INDEX IF NOT EXISTS idx_confluence_log_strategy ON confluence_score_log(strategy_id, created_at DESC);
 
+-- Master Task 5, Part 1.5: Near-Miss Log. One row per generated signal
+-- (paper position) that was evaluated for Telegram auto-send and fell
+-- short of the High Confidence tier -- logged the first time this happens
+-- for a given position (never duplicated on later re-checks by the hourly
+-- sweep), so this data accumulates automatically going forward instead of
+-- requiring a one-off manual investigation each time. Purely observational
+-- -- never affects any gate or send decision.
+CREATE TABLE IF NOT EXISTS near_miss_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    position_id TEXT NOT NULL UNIQUE,
+    strategy_id TEXT,
+    strategy_name TEXT,
+    symbol TEXT,
+    confluence_ratio REAL,
+    confluence_passed INTEGER,
+    confluence_total INTEGER,
+    confluence_required_ratio REAL,
+    confluence_required_count INTEGER,
+    pattern_status TEXT,
+    pattern_trades INTEGER,
+    pattern_required INTEGER,
+    pattern_win_rate_pct REAL,
+    live_pnl REAL,
+    reason TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_near_miss_log_created ON near_miss_log(created_at DESC);
+
 -- Weekly Auto-Report (Dashboard Consolidation Group, item 7): one row per
 -- generated report, permanently stored so past reports stay reviewable.
 CREATE TABLE IF NOT EXISTS paper_weekly_reports (
@@ -4342,6 +4370,60 @@ def list_confluence_history(strategy_id, limit=100):
             (strategy_id, limit),
         ).fetchall()
     return [{"confluence_ratio": r[0], "created_at": r[1]} for r in rows]
+
+
+def has_near_miss_for_position(position_id):
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT id FROM near_miss_log WHERE position_id = ?", (position_id,)
+        ).fetchone()
+    return row is not None
+
+
+def save_near_miss(record, now_iso):
+    """Insert one Near-Miss Log row (Master Task 5, Part 1.5). `record` is a
+    dict with the keys listed in the INSERT below. Silently does nothing if
+    a row for this position_id already exists (UNIQUE constraint) -- callers
+    should still prefer checking has_near_miss_for_position first to avoid
+    the wasted computation, but this is a safe no-op either way."""
+    try:
+        with get_conn() as conn:
+            conn.execute(
+                "INSERT INTO near_miss_log (position_id, strategy_id, strategy_name, symbol, "
+                "confluence_ratio, confluence_passed, confluence_total, confluence_required_ratio, "
+                "confluence_required_count, pattern_status, pattern_trades, pattern_required, "
+                "pattern_win_rate_pct, live_pnl, reason, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    record["position_id"], record.get("strategy_id"), record.get("strategy_name"),
+                    record.get("symbol"), record.get("confluence_ratio"), record.get("confluence_passed"),
+                    record.get("confluence_total"), record.get("confluence_required_ratio"),
+                    record.get("confluence_required_count"), record.get("pattern_status"),
+                    record.get("pattern_trades"), record.get("pattern_required"),
+                    record.get("pattern_win_rate_pct"), record.get("live_pnl"), record.get("reason"), now_iso,
+                ),
+            )
+    except Exception:
+        pass
+
+
+def list_near_misses(limit=200, since_iso=None):
+    query = ("SELECT position_id, strategy_id, strategy_name, symbol, confluence_ratio, confluence_passed, "
+              "confluence_total, confluence_required_ratio, confluence_required_count, pattern_status, "
+              "pattern_trades, pattern_required, pattern_win_rate_pct, live_pnl, reason, created_at "
+              "FROM near_miss_log")
+    params = []
+    if since_iso:
+        query += " WHERE created_at >= ?"
+        params.append(since_iso)
+    query += " ORDER BY created_at DESC LIMIT ?"
+    params.append(limit)
+    with get_conn() as conn:
+        rows = conn.execute(query, params).fetchall()
+    cols = ["position_id", "strategy_id", "strategy_name", "symbol", "confluence_ratio", "confluence_passed",
+            "confluence_total", "confluence_required_ratio", "confluence_required_count", "pattern_status",
+            "pattern_trades", "pattern_required", "pattern_win_rate_pct", "live_pnl", "reason", "created_at"]
+    return [dict(zip(cols, r)) for r in rows]
 
 
 def list_generated_signals_with_delivery(since_iso=None, until_iso=None):

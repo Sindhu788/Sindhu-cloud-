@@ -6001,12 +6001,13 @@
       const box = document.getElementById("tgDashBox");
       if (!box) return;
       box.innerHTML = `<p class="muted">Loading...</p>`;
-      let delivery, analytics, mirrorRes;
+      let delivery, analytics, mirrorRes, nearMiss;
       try {
-        [delivery, analytics, mirrorRes] = await Promise.all([
+        [delivery, analytics, mirrorRes, nearMiss] = await Promise.all([
           apiGet(`/api/paper-trading/telegram/delivery-log?period=${period}`),
           apiGet(`/api/paper-trading/telegram/analytics?period=${period}`).catch(() => null),
           apiGet(`/api/paper-trading/telegram/log?limit=30`).catch(() => ({ messages: [] })),
+          apiGet(`/api/paper-trading/telegram/near-misses?limit=200`).catch(() => null),
         ]);
       } catch (e) {
         if (isStaleRoute(myToken)) return;
@@ -6082,6 +6083,41 @@
             </tr>`).join("") || `<tr><td colspan="11">No signals were generated in this period.</td></tr>`}</tbody>
         </table></div>
         ${signals.length > 200 ? `<p class="muted plain-note">Showing the 200 most recent of ${fmtNum(signals.length)} signals in this period.</p>` : ""}
+
+        ${nearMiss ? `
+        <div class="section-title">Near-Miss Log &mdash; How Close Signals Came to High Confidence</div>
+        <p class="muted plain-note">Master Task 5: every real signal that was generated and checked for auto-send, but did not reach High Confidence, gets logged here once (all-time, not just this period) &mdash; with exactly why, and how far short it fell. This builds up automatically over time so the CEO can judge whether the bar is set right without a one-off manual investigation each time.</p>
+        <div class="grid">
+          ${card("Total Near-Misses Logged", fmtNum(nearMiss.total))}
+          ${card("Blocked by Confluence Alone", fmtNum(nearMiss.near_misses.filter(n => (n.confluence_deficit_pct || 0) > 0).length))}
+          ${card("Blocked by Statistical Sample Gate", fmtNum(nearMiss.pattern_gate_insufficient_data_count) + ` (need ${nearMiss.pattern_required_trades}+ trades on that exact setup)`)}
+        </div>
+        <div class="section-title" style="font-size:14px;">Confluence Shortfall Distribution</div>
+        <div class="status-strip">
+          ${nearMiss.confluence_deficit_bands.length
+            ? nearMiss.confluence_deficit_bands.map(b => `
+              <div class="status-chip">
+                <span class="pill pill-muted">${esc(b.band)}</span>
+                <b>${fmtNum(b.count)}</b>
+              </div>`).join("")
+            : `<div class="muted">No near-misses logged yet.</div>`}
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr>
+            <th>When</th><th>Strategy</th><th>Coin</th><th>Confluence</th><th>Sample Gate</th><th>Why</th>
+          </tr></thead>
+          <tbody>${nearMiss.near_misses.slice(0, 100).map(n => `
+            <tr>
+              <td>${esc((n.created_at || "").slice(0, 16).replace("T", " "))}</td>
+              <td style="max-width:180px;">${esc(n.strategy_name || "-")}</td>
+              <td>${esc(n.symbol || "-")}</td>
+              <td>${n.confluence_passed}/${n.confluence_total} aligned (needed ${n.confluence_required_count}+, ratio ${(n.confluence_required_ratio * 100).toFixed(0)}%)</td>
+              <td>${n.pattern_trades != null ? `${fmtNum(n.pattern_trades)}/${n.pattern_required} trades` : "-"}</td>
+              <td style="max-width:320px; font-size:12px;">${esc(n.reason || "-")}</td>
+            </tr>`).join("") || `<tr><td colspan="6">No near-misses logged yet &mdash; this fills in automatically as new signals are evaluated.</td></tr>`}</tbody>
+        </table></div>
+        ${nearMiss.near_misses.length > 100 ? `<p class="muted plain-note">Showing the 100 most recent of ${fmtNum(nearMiss.near_misses.length)} near-misses logged so far.</p>` : ""}
+        ` : ""}
 
         ${analytics ? `
         <div class="section-title">Telegram-Sent Signals Only &mdash; Real Performance ${helpIcon("delivery_status")}</div>
