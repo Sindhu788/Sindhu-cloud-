@@ -33,5 +33,12 @@
       "reason": "Optimizer Part 1: add 1.0% buffer to structure SL (previously zero buffer, cost_model verified safe) -- combined with existing min_risk_reward_filter=2.5, this raises entry selectivity",
       "at": "2026-08-25T00:39:06.492224+00:00"
     }
-  ]
+  ],
+  "backtest_snapshot": {
+    "win_rate": 37.31,
+    "profit_factor": null,
+    "total_trades": 193,
+    "batch_id": "20260825_053906_e7ef83",
+    "computed_at": "2026-08-25T00:39:06.500631+00:00"
+  }
 }

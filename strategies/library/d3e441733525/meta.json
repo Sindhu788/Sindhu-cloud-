@@ -23,5 +23,12 @@
       "reason": "Optimizer Part 1: add breakeven_at_rr=1.0 to protect winning trades from reversing into losers (worst-DD symbols showed avg_win < avg_loss)",
       "at": "2026-08-25T00:00:36.541221+00:00"
     }
-  ]
+  ],
+  "backtest_snapshot": {
+    "win_rate": 26.26,
+    "profit_factor": null,
+    "total_trades": 8011,
+    "batch_id": "20260825_050036_1b4ceb",
+    "computed_at": "2026-08-25T00:00:36.548545+00:00"
+  }
 }

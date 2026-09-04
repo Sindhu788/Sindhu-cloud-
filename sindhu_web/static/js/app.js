@@ -6656,16 +6656,47 @@
     const en = getLang() === "en";
 
     async function render() {
-      const [status, cycles, attempts, scores] = await Promise.all([
-        apiGet("/api/self-learning/status"),
-        apiGet("/api/self-learning/cycles?limit=10"),
-        apiGet("/api/self-learning/attempts?limit=30"),
-        apiGet("/api/self-learning/combination-scores"),
-      ]);
+      // Master Task 4, Phase 0: the Self-Learning Engine's discovery cycles
+      // need the full local historical candle database + real backtest
+      // pipeline (same reason Evolution/Backtesting are also local-only) --
+      // its API router is deliberately never mounted on the lightweight
+      // cloud runner (see sindhu_web/api/self_learning.py's own docstring).
+      // On a cloud deploy these calls 404; catch that here and explain WHY
+      // plainly instead of showing a raw "Failed to load page" error, so
+      // the page is genuinely findable/understandable everywhere, even
+      // where the engine itself can't run.
+      let status, cycles, attempts, scores, overview;
+      try {
+        [status, cycles, attempts, scores, overview] = await Promise.all([
+          apiGet("/api/self-learning/status"),
+          apiGet("/api/self-learning/cycles?limit=10"),
+          apiGet("/api/self-learning/attempts?limit=30"),
+          apiGet("/api/self-learning/combination-scores"),
+          // Phase 0.3: accepted candidates are just regular saved strategies
+          // tagged "self-learning-discovered" (discovery_cycle.py) -- reuse
+          // the same dual-row overview data the Strategies page already
+          // computes, filtered client-side, instead of a new endpoint.
+          apiGet("/api/paper-trading/strategy-overview"),
+        ]);
+      } catch (e) {
+        if (isStaleRoute(myToken)) return;
+        content.innerHTML = `
+          <div class="section-title">${en ? "Self-Learning Engine" : "Self-Learning Engine"}</div>
+          <div class="card">
+            <p>${en
+              ? "This feature is not available on the cloud dashboard. Discovering brand-new strategies requires running real backtests against the full historical price database, which (by design, to keep the free cloud server light) only exists on your local computer -- the same reason the Evolution Engine and Backtesting pages also aren't on this cloud dashboard."
+              : "Yeh feature cloud dashboard par available nahi hai. Naye strategies discover karne ke liye asli backtests chalane padte hain, jo poori historical price database maangte hain -- yeh database (jaanbujh kar, free cloud server ko halka rakhne ke liye) sirf aapke local computer par maujood hai. Isi wajah se Evolution Engine aur Backtesting pages bhi is cloud dashboard par nahi hain."}</p>
+            <p class="muted" style="font-size:12.5px;">${en
+              ? "Open the SINDHU app on your own computer (E:\\\\sindhu) to see live Self-Learning status, past discovery cycles, and to click \"Run Discovery Cycle Now.\""
+              : "Live Self-Learning status, purane discovery cycles dekhne aur \"Run Discovery Cycle Now\" dabane ke liye apne computer par (E:\\\\sindhu) SINDHU app kholein."}</p>
+          </div>`;
+        return;
+      }
       if (isStaleRoute(myToken)) return;
 
       const latest = status.latest_cycle;
       const latestReport = latest && latest.report_json;
+      const discovered = (overview.strategies || []).filter(s => (s.tags || []).includes("self-learning-discovered"));
 
       content.innerHTML = `
         <div class="section-title">${en ? "Self-Learning Engine" : "Self-Learning Engine"}</div>
@@ -6692,6 +6723,13 @@
           </div>
           <p style="white-space:pre-line;font-size:13px;">${esc(latestReport.narrative || "")}</p>
         ` : `<p class="muted">${en ? "No discovery cycle has run yet." : "Abhi tak koi discovery cycle nahi chala."}</p>`}
+
+        <div class="section-title">${en ? "Discovered Strategies (Accepted)" : "Discover Ki Gayi Strategies (Accepted)"}</div>
+        <div class="grid">${discovered.length
+          ? discovered.map(s => strategyOverviewCard(s, en)).join("")
+          : `<p class="muted">${en
+              ? "No candidate has been accepted yet -- a candidate only lands here once it independently passes the out-of-sample test in both periods."
+              : "Abhi tak koi candidate accepted nahi hua -- koi candidate yahan tabhi aata hai jab wo dono periods mein alag alag out-of-sample test paas kare."}</p>`}</div>
 
         <div class="section-title">${en ? "What The Engine Currently Sees As Best" : "Engine Ko Abhi Kya Best Lag Raha Hai"}</div>
         <div class="table-wrap"><table>
@@ -6749,9 +6787,17 @@
     const en = getLang() === "en";
 
     async function render() {
-      const data = await apiGet("/api/paper-trading/challenges");
+      const [data, overview] = await Promise.all([
+        apiGet("/api/paper-trading/challenges"),
+        // Master Task 4, Phase 3.7: needed so the create form can offer a
+        // specific strategy to scope a new challenge to -- without a real
+        // scope set here, a matching Telegram signal can never be
+        // attributed to this challenge by name later.
+        apiGet("/api/paper-trading/strategy-overview"),
+      ]);
       if (isStaleRoute(myToken)) return;
       const challenges = data.challenges || [];
+      const strategies = overview.strategies || [];
 
       const cards = await Promise.all(challenges.map(async (c) => {
         const isExpanded = challengeExpandedId === c.challenge_id;
@@ -6807,6 +6853,16 @@
             <label style="display:flex;align-items:center;gap:8px;width:auto;">
               <input type="checkbox" id="chmCompounding" checked style="width:auto;"> ${en ? "Compounding risk" : "Compounding Risk"}
             </label>
+            <label>${en ? "Scope to one strategy (optional)" : "Ek Strategy Tak Mehdood Karein (Optional)"}
+              <select id="chmScopeStrategy">
+                <option value="">${en ? "-- System-wide (no scope) --" : "-- Poore System Ke Liye (Koi Scope Nahi) --"}</option>
+                ${strategies.map(s => `<option value="${esc(s.strategy_id)}">${esc(s.name)}</option>`).join("")}
+              </select>
+            </label>
+            <label id="chmScopeSymbolWrap" style="display:none;">${en ? "Coin (optional, e.g. BTCUSDT)" : "Coin (Optional, Misal BTCUSDT)"}<input type="text" id="chmScopeSymbol" placeholder="BTCUSDT"></label>
+            <p class="muted" style="font-size:11px;">${en
+              ? "Scoping lets Telegram signals from that exact strategy+coin be labeled with this challenge's own name -- leave unscoped to just track your whole account's real progress."
+              : "Scope karne se us exact strategy+coin ke Telegram signals is challenge ke apne naam se label honge -- scope na karein to sirf poore account ki real progress track hogi."}</p>
             <button class="btn" id="chmCreate">${en ? "Start Challenge" : "Challenge Shuru Karein"}</button>
           </div>` : `<p class="muted">${en ? "Maximum 3 active challenges reached -- archive one to start another." : "Zyada se zyada 3 active challenges ho chuke -- naya shuru karne ke liye ek archive karein."}</p>`}
 
@@ -6854,16 +6910,25 @@
           document.getElementById("chmDaysWrap").style.display = timeframeSelect.value === "custom" ? "" : "none";
         };
       }
+      const scopeStrategySelect = document.getElementById("chmScopeStrategy");
+      if (scopeStrategySelect) {
+        scopeStrategySelect.onchange = () => {
+          document.getElementById("chmScopeSymbolWrap").style.display = scopeStrategySelect.value ? "" : "none";
+        };
+      }
       const createBtn = document.getElementById("chmCreate");
       if (createBtn) {
         createBtn.onclick = async () => {
           const timeframe_type = document.getElementById("chmTimeframe").value;
+          const scopeStrategyId = document.getElementById("chmScopeStrategy").value;
           const body = {
             label: document.getElementById("chmLabel").value || (en ? "Untitled Challenge" : "Bila Naam Challenge"),
             start_amount: Number(document.getElementById("chmStart").value),
             target_amount: Number(document.getElementById("chmTarget").value),
             timeframe_type,
             compounding: document.getElementById("chmCompounding").checked,
+            scope_strategy_id: scopeStrategyId || null,
+            scope_symbol: scopeStrategyId ? (document.getElementById("chmScopeSymbol").value.trim().toUpperCase() || null) : null,
           };
           if (timeframe_type === "custom") body.days = Number(document.getElementById("chmDays").value);
           try {

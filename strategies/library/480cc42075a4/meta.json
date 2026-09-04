@@ -27,5 +27,12 @@
       "reason": "Optimizer Part 1: widen signal_candle SL buffer 1.0% -> 1.5% (cost_model verified safe) -- realized RR well below 2.0 TP target, premature stopouts on 5m entries",
       "at": "2026-08-25T00:11:12.484731+00:00"
     }
-  ]
+  ],
+  "backtest_snapshot": {
+    "win_rate": 34.25,
+    "profit_factor": null,
+    "total_trades": 3688,
+    "batch_id": "20260825_051112_b9b4c4",
+    "computed_at": "2026-08-25T00:11:12.491975+00:00"
+  }
 }

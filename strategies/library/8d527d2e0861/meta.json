@@ -22,5 +22,12 @@
       "reason": "Optimizer Part 1: fix documented Engine Gap Tracker #6 -- SL buffer was 0.15%, below the safe minimum vs real round-trip transaction cost (0.30%). Widened to 1.0% (cost_model verified safe)",
       "at": "2026-08-25T00:58:13.113210+00:00"
     }
-  ]
+  ],
+  "backtest_snapshot": {
+    "win_rate": 33.74,
+    "profit_factor": null,
+    "total_trades": 42013,
+    "batch_id": "20260825_055813_2c51f8",
+    "computed_at": "2026-08-25T00:58:13.120581+00:00"
+  }
 }

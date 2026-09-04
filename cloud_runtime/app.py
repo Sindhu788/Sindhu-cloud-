@@ -100,8 +100,19 @@ _CLOUD_NAV_PAGES = [
     # only /api/paper-trading/challenges/* endpoints, all part of
     # paper_trading_api.router, already mounted above.
     {"id": "challenge_mode", "label": "Challenge Mode", "enabled": True, "icon": "target", "group": "Paper Trading"},
+    # Master Task 4, Phase 0: listed here on purpose even though its real
+    # API router (sindhu_web/api/self_learning.py) is deliberately NEVER
+    # mounted on this runner -- discovery cycles need the full local
+    # historical database + backtest pipeline this lightweight cloud runner
+    # doesn't have, same as Evolution/Backtesting. Before this, the page
+    # had no nav entry on cloud at all, so the CEO could never even find it
+    # to learn why. renderSelfLearning() (app.js) now catches the resulting
+    # 404 and shows a plain explanation instead of a raw error -- see its
+    # own comment. This entry is intentionally informational-only, not a
+    # broken link: the page always renders something useful.
+    {"id": "self_learning", "label": "Self-Learning Engine", "enabled": True, "icon": "spark", "group": "Intelligence"},
 ]
-_CLOUD_NAV_GROUPS = ["Paper Trading"]
+_CLOUD_NAV_GROUPS = ["Paper Trading", "Intelligence"]
 
 
 async def _broadcast_loop():

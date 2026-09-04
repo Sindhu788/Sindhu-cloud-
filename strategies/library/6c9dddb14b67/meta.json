@@ -22,5 +22,12 @@
       "reason": "Optimizer Part 1: widen fixed_pct SL 2.5% -> 3.5% (cost_model verified safe) -- win rate (~20%) was too far below the 25% breakeven for the RR=3.0 target, indicating stops were too tight for a bear-market-reversal setup's normal retest volatility",
       "at": "2026-08-25T00:05:34.456352+00:00"
     }
-  ]
+  ],
+  "backtest_snapshot": {
+    "win_rate": 23.13,
+    "profit_factor": null,
+    "total_trades": 5581,
+    "batch_id": "20260825_050534_8ff341",
+    "computed_at": "2026-08-25T00:05:34.463576+00:00"
+  }
 }

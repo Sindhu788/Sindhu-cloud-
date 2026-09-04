@@ -12,7 +12,7 @@ from unittest.mock import patch
 import pytest
 
 from data_engine import config as base_config, storage
-from paper_trading import challenge_mode, telegram_bot
+from paper_trading import challenge_mode, challenge_multi, telegram_bot
 
 
 @pytest.fixture(autouse=True)
@@ -100,3 +100,58 @@ def test_system_wide_unscoped_challenge_does_not_tag_every_signal():
     challenge_mode.set_challenge(100, 200, 30)
     text = telegram_bot.format_signal_message(_position(), lang="en")
     assert "CHALLENGE MODE SIGNAL" not in text
+
+
+# ------------------------------------------------------------ Master Task 4, Phase 3.7
+# Multi-challenge attribution: with up to 3 simultaneous challenges (the
+# NEWER paper_trading.challenge_multi system, separate from the original
+# single-challenge challenge_mode.py above), a signal must name WHICH
+# specific challenge it belongs to, not a single generic tag.
+
+def test_a_signal_scoped_to_one_multi_challenge_names_it_specifically(test_db):
+    challenge_multi.create_challenge("Weekly Push", 1000.0, 1200.0, "weekly",
+                                      scope_strategy_id="strat1", scope_symbol="BTCUSDT")
+    text = telegram_bot.format_signal_message(_position(strategy_id="strat1", symbol="BTCUSDT"), lang="en")
+    assert "CHALLENGE SIGNAL: Weekly Push" in text
+
+
+def test_a_signal_matching_two_active_challenges_names_both(test_db):
+    challenge_multi.create_challenge("Weekly Push", 1000.0, 1200.0, "weekly",
+                                      scope_strategy_id="strat1", scope_symbol="BTCUSDT")
+    challenge_multi.create_challenge("Aggressive Monthly", 500.0, 2000.0, "monthly",
+                                      scope_strategy_id="strat1", scope_symbol="BTCUSDT")
+    text = telegram_bot.format_signal_message(_position(strategy_id="strat1", symbol="BTCUSDT"), lang="en")
+    assert "CHALLENGE SIGNAL: Weekly Push" in text
+    assert "CHALLENGE SIGNAL: Aggressive Monthly" in text
+
+
+def test_a_signal_not_matching_any_multi_challenge_scope_is_not_tagged(test_db):
+    challenge_multi.create_challenge("Weekly Push", 1000.0, 1200.0, "weekly",
+                                      scope_strategy_id="strat_other", scope_symbol="ETHUSDT")
+    text = telegram_bot.format_signal_message(_position(strategy_id="strat1", symbol="BTCUSDT"), lang="en")
+    assert "CHALLENGE SIGNAL" not in text
+
+
+def test_an_archived_multi_challenge_no_longer_tags_new_signals(test_db):
+    c = challenge_multi.create_challenge("Weekly Push", 1000.0, 1200.0, "weekly",
+                                          scope_strategy_id="strat1", scope_symbol="BTCUSDT")
+    challenge_multi.archive_challenge(c["id"])
+    text = telegram_bot.format_signal_message(_position(strategy_id="strat1", symbol="BTCUSDT"), lang="en")
+    assert "CHALLENGE SIGNAL" not in text
+
+
+def test_a_system_wide_unscoped_multi_challenge_does_not_tag_every_signal(test_db):
+    challenge_multi.create_challenge("Blended Target", 1000.0, 1200.0, "weekly")
+    text = telegram_bot.format_signal_message(_position(), lang="en")
+    assert "CHALLENGE SIGNAL" not in text
+
+
+def test_a_challenge_label_with_html_special_characters_is_escaped(test_db):
+    """label is CEO-typed free text and Telegram sends with parse_mode=HTML
+    -- an unescaped '<'/'&' would otherwise risk breaking message
+    delivery."""
+    challenge_multi.create_challenge("<b>Injected</b> & Push", 1000.0, 1200.0, "weekly",
+                                      scope_strategy_id="strat1", scope_symbol="BTCUSDT")
+    text = telegram_bot.format_signal_message(_position(strategy_id="strat1", symbol="BTCUSDT"), lang="en")
+    assert "&lt;b&gt;Injected&lt;/b&gt; &amp; Push" in text
+    assert "<b>Injected</b> & Push" not in text

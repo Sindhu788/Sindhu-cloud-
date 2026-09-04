@@ -8,5 +8,12 @@
   "updated_at": "2026-08-26T11:43:37.404822+00:00",
   "current_version": 1,
   "safety_status": "ready",
-  "safety_reasons": []
+  "safety_reasons": [],
+  "backtest_snapshot": {
+    "win_rate": 25.38,
+    "profit_factor": null,
+    "total_trades": 2474,
+    "batch_id": "eqhl_full_20260826_164337",
+    "computed_at": "2026-08-26T11:43:37.414385+00:00"
+  }
 }

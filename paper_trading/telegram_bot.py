@@ -23,6 +23,7 @@ understands: "socks5://[user:pass@]host:port" (requires the PySocks
 package, already added to requirements.txt) or "http://[user:pass@]host:port".
 """
 
+import html
 import math
 import os
 import time
@@ -578,6 +579,14 @@ def format_signal_message(position, confluence_result=None, reliability_result=N
     challenge_tag = _challenge_mode_tag(position, lang)
     if challenge_tag:
         lines.append(challenge_tag)
+    # Master Task 4, Phase 3.7: the newer multi-challenge system
+    # (paper_trading.challenge_multi, up to 3 active at once) can have
+    # several DIFFERENTLY-scoped challenges running simultaneously -- the
+    # single generic tag above (from the original single-challenge system)
+    # can't say which one. One line per matching active challenge, naming
+    # it specifically, so a signal that counts toward 2 of the CEO's 3
+    # challenges at once is unambiguous about both.
+    lines.extend(_multi_challenge_tags(position, lang))
     # Master Task 3, Phase 2.22: purely informational -- states whether the
     # Profit-Lock Trailing Stop feature (paper_trading/profit_lock.py) is
     # currently active system-wide, which is what "a strategy that uses
@@ -714,6 +723,34 @@ def _challenge_mode_tag(position, lang):
     if scope_symbol and position.get("symbol") != scope_symbol:
         return None
     return _LABELS[lang]["challenge_mode_tag"]
+
+
+def _multi_challenge_tags(position, lang):
+    """Master Task 4, Phase 3.7: returns one tag string per currently
+    ACTIVE (not archived) multi-challenge (paper_trading.challenge_multi)
+    scoped to this exact strategy+coin -- usually 0 or 1, but a signal can
+    legitimately belong to more than one if the CEO scoped two challenges
+    to the same strategy+coin, so all matches are returned, not just the
+    first. Never touches trading behavior -- purely a message-text lookup
+    against the same real scope fields challenge_multi.create_challenge
+    already stores. label is CEO-typed free text; HTML-escaped since
+    Telegram sends with parse_mode=HTML and an unescaped '<' or '&' in a
+    label would otherwise break message delivery."""
+    try:
+        challenges = storage.list_challenges()
+    except Exception:
+        return []
+    tags = []
+    for ch in challenges:
+        scope_strategy = ch.get("scope_strategy_id")
+        if not scope_strategy or position.get("strategy_id") != scope_strategy:
+            continue
+        scope_symbol = ch.get("scope_symbol")
+        if scope_symbol and position.get("symbol") != scope_symbol:
+            continue
+        label = html.escape(ch.get("label") or ch["id"])
+        tags.append(f"\U0001F3C6 <b>CHALLENGE SIGNAL: {label}</b>")
+    return tags
 
 
 def _pattern_reliability_for(strategy_id, symbol, market_state, session):

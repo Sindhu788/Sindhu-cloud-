@@ -15,5 +15,12 @@
   "updated_at": "2026-09-02T00:17:01.479737+00:00",
   "current_version": 1,
   "safety_status": "ready",
-  "safety_reasons": []
+  "safety_reasons": [],
+  "backtest_snapshot": {
+    "win_rate": 24.34,
+    "profit_factor": 0.5681,
+    "total_trades": 66896,
+    "batch_id": "20260902_052632_b3ee24",
+    "computed_at": "2026-09-02T00:26:32.754994+00:00"
+  }
 }

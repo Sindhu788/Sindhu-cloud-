@@ -90,7 +90,8 @@ def test_cloud_nav_only_lists_pages_this_runner_actually_mounts(cloud_app):
     this runner really serves -- a stale nav entry would put a dead link
     in the cloud sidebar with no way to notice except a user clicking it."""
     page_ids = {p["id"] for p in cloud_app._CLOUD_NAV_PAGES}
-    assert page_ids == {"paper_trading", "telegram_dashboard", "strategy_overview", "signal_tracker", "challenge_mode"}
+    assert page_ids == {"paper_trading", "telegram_dashboard", "strategy_overview", "signal_tracker",
+                         "challenge_mode", "self_learning"}
     for group in (p["group"] for p in cloud_app._CLOUD_NAV_PAGES):
         assert group in cloud_app._CLOUD_NAV_GROUPS
 
@@ -125,6 +126,12 @@ def test_app_mounts_exactly_the_expected_routers(cloud_app):
     # other import path.
     assert "/api/backtesting/run" not in route_paths
     assert "/api/evolution/status" not in route_paths
+    # self_learning has a NAV entry (Master Task 4, Phase 0 -- so the CEO
+    # can find and understand why it's local-only) but its real router must
+    # never be mounted here: a discovery cycle needs the full local
+    # historical database + backtest pipeline this runner deliberately
+    # doesn't have.
+    assert "/api/self-learning/status" not in route_paths
 
 
 def test_get_home_stub_returns_a_minimal_shape(cloud_app):

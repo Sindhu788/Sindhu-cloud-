@@ -14,5 +14,12 @@
   "updated_at": "2026-08-28T05:54:06.000605+00:00",
   "current_version": 1,
   "safety_status": "ready",
-  "safety_reasons": []
+  "safety_reasons": [],
+  "backtest_snapshot": {
+    "win_rate": 25.5,
+    "profit_factor": null,
+    "total_trades": 10701,
+    "batch_id": "s3_pdhl_mtf_reversal",
+    "computed_at": "2026-08-28T05:54:06.062920+00:00"
+  }
 }

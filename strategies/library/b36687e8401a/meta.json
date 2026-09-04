@@ -21,5 +21,12 @@
       "reason": "Optimizer Part 1: widen signal_candle SL buffer 1.0% -> 1.5% (cost_model verified safe) -- 1m scalping realized RR (~0.8) far below 3.0 TP target",
       "at": "2026-08-25T00:42:22.323905+00:00"
     }
-  ]
+  ],
+  "backtest_snapshot": {
+    "win_rate": 46.07,
+    "profit_factor": null,
+    "total_trades": 48947,
+    "batch_id": "20260825_054222_75e07e",
+    "computed_at": "2026-08-25T00:42:22.331071+00:00"
+  }
 }

@@ -638,6 +638,12 @@ def get_strategy_overview():
             # the cloud deploy, which has no backtest_* tables of its own).
             # None on a strategy that has never completed a local backtest.
             "backtest": meta.get("backtest_snapshot"),
+            # Master Task 4, Phase 0.3: lets the Self-Learning Engine page
+            # find its own accepted candidates (tagged
+            # self_learning_engine.discovery_cycle.DISCOVERED_STRATEGY_TAG
+            # at creation) inside this same already-computed dual-row list,
+            # instead of a second parallel query.
+            "tags": meta.get("tags", []),
             "in_paper_trading": bool(cfg_row.get("enabled")),
             "paper_config": {
                 "priority": cfg_row.get("priority", 5),

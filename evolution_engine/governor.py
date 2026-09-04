@@ -111,12 +111,32 @@ class Governor:
         """Lower `priority` number = runs sooner (matches paper_trading's
         existing priority_rule convention: confidence/win_rate/profit all
         sort descending, so callers should pass e.g. `-score` for
-        "highest score first"). Raises QueueFullError instead of growing
-        unbounded -- the queue itself is a concrete resource limit."""
+        "highest score first"). Bounded to max_queue_size -- a concrete
+        resource limit, never grows unbounded.
+
+        Master Task 4, Phase 1.3: once full, a genuinely better (lower
+        priority number) item now replaces the current WORST queued item,
+        instead of being silently rejected outright. A plain
+        reject-when-full queue is only a fair top-K selector when items
+        arrive already sorted best-first; here they don't -- diagnosed
+        live on the real Evolution Engine: with 198 real candidate
+        lineages and a 20-slot queue, whichever 20 happened to be
+        enqueued FIRST (arbitrary DB row order, not priority) monopolized
+        every single tick for 6 straight days, while several genuinely
+        eligible candidates elsewhere in the list never got a single
+        chance. Raises QueueFullError only for an item that is not an
+        improvement over anything already queued -- the queue is full
+        AND correctly not making room for something worse."""
         with self._lock:
-            if len(self._queue) >= self.max_queue_size:
-                raise QueueFullError(f"experiment queue full ({self.max_queue_size} items)")
-            heapq.heappush(self._queue, (priority, next(self._seq), item))
+            if len(self._queue) < self.max_queue_size:
+                heapq.heappush(self._queue, (priority, next(self._seq), item))
+                return
+            worst_index = max(range(len(self._queue)), key=lambda i: self._queue[i][0])
+            if priority >= self._queue[worst_index][0]:
+                raise QueueFullError(f"experiment queue full ({self.max_queue_size} items) "
+                                      f"and this item is not better than the worst one queued")
+            self._queue[worst_index] = (priority, next(self._seq), item)
+            heapq.heapify(self._queue)
 
     def try_enqueue(self, item, priority=5):
         try:

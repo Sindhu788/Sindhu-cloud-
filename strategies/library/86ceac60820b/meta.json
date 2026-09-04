@@ -26,5 +26,12 @@
       "reason": "Optimizer Part 1: add min_risk_reward_filter=1.5 (uses take_profit) -- realized RR (~0.3-0.5) was far below breakeven given the 49% win rate; structure TP was often too close relative to the fixed SL",
       "at": "2026-08-25T01:04:28.820778+00:00"
     }
-  ]
+  ],
+  "backtest_snapshot": {
+    "win_rate": 36.19,
+    "profit_factor": null,
+    "total_trades": 771,
+    "batch_id": "20260825_060428_93ff67",
+    "computed_at": "2026-08-25T01:04:28.828262+00:00"
+  }
 }

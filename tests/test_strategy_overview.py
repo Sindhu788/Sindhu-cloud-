@@ -86,6 +86,20 @@ def test_strategy_overview_surfaces_a_saved_backtest_snapshot(test_db):
     assert row["backtest"] == snapshot
 
 
+def test_strategy_overview_surfaces_tags_for_self_learning_discoveries(test_db):
+    """Master Task 4, Phase 0.3: the Self-Learning Engine page finds its own
+    accepted candidates by filtering this same overview list for the
+    'self-learning-discovered' tag (discovery_cycle.DISCOVERED_STRATEGY_TAG)
+    -- a regular strategy must show an empty tag list, not crash or omit
+    the field."""
+    plain_sid = lib.create(_make_strategy(name="Manually Built"))
+    discovered_sid = lib.create(_make_strategy(name="Discovered One"), tags=["self-learning-discovered"])
+
+    rows = {r["strategy_id"]: r for r in pt_api.get_strategy_overview()["strategies"]}
+    assert rows[plain_sid]["tags"] == []
+    assert rows[discovered_sid]["tags"] == ["self-learning-discovered"]
+
+
 def test_save_backtest_snapshot_skips_the_write_when_unchanged(test_db, monkeypatch):
     sid = lib.create(_make_strategy(name="Unchanged Snapshot"))
     snapshot = {"win_rate": 50.0, "profit_factor": 1.1, "total_trades": 30, "batch_id": "b1", "computed_at": "2026-01-01T00:00:00+00:00"}

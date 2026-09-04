@@ -182,7 +182,25 @@ class EvolutionEngine:
         self.governor.clear_queue()
         for base_id in storage.list_bot_strategy_base_ids():
             latest = storage.latest_generation_for_base(base_id)
-            score = latest["evolution_score"] if latest and latest.get("evolution_score") is not None else 50.0
+            if not latest:
+                continue
+            # Master Task 4, Phase 1.3: a lineage with zero real backtest
+            # trades yet can NEVER pass mutate_strategy's should_evolve
+            # 100-trade gate (rollback.should_evolve returns False
+            # immediately at trades < TRADE_THRESHOLD_STEP) -- enqueuing it
+            # here only ever burns a queue slot and, worse, one of this
+            # tick's scarce try_start_experiment() attempts on a guaranteed
+            # no-op. Diagnosed live: this was the other half of the real
+            # bug (paired with the governor.py queue fix above) that kept
+            # the Evolution Engine at zero generations ever produced across
+            # 6 days of continuous ticking, despite several lineages with
+            # thousands of real trades sitting genuinely eligible the whole
+            # time -- untested lineages' first real backtest is already
+            # handled separately, by _backtest_untested_candidates() above.
+            trades = (latest.get("backtest_summary") or {}).get("trades", 0) or 0
+            if trades == 0:
+                continue
+            score = latest["evolution_score"] if latest.get("evolution_score") is not None else 50.0
             self.governor.try_enqueue(base_id, priority=score)
 
         mutated = []

@@ -109,30 +109,57 @@ def _strategy_last_batch_result(strategy_name, recent_batches, batch_results_cac
     times over for N strategies), which is exactly the kind of redundant
     per-item query this endpoint is also polled by the Paper Trading page
     load (it lists available strategies), so it compounds with everything
-    else fetched on that page."""
+    else fetched on that page.
+
+    Master Task 4, Phase 1.2: `recent_batches` is a fixed-size GLOBAL
+    window (the 100 most recent batches across every strategy, including
+    the Evolution/Self-Learning/SINDHU Generator's own continuous stream of
+    candidate backtests). Audited live: with that background volume, a
+    real manually-built strategy's own last completed batch routinely ages
+    out of the top 100 within a day even though nothing about the
+    strategy's own results changed -- confirmed on the live database (128
+    of 154 real strategies showed no match in the 100-most-recent window
+    despite most having a real completed batch further back). Falls back
+    to a direct, indexed, strategy-specific lookup
+    (storage.latest_completed_batch_for_strategy_name, already used
+    elsewhere for the same name-based best-effort link) instead of
+    silently returning None -- this only ever runs for the strategies the
+    fast global-window pass didn't already find, so the common case pays
+    no extra query."""
     for batch in recent_batches:
         if batch["strategy_name"] != strategy_name:
             continue
-        if batch["status"] != "completed":
-            return {"batch_id": batch["batch_id"], "status": batch["status"], "created_at": batch["created_at"]}
-        if batch_results_cache is not None and batch["batch_id"] in batch_results_cache:
-            results = batch_results_cache[batch["batch_id"]]
-        else:
-            results = storage.get_batch_results(batch["batch_id"])
-            if batch_results_cache is not None:
-                batch_results_cache[batch["batch_id"]] = results
-        completed = [r for r in results if r["status"] == "completed" and r["metrics"]]
-        if not completed:
-            return {"batch_id": batch["batch_id"], "status": "completed", "created_at": batch["created_at"], "total_trades": 0}
-        total_trades = sum(r["metrics"]["total_trades"] for r in completed)
-        wins = sum(r["metrics"]["wins"] for r in completed)
-        return {
-            "batch_id": batch["batch_id"], "status": "completed", "created_at": batch["created_at"],
-            "total_trades": total_trades, "symbols_tested": len(completed),
-            "win_rate": round((wins / total_trades * 100) if total_trades else 0.0, 2),
-            "avg_profit_pct": round(sum(r["metrics"]["profit_pct"] for r in completed) / len(completed), 2),
-        }
-    return None
+        return _batch_result_summary(batch, batch_results_cache)
+
+    fallback_batch_id = storage.latest_completed_batch_for_strategy_name(strategy_name)
+    if not fallback_batch_id:
+        return None
+    fallback_batch = storage.get_batch(fallback_batch_id)
+    if not fallback_batch:
+        return None
+    return _batch_result_summary(fallback_batch, batch_results_cache)
+
+
+def _batch_result_summary(batch, batch_results_cache=None):
+    if batch["status"] != "completed":
+        return {"batch_id": batch["batch_id"], "status": batch["status"], "created_at": batch["created_at"]}
+    if batch_results_cache is not None and batch["batch_id"] in batch_results_cache:
+        results = batch_results_cache[batch["batch_id"]]
+    else:
+        results = storage.get_batch_results(batch["batch_id"])
+        if batch_results_cache is not None:
+            batch_results_cache[batch["batch_id"]] = results
+    completed = [r for r in results if r["status"] == "completed" and r["metrics"]]
+    if not completed:
+        return {"batch_id": batch["batch_id"], "status": "completed", "created_at": batch["created_at"], "total_trades": 0}
+    total_trades = sum(r["metrics"]["total_trades"] for r in completed)
+    wins = sum(r["metrics"]["wins"] for r in completed)
+    return {
+        "batch_id": batch["batch_id"], "status": "completed", "created_at": batch["created_at"],
+        "total_trades": total_trades, "symbols_tested": len(completed),
+        "win_rate": round((wins / total_trades * 100) if total_trades else 0.0, 2),
+        "avg_profit_pct": round(sum(r["metrics"]["profit_pct"] for r in completed) / len(completed), 2),
+    }
 
 
 def _condition_roles_summary(cfg):

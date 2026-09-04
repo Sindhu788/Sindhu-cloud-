@@ -11,5 +11,12 @@
   "updated_at": "2026-08-25T20:12:18.226601+00:00",
   "current_version": 1,
   "safety_status": "ready",
-  "safety_reasons": []
+  "safety_reasons": [],
+  "backtest_snapshot": {
+    "win_rate": 28.76,
+    "profit_factor": null,
+    "total_trades": 1867,
+    "batch_id": "dmc_combined_20260826_011218",
+    "computed_at": "2026-08-25T20:12:18.234337+00:00"
+  }
 }

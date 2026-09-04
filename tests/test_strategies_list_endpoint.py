@@ -96,6 +96,46 @@ def test_a_completed_batch_writes_a_backtest_snapshot_for_the_cloud_page(test_db
     }
 
 
+def test_last_batch_result_falls_back_to_a_direct_lookup_when_aged_out_of_the_recent_window(test_db):
+    """Master Task 4, Phase 1.2 audit finding: recent_batches is a fixed
+    global top-100 window shared by every strategy in the system, including
+    the continuous background stream of Evolution/Self-Learning/SINDHU
+    Generator candidate backtests. Verified live: 128 of 154 real
+    strategies showed no dual-row backtest data purely because their own
+    real completed batch had aged out of that global top-100 window, not
+    because they lack real backtest history. _strategy_last_batch_result
+    must fall back to storage.latest_completed_batch_for_strategy_name (a
+    direct, strategy-specific, already-existing lookup) instead of
+    returning None whenever the fast global-window scan misses."""
+    from data_engine import storage
+
+    storage.create_batch("old_batch", "Aged Out Strategy", "binance",
+                          {"symbols": ["BTCUSDT"]}, "2026-01-01T00:00:00+00:00")
+    storage.update_batch_status("old_batch", "completed", "2026-01-01T00:05:00+00:00")
+    storage.save_result("old_batch", "BTCUSDT", "5m", "completed",
+                         {"total_trades": 40, "wins": 22, "profit_pct": 5.0}, "2026-01-01T00:05:00+00:00")
+
+    # Simulate the real production condition: a huge number of OTHER
+    # batches (candidate/evolution backtests) ran more recently, so this
+    # strategy's own batch is not among the 100 most recent globally.
+    noisy_recent_batches = [
+        {"batch_id": f"noise_{i}", "strategy_name": "Some Other Candidate", "status": "completed",
+         "created_at": "2026-06-01T00:00:00+00:00"}
+        for i in range(100)
+    ]
+
+    result = backtesting._strategy_last_batch_result("Aged Out Strategy", noisy_recent_batches)
+    assert result is not None
+    assert result["batch_id"] == "old_batch"
+    assert result["total_trades"] == 40
+    assert result["win_rate"] == 55.0
+
+
+def test_last_batch_result_returns_none_when_truly_never_backtested(test_db):
+    result = backtesting._strategy_last_batch_result("Never Backtested At All", [])
+    assert result is None
+
+
 def test_saving_a_strategy_invalidates_the_cache_immediately(test_db):
     backtesting.list_strategies(q="")  # warm the cache with zero strategies
     req = backtesting.SaveRequest(config=StrategyConfig(

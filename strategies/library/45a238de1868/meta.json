@@ -14,5 +14,12 @@
   "updated_at": "2026-08-28T04:47:57.427323+00:00",
   "current_version": 1,
   "safety_status": "ready",
-  "safety_reasons": []
+  "safety_reasons": [],
+  "backtest_snapshot": {
+    "win_rate": 29.3,
+    "profit_factor": null,
+    "total_trades": 9082,
+    "batch_id": "s2_sniper_headshot_entry",
+    "computed_at": "2026-08-28T04:47:57.744751+00:00"
+  }
 }
