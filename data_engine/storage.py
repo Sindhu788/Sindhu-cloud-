@@ -1207,6 +1207,22 @@ CREATE TABLE IF NOT EXISTS challenge_achievability_snapshots (
 );
 CREATE INDEX IF NOT EXISTS idx_challenge_snapshots_challenge
     ON challenge_achievability_snapshots(challenge_id, recorded_at);
+
+-- Grand Master Prompt, Phase 2.4: Auto-Downgrade Rule -- tracks each
+-- strategy's CURRENT live-paper-trading downgrade classification (last
+-- 100 closed paper trades, Profit Factor < 1.0) separately from the
+-- backtest-based Profitable/Under-Evaluation label (sindhu_web/
+-- strategy_aggregate.py), which this NEVER touches or overrides. Never
+-- disables a strategy -- this is a classification + permanent log only,
+-- see paper_trading/auto_downgrade.py.
+CREATE TABLE IF NOT EXISTS paper_downgrade_state (
+    strategy_id TEXT PRIMARY KEY,
+    downgraded INTEGER NOT NULL DEFAULT 0,
+    profit_factor REAL,
+    sample_size INTEGER NOT NULL DEFAULT 0,
+    reason TEXT,
+    updated_at TEXT NOT NULL
+);
 """
 
 _COMPILED_DOCUMENT_V6_COLUMNS = {
@@ -5170,6 +5186,54 @@ def list_paused_strategies():
             "SELECT strategy_id, paused_reason, paused_at FROM paper_strategy_config WHERE paused=1"
         ).fetchall()
     return [{"strategy_id": r[0], "reason": r[1], "paused_at": r[2]} for r in rows]
+
+
+def get_last_n_closed_paper_trades(strategy_id, n=100):
+    """Most recent N closed paper trades for one strategy, newest first --
+    Grand Master Prompt, Phase 2.4's Auto-Downgrade Rule needs exactly this
+    (a rolling last-100 window), unlike list_paper_closed_trades_ordered()
+    (oldest-to-newest, used for streak/pattern analysis)."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT pnl, closed_at FROM paper_positions WHERE status='closed' AND pnl IS NOT NULL "
+            "AND strategy_id = ? ORDER BY closed_at DESC LIMIT ?",
+            (strategy_id, n),
+        ).fetchall()
+    return [{"pnl": r[0], "closed_at": r[1]} for r in rows]
+
+
+def get_paper_downgrade_state(strategy_id):
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT strategy_id, downgraded, profit_factor, sample_size, reason, updated_at "
+            "FROM paper_downgrade_state WHERE strategy_id=?", (strategy_id,),
+        ).fetchone()
+    if not row:
+        return None
+    return {"strategy_id": row[0], "downgraded": bool(row[1]), "profit_factor": row[2],
+            "sample_size": row[3], "reason": row[4], "updated_at": row[5]}
+
+
+def list_paper_downgrade_states():
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT strategy_id, downgraded, profit_factor, sample_size, reason, updated_at FROM paper_downgrade_state"
+        ).fetchall()
+    return {r[0]: {"strategy_id": r[0], "downgraded": bool(r[1]), "profit_factor": r[2],
+                   "sample_size": r[3], "reason": r[4], "updated_at": r[5]} for r in rows}
+
+
+def set_paper_downgrade_state(strategy_id, downgraded, profit_factor, sample_size, reason, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO paper_downgrade_state
+               (strategy_id, downgraded, profit_factor, sample_size, reason, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)
+               ON CONFLICT(strategy_id) DO UPDATE SET
+                 downgraded=excluded.downgraded, profit_factor=excluded.profit_factor,
+                 sample_size=excluded.sample_size, reason=excluded.reason, updated_at=excluded.updated_at""",
+            (strategy_id, int(downgraded), profit_factor, sample_size, reason, now_iso),
+        )
 
 
 def save_paper_lesson_candidate(strategy_id, strategy_name, symbol, market_state, session,

@@ -191,6 +191,12 @@ async def _lifespan(app: FastAPI):
     from paper_trading.status_ping import start_scheduler_thread as _start_status_ping
     _start_status_ping()
 
+    # Grand Master Prompt, Phase 2.4: Auto-Downgrade Rule -- reads/writes
+    # only data_engine.storage (paper_positions, paper_downgrade_state),
+    # already-mounted paper_trading_api territory, safe on this runner.
+    from paper_trading.auto_downgrade import start_scheduler_thread as _start_auto_downgrade
+    _start_auto_downgrade()
+
     task = asyncio.create_task(_broadcast_loop())
     yield
     task.cancel()

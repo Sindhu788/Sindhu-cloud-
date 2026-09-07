@@ -71,3 +71,38 @@ def test_mutate_strategy_actually_applies_regime_adaptation_when_context_resolve
     assert new_id is not None
     child = storage.get_bot_strategy(new_id)
     assert "regime=volatile" in child["mutation_reason"]
+
+
+def test_regime_adaptation_changes_at_most_one_field_even_when_the_regime_touches_several(test_db, monkeypatch):
+    """Grand Master Prompt, Phase 2.7 (One-Change-At-A-Time Enforcement):
+    the "ranging" regime's own factor table nudges BOTH risk_reward and
+    breakeven_at_rr (evolution_engine/market_regime.py's _ADAPTATIONS) --
+    confirms mutate_strategy still only ever changes ONE of them per
+    mutation call, reverting the other back to the parent's value, so the
+    effect of any single mutation stays measurable."""
+    base_id = "lineage_ranging"
+    config = {"risk_reward": 2.0, "risk_pct": 1.0, "breakeven_at_rr": 1.5, "timeframes": {"entry": "1h"}}
+    generation_manager.create_new_strategy_lineage(
+        "Gen1", config, ["trend"], "sindhu_deterministic", False, "seed", "2026-01-01T00:00:00+00:00", base_id=base_id,
+    )
+    storage.create_batch(
+        "batch_ranging", "Gen1", "binance",
+        {"initial_balance": 10000.0, "symbols": ["BTCUSDT"], "start_ms": 0, "end_ms": 1000},
+        "2026-01-01T00:00:00+00:00",
+    )
+    storage.update_bot_strategy_result(
+        f"{base_id}_G1", evolution_score=50.0, score_breakdown={"_final_score": 50.0},
+        backtest_summary={"batch_id": "batch_ranging", "trades": 100}, now_iso="2026-01-01T00:00:00+00:00",
+    )
+    monkeypatch.setattr(market_regime, "detect_regime", lambda *a, **k: "ranging")
+
+    from evolution_engine.governor import Governor
+    gov = Governor()
+    new_id = mutator.mutate_strategy(base_id, gov, "2026-01-02T00:00:00+00:00",
+                                      exchange="binance", symbol="BTCUSDT", timeframe="1h")
+    assert new_id is not None
+    child = storage.get_bot_strategy(new_id)
+
+    changed_fields = [f for f in ("risk_reward", "breakeven_at_rr") if child["config"].get(f) != config[f]]
+    assert len(changed_fields) == 1, f"expected exactly one field to change, got {changed_fields}"
+    assert child["mutation_reason"].count("regime=ranging") == 1

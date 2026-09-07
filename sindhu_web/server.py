@@ -196,6 +196,12 @@ async def _lifespan(app: FastAPI):
     # about its OWN engine/balance, independently).
     from paper_trading.status_ping import start_scheduler_thread as _start_status_ping
     _start_status_ping()
+    # Grand Master Prompt, Phase 2.4: Auto-Downgrade Rule -- same
+    # "runs on both deployments independently" reasoning as status_ping
+    # above (each deployment's own paper-trading closed trades are
+    # deployment-specific).
+    from paper_trading.auto_downgrade import start_scheduler_thread as _start_auto_downgrade
+    _start_auto_downgrade()
     threading.Thread(target=_warm_caches, daemon=True).start()
     task = asyncio.create_task(_broadcast_loop())
     yield

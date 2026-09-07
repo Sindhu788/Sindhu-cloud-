@@ -78,3 +78,54 @@ def compute_strategy_summary():
         "optimizer_in_progress": optimizer_running,
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
+
+
+def compute_backtest_metrics_for_strategy(strategy_id):
+    """Grand Master Prompt, Phase 2.2: the 7 named comparison metrics (Win
+    Rate, Profit Factor, Max Drawdown, Avg Win, Avg Loss, Total Trades, Net
+    PnL) for ONE strategy's latest completed backtest batch -- backs the
+    Strategy Comparison ("pick any two") view. avg_win/avg_loss need real
+    per-trade data (not in the per-coin/timeframe result rows the rest of
+    this module aggregates), so this reads storage.get_trades(batch_id)
+    once, same source already used by strategy_lifecycle.py's Failure
+    Reason Report."""
+    try:
+        meta = strategy_library.get_meta(strategy_id)
+    except FileNotFoundError:
+        return None
+    if not meta:
+        return None
+    batch_id = storage.latest_completed_batch_for_strategy_name(meta["name"])
+    if not batch_id:
+        return {"available": False}
+    results = storage.get_batch_results(batch_id)
+    if not results:
+        return {"available": False}
+
+    total_trades = sum(r["metrics"]["total_trades"] for r in results)
+    if not total_trades:
+        return {"available": False}
+    wins = sum(r["metrics"]["wins"] for r in results)
+    net = sum(r["metrics"]["net_profit"] for r in results)
+    gross_profit = sum(r["metrics"]["gross_profit"] for r in results)
+    gross_loss = sum(abs(r["metrics"]["gross_loss"]) for r in results)
+    pf = (gross_profit / gross_loss) if gross_loss else None
+    worst_dd = max((r["metrics"].get("max_drawdown_pct", 0) for r in results), default=None)
+
+    trades = storage.get_trades(batch_id)
+    win_pnls = [t["pnl"] for t in trades if (t["pnl"] or 0) > 0]
+    loss_pnls = [t["pnl"] for t in trades if (t["pnl"] or 0) < 0]
+    avg_win = (sum(win_pnls) / len(win_pnls)) if win_pnls else 0.0
+    avg_loss = (sum(loss_pnls) / len(loss_pnls)) if loss_pnls else 0.0
+
+    return {
+        "available": True,
+        "batch_id": batch_id,
+        "total_trades": total_trades,
+        "win_rate_pct": round(100 * wins / total_trades, 2),
+        "net_pnl": round(net, 2),
+        "profit_factor": round(pf, 4) if pf else None,
+        "max_drawdown_pct": round(worst_dd, 2) if worst_dd is not None else None,
+        "avg_win": round(avg_win, 2),
+        "avg_loss": round(avg_loss, 2),
+    }

@@ -193,12 +193,30 @@ def mutate_strategy(base_id, governor, now_iso, exchange=None, symbol=None, time
             config["breakeven_at_rr"] = 1.0
             reasons.append(f"weakest component was stability ({breakdown['stability']:.1f}) -> breakeven_at_rr {prior_be} -> 1.0")
 
-    if exchange and symbol and timeframe:
+    # Grand Master Prompt, Phase 2.7 (One-Change-At-A-Time Enforcement):
+    # regime adaptation only runs when the weakest-component branch above
+    # did NOT already change something this mutation (`not reasons`) --
+    # the two change sources are now mutually exclusive, so at most one of
+    # them can fire per mutation call.
+    if exchange and symbol and timeframe and not reasons:
         regime = market_regime.detect_regime(exchange, symbol, timeframe)
         adapted, regime_changes = market_regime.adapt_params_for_regime(config, regime)
         if regime_changes:
+            # adapt_params_for_regime can itself nudge up to 4 fields
+            # (risk_pct, risk_reward, breakeven_at_rr, stop_loss) in one
+            # call -- keep only the FIRST field that actually changed and
+            # revert the rest back to their pre-adaptation value, so this
+            # branch also only ever changes exactly one field.
+            regime_fields = ["risk_pct", "risk_reward", "breakeven_at_rr", "stop_loss"]
+            kept_field = None
+            for field in regime_fields:
+                if adapted.get(field) != config.get(field):
+                    if kept_field is None:
+                        kept_field = field
+                    else:
+                        adapted[field] = config.get(field)
             config = adapted
-            reasons.extend(regime_changes)
+            reasons.append(regime_changes[0])
 
     if not reasons:
         reasons.append("no scored weakness or regime signal yet -- carried forward unchanged as a fresh generation for re-evaluation")

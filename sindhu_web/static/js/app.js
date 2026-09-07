@@ -1552,20 +1552,30 @@
       <div class="table-wrap"><table>
         <thead><tr>
           <th>${en ? "Strategy" : "Strategy"}</th>
+          <th>${en ? "Lifecycle Stage" : "Lifecycle Stage"}</th>
           <th>${en ? "Backtest PF" : "Backtest PF"}</th>
           <th>${en ? "Why Win/Loss" : "Why Win/Loss"}</th>
           <th>${en ? "Optimizer (Loose/Med/Strict)" : "Optimizer (Loose/Med/Strict)"}</th>
+          <th>${en ? "Evolution" : "Evolution"}</th>
           <th></th>
         </tr></thead>
         <tbody>${d.rows.map((r, i) => `
           <tr>
-            <td style="max-width:220px;">${esc(r.name)}${r.paper_config && r.paper_config.enabled ? ` <span class="pill pill-up" style="font-size:10px;">${en ? "Live in Paper" : "Paper Mein Live"}</span>` : ""}</td>
+            <td style="max-width:220px;">${esc(r.name)}${r.paper_config && r.paper_config.enabled ? ` <span class="pill pill-up" style="font-size:10px;">${en ? "Live in Paper" : "Paper Mein Live"}</span>` : ""}
+              ${r.live_downgrade && r.live_downgrade.downgraded ? `<div class="pill pill-down" style="font-size:10px;margin-top:4px;" title="${esc(r.live_downgrade.reason || "")}">${en ? "Live Paper-Trading Downgraded" : "Live Paper-Trading Downgraded"}</div>` : ""}
+            </td>
+            <td style="max-width:200px;font-size:12px;">${esc(r.lifecycle_stage || "-")}</td>
             <td>${lifecyclePfSpan(r.backtest.profit_factor)}</td>
             <td style="max-width:320px;">
               <span class="lc-why-text" id="lcWhy${i}" style="font-size:12.5px;display:inline-block;max-height:2.8em;overflow:hidden;">${esc(r.why_summary || (en ? "Not yet analyzed" : "Abhi analysis nahi hui"))}</span>
               ${r.why_summary ? `<div><button class="btn-ghost" style="font-size:11px;padding:2px 6px;" data-lc-expand="${i}">${en ? "Show more" : "Aur Dekhein"}</button></div>` : ""}
+              <div><button class="btn-ghost" style="font-size:11px;padding:2px 6px;" data-lc-failure="${i}">${en ? "Why is this losing?" : "Ye Kyun Haar Raha Hai?"}</button></div>
+              <div id="lcFailure${i}" style="display:none;margin-top:6px;"></div>
             </td>
             <td style="max-width:150px;">${lifecycleOptimizerCell(r, en)}</td>
+            <td style="font-size:12px;">${r.evolution_summary && r.evolution_summary.comparisons_count
+              ? `${r.evolution_summary.comparisons_count} ${en ? "comparisons" : "comparisons"}${r.evolution_summary.rollback_count ? `, ${r.evolution_summary.rollback_count} ${en ? "rollbacks" : "rollbacks"}` : ""}`
+              : `<span class="muted">${en ? "None yet" : "Abhi Nahi"}</span>`}</td>
             <td><button class="btn" style="font-size:12px;" data-lc-activate="${i}">${en ? "Move to paper trading" : "Paper Trading Mein Bhejein"}</button></td>
           </tr>
         `).join("")}</tbody>
@@ -1584,6 +1594,33 @@
       btn.onclick = () => {
         const row = d.rows[Number(btn.dataset.lcActivate)];
         openPaperTradingConfirm(row, en, () => renderStrategyLifecycle());
+      };
+    });
+    // Grand Master Prompt, Phase 2.3: Failure Reason Report, fetched only
+    // on demand (per strategy, per click) -- computing this for all 75
+    // rows up front would mean 75 extra backtest_trades scans on every
+    // page load for a report most strategies' rows will never open.
+    content.querySelectorAll("[data-lc-failure]").forEach(btn => {
+      btn.onclick = async () => {
+        const i = btn.dataset.lcFailure;
+        const row = d.rows[Number(i)];
+        const box = document.getElementById(`lcFailure${i}`);
+        if (box.style.display !== "none") { box.style.display = "none"; return; }
+        box.style.display = "block";
+        box.innerHTML = `<span class="muted">${en ? "Loading..." : "Load ho raha hai..."}</span>`;
+        const fr = await apiGet(`/api/strategy-lifecycle/${row.strategy_id}/failure-reasons`).catch(() => null);
+        if (!fr || !fr.available) {
+          box.innerHTML = `<span class="muted">${esc((fr && fr.reason) || (en ? "Not available." : "Available nahi."))}</span>`;
+          return;
+        }
+        const worstCoins = fr.by_coin.slice(0, 3);
+        box.innerHTML = `
+          <div style="font-size:11.5px;">
+            <div>${en ? "Net PnL" : "Net PnL"}: <b>${fr.net_pnl}</b> (${fr.total_trades} ${en ? "trades" : "trades"})</div>
+            <div style="margin-top:4px;"><b>${en ? "Worst coins" : "Worst Coins"}:</b> ${worstCoins.map(c => `${esc(c.symbol)} (${c.pnl})`).join(", ") || "-"}</div>
+            <div style="margin-top:4px;"><b>${en ? "By exit reason" : "Exit Reason Ke Hisaab Se"}:</b> ${fr.by_exit_reason.map(r2 => `${esc(r2.exit_reason)}: ${r2.pnl}`).join(", ")}</div>
+            <div class="muted" style="margin-top:4px;">${esc(fr.note)}</div>
+          </div>`;
       };
     });
   }
@@ -1756,7 +1793,23 @@
     const fInt = (v) => v == null ? "-" : fmtNum(v);
     const fStreak = (s) => !s || !s.count ? "-" : `${s.count} ${s.type === "win" ? (en ? "wins" : "jeet") : (en ? "losses" : "haar")}`;
     const yn = (v) => v ? (en ? "Yes" : "Haan") : (en ? "No" : "Nahi");
+    // Grand Master Prompt, Phase 2.2: the 7 named backtest metrics, from
+    // each strategy's latest completed backtest batch (same source as the
+    // Compare-all-strategies page and Strategy Lifecycle) -- "-" for a
+    // strategy with no completed backtest yet, never a fabricated 0.
+    const bm = (p, field, suffix = "") => {
+      const m = p.backtest_metrics;
+      if (!m || !m.available || m[field] == null) return "-";
+      return `${m[field]}${suffix}`;
+    };
     return [
+      [en ? "Win Rate (Backtest)" : "Win Rate (Backtest)", bm(profileA, "win_rate_pct", "%"), bm(profileB, "win_rate_pct", "%")],
+      [en ? "Profit Factor (Backtest)" : "Profit Factor (Backtest)", bm(profileA, "profit_factor"), bm(profileB, "profit_factor")],
+      [en ? "Max Drawdown (Backtest)" : "Max Drawdown (Backtest)", bm(profileA, "max_drawdown_pct", "%"), bm(profileB, "max_drawdown_pct", "%")],
+      [en ? "Avg Win (Backtest)" : "Avg Win (Backtest)", bm(profileA, "avg_win"), bm(profileB, "avg_win")],
+      [en ? "Avg Loss (Backtest)" : "Avg Loss (Backtest)", bm(profileA, "avg_loss"), bm(profileB, "avg_loss")],
+      [en ? "Total Trades (Backtest)" : "Total Trades (Backtest)", bm(profileA, "total_trades"), bm(profileB, "total_trades")],
+      [en ? "Net PnL (Backtest)" : "Net PnL (Backtest)", bm(profileA, "net_pnl"), bm(profileB, "net_pnl")],
       [en ? "Health Score" : "Health Score", fInt(profileA.health_score && profileA.health_score.health_score), fInt(profileB.health_score && profileB.health_score.health_score)],
       [en ? "Confidence Score" : "Confidence Score", fNum(profileA.confidence_score), fNum(profileB.confidence_score)],
       [en ? "Current Streak" : "Current Streak", fStreak(profileA.streak), fStreak(profileB.streak)],

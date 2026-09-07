@@ -7,12 +7,31 @@ from the Part 0 checkpoint files rather than recomputed here. Read-only;
 this module does not run backtests or build strategies -- it just presents
 what Parts 1/2 already produced plus the existing paper-trading activation
 endpoint (unchanged, still fully gated by Wilson/Confluence/etc. at signal
-time)."""
+time).
 
-from fastapi import APIRouter
+Grand Master Prompt, Phase 2.1: added `lifecycle_stage` -- a discrete stage
+name per strategy (Created -> Paper Trading -> Performance Analysis ->
+Promoted/Evolution-Escalated/Needs-Optimization -> Paused/Archived), purely
+DERIVED at read time from data that already exists elsewhere (backtest
+summary, paper_strategy_config, paper_strategy_performance, drawdown-guard
+pauses, bot_strategies lineage). No new state machine or storage was added
+-- this can never disagree with the real underlying data because it always
+recomputes from it fresh.
+
+Phase 2.5: added `evolution_summary` per row (comparisons/rollback counts
+from the existing evolution_comparisons table, grouped once per request
+rather than reusing evolution_engine.engine) so the page also shows whether
+a strategy's optimization/Evolution history has been trending better or
+worse, without a second dashboard.
+"""
+
+from collections import defaultdict
+
+from fastapi import APIRouter, HTTPException
 
 from backtest_engine import strategy_library, lifecycle_checkpoint as ckpt
 from data_engine import storage
+from paper_trading import pattern_stats
 from sindhu_web import cache
 from sindhu_web.strategy_aggregate import compute_strategy_summary as _compute_strategy_summary
 
@@ -48,6 +67,30 @@ def _baseline_row(meta, summary_by_id):
             "total_trades": 0, "batch_id": batch_id}
 
 
+def _compute_lifecycle_stage(meta, baseline, paper_cfg, paper_perf, has_evolution_lineage, is_paused):
+    """Phase 2.1: purely derived, never stored. `paper_perf` is this
+    strategy's row from storage.list_paper_strategy_performance() (real
+    closed-trade count/PnL) or None if it has never closed a paper trade."""
+    if meta.get("archived"):
+        return "Archived"
+    if baseline.get("batch_id") is None:
+        return "Created -- Not Yet Backtested"
+    enabled = bool(paper_cfg and paper_cfg.get("enabled"))
+    if not enabled:
+        return "Backtested -- Awaiting Paper Trading Activation"
+    if is_paused:
+        return "Continuous Monitoring -- Paused (Performance Degraded)"
+    trades = paper_perf["trades"] if paper_perf else 0
+    if trades < pattern_stats.MIN_SAMPLE_SIZE:
+        return f"Paper Trading -- Accumulating Trades ({trades}/{pattern_stats.MIN_SAMPLE_SIZE})"
+    pnl = paper_perf["total_pnl"] if paper_perf else 0.0
+    if pnl is not None and pnl >= 0:
+        return "Performance Analysis -- Passing (Live-Candidate)"
+    if has_evolution_lineage:
+        return "Evolution Escalated -- Generating Variants"
+    return "Performance Analysis -- Needs Optimization"
+
+
 @router.get("/api/strategy-lifecycle")
 def get_strategy_lifecycle():
     active = [s for s in strategy_library.list_all() if not s.get("archived")]
@@ -60,6 +103,21 @@ def get_strategy_lifecycle():
     # strategy in the loop below (49 individual connections, each paying
     # WAL/busy_timeout setup + lock-wait cost under concurrent engine load).
     paper_configs = storage.list_paper_strategy_configs()
+    # Phase 2.1/2.5: same "one query for every strategy" batching pattern,
+    # extended to the three extra data sources the new stage/evolution
+    # fields need -- never one query per strategy in the loop below.
+    paper_perf_by_id = {r["strategy_id"]: r for r in storage.list_paper_strategy_performance()}
+    paused_ids = {p["strategy_id"] for p in storage.list_paused_strategies()}
+    lineage_base_ids = {b["base_id"] for b in storage.list_bot_strategies(limit=5000) if b.get("base_id")}
+    # Phase 2.4: the last background-computed Auto-Downgrade state (see
+    # paper_trading/auto_downgrade.py's hourly scheduler) -- reading the
+    # already-stored table here, never recomputing per strategy on every
+    # page load (that would mean up to 75 fresh last-100-trades queries).
+    downgrade_states = storage.list_paper_downgrade_states()
+    comparisons_by_base = defaultdict(list)
+    for c in storage.list_evolution_comparisons(limit=5000):
+        if c.get("base_id"):
+            comparisons_by_base[c["base_id"]].append(c)
 
     rows = []
     for meta in active:
@@ -91,17 +149,30 @@ def get_strategy_lifecycle():
                 else "In progress"
             )
 
+        paper_cfg = paper_configs.get(sid) or {
+            "strategy_id": sid, "enabled": False, "priority": 5,
+            "supported_coins": [], "supported_market_types": [],
+            "risk_pct_override": None, "max_open_trades_override": None,
+        }
+        comparisons = comparisons_by_base.get(sid, [])
+
         rows.append({
             "strategy_id": sid,
             "name": meta["name"],
             "backtest": baseline,
             "why_summary": why_summary,
             "optimizer": optimizer,
-            "paper_config": paper_configs.get(sid) or {
-                "strategy_id": sid, "enabled": False, "priority": 5,
-                "supported_coins": [], "supported_market_types": [],
-                "risk_pct_override": None, "max_open_trades_override": None,
+            "paper_config": paper_cfg,
+            "lifecycle_stage": _compute_lifecycle_stage(
+                meta, baseline, paper_cfg, paper_perf_by_id.get(sid),
+                sid in lineage_base_ids, sid in paused_ids,
+            ),
+            "evolution_summary": {
+                "comparisons_count": len(comparisons),
+                "rollback_count": sum(1 for c in comparisons if c.get("rolled_back")),
+                "has_lineage": sid in lineage_base_ids,
             },
+            "live_downgrade": downgrade_states.get(sid),
         })
 
     return {
@@ -109,3 +180,73 @@ def get_strategy_lifecycle():
         "part1_status": ckpt.summary(part1) if part1["items"] else None,
         "part2_status": ckpt.summary(part2) if part2["items"] else None,
     }
+
+
+def compute_failure_reasons(strategy_id):
+    """Phase 2.3: for a losing strategy, a real, computed breakdown of
+    where its backtest losses/wins concentrate -- by coin and by exit
+    reason (both stored per-trade in backtest_trades). Market-condition
+    (trending/ranging) is NOT available for backtest trade data -- it is
+    only recorded for live paper-trading pattern memory -- so this is
+    reported honestly as unavailable rather than fabricated.
+    """
+    try:
+        meta = strategy_library.get_meta(strategy_id)
+    except FileNotFoundError:
+        return None
+    if not meta:
+        return None
+    batch_id = storage.latest_completed_batch_for_strategy_name(meta["name"])
+    if not batch_id:
+        return {"available": False, "reason": "No completed backtest yet for this strategy."}
+    trades = storage.get_trades(batch_id)
+    if not trades:
+        return {"available": False, "reason": "Latest backtest batch has no trade records."}
+
+    by_coin = defaultdict(lambda: {"trades": 0, "wins": 0, "losses": 0, "pnl": 0.0})
+    by_exit_reason = defaultdict(lambda: {"trades": 0, "pnl": 0.0})
+    net_pnl, win_count, loss_count = 0.0, 0, 0
+    for t in trades:
+        pnl = t["pnl"] or 0.0
+        net_pnl += pnl
+        coin = by_coin[t["symbol"]]
+        coin["trades"] += 1
+        coin["pnl"] += pnl
+        if pnl > 0:
+            coin["wins"] += 1
+            win_count += 1
+        elif pnl < 0:
+            coin["losses"] += 1
+            loss_count += 1
+        reason = by_exit_reason[t["exit_reason"] or "unknown"]
+        reason["trades"] += 1
+        reason["pnl"] += pnl
+
+    coin_rows = [{"symbol": k, **{kk: (round(vv, 2) if kk == "pnl" else vv) for kk, vv in v.items()}}
+                 for k, v in by_coin.items()]
+    coin_rows.sort(key=lambda r: r["pnl"])
+    reason_rows = [{"exit_reason": k, **{kk: (round(vv, 2) if kk == "pnl" else vv) for kk, vv in v.items()}}
+                   for k, v in by_exit_reason.items()]
+    reason_rows.sort(key=lambda r: r["pnl"])
+
+    return {
+        "available": True,
+        "batch_id": batch_id,
+        "total_trades": len(trades),
+        "net_pnl": round(net_pnl, 2),
+        "win_count": win_count,
+        "loss_count": loss_count,
+        "by_coin": coin_rows,
+        "by_exit_reason": reason_rows,
+        "market_regime_breakdown_available": False,
+        "note": ("Market-condition (trending/ranging) breakdown is not available for backtest "
+                 "trade data -- only symbol and exit-reason are recorded per trade."),
+    }
+
+
+@router.get("/api/strategy-lifecycle/{strategy_id}/failure-reasons")
+def get_failure_reasons(strategy_id: str):
+    result = compute_failure_reasons(strategy_id)
+    if result is None:
+        raise HTTPException(404, "Strategy not found")
+    return result

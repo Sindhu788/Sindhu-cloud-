@@ -1346,6 +1346,19 @@ def deactivate_auto_lesson(lesson_id: int):
     return {"ok": True}
 
 
+# --------------------------------------------------------------- Auto-Downgrade Rule (Grand Master Prompt, Phase 2.4)
+
+@router.get("/api/paper-trading/auto-downgrade/state")
+def get_auto_downgrade_state():
+    return {"states": storage.list_paper_downgrade_states()}
+
+
+@router.post("/api/paper-trading/auto-downgrade/check-now")
+def run_auto_downgrade_check_now():
+    from paper_trading import auto_downgrade
+    return {"results": auto_downgrade.check_all_enabled_strategies()}
+
+
 # --------------------------------------------------------------- Drawdown Protection Engine
 
 @router.get("/api/paper-trading/paused-strategies")
@@ -1555,6 +1568,12 @@ def get_strategy_profile_endpoint(strategy_id: str):
     profile = strategy_profile.get_strategy_profile(strategy_id, exchange, correlation_warnings=warnings)
     if profile is None:
         raise HTTPException(404, "strategy not found")
+    # Grand Master Prompt, Phase 2.2: the Strategy Comparison "pick any two"
+    # view needs the 7 named backtest metrics (Win Rate, PF, Max DD, Avg
+    # Win, Avg Loss, Total Trades, Net PnL) alongside this profile's
+    # existing paper-trading-only stats (Health Score, Sharpe, MAE/MFE...).
+    from sindhu_web.strategy_aggregate import compute_backtest_metrics_for_strategy
+    profile["backtest_metrics"] = compute_backtest_metrics_for_strategy(strategy_id)
     return profile
 
 
