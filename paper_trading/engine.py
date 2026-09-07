@@ -41,6 +41,7 @@ from paper_trading import coin_filter, coin_blacklist, live_feed, market_state, 
 from paper_trading import signal_generator, confidence, risk_manager, guards, position_manager
 from paper_trading import auto_avoid, drawdown_guard, kill_switch, lesson_auto_apply, telegram_bot, capital_allocation
 from paper_trading import confluence, signal_tracker, insights, custom_alerts, ensemble_voting
+from paper_trading import htf_confluence_filter
 
 
 def _now_iso():
@@ -49,7 +50,18 @@ def _now_iso():
 
 def _default_exchange():
     cfg = base_config.load_or_seed("exchanges.json", base_config.DEFAULTS["exchanges.json"])
-    return cfg["default"]
+    default = cfg["default"]
+    # Urgent bug fix, 2026-09-07: same class of bug as the Telegram bot_
+    # token/channel_id env-var-shadowing fix -- an exchanges.json file
+    # already persisted with "default": "binance" from BEFORE the
+    # Binance-451-geo-block fix existed would keep winning here forever
+    # (load_or_seed's saved-file-wins behavior), even after the code fix
+    # deploys. Binance geo-blocks Render's servers with a real HTTP 451,
+    # so "binance" specifically is never a safe cloud default regardless
+    # of what an old file says.
+    if base_config.env_flag("SINDHU_CLOUD_MODE") and default == "binance":
+        return "bybit"
+    return default
 
 
 # Task 4 (Batch 2): the hourly Telegram fresh-signal sweep (see
@@ -517,6 +529,25 @@ class PaperTradingEngine:
         )
         if avoid_reason:
             self._log_decision(exchange, symbol, pick, "rejected", avoid_reason, snapshot)
+            return 0, 1
+
+        # Master Task 6, 2.3/2.4: both filters are OFF unless this
+        # strategy's own paper_strategy_config explicitly opts in -- an
+        # existing strategy's behavior never changes just because these
+        # exist. One extra read (already the same pattern is_strategy_paused
+        # above uses), scoped per book, not per tick globally.
+        strategy_cfg = storage.get_paper_strategy_config(book)
+
+        if strategy_cfg.get("htf_confluence_filter_enabled"):
+            allowed, htf_reason = htf_confluence_filter.check(
+                exchange, symbol, pick.get("timeframe"), pick["direction"])
+            if not allowed:
+                self._log_decision(exchange, symbol, pick, "rejected", htf_reason, snapshot)
+                return 0, 1
+
+        if strategy_cfg.get("volume_spike_filter_enabled") and not snapshot.get("volume_spike"):
+            self._log_decision(exchange, symbol, pick, "rejected",
+                                "Volume/Volatility filter: no volume spike accompanying this setup", snapshot)
             return 0, 1
 
         side = "long" if pick["direction"] == "bullish" else "short"

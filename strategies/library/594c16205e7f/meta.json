@@ -17,10 +17,10 @@
   "safety_status": "ready",
   "safety_reasons": [],
   "backtest_snapshot": {
-    "win_rate": 15.68,
-    "profit_factor": 3.6055,
-    "total_trades": 4082,
-    "batch_id": "20260902_040853_007d14",
-    "computed_at": "2026-09-01T23:08:53.760330+00:00"
+    "win_rate": 32.43,
+    "profit_factor": 0.6938,
+    "total_trades": 24258,
+    "batch_id": "20260906_152741_277198",
+    "computed_at": "2026-09-06T10:27:41.117226+00:00"
   }
 }

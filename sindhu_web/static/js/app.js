@@ -296,6 +296,8 @@
     risk_pct_recommendation: "A suggested risk-per-trade percentage for this strategy, based on its own Sharpe Ratio -- the same bounded, transparent formula the Capital Allocation Engine already uses for capital, just applied to risk % instead. Purely a suggestion: nothing changes until you click Apply, which simply fills in that strategy's existing manual risk-per-trade override.",
     evolution_weekly_review: "A weekly summary of the EVOLUTION/TUNING side of the system -- how many strategies mutated, how many changes were kept vs. automatically rolled back for performing worse -- separate from the Weekly Auto-Report, which covers trading performance (wins/losses/PnL) only.",
     strategy_lineage_explainer: "A plain-language story of how this BOT strategy lineage got to where it is -- every generation it went through, why each change was made, and whether that change was kept or automatically rolled back for performing worse. Nothing new is computed here; it just ties together facts that already exist separately (generation history, mutation reasons, rollback results) into one readable summary.",
+    private_reports: "A separate, private-only Telegram destination (a direct message with your bot, never the shared/public channel) used for two things: the Emergency Downtime Alert (if SINDHU's cloud deployment stops responding) and the Weekly/Monthly PDF Performance Report. Requires your personal Telegram chat id, a one-time manual step since Telegram gives no automatic way to discover it.",
+    evolution_mode: "How much automatic work the Evolution Engine does on its own. Conservative (recommended): only strategies with a real minimum track record (Profit Factor 0.7+ or 25+ trades) get new generations, capped at 3 per strategy. Balanced: no minimum bar, but only your top 25 strategies get worked on, capped at 5 generations. Aggressive: no limits at all -- every strategy, unlimited generations up to the system's own hard cap -- the original behavior before this setting existed.",
     evolution_confidence: "How much to trust THIS specific evolution result (0-100), not how good the strategy itself is. Combines how many real trades backed the 'after' numbers, how big the swing between before and after actually was, and how many of the 4 core metrics could even be compared. A small, thin improvement scores lower here than a big, clearly-measured one, even if both technically 'improved.'",
     backtest_replay: "Step through this coin's real backtest bar by bar (or press Play to watch it automatically), with every real trade's entry marked on the chart -- green if it ended in profit, red if it lost. Different from Trade Audit, which only shows one static window around a single trade you pick, not the whole run in sequence.",
     best_portfolio_suggestion: "The top few DIFFERENT strategies (never the same one twice), each paired with its own best-performing coin, ranked by real profit -- and only combinations with enough real closed trades to actually trust. Purely a suggestion: nothing here turns any strategy on or off by itself.",
@@ -1405,6 +1407,22 @@
           <button class="btn" id="scmSaveOverrides">Save Overrides</button>
           <span id="scmOverrideStatus" class="muted"></span>
         </div>
+        <div class="form-row" style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+          <label style="width:auto;margin:0;">HTF Confluence Filter (suppress signals against the higher-timeframe trend)</label>
+          <input type="checkbox" id="scmHtfFilter" style="width:auto;" ${cfg.htf_confluence_filter_enabled ? "checked" : ""}>
+        </div>
+        <div class="form-row" style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+          <label style="width:auto;margin:0;">Volume/Volatility Filter (require a real volume spike)</label>
+          <input type="checkbox" id="scmVolumeFilter" style="width:auto;" ${cfg.volume_spike_filter_enabled ? "checked" : ""}>
+        </div>
+        <div class="form-row" style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+          <label style="width:auto;margin:0;">Trailing Stop-Loss (blank/unchecked = use global default)</label>
+          <input type="checkbox" id="scmTrailingStop" style="width:auto;" ${cfg.trailing_stop_enabled ? "checked" : ""}>
+        </div>
+        <div class="btn-row" style="margin:6px 0 14px;">
+          <button class="btn" id="scmSaveSignalFilters">Save Signal Filters</button>
+          <span id="scmSignalFilterStatus" class="muted"></span>
+        </div>
         <div class="form-row"><label>Balance / Stats Reset</label>
           <button class="btn-ghost" id="scmReset" style="border-color:var(--red,#c0392b);color:var(--red,#c0392b);">Reset This Strategy's Stats</button>
         </div>
@@ -1447,6 +1465,21 @@
           });
           status.textContent = "Saved.";
           appendLog(`Strategy ${strategyId} risk overrides updated.`);
+        } catch (e) {
+          status.textContent = `Failed: ${e.message}`;
+        }
+      };
+      document.getElementById("scmSaveSignalFilters").onclick = async () => {
+        const status = document.getElementById("scmSignalFilterStatus");
+        status.textContent = "Saving...";
+        try {
+          await apiPost(`/api/paper-trading/strategy-config/${strategyId}/signal-filters`, {
+            htf_confluence_filter_enabled: document.getElementById("scmHtfFilter").checked,
+            volume_spike_filter_enabled: document.getElementById("scmVolumeFilter").checked,
+            trailing_stop_enabled: document.getElementById("scmTrailingStop").checked,
+          });
+          status.textContent = "Saved.";
+          appendLog(`Strategy ${strategyId} signal filter overrides updated.`);
         } catch (e) {
           status.textContent = `Failed: ${e.message}`;
         }
@@ -3479,6 +3512,17 @@
     return `<span class="pill ${cls}" title="${title}">${verdict === "GREEN" ? "🟢" : "🔴"} ${esc(label || verdict)}</span>`;
   }
 
+  // Master 15-Item task, Item 5: the origin (Manual vs Self-Learning-
+  // Generated -- see _compute_strategy_origin in sindhu_web/api/
+  // backtesting.py for why Evolution-Generated never appears here) used
+  // to be buried, indistinguishable, among the generic tag pills below.
+  // A distinct color/icon makes it visible at a glance without having to
+  // read every tag.
+  function originBadge(origin) {
+    if (origin === "Self-Learning-Generated") return `<span class="pill" style="background:var(--purple,#8e6fce);margin-right:3px;" title="Created automatically by the Self-Learning Engine">🤖 Self-Learning</span>`;
+    return `<span class="pill pill-muted" style="margin-right:3px;" title="Built by hand from a source document/idea">🧑‍💻 Manual</span>`;
+  }
+
   function lastBacktestCell(r) {
     if (!r) return `<span class="muted">Never run</span>`;
     if (r.status !== "completed") return `<span class="pill pill-pending">${esc(r.status)}</span>`;
@@ -3529,6 +3573,7 @@
           <td>${s.favourite ? "★" : "☆"}</td>
           <td>${esc(s.name)} ${s.archived ? '<span class="pill pill-muted">Archived</span>' : ""} ${performanceBadge(s.performance_verdict, s.performance_label, s.performance_failed_factors)}
             <div style="font-size:11px;margin-top:2px;">
+              ${originBadge(s.origin)}
               ${(s.tags || []).map(tag => `<span class="pill pill-muted" style="margin-right:3px;">${esc(tag)}</span>`).join("")}
               <button class="btn-ghost strat-edit-tags" data-id="${s.id}" data-tags="${esc((s.tags || []).join(", "))}" title="Edit tags" style="padding:0 4px;font-size:11px;">🏷</button>
               <button class="btn-ghost strat-edit-comment" data-id="${s.id}" data-comment="${esc(s.ceo_comment || "")}" title="${esc(s.ceo_comment || "Add a note")}" style="padding:0 4px;font-size:11px;">${s.ceo_comment ? "📝" : "🗒"}</button>
@@ -6335,7 +6380,7 @@
     const myToken = activeRouteToken;
 
     async function render() {
-      const [status, championsRes, strategiesRes, lessonsRes, versionsRes, correlationsRes, comparisonsRes, weeklyReviewsRes] = await Promise.all([
+      const [status, championsRes, strategiesRes, lessonsRes, versionsRes, correlationsRes, comparisonsRes, weeklyReviewsRes, evoSettings] = await Promise.all([
         apiGet("/api/evolution/status"),
         apiGet("/api/evolution/champions"),
         apiGet("/api/evolution/strategies"),
@@ -6344,6 +6389,7 @@
         apiGet("/api/evolution/research/dna-correlations?min_sample=1"),
         apiGet("/api/evolution/comparisons?limit=50"),
         apiGet("/api/evolution/weekly-reviews?limit=1").catch(() => ({ reports: [] })),
+        apiGet("/api/evolution/settings").catch(() => ({ evolution_mode: "conservative", mode_params: {} })),
       ]);
       if (isStaleRoute(myToken)) return;
 
@@ -6380,6 +6426,20 @@
           <button class="btn-ghost" id="evoStop" ${status.running ? "" : "disabled"}>Stop Engine</button>
           <button class="btn-ghost" id="evoRunTick">Run One Tick Now</button>
           <span id="evoStatusMsg" class="muted"></span>
+        </div>
+
+        <div class="section-title">Evolution Mode ${helpIcon("evolution_mode")}</div>
+        <div class="card" style="max-width:560px;">
+          <p class="muted" style="font-size:12px;margin-top:0;">Controls how much automatic work the Evolution Engine does on its own -- a solo, part-time project doesn't need unlimited generations running forever on every strategy.</p>
+          <div class="form-row"><label>Mode</label>
+            <select id="evoModeSelect">
+              <option value="conservative" ${evoSettings.evolution_mode === "conservative" ? "selected" : ""}>Conservative (recommended) -- min. Profit Factor 0.7 or 25 trades to qualify, max 3 generations</option>
+              <option value="balanced" ${evoSettings.evolution_mode === "balanced" ? "selected" : ""}>Balanced -- top 25 strategies only, max 5 generations</option>
+              <option value="aggressive" ${evoSettings.evolution_mode === "aggressive" ? "selected" : ""}>Aggressive -- unrestricted (original behavior), every strategy, no cap beyond ${gov.max_generations_per_strategy}</option>
+            </select>
+          </div>
+          <div class="btn-row"><button class="btn-ghost" id="evoModeSave">Save Mode</button><span id="evoModeSaveMsg" class="muted"></span></div>
+          <p class="muted" style="font-size:11px;">A strategy that hits its mode's generation cap, or plateaus for 2 generations in a row with no score improvement, is marked "Matured" (visible on its Lineage view) and stops getting new automatic generations -- it can still be manually re-opened for another attempt any time.</p>
         </div>
 
         <div class="section-title">Champion Engine</div>
@@ -6491,6 +6551,16 @@
         try { await apiPost("/api/evolution/run-tick"); document.getElementById("evoStatusMsg").textContent = "Done."; await render(); }
         catch (e) { document.getElementById("evoStatusMsg").textContent = `Failed: ${e.message}`; }
       };
+      document.getElementById("evoModeSave").onclick = async () => {
+        const mode = document.getElementById("evoModeSelect").value;
+        document.getElementById("evoModeSaveMsg").textContent = "Saving...";
+        try {
+          await apiPost("/api/evolution/settings", { evolution_mode: mode });
+          document.getElementById("evoModeSaveMsg").textContent = "Saved.";
+        } catch (e) {
+          document.getElementById("evoModeSaveMsg").textContent = `Failed: ${e.message}`;
+        }
+      };
       document.getElementById("btnGenEvoWeeklyReview").onclick = async () => {
         try {
           await apiPost("/api/evolution/weekly-reviews/generate-now");
@@ -6506,9 +6576,15 @@
           box.innerHTML = `<p class="muted">Loading...</p>`;
           box.scrollIntoView({ behavior: "smooth", block: "nearest" });
           try {
-            const r = await apiGet(`/api/evolution/strategies/${btn.dataset.baseId}/explain`);
+            const [r, lineageRes] = await Promise.all([
+              apiGet(`/api/evolution/strategies/${btn.dataset.baseId}/explain`),
+              apiGet(`/api/evolution/strategies/${btn.dataset.baseId}/lineage`).catch(() => null),
+            ]);
+            const maturedBadge = lineageRes && lineageRes.matured
+              ? `<span class="pill pill-muted" style="margin-left:6px;" title="This strategy's mode-based generation cap was reached, or it plateaued for 2 generations in a row -- automatic evolution has stopped for it. It can still be manually re-opened for another attempt any time.">🌳 Matured</span>`
+              : "";
             box.innerHTML = `
-              <div class="label">Lineage ${esc(r.base_id)} -- ${r.generation_count} generation(s), currently on Gen ${r.active_generation}</div>
+              <div class="label">Lineage ${esc(r.base_id)} -- ${r.generation_count} generation(s), currently on Gen ${r.active_generation} ${maturedBadge}</div>
               <p style="margin-top:8px;line-height:1.5;">${esc(r.narrative)}</p>`;
           } catch (e) {
             box.innerHTML = `<p class="muted">${esc(e.message)}</p>`;
@@ -8118,7 +8194,7 @@
              candidatesRes, portfolioRes, riskScoreRes, exposureRes, corrWarningsRes, strategyCorrMatrixRes, coinHeatmapRes,
              strategyExposureRes, directionExposureRes, customRulesRes, patternReliabilityRes,
              lifecycleRes, configsRes, pausedRes, killSwitch, acctDrawdown, coinBlacklistRes,
-             riskPctRecsRes, dupExposureRes] = await Promise.all([
+             riskPctRecsRes, dupExposureRes, cloudSyncStatusRes] = await Promise.all([
         apiGet("/api/paper-trading/status"),
         apiGet("/api/paper-trading/positions"),
         apiGet("/api/paper-trading/trades?limit=50"),
@@ -8151,6 +8227,7 @@
         apiGet("/api/paper-trading/coin-blacklist").catch(() => ({ blacklist: [] })),
         apiGet("/api/paper-trading/risk-pct-recommendations").catch(() => ({ recommendations: [] })),
         apiGet("/api/paper-trading/duplicate-exposure-warnings").catch(() => ({ warnings: [] })),
+        apiGet("/api/paper-trading/cloud-sync/status").catch(() => ({ has_run: false })),
       ]);
       if (isStaleRoute(myToken)) return;
 
@@ -8518,6 +8595,26 @@
             <button class="btn-ghost" id="btnSaveProfitLock">${getLang() === "en" ? "Save" : "Save Karein"}</button>
           </div>
           <span id="ptProfitLockStatus" class="muted"></span>
+        </div>
+
+        <div class="section-title">${getLang() === "en" ? "Cloud Backup (24h Data Sync)" : "Cloud Backup (24h Data Sync)"}</div>
+        <div class="card" style="max-width:560px;">
+          <p class="muted" style="font-size:12px;margin-top:0;">${getLang() === "en"
+            ? "One-way, cloud -> local: every 24 hours the cloud runner backs up its own open positions, closed trades, and Telegram signal log so this data isn't solely dependent on the cloud database surviving indefinitely. Nothing here ever pushes local data back up to the cloud."
+            : "Sirf ek taraf, cloud se local: har 24 ghante mein cloud runner apni open positions, closed trades, aur Telegram signal log ka backup banata hai -- taakay yeh data sirf cloud database par depend na rahe. Yahan se local data kabhi cloud par wapis nahi jaata."}</p>
+          <div id="ptCloudSyncStatus" style="font-size:13px;margin-bottom:8px;">
+            ${cloudSyncStatusRes.has_run
+              ? `${getLang() === "en" ? "Last synced" : "Aakhri sync"}: ${esc((cloudSyncStatusRes.generated_at || "").slice(0, 19).replace("T", " "))} UTC -- `
+                + `${cloudSyncStatusRes.open_positions} ${getLang() === "en" ? "open" : "open"}, `
+                + `${cloudSyncStatusRes.closed_positions} ${getLang() === "en" ? "closed" : "closed"}, `
+                + `${cloudSyncStatusRes.telegram_signals} ${getLang() === "en" ? "Telegram signals" : "Telegram signals"}`
+              : `<span class="muted">${getLang() === "en" ? "No backup has run yet -- runs automatically within 24h, or trigger one now." : "Abhi tak koi backup nahi bana -- 24 ghante mein khud chalega, ya abhi trigger karein."}</span>`}
+          </div>
+          <div class="btn-row" style="margin-top:8px;">
+            <button class="btn-ghost" id="btnRunCloudSyncNow">${getLang() === "en" ? "Run Sync Now" : "Abhi Sync Karein"}</button>
+            <a class="btn-ghost" href="/api/paper-trading/cloud-sync/download" download style="text-decoration:none;display:inline-block;">${getLang() === "en" ? "Download Latest Backup" : "Backup Download Karein"}</a>
+          </div>
+          <span id="ptCloudSyncActionStatus" class="muted"></span>
         </div>
 
         ${(riskPctRecsRes.recommendations || []).length ? `
@@ -8993,6 +9090,20 @@
         }
       };
 
+      document.getElementById("btnRunCloudSyncNow").onclick = async () => {
+        const status = document.getElementById("ptCloudSyncActionStatus");
+        status.textContent = getLang() === "en" ? "Syncing..." : "Sync ho raha hai...";
+        try {
+          const result = await apiPost("/api/paper-trading/cloud-sync/run-now");
+          status.textContent = getLang() === "en"
+            ? `Done -- synced at ${result.generated_at.slice(0, 19).replace("T", " ")} UTC.`
+            : `Ho gaya -- ${result.generated_at.slice(0, 19).replace("T", " ")} UTC par sync hua.`;
+          appendLog("[cloud-sync] manual backup snapshot generated.");
+        } catch (e) {
+          status.textContent = `${getLang() === "en" ? "Failed" : "Nakaam"}: ${e.message}`;
+        }
+      };
+
       document.querySelectorAll(".pt-close-position").forEach(btn => {
         btn.onclick = async () => {
           await apiPost(`/api/paper-trading/positions/${btn.dataset.id}/close`);
@@ -9436,6 +9547,11 @@
         <div class="form-row"><label>Database Location (read-only)</label><input value="${esc(s.database_location)}" disabled></div>
         <div class="btn-row"><button class="btn" id="btnSaveSettings">Save Settings</button><span id="setSaveStatus" class="muted"></span></div>
       </div>
+      ${s.postgres_free_tier ? `
+      <div class="card" style="max-width:480px;border:1px solid ${s.postgres_free_tier.days_remaining <= 7 ? "var(--red,#e5484d)" : "var(--orange,#d68910)"};background:rgba(214,137,16,0.08);">
+        <div style="font-weight:600;">⚠️ Render Free Postgres -- Expiry Reminder</div>
+        <p style="font-size:13px;margin:6px 0 0;">Cloud database created (approx.) <b>${esc(s.postgres_free_tier.created_date)}</b> -- Render's free tier expires 30 days after creation, around <b>${esc(s.postgres_free_tier.expiry_date)}</b> (${s.postgres_free_tier.days_remaining} days left). Migrate to a paid Postgres plan or a new free instance before then, or Paper Trading data will be lost when it expires.</p>
+      </div>` : ""}
       <div class="section-title">System Health</div>
       <div class="grid" id="healthGrid">
         ${cardId("healthUptime", "Server Uptime", "...")}
@@ -9510,6 +9626,22 @@
           <button class="btn" id="btnSaveTelegram">Save Settings</button>
           <button class="btn-ghost" id="btnTestTelegram">Send Test Message</button>
           <span id="tgStatus" class="muted"></span>
+        </div>
+      </div>
+
+      <div class="section-title">Private Alerts &amp; Reports ${helpIcon("private_reports")}</div>
+      <div class="card" style="max-width:480px;">
+        <p class="muted" style="font-size:12px;margin-top:0;">A separate, PRIVATE Telegram destination (a direct message with the same bot, never the public channel above) for the Emergency Downtime Alert and the Weekly/Monthly PDF Performance Report. To find your own personal chat id: message your bot directly on Telegram once, then check https://api.telegram.org/bot&lt;your token&gt;/getUpdates in a browser -- the "chat":{"id": ...} number there is it.</p>
+        <div class="form-row"><label>Your Personal Telegram Chat ID</label><input id="tgPersonalChatId" placeholder="e.g. 123456789"></div>
+        <div class="form-row"><label>ntfy.sh Topic (mobile push, optional)</label><input id="ntfyTopic" placeholder="e.g. sindhu-alerts-yourname"></div>
+        <div class="btn-row">
+          <button class="btn" id="btnSavePrivateAlerts">Save</button>
+          <span id="tgPersonalStatus" class="muted"></span>
+        </div>
+        <div class="btn-row" style="margin-top:6px;">
+          <button class="btn-ghost" id="btnSendWeeklyReportNow">Send Weekly Report Now</button>
+          <button class="btn-ghost" id="btnSendMonthlyReportNow">Send Monthly Report Now</button>
+          <span id="privateReportStatus" class="muted"></span>
         </div>
       </div>
 
@@ -9658,8 +9790,13 @@
     loadInfraDigest();
 
     async function loadTelegramSettings() {
-      const s = await apiGet("/api/paper-trading/telegram/settings").catch(() => null);
+      const [s, ptSettings] = await Promise.all([
+        apiGet("/api/paper-trading/telegram/settings").catch(() => null),
+        apiGet("/api/paper-trading/settings").catch(() => ({})),
+      ]);
+      document.getElementById("ntfyTopic").value = ptSettings.ntfy_topic || "";
       if (!s) return;
+      document.getElementById("tgPersonalChatId").value = s.personal_chat_id || "";
       document.getElementById("tgChannelId").value = s.channel_id || "";
       document.getElementById("tgRateLimit").value = s.rate_limit_per_hour;
       document.getElementById("tgAutoSend").checked = s.auto_send_enabled;
@@ -9737,6 +9874,41 @@
       const r = await apiPost("/api/paper-trading/telegram/test", {}, 120000);
       status.textContent = r.ok ? "Test message sent successfully -- check your channel." : `Failed: ${r.error}`;
       loadTelegramLog();
+    };
+    document.getElementById("btnSavePrivateAlerts").onclick = async () => {
+      const status = document.getElementById("tgPersonalStatus");
+      status.textContent = "Saving...";
+      try {
+        await apiPost("/api/paper-trading/telegram/settings", {
+          personal_chat_id: document.getElementById("tgPersonalChatId").value.trim(),
+        });
+        await apiPost("/api/paper-trading/settings", {
+          ntfy_topic: document.getElementById("ntfyTopic").value.trim(),
+        });
+        status.textContent = "Saved.";
+      } catch (e) {
+        status.textContent = `Failed: ${e.message}`;
+      }
+    };
+    document.getElementById("btnSendWeeklyReportNow").onclick = async () => {
+      const status = document.getElementById("privateReportStatus");
+      status.textContent = "Generating and sending Weekly Report...";
+      try {
+        const r = await apiPost("/api/paper-trading/private-report/send-now", { period_label: "Weekly", days: 7 }, 60000);
+        status.textContent = r.ok ? "Sent -- check your private Telegram chat." : `Failed: ${r.error}`;
+      } catch (e) {
+        status.textContent = `Failed: ${e.message}`;
+      }
+    };
+    document.getElementById("btnSendMonthlyReportNow").onclick = async () => {
+      const status = document.getElementById("privateReportStatus");
+      status.textContent = "Generating and sending Monthly Report...";
+      try {
+        const r = await apiPost("/api/paper-trading/private-report/send-now", { period_label: "Monthly", days: 30 }, 60000);
+        status.textContent = r.ok ? "Sent -- check your private Telegram chat." : `Failed: ${r.error}`;
+      } catch (e) {
+        status.textContent = `Failed: ${e.message}`;
+      }
     };
     document.getElementById("btnSaveTelegramProxy").onclick = async () => {
       const status = document.getElementById("tgProxyStatus");

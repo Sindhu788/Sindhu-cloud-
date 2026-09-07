@@ -14,10 +14,51 @@ learned model.
 from itertools import combinations
 
 from data_engine import storage
-from evolution_engine import generation_manager, market_regime, dna, rollback
+from evolution_engine import generation_manager, market_regime, dna, rollback, config as evo_config
 
 MIN_TRADES_TO_JUDGE = 10        # a bot_strategy needs at least this many backtest trades before Archive can act on its score
 ARCHIVE_SCORE_THRESHOLD = 20.0  # active strategies scoring below this (with enough trades) get archived, never deleted
+
+
+def is_matured(base_id, max_generations):
+    """Master 15-Item task, Item 13: a lineage is "matured" (stop
+    generating further automatic generations for it) once EITHER it has
+    reached this mode's generation cap, OR its last 2 generations in a row
+    each scored no better than the one before -- genuinely plateaued, not
+    worth more automatic tweaking. Purely advisory to the automatic
+    enqueue loop (engine.py's _tick()) -- manually calling mutate_strategy
+    directly is completely unaffected, matching the task's own "still
+    visible/re-openable manually" requirement. Computed live from
+    generation_manager.lineage_history() every time (no new DB column/
+    migration needed) -- always consistent with the real data, never a
+    separately-stored flag that could drift out of sync."""
+    history = generation_manager.lineage_history(base_id)
+    if not history:
+        return False
+    if history[-1]["generation"] >= max_generations:
+        return True
+    if len(history) >= 3:
+        scores = [g.get("evolution_score") for g in history[-3:]]
+        if all(s is not None for s in scores) and scores[1] <= scores[0] and scores[2] <= scores[1]:
+            return True
+    return False
+
+
+def is_eligible_for_mode(backtest_summary, mode, mode_params):
+    """Master 15-Item task, Item 13: the Conservative-mode minimum bar
+    (Profit Factor >= 0.7 OR >= 25 completed trades -- only ONE of the two
+    needs to clear) -- a strategy too weak on both counts isn't worth
+    spending automatic mutation attempts on. Balanced and Aggressive have
+    no per-strategy minimum bar of their own (Balanced instead ranks
+    globally down to its top_n, applied separately in engine.py's _tick()
+    since it needs to see every candidate at once, not one at a time).
+    backtest_summary: the bot_strategy row's own dict (trades/
+    avg_profit_factor), same shape engine.py's _tick() already reads."""
+    if mode != "conservative":
+        return True
+    trades = backtest_summary.get("trades", 0) or 0
+    pf = backtest_summary.get("avg_profit_factor")
+    return (pf is not None and pf >= mode_params["min_profit_factor"]) or (trades >= mode_params["min_trades"])
 
 
 def rank_strategies(base_id=None):
@@ -170,9 +211,16 @@ def mutate_strategy(base_id, governor, now_iso, exchange=None, symbol=None, time
     # incrementing and never collide with an already-archived generation's.
     true_latest = storage.latest_generation_for_base(base_id)
     new_name = f"{latest['name'].split(' (Gen')[0]} (Gen {true_latest['generation'] + 1})"
+    # Master 15-Item task, Item 13: the generation cap now comes from the
+    # CEO's chosen Evolution Mode (3 for Conservative, 5 for Balanced),
+    # not the flat governor-wide constant -- "aggressive" mode keeps using
+    # governor.max_generations_per_strategy so that mode is byte-for-byte
+    # today's original, unrestricted behavior.
+    _mode, _mode_params = evo_config.current_mode_params()
+    max_generations = _mode_params["max_generations"] if _mode != "aggressive" else governor.max_generations_per_strategy
     new_id = generation_manager.create_next_strategy_generation(
         base_id, new_name, config, dna_tags, "evolution_mutation", False,
-        "; ".join(reasons), now_iso, max_generations=governor.max_generations_per_strategy,
+        "; ".join(reasons), now_iso, max_generations=max_generations,
     )
     if new_id:
         rollback.record_evolution_event(base_id, latest, new_id, threshold, now_iso)

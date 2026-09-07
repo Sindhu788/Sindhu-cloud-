@@ -1,10 +1,12 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 from data_engine import storage
 from evolution_engine.engine import engine
 from evolution_engine import champion, generation_manager, mutator, history, evolution_confidence, lineage_explainer
+from evolution_engine import config as evo_config
 
 router = APIRouter()
 
@@ -53,12 +55,36 @@ def list_strategies(base_id: str = None, status: str = "active", limit: int = 50
     return {"strategies": storage.list_bot_strategies(base_id=base_id, status=status, limit=limit)}
 
 
+class EvolutionSettingsUpdate(BaseModel):
+    evolution_mode: str = None
+
+
+@router.get("/api/evolution/settings")
+def get_evolution_settings():
+    """Master 15-Item task, Item 13: Evolution Scope Control -- the
+    CEO's current Evolution Mode plus each mode's real numeric knobs, so
+    the dashboard can explain what each option actually does before it's
+    picked, not just show 3 bare radio buttons."""
+    settings = evo_config.load()
+    return {"evolution_mode": settings.get("evolution_mode", "conservative"), "mode_params": evo_config.MODE_PARAMS}
+
+
+@router.post("/api/evolution/settings")
+def update_evolution_settings(req: EvolutionSettingsUpdate):
+    if req.evolution_mode is not None and req.evolution_mode not in evo_config.MODE_PARAMS:
+        raise HTTPException(400, f"evolution_mode must be one of {list(evo_config.MODE_PARAMS)}")
+    settings = evo_config.update(evolution_mode=req.evolution_mode)
+    return settings
+
+
 @router.get("/api/evolution/strategies/{base_id}/lineage")
 def strategy_lineage(base_id: str):
     history = mutator.compare_generations(base_id)
     if not history:
         raise HTTPException(404, "no BOT strategy lineage with that base_id")
-    return {"base_id": base_id, "generations": history}
+    mode, mode_params = evo_config.current_mode_params()
+    matured = mode != "aggressive" and mutator.is_matured(base_id, mode_params["max_generations"])
+    return {"base_id": base_id, "generations": history, "matured": matured, "evolution_mode": mode}
 
 
 @router.get("/api/evolution/strategies/{base_id}/explain")

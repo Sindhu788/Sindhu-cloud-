@@ -71,7 +71,10 @@ Ek strategy jo CEO ke paste karne se lekar ek real Telegram signal tak jaati hai
 
 ## 4. Current Strategy Numbers (Live Database Se, 2026-09-04)
 
-- **Total strategies** (Strategy Library, `strategies/library/*`): **154** (paper trading overview API se verified)
+- **Total strategy library entries** (`strategies/library/*`): **154** (paper trading overview API se verified) -- **lekin yeh "154 unique strategies" nahi hai, neeche breakdown dekhein.**
+- **Genuinely distinct strategy concepts (Master Task 6, 1.3 investigation)**: **112** -- 154 ko strategy names normalize karke (Confirmation-Strictness suffix `[Medium]`/`[Strict]`/`(Loose)`, exit-mode suffix `Fixed 1:2 TP`/`Fixed 1:3`/`Structure`/`Fixed-RR`, aur `-- Fixed 1:2 TP variant` jaise labels hata ke) count kiya gaya.
+  - **42 extra library entries** in 112 concepts ke Confirmation-Strictness ya exit-mode **variants** hain (same core idea, dusra confirmation level ya dusra exit rule) -- inme se **39 genuine, intentional variants** hain, aur **3 pure accidental exact duplicates** (bilkul same naam + same tags, alag random ID -- `Order Block Trading (Loose)`, `Order Block Trading (Strict)`, `Liquidity Sweep + Engulfing Candle (Loose)`, har ek 2 baar library mein hai). Duplicates delete nahi kiye gaye (project rule: never delete data) -- sirf flag kiye gaye hain.
+  - **Self-Learning Engine se aayi hui strategies: 0**. Discovery cycle ne abhi tak KOI candidate accept nahi kiya hai, aur reject hui candidates kabhi library mein save hi nahi hoti (sirf ek alag internal memory table mein, gate-reason ke saath) -- is liye "154 mein Self-Learning rejects bhi gin liye gaye" wala shak **ghalat nikla, confirmed.**
 - **Genuinely Profitable** (>= 25 closed trades AND net positive live PnL — same definition Telegram bhi use karta hai): **sirf 1 / 154**
 - **Under Evaluation** (baaki sab — ya to 25 trades nahi hue, ya net negative hain): **153 / 154**
 - **Currently active in Paper Trading** (`in_paper_trading` flag True): **39**
@@ -79,7 +82,7 @@ Ek strategy jo CEO ke paste karne se lekar ek real Telegram signal tak jaati hai
 - **Closed positions**: **545**; **Open right now**: **127**
 - **Aggregate closed PnL across ALL strategies combined**: **-$60.29** (halka negative — system abhi bhi apna real edge dhoond raha hai)
 
-**Honest reading:** System abhi "building" phase mein hai. 154 strategies ka bohot bada hissa (153) abhi statistically prove nahi hua — na profitable, na losing, sirf "abhi data ikattha ho raha hai." Ye number khud Section 8 (Telegram) aur Section 6 (Confidence Threshold) ke honest findings se seedha juda hua hai.
+**Honest reading:** System abhi "building" phase mein hai. 154 strategies ka bohot bada hissa (153) abhi statistically prove nahi hua — na profitable, na losing, sirf "abhi data ikattha ho raha hai." Ye number khud Section 8 (Telegram) aur Section 6 (Confidence Threshold) ke honest findings se seedha juda hua hai. **Aur "154" khud bhi thoda misleading hai** -- asal distinct ideas 112 hain, baaki 42 unhi ideas ke confirmation/exit variants ya (3 cases mein) sirf accidental duplicate entries hain.
 
 ---
 

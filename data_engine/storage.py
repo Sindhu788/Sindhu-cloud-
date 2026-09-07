@@ -1290,6 +1290,17 @@ _PAPER_STRATEGY_CONFIG_PAUSE_COLUMNS = {
     # it falls back to the global default.
     "risk_pct_override": "REAL",
     "max_open_trades_override": "INTEGER",
+    # Master Task 6, 2.3/2.4/2.5: optional, per-strategy, opt-in signal
+    # filters/exit-mode toggles. NULL means "off" for the two filters
+    # (never silently change an existing strategy's behavior just because
+    # this column now exists) -- same reasoning as `enabled` defaulting to
+    # opt-in above. trailing_stop_enabled follows the risk_pct_override
+    # pattern instead: NULL means "use the global profit_lock_enabled
+    # setting" (paper_trading/config.py), 0/1 explicitly overrides it for
+    # just this one strategy.
+    "htf_confluence_filter_enabled": "INTEGER",
+    "volume_spike_filter_enabled": "INTEGER",
+    "trailing_stop_enabled": "INTEGER",
 }
 
 
@@ -3707,7 +3718,8 @@ def get_paper_strategy_config(strategy_id):
     with get_conn() as conn:
         row = conn.execute(
             "SELECT strategy_id, enabled, priority, supported_coins_json, supported_market_types_json, updated_at, "
-            "risk_pct_override, max_open_trades_override "
+            "risk_pct_override, max_open_trades_override, "
+            "htf_confluence_filter_enabled, volume_spike_filter_enabled, trailing_stop_enabled "
             "FROM paper_strategy_config WHERE strategy_id=?", (strategy_id,),
         ).fetchone()
     if not row:
@@ -3720,13 +3732,18 @@ def get_paper_strategy_config(strategy_id):
         # default, since exactly one strategy was ever active regardless).
         return {"strategy_id": strategy_id, "enabled": False, "priority": 5,
                 "supported_coins": [], "supported_market_types": [],
-                "risk_pct_override": None, "max_open_trades_override": None}
+                "risk_pct_override": None, "max_open_trades_override": None,
+                "htf_confluence_filter_enabled": None, "volume_spike_filter_enabled": None,
+                "trailing_stop_enabled": None}
     return {
         "strategy_id": row[0], "enabled": bool(row[1]), "priority": row[2],
         "supported_coins": json.loads(row[3]) if row[3] else [],
         "supported_market_types": json.loads(row[4]) if row[4] else [],
         "updated_at": row[5],
         "risk_pct_override": row[6], "max_open_trades_override": row[7],
+        "htf_confluence_filter_enabled": None if row[8] is None else bool(row[8]),
+        "volume_spike_filter_enabled": None if row[9] is None else bool(row[9]),
+        "trailing_stop_enabled": None if row[10] is None else bool(row[10]),
     }
 
 
@@ -3734,7 +3751,8 @@ def list_paper_strategy_configs():
     with get_conn() as conn:
         rows = conn.execute(
             "SELECT strategy_id, enabled, priority, supported_coins_json, supported_market_types_json, updated_at, "
-            "risk_pct_override, max_open_trades_override "
+            "risk_pct_override, max_open_trades_override, "
+            "htf_confluence_filter_enabled, volume_spike_filter_enabled, trailing_stop_enabled "
             "FROM paper_strategy_config"
         ).fetchall()
     return {
@@ -3744,6 +3762,9 @@ def list_paper_strategy_configs():
             "supported_market_types": json.loads(r[4]) if r[4] else [],
             "updated_at": r[5],
             "risk_pct_override": r[6], "max_open_trades_override": r[7],
+            "htf_confluence_filter_enabled": None if r[8] is None else bool(r[8]),
+            "volume_spike_filter_enabled": None if r[9] is None else bool(r[9]),
+            "trailing_stop_enabled": None if r[10] is None else bool(r[10]),
         } for r in rows
     }
 
@@ -3785,6 +3806,33 @@ def set_strategy_risk_overrides(strategy_id, risk_pct_override, max_open_trades_
                  max_open_trades_override=excluded.max_open_trades_override,
                  updated_at=excluded.updated_at""",
             (strategy_id, risk_pct_override, max_open_trades_override, now_iso),
+        )
+
+
+def set_strategy_signal_filter_overrides(strategy_id, htf_confluence_filter_enabled,
+                                          volume_spike_filter_enabled, trailing_stop_enabled, now_iso):
+    """Master Task 6, 2.3/2.4/2.5: per-strategy opt-in for the HTF
+    Confluence Filter, Volume/Volatility Filter, and Trailing Stop-Loss
+    exit mode. None for any field means "off" (HTF/volume filters) or "use
+    the global profit_lock_enabled default" (trailing stop) -- same
+    dedicated-setter pattern as set_strategy_risk_overrides, never
+    disturbs enabled/priority/paused/capital_multiplier/risk overrides."""
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO paper_strategy_config
+               (strategy_id, enabled, priority, htf_confluence_filter_enabled,
+                volume_spike_filter_enabled, trailing_stop_enabled, updated_at)
+               VALUES (?, 1, 5, ?, ?, ?, ?)
+               ON CONFLICT(strategy_id) DO UPDATE SET
+                 htf_confluence_filter_enabled=excluded.htf_confluence_filter_enabled,
+                 volume_spike_filter_enabled=excluded.volume_spike_filter_enabled,
+                 trailing_stop_enabled=excluded.trailing_stop_enabled,
+                 updated_at=excluded.updated_at""",
+            (strategy_id,
+             None if htf_confluence_filter_enabled is None else int(htf_confluence_filter_enabled),
+             None if volume_spike_filter_enabled is None else int(volume_spike_filter_enabled),
+             None if trailing_stop_enabled is None else int(trailing_stop_enabled),
+             now_iso),
         )
 
 
@@ -4008,6 +4056,32 @@ def list_paper_coin_pattern_memory(strategy_id=None, since=None):
          "win_rate": round(r[7] / r[5] * 100, 2) if r[5] else 0.0}
         for r in rows
     ]
+
+
+def get_paper_strategy_coin_reliability_stats(strategy_id, symbol):
+    """Master Task 6, 1.2 -- Wilson Gate Broadening: exact wins/trades for
+    one (strategy, symbol) pair, with NO market_state/session narrowing.
+
+    Before this, the Telegram High Confidence gate matched on the exact
+    (strategy, coin, market_state, session) combination via
+    list_paper_coin_pattern_memory(), which fragmented each strategy's
+    trade history on a coin into many small condition-specific buckets --
+    508+ such groups system-wide, none reaching the 25-trade minimum even
+    when a strategy's total trades on that coin were much higher. This
+    aggregates at the (strategy, coin) level instead, so trade counts from
+    every market condition/session combine into one meaningful sample --
+    the 25-trade minimum itself (statistical validity) is unchanged, only
+    the over-fragmentation that kept genuine sample sizes artificially
+    split is fixed."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*), SUM(CASE WHEN pnl>0 THEN 1 ELSE 0 END) FROM paper_positions "
+            "WHERE status='closed' AND pnl IS NOT NULL AND strategy_id = ? AND symbol = ?",
+            (strategy_id, symbol),
+        ).fetchone()
+    trades = row[0] or 0
+    wins = row[1] or 0
+    return {"trades": trades, "wins": wins}
 
 
 def list_paper_closed_trades_ordered(strategy_id=None, limit=500, since=None):

@@ -201,7 +201,7 @@ def main():
     sqlite_conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
 
     import psycopg2
-    pg_conn = psycopg2.connect(os.environ["DATABASE_URL"])
+    pg_conn = psycopg2.connect(os.environ["DATABASE_URL"], connect_timeout=10)
     try:
         db_backend.init_postgres_schema(db_backend._PGConnection(pg_conn))
         pg_conn.commit()

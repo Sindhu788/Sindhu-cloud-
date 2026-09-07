@@ -33,6 +33,7 @@ import requests
 
 from data_engine import config as base_config, db_backend, storage, feature_toggles
 from paper_trading import challenge_mode, confluence as confluence_mod, insights, pattern_stats, signal_explainer
+from paper_trading.sparkline import make_sparkline
 from paper_trading import config as pt_config
 
 # Lightweight cloud runner support: on a fresh deploy (or any restart of a
@@ -100,6 +101,16 @@ _DEFAULTS = {
     "silent_hours_enabled": False,
     "silent_hours_start_utc": "23:00",
     "silent_hours_end_utc": "07:00",
+    # Master 15-Item task, Items 6 & 10: the CEO's own personal Telegram
+    # chat id (a DIRECT MESSAGE with the bot, never the public/shared
+    # `channel_id` above) -- used for anything that must stay private:
+    # Emergency Downtime Alerts and the Weekly/Monthly performance
+    # reports. Same bot token, just a different destination via
+    # _raw_send's existing channel_id_override parameter -- not a second
+    # bot, no new credentials. Empty until the CEO provides it (one-time
+    # manual step -- Telegram gives no API way to discover a user's chat
+    # id without them messaging the bot first).
+    "personal_chat_id": "",
 }
 
 DISCLAIMER = ("This is an experimental signal from a system still under development. "
@@ -150,6 +161,24 @@ def load_settings():
         merged = dict(_DEFAULTS)
         if saved:
             merged.update(saved)
+        # Bug fix (URGENT, 2026-09-06): if a telegram_settings row was ever
+        # saved to cloud_settings BEFORE TELEGRAM_BOT_TOKEN/TELEGRAM_
+        # CHANNEL_ID existed as env vars (e.g. an earlier deploy, or simply
+        # loading/saving the Settings page once with nothing configured
+        # yet), that row explicitly persists bot_token/channel_id as empty
+        # strings -- merged.update(saved) above then permanently shadows
+        # the env-var defaults forever, even after the env vars are added
+        # and the service redeployed, since saved always wins. Confirmed
+        # live: CEO added both env vars and redeployed, dashboard still
+        # showed "Bot Set Up: No" / "Channel Set: No". An empty string was
+        # never a deliberately-configured value, so fall back to the env
+        # var specifically in that case -- never overrides a real saved
+        # (non-empty) value, so an intentional later change/clear via the
+        # dashboard is still fully respected.
+        if not merged.get("bot_token") and os.environ.get("TELEGRAM_BOT_TOKEN"):
+            merged["bot_token"] = os.environ["TELEGRAM_BOT_TOKEN"]
+        if not merged.get("channel_id") and os.environ.get("TELEGRAM_CHANNEL_ID"):
+            merged["channel_id"] = os.environ["TELEGRAM_CHANNEL_ID"]
         return merged
     return base_config.load_or_seed("telegram_settings.json", _DEFAULTS)
 
@@ -185,6 +214,7 @@ def public_settings():
         "silent_hours_enabled": s.get("silent_hours_enabled", False),
         "silent_hours_start_utc": s.get("silent_hours_start_utc", _DEFAULTS["silent_hours_start_utc"]),
         "silent_hours_end_utc": s.get("silent_hours_end_utc", _DEFAULTS["silent_hours_end_utc"]),
+        "personal_chat_id": s.get("personal_chat_id", ""),
     }
 
 
@@ -364,6 +394,64 @@ def send_test_message():
     return {"ok": ok, "error": err}
 
 
+def send_private_message(text):
+    """Master 15-Item task, Items 6 & 10: sends to the CEO's own private
+    `personal_chat_id` (a DM with the bot) instead of the shared/public
+    `channel_id` -- same bot token, same real HTTP send path as every
+    other message (_raw_send), just a different destination via its
+    existing channel_id_override parameter. Used by the Emergency
+    Downtime Alert watchdog and the Weekly/Monthly report sender; never
+    used for a normal trade signal (those always go to the public
+    channel). Returns {"ok": bool, "error": str|None} -- if
+    personal_chat_id has never been set, ok=False with a clear reason
+    rather than silently falling back to the public channel (a private-
+    only message must never leak to the shared channel by accident)."""
+    settings = load_settings()
+    personal_chat_id = settings.get("personal_chat_id")
+    if not personal_chat_id:
+        return {"ok": False, "error": "personal_chat_id is not configured yet -- Settings > Telegram"}
+    ok, err = _raw_send(text, channel_id_override=personal_chat_id)
+    return {"ok": ok, "error": err}
+
+
+def send_private_document(file_path, caption=None):
+    """Master 15-Item task, Item 10: sends a real FILE (the Weekly/Monthly
+    PDF performance report) to the CEO's private personal_chat_id via
+    Telegram's sendDocument API -- distinct from every other function in
+    this file, which only ever sends sendMessage text. Same proxy/retry
+    conventions as _raw_send, just a different Telegram endpoint and a
+    multipart file body instead of a JSON text body. Returns
+    {"ok": bool, "error": str|None}."""
+    settings = load_settings()
+    token = settings.get("bot_token")
+    personal_chat_id = settings.get("personal_chat_id")
+    if not token or not personal_chat_id:
+        return {"ok": False, "error": "bot_token or personal_chat_id is not configured yet -- Settings > Telegram"}
+    proxies = _build_proxies(settings)
+    silent = is_within_silent_hours()
+
+    last_err = None
+    for attempt in range(1, _API_MAX_ATTEMPTS + 1):
+        try:
+            with open(file_path, "rb") as f:
+                resp = requests.post(
+                    f"https://api.telegram.org/bot{token}/sendDocument",
+                    data={"chat_id": personal_chat_id, "caption": caption or "", "disable_notification": silent},
+                    files={"document": (os.path.basename(file_path), f, "application/pdf")},
+                    timeout=(_API_CONNECT_TIMEOUT, _API_READ_TIMEOUT * 2),  # a PDF upload is larger than a text message
+                    proxies=proxies,
+                )
+            data = resp.json()
+            if resp.status_code == 200 and data.get("ok"):
+                return {"ok": True, "error": None}
+            return {"ok": False, "error": data.get("description", f"HTTP {resp.status_code}")}
+        except requests.RequestException as e:
+            last_err = repr(e)
+            if attempt < _API_MAX_ATTEMPTS:
+                time.sleep(_API_RETRY_BACKOFF_SECONDS)
+    return {"ok": False, "error": f"failed after {_API_MAX_ATTEMPTS} attempts: {last_err}"}
+
+
 def _reason_text(position):
     """Reuses the existing plain-language reasoning already built for the
     dashboard (paper_trading.insights.humanize_reason) -- no new NLP."""
@@ -455,6 +543,30 @@ def _fetch_live_price(exchange, symbol):
         return None
 
 
+_SPARKLINE_BARS = 24  # ~1 day of hourly candles -- enough to show a real recent trend, short enough to stay one line
+
+
+def _recent_price_sparkline(exchange, symbol):
+    """Master 15-Item task, Item 7: a real recent-price shape, using
+    already-downloaded/resampled candle data (data_engine.resample.
+    get_ohlcv, the same source of truth every backtest/chart in this app
+    already uses) -- no new dependency, no chart image. Best-effort: on
+    any failure (brand-new coin with too little history, resample cache
+    miss, etc.) returns None so the line is simply omitted, same
+    philosophy as _fetch_live_price above."""
+    if not exchange or not symbol:
+        return None
+    try:
+        from data_engine.resample import get_ohlcv
+        df = get_ohlcv(exchange, symbol, interval="1h")
+        if df is None or len(df) < 2:
+            return None
+        closes = df["close"].tail(_SPARKLINE_BARS).tolist()
+        return make_sparkline(closes)
+    except Exception:
+        return None
+
+
 # --------------------------------------------------------------- Task 4 (Batch 3, Part B): Signal Freshness Gate
 
 def signal_age_minutes(position, now_ms=None):
@@ -525,6 +637,7 @@ _LABELS = {
         "high_confidence": "⭐ <b>HIGH CONFIDENCE SIGNAL</b> ⭐",
         "strategy": "Strategy", "levels": "LEVELS", "entry": "Entry",
         "stop_loss": "Stop-Loss", "take_profit": "Take-Profit", "current_price": "Abhi Ka Price",
+        "recent_trend": "Pichle 24 Ghante:",
         "statistical_confidence": "Statistical Confidence", "confidence": "Confidence",
         "win_rate_over": "win rate, pichli {n} trades mein",
         "why_this_trade": "Yeh Trade Kyun", "reason": "Wajah",
@@ -541,6 +654,7 @@ _LABELS = {
         "high_confidence": "⭐ <b>HIGH CONFIDENCE SIGNAL</b> ⭐",
         "strategy": "Strategy", "levels": "LEVELS", "entry": "Entry",
         "stop_loss": "Stop-Loss", "take_profit": "Take-Profit", "current_price": "Current Price",
+        "recent_trend": "Last 24h:",
         "statistical_confidence": "Statistical Confidence", "confidence": "Confidence",
         "win_rate_over": "win rate over {n} recorded trades",
         "why_this_trade": "Why This Trade", "reason": "Reason",
@@ -619,6 +733,10 @@ def format_signal_message(position, confluence_result=None, reliability_result=N
         live_price = _fetch_live_price(position.get("exchange"), symbol)
     if live_price is not None:
         lines.append(f"{L['current_price']}: {_format_price(live_price)}")
+
+    sparkline = _recent_price_sparkline(position.get("exchange"), symbol)
+    if sparkline:
+        lines.append(f"{L['recent_trend']} {sparkline}")
 
     lines.append("")
     # Statistical confidence (Genuine Evolution Engine's Wilson-score gate,
@@ -758,14 +876,19 @@ def _pattern_reliability_for(strategy_id, symbol, market_state, session):
     for Pattern Auto-Avoid / Lesson Auto-Apply (paper_trading.pattern_stats
     -- Wilson score interval, minimum 25 trades), reused here rather than
     inventing a new confidence threshold for Telegram. Returns
-    pattern_stats.classify()'s full result dict for this EXACT
-    (strategy, coin, market condition, session) combination."""
-    patterns = storage.list_paper_coin_pattern_memory(strategy_id=strategy_id)
-    match = next((p for p in patterns if p["symbol"] == symbol and p["market_state"] == market_state
-                  and p["session"] == session), None)
-    if match is None:
-        return pattern_stats.classify(0, 0)
-    return pattern_stats.classify(match["wins"], match["trades"])
+    pattern_stats.classify()'s full result dict.
+
+    Master Task 6, 1.2 (Wilson Gate Broadening): grouped at the (strategy,
+    coin) level, not the exact (strategy, coin, market_state, session)
+    combination anymore -- the old per-condition grouping fragmented each
+    strategy's history into 500+ groups too narrow to ever individually
+    reach the 25-trade minimum even when the strategy had a meaningful
+    sample size on that coin overall. market_state/session are kept in
+    the signature (callers are unaffected) but no longer narrow the
+    group -- this fixes over-fragmentation only; the 25-trade minimum
+    itself is untouched."""
+    stats = storage.get_paper_strategy_coin_reliability_stats(strategy_id, symbol)
+    return pattern_stats.classify(stats["wins"], stats["trades"])
 
 
 def send_signal_for_position(position_id, trigger_type="manual", high_confidence=False, retry_id=None):

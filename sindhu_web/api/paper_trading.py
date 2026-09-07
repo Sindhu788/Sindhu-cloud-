@@ -355,6 +355,31 @@ def update_strategy_overrides(strategy_id: str, req: RiskOverrideUpdate):
     return {"ok": True, **storage.get_paper_strategy_config(strategy_id)}
 
 
+class SignalFilterOverrideUpdate(BaseModel):
+    htf_confluence_filter_enabled: Optional[bool] = None
+    volume_spike_filter_enabled: Optional[bool] = None
+    trailing_stop_enabled: Optional[bool] = None
+
+
+@router.post("/api/paper-trading/strategy-config/{strategy_id}/signal-filters")
+def update_strategy_signal_filters(strategy_id: str, req: SignalFilterOverrideUpdate):
+    """Master Task 6, 2.3/2.4/2.5: per-strategy opt-in for the HTF
+    Confluence Filter, Volume/Volatility Filter, and Trailing Stop-Loss
+    exit mode. None for any field means "off" (the two filters) or "use
+    the global default" (trailing stop) -- same shape as the existing
+    risk/max-open-trades overrides endpoint above."""
+    storage.set_strategy_signal_filter_overrides(
+        strategy_id, req.htf_confluence_filter_enabled, req.volume_spike_filter_enabled,
+        req.trailing_stop_enabled, datetime.now(timezone.utc).isoformat(),
+    )
+    _log_and_broadcast(f"[paper-trading] {strategy_id} signal filter overrides updated by a person: "
+                        f"htf_confluence={req.htf_confluence_filter_enabled}, "
+                        f"volume_spike={req.volume_spike_filter_enabled}, "
+                        f"trailing_stop={req.trailing_stop_enabled}")
+    sync.notify("paper_trading", "updated", "Strategy signal filter overrides updated", id=strategy_id)
+    return {"ok": True, **storage.get_paper_strategy_config(strategy_id)}
+
+
 class StrategyResetRequest(BaseModel):
     confirm: bool = False
 
@@ -1345,6 +1370,7 @@ class TelegramSettingsUpdate(BaseModel):
     silent_hours_enabled: Optional[bool] = None
     silent_hours_start_utc: Optional[str] = None
     silent_hours_end_utc: Optional[str] = None
+    personal_chat_id: Optional[str] = None
 
 
 @router.get("/api/paper-trading/telegram/settings")
@@ -2042,6 +2068,34 @@ def generate_weekly_report_now():
     """Manual trigger, bypassing the 7-day gate -- for testing/on-demand use."""
     result = weekly_report.generate_weekly_report()
     return {"ok": True, "report_text": result["report_text"]}
+
+
+class PrivateReportSendRequest(BaseModel):
+    period_label: str = "Weekly"
+    days: int = 7
+
+
+@router.post("/api/paper-trading/private-report/send-now")
+def send_private_report_now(req: PrivateReportSendRequest):
+    """Master 15-Item task, Item 10: manual trigger for the private
+    Weekly/Monthly PDF performance report, bypassing the scheduler's own
+    7/30-day gate -- for testing/on-demand use, same pattern as the
+    existing weekly-reports/generate-now endpoint above. Requires
+    personal_chat_id to already be configured (Settings > Telegram) --
+    this never falls back to the public channel."""
+    from datetime import datetime, timedelta, timezone
+    from paper_trading import private_performance_report
+
+    now = datetime.now(timezone.utc)
+    period_start = (now - timedelta(days=req.days)).isoformat()
+    result = private_performance_report.send_report(req.period_label, period_start, now.isoformat())
+    return result
+
+
+@router.get("/api/paper-trading/private-report/status")
+def private_report_status():
+    from paper_trading import private_performance_report
+    return private_performance_report._load_state()
 
 
 @router.get("/api/paper-trading/trade-audit/{position_id}")

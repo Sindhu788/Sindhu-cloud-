@@ -23,6 +23,7 @@ from backtest_engine import what_if_simulator, feature_importance, cross_coin_va
 from automation_pipeline import optimizer as grid_optimizer
 from automation_pipeline import genetic_optimizer
 from ai_integration import extraction_lock, multi_pass_extraction, sentence_level_extraction
+from self_learning_engine.discovery_cycle import DISCOVERED_STRATEGY_TAG
 from knowledge_compiler import quality as kc_quality
 from data_engine.resample import get_ohlcv
 from sindhu_web.jobs import job_manager
@@ -189,6 +190,33 @@ def _condition_roles_summary(cfg):
     return out
 
 
+def _compute_strategy_origin(meta):
+    """Master 15-Item task, Item 5: the Strategies page never showed where
+    a strategy actually came from -- computed here, at read time, from
+    metadata that already exists (no new persisted field, no guessing):
+      - self_learning_engine.discovery_cycle tags a fresh AI-assisted
+        candidate with DISCOVERED_STRATEGY_TAG at creation -- the one
+        unambiguous origin marker that exists today.
+      - Every OTHER strategy currently in strategy_library is, structurally,
+        Manual: the Evolution Engine deliberately never writes into this
+        library at all (its own generations live in a separate data store,
+        data_engine.storage's bot_strategies table, surfaced on the
+        Evolution page instead -- see evolution_engine/__init__.py's own
+        docstring) so an Evolution-Generated strategy can never appear
+        here to mislabel. Within "Manual", the literal 'manual_build' tag
+        and the '[Manual Build]' name suffix aren't consistently present
+        on every row (older confirmation-strictness variants only carry a
+        'source:<parent_id>' tag pointing back to their manually-built
+        parent), so this defaults to Manual rather than requiring an exact
+        tag match -- accurate today because no third possibility exists in
+        this data source, not a guess.
+    Returns one of: "Manual", "Self-Learning-Generated"."""
+    tags = meta.get("tags") or []
+    if DISCOVERED_STRATEGY_TAG in tags:
+        return "Self-Learning-Generated"
+    return "Manual"
+
+
 def _compute_strategies_list(q, include_archived=False):
     # Batch 4, Task 3: an archived strategy (a resolved duplicate) stays in
     # the library in full -- reversible, never deleted -- but drops out of
@@ -212,6 +240,7 @@ def _compute_strategies_list(q, include_archived=False):
     # connection, halving that part of the endpoint's real DB round trips.
     batch_results_cache = {}
     for meta in strategies:
+        meta["origin"] = _compute_strategy_origin(meta)
         try:
             cfg = lib.load(meta["id"])
             meta["concepts_used"] = cfg.concepts_used

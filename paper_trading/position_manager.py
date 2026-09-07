@@ -157,7 +157,22 @@ def monitor_and_close(exchange, symbol, latest_price, high=None, low=None):
         # this same tick's exit check runs.
         if profit_lock_settings is None:
             profit_lock_settings = pt_config.load()
-        if profit_lock_settings.get("profit_lock_enabled", False):
+        # Master Task 6, 2.5: expanded from a single global on/off switch
+        # to an optional per-strategy override -- None (no override set for
+        # this strategy) falls back to the existing global
+        # profit_lock_enabled default exactly as before, so a strategy that
+        # never touches this stays byte-for-byte unchanged. An explicit
+        # per-strategy True/False always wins, letting the CEO turn this on
+        # for one profitable strategy without flipping it on globally for
+        # every other strategy too.
+        strategy_override = None
+        if pos.get("strategy_id"):
+            strategy_override = storage.get_paper_strategy_config(pos["strategy_id"]).get("trailing_stop_enabled")
+        trailing_stop_enabled = (
+            profit_lock_settings.get("profit_lock_enabled", False)
+            if strategy_override is None else strategy_override
+        )
+        if trailing_stop_enabled:
             current_high = max(pos.get("highest_price_seen") or pos["entry_price"], tick_high)
             current_low = min(pos.get("lowest_price_seen") or pos["entry_price"], tick_low)
             new_stop = profit_lock.compute_trailing_stop(

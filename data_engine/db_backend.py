@@ -113,10 +113,21 @@ def get_postgres_conn():
     already used for SQLite, so no separate pooling logic is needed for a
     lightweight runner's traffic level. Railway's internal Postgres
     connection string already includes sslmode as needed; nothing extra
-    is added here."""
+    is added here.
+
+    connect_timeout=10: without it, psycopg2.connect() has NO timeout at
+    all and can hang for minutes if Postgres is briefly unreachable (e.g.
+    right after the database was created, or a transient network blip) --
+    confirmed live (Priority-15 Item 1) as the cause of a total cloud
+    outage: storage.init_db() calls this from cloud_runtime.app's lifespan
+    BEFORE the app starts serving anything, so a hung connect() there
+    blocked literally every endpoint, including /health, which is coded
+    to bypass all other checks. Failing fast after 10s means a genuinely
+    unreachable database surfaces as a clear, loggable connection error
+    instead of an indefinite, silent hang."""
     import psycopg2
 
-    raw = psycopg2.connect(os.environ["DATABASE_URL"])
+    raw = psycopg2.connect(os.environ["DATABASE_URL"], connect_timeout=10)
     return _PGConnection(raw)
 
 
@@ -244,8 +255,20 @@ CREATE TABLE IF NOT EXISTS paper_strategy_config (
     capital_multiplier REAL NOT NULL DEFAULT 1.0,
     capital_multiplier_reason TEXT,
     risk_pct_override REAL,
-    max_open_trades_override INTEGER
+    max_open_trades_override INTEGER,
+    htf_confluence_filter_enabled INTEGER,
+    volume_spike_filter_enabled INTEGER,
+    trailing_stop_enabled INTEGER
 );
+
+-- Master Task 6, 2.3/2.4/2.5: heals an ALREADY-LIVE cloud database the
+-- same way the MAE/MFE columns above do -- see that comment for why this
+-- is needed on Postgres (no ADD COLUMN IF NOT EXISTS on SQLite) even
+-- though the CREATE TABLE above already lists these columns for a FRESH
+-- database.
+ALTER TABLE paper_strategy_config ADD COLUMN IF NOT EXISTS htf_confluence_filter_enabled INTEGER;
+ALTER TABLE paper_strategy_config ADD COLUMN IF NOT EXISTS volume_spike_filter_enabled INTEGER;
+ALTER TABLE paper_strategy_config ADD COLUMN IF NOT EXISTS trailing_stop_enabled INTEGER;
 
 CREATE TABLE IF NOT EXISTS paper_alerts (
     id SERIAL PRIMARY KEY,

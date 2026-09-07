@@ -9,6 +9,7 @@ import pandas as pd
 
 from strategies.base import Strategy, Signal
 from backtest_engine import concepts
+from backtest_engine.engine import EMERGENCY_STOP_PCT
 
 _DEFAULT_PERIOD = {"ema": 20, "sma": 20, "rsi": 14, "atr": 14}
 
@@ -3177,9 +3178,22 @@ class ConfiguredStrategy(Strategy):
             pct = spec.value / 100.0
             return price * (1 + pct) if direction == "bullish" else price * (1 - pct)
         if spec.type == "rr" and spec.value is not None:
-            if sl is None:
-                return None
-            risk_distance = abs(price - sl)
+            # Bug fix (Master Task, Item 2 -- the ZEC-outlier null-TP bug):
+            # this branch used to return None outright whenever sl is None,
+            # e.g. a stop_loss.type=="structure" search (see
+            # _compute_stop_loss above) that found no valid structural
+            # candidate on this bar. A perfectly normal "rr" take-profit
+            # config then silently produced NO take-profit at all, letting
+            # the trade ride unbounded to the forced end_of_data close --
+            # confirmed against real data (Laxman Rekha 5-EMA, Dumb Money
+            # Concepts "Fixed 1:2 TP" variants, and several New Batch 5
+            # strategies) as a repeated, misleading flip of backtest
+            # verdicts. Falls back to the SAME synthetic risk distance the
+            # engine itself uses as its own emergency stop-loss
+            # (EMERGENCY_STOP_PCT, engine.py's Requirement 20 fallback) so
+            # the "rr" multiple still has a real, consistent basis instead
+            # of silently vanishing.
+            risk_distance = abs(price - sl) if sl is not None else price * EMERGENCY_STOP_PCT
             return price + risk_distance * spec.value if direction == "bullish" else price - risk_distance * spec.value
         if spec.type == "atr_multiple" and spec.value is not None:
             atr_val = self._get(df, i, f"entry_atr_{spec.atr_period or 14}")
@@ -3220,13 +3234,56 @@ class ConfiguredStrategy(Strategy):
                     zone = self._get(df, i, col)
                     if zone is not None and zone > price:
                         return zone
+                # Root-cause fallback (Master 15-Item task, Item 3): every
+                # candidate above depends on a swing zone that, for a
+                # CONTINUATION-style entry (price already broke past that
+                # swing to trigger the trade in the first place), sits
+                # BEHIND price by construction and can never pass the
+                # "zone > price" check above -- the exact defect
+                # independently found and fixed per-strategy for Order
+                # Block Trading (entry_obtrade_tp_bull, added above) and
+                # BOS/CHoCH Retest (entry_bosc_tp_bull, added above). The
+                # Item 3 audit found the SAME defect, with no dedicated
+                # column of its own, in Market Structure Shift Reversal,
+                # Support/Resistance Breakout, Range Breakout Volume
+                # Confirmation, Donchian LWTI Volume Confluence, HTF-LTF
+                # FVG/OB Confluence, FVG Momentum Pullback (Structure), FVG
+                # Pure+Inverse (Structure), 9-20 EMA SMC Hybrid, and FVG 50%
+                # Equilibrium Entry -- rather than hand-adding a 9th/10th
+                # near-identical dedicated column, this applies the same
+                # 100-bar rolling-high forward target as a genuine LAST
+                # RESORT, tried only after every specific/generic candidate
+                # above has already failed. Never overrides a real
+                # structural zone that DOES sit ahead of price (those
+                # `return zone` lines above always win first), and for an
+                # already-correct reversal-style strategy this only fires
+                # in the rare case its own structural search comes up
+                # completely empty -- previously silently None there too,
+                # so this is strictly an improvement, never a regression.
+                high_arr = self._array(df, "high")
+                if high_arr is not None:
+                    window = high_arr[max(0, i - 99):i + 1]
+                    if len(window):
+                        fallback = float(np.nanmax(window))
+                        if fallback > price:
+                            return fallback
+                return None
             else:
                 for col in ("entry_bosc_tp_bear", "entry_obtrade_tp_bear", "entry_sr_sweep_fixed_tp_bear", "entry_frvp2_tp_bear", "daily_tf_move_origin_for_resistance", "entry_bull_ob_low", "entry_fvg_bull_low",
                             "bias_support", "entry_support", "entry_pdl"):
                     zone = self._get(df, i, col)
                     if zone is not None and zone < price:
                         return zone
-            return None
+                # Same last-resort fallback as the bullish branch above,
+                # mirrored (100-bar rolling low).
+                low_arr = self._array(df, "low")
+                if low_arr is not None:
+                    window = low_arr[max(0, i - 99):i + 1]
+                    if len(window):
+                        fallback = float(np.nanmin(window))
+                        if fallback < price:
+                            return fallback
+                return None
         if spec.type == "structure_or_rr":
             # Sniper Headshot Entry: "next logical structural level ...
             # placed slightly inside the structural extreme (buffer); if no
@@ -3257,8 +3314,13 @@ class ConfiguredStrategy(Strategy):
                         break
             if zone_target is not None:
                 return zone_target
-            if spec.value is not None and sl is not None:
-                risk_distance = abs(price - sl)
+            # Same null-TP fix as the plain "rr" branch above: no structural
+            # target AND sl is None used to mean no take-profit at all,
+            # despite this type's whole point being "fall back to fixed RR
+            # when no structure exists" -- that fallback shouldn't itself
+            # depend on sl being non-None.
+            if spec.value is not None:
+                risk_distance = abs(price - sl) if sl is not None else price * EMERGENCY_STOP_PCT
                 return price + risk_distance * spec.value if direction == "bullish" else price - risk_distance * spec.value
             return None
         return None

@@ -39,7 +39,24 @@ _DEFAULT_EXCHANGES = {
     # ccxt id -> display name. "binance" uses the existing lightweight REST
     # client; the others go through ccxt.
     "enabled": ["binance", "okx", "bybit", "bitget", "gate"],
-    "default": "binance",
+    # Urgent bug fix, 2026-09-07: api.binance.com returns a real HTTP 451
+    # (regulatory geo-block) to requests from Render's Oregon-based
+    # servers -- confirmed live in the cloud paper-trading engine's own
+    # tick logs (HTTPError 451 on GET .../api/v3/exchangeInfo). Binance
+    # enforces this by server IP region, not anything this codebase
+    # controls, so the cloud deployment needs a genuinely different
+    # exchange, not a retry/backoff fix. "bybit" is already a fully-
+    # supported ExchangeClient (data_engine/exchanges/registry.py's
+    # CCXTClient, already implementing get_tradeable_symbols/get_ohlcv/
+    # get_tickers against ccxt) and is not known to geo-block US-hosted
+    # servers. Computed here (the single seed source every consumer of
+    # this dict reads, whether via data_engine.config.DEFAULT_EXCHANGE or
+    # a direct load_or_seed("exchanges.json", DEFAULTS["exchanges.json"])
+    # call like paper_trading/engine.py's/sindhu_web/api/data.py's own
+    # _default_exchange()) so every call site is covered from one place.
+    # Local development (SINDHU_CLOUD_MODE unset) is completely
+    # unaffected, still defaults to "binance".
+    "default": "bybit" if env_flag("SINDHU_CLOUD_MODE") else "binance",
 }
 
 _DEFAULT_COINS = {
@@ -65,6 +82,14 @@ _DEFAULT_APP_SETTINGS = {
     "klines_limit": 1000,
     "max_retries": 5,
     "watch_interval_seconds": 300,
+    # Master 15-Item task, Item 12: Render's free-tier Postgres (sindhu-db)
+    # expires 30 days after creation. "2026-09-05" is the date this
+    # project's own database_setup_fix.json checkpoint recorded the setup
+    # instructions being given (the exact Render-side creation timestamp
+    # isn't recorded anywhere this codebase can read) -- an honest
+    # approximation, editable here if the CEO checks Render's own exact
+    # "Created" date and wants to correct it.
+    "postgres_free_tier_created_date": "2026-09-05",
 }
 
 
@@ -99,6 +124,19 @@ _app_cfg = load_or_seed("app_settings.json", _DEFAULT_APP_SETTINGS)
 
 ENABLED_EXCHANGES = _exchanges_cfg["enabled"]
 DEFAULT_EXCHANGE = _exchanges_cfg["default"]
+# Urgent bug fix, 2026-09-07 (continued): an exchanges.json file already
+# persisted with "default": "binance" from BEFORE the Binance-451-geo-
+# block fix existed keeps winning here too (load_or_seed's saved-file-
+# wins behavior applies to this module-level constant exactly the same
+# way it does to paper_trading/engine.py's and sindhu_web/api/data.py's
+# own _default_exchange() re-reads) -- confirmed live: a real local
+# data/config/exchanges.json already existed with "default": "binance"
+# saved from before this fix, so the cloud-aware default above alone
+# was NOT enough. Binance geo-blocks Render's servers with a real HTTP
+# 451, so "binance" is never a safe cloud default regardless of what an
+# old file says.
+if env_flag("SINDHU_CLOUD_MODE") and DEFAULT_EXCHANGE == "binance":
+    DEFAULT_EXCHANGE = "bybit"
 
 NUM_COINS = _coins_cfg["num_coins"]
 QUOTE_ASSET = _coins_cfg["quote_asset"]

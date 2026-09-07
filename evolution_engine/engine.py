@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 
 from data_engine import storage, config as base_config
 from evolution_engine.governor import Governor
-from evolution_engine import mutator, champion
+from evolution_engine import mutator, champion, config as evo_config
 from sindhu_strategy import lifecycle as sindhu_lifecycle
 
 DEFAULT_TICK_INTERVAL_SECONDS = 300  # one evolution tick every 5 minutes
@@ -180,6 +180,21 @@ class EvolutionEngine:
         # forever (see governor.clear_queue()'s docstring for the exact
         # 16-hour-stuck-at-max symptom this caused).
         self.governor.clear_queue()
+        # Master 15-Item task, Item 13 (Evolution Scope Control): the CEO's
+        # chosen Evolution Mode gates WHICH lineages are even considered
+        # this tick, on top of the always-applied zero-trades skip below.
+        # Conservative (default): only lineages clearing a real minimum
+        # bar (Profit Factor >= 0.7 OR >= 25 trades) AND not yet "matured"
+        # (mutator.is_matured -- capped out, or plateaued 2 generations in
+        # a row). Balanced: no minimum bar, but only the CEO's top 25
+        # lineages by evolution_score, also excluding matured ones.
+        # Aggressive: every lineage with real trades, exactly like before
+        # this task existed -- no eligibility bar, no maturity concept at
+        # all, so an existing Aggressive-mode setup (or anyone who
+        # explicitly opts back into it) sees byte-for-byte unchanged
+        # behavior.
+        mode, mode_params = evo_config.current_mode_params()
+        candidates = []
         for base_id in storage.list_bot_strategy_base_ids():
             latest = storage.latest_generation_for_base(base_id)
             if not latest:
@@ -197,10 +212,22 @@ class EvolutionEngine:
             # thousands of real trades sitting genuinely eligible the whole
             # time -- untested lineages' first real backtest is already
             # handled separately, by _backtest_untested_candidates() above.
-            trades = (latest.get("backtest_summary") or {}).get("trades", 0) or 0
+            summary = latest.get("backtest_summary") or {}
+            trades = summary.get("trades", 0) or 0
             if trades == 0:
                 continue
+            if mode != "aggressive" and mutator.is_matured(base_id, mode_params["max_generations"]):
+                continue
+            if not mutator.is_eligible_for_mode(summary, mode, mode_params):
+                continue
             score = latest["evolution_score"] if latest.get("evolution_score") is not None else 50.0
+            candidates.append((base_id, score))
+
+        if mode == "balanced" and mode_params["top_n"]:
+            candidates.sort(key=lambda c: c[1], reverse=True)
+            candidates = candidates[:mode_params["top_n"]]
+
+        for base_id, score in candidates:
             self.governor.try_enqueue(base_id, priority=score)
 
         mutated = []

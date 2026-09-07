@@ -108,6 +108,14 @@ _DEFAULTS = {
     # is on). 2 is the smallest number that is actually "agreement"
     # between more than one source.
     "ensemble_voting_min_agreeing_strategies": 2,
+    # Master 15-Item task, Item 8: Mobile Push Notifications -- ntfy.sh
+    # topic name (see paper_trading/push_notifications.py's own docstring
+    # for why ntfy.sh over browser Web Push). Empty until the CEO picks a
+    # topic name (their own arbitrary secret string, e.g. via the ntfy
+    # app) -- no account/signup needed on either side, but a topic name IS
+    # effectively a shared secret (anyone who knows it can subscribe), so
+    # this is never auto-generated/guessed on the CEO's behalf.
+    "ntfy_topic": "",
 }
 
 

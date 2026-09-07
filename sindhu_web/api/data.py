@@ -13,7 +13,22 @@ router = APIRouter()
 
 def _default_exchange():
     cfg = config.load_or_seed("exchanges.json", config.DEFAULTS["exchanges.json"])
-    return cfg["default"]
+    default = cfg["default"]
+    # Urgent bug fix, 2026-09-07: same class of bug as the Telegram bot_
+    # token/channel_id env-var-shadowing fix -- an exchanges.json file
+    # already persisted with "default": "binance" from BEFORE the
+    # Binance-451-geo-block fix existed would keep winning here forever
+    # (load_or_seed's saved-file-wins behavior), even after the code fix
+    # deploys, since this reads the file fresh every call rather than the
+    # already-cloud-aware data_engine.config.DEFAULT_EXCHANGE constant
+    # (kept as a separate live re-read, not that constant, so a runtime
+    # exchange change via the Settings page takes effect without a
+    # restart). Binance geo-blocks Render's servers with a real HTTP 451,
+    # so "binance" specifically is never a safe cloud default regardless
+    # of what an old file says.
+    if config.env_flag("SINDHU_CLOUD_MODE") and default == "binance":
+        return "bybit"
+    return default
 
 
 @router.get("/api/data")

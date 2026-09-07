@@ -1,9 +1,10 @@
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from data_engine import config
+from data_engine import config, db_backend
 from data_engine.paths import DATABASE_DIR
 from data_engine.exchanges.registry import ALL_EXCHANGE_IDS
 from sindhu_web import sync
@@ -11,6 +12,24 @@ from sindhu_web import sync
 router = APIRouter()
 
 _DEFAULT_WEB_SETTINGS = {"theme": "dark", "refresh_speed_seconds": 10}
+POSTGRES_FREE_TIER_DAYS = 30
+
+
+def _postgres_expiry_notice(app_cfg):
+    """Master 15-Item task, Item 12: only meaningful when actually running
+    against Postgres (db_backend.IS_POSTGRES) -- a local SQLite install
+    has no such expiry at all, so this stays None there rather than
+    showing a scary countdown that doesn't apply."""
+    if not db_backend.IS_POSTGRES:
+        return None
+    created = datetime.strptime(app_cfg["postgres_free_tier_created_date"], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    expiry = created + timedelta(days=POSTGRES_FREE_TIER_DAYS)
+    days_remaining = (expiry - datetime.now(timezone.utc)).days
+    return {
+        "created_date": app_cfg["postgres_free_tier_created_date"],
+        "expiry_date": expiry.strftime("%Y-%m-%d"),
+        "days_remaining": days_remaining,
+    }
 
 
 @router.get("/api/settings")
@@ -33,6 +52,7 @@ def get_settings():
         # not something to trigger from a settings toggle. Shown for
         # visibility only.
         "database_location": DATABASE_DIR,
+        "postgres_free_tier": _postgres_expiry_notice(app_cfg),
     }
 
 

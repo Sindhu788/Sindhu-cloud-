@@ -72,8 +72,28 @@ class CCXTClient(ExchangeClient):
         return rows
 
     def get_tickers(self, quote):
+        # Bug fix, 2026-09-07 (found while switching the cloud default to
+        # bybit for the Binance-451 fix): fetch_tickers() with NO symbols
+        # argument returns whatever market type the exchange treats as its
+        # own default -- confirmed live on bybit, that default is
+        # PERPETUAL FUTURES (keys like "BTC/USDT:USDT"), not spot, even
+        # though get_tradeable_symbols() above correctly filters to spot-
+        # only markets. The old code's `symbol.endswith(f"/{quote}")`
+        # check then matched ZERO of those keys (a perp key ends with
+        # ":USDT", not "/USDT"), so this silently returned an EMPTY dict
+        # on bybit -- no error, just no live prices, which is exactly the
+        # shape of bug that shows up as a dashboard stuck on empty/loading
+        # placeholders. Fixed by explicitly requesting only real spot
+        # symbols (same market.get("spot") filter as get_tradeable_symbols
+        # above) instead of trusting fetch_tickers()'s un-scoped default.
         self._ensure_markets()
-        raw = self._retry(self._exchange.fetch_tickers)
+        spot_symbols = [
+            m["symbol"] for m in self._exchange.markets.values()
+            if m.get("spot") and m.get("quote") == quote and m.get("active") is not False
+        ]
+        if not spot_symbols:
+            return {}
+        raw = self._retry(self._exchange.fetch_tickers, spot_symbols)
         result = {}
         for symbol, t in raw.items():
             if not symbol.endswith(f"/{quote}"):
