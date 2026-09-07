@@ -162,7 +162,7 @@
   // network drop) -- every POST/DELETE/upload gets the same bounded-wait
   // treatment apiGet already had, just with a longer default since some of
   // these (AI import, file upload) can legitimately take a while.
-  async function apiSend(method, path, body, timeoutMs = 120000) {
+  async function apiSend(method, path, body, timeoutMs = 120000, _retried = false) {
     await ensureToken();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -183,6 +183,19 @@
     if (!res.ok) {
       let detail = `${method} ${path} -> ${res.status}`;
       try { detail = JSON.stringify(await res.json()); } catch (e) {}
+      // Bug fix, 2026-09-07: a stale sindhu_token cached in this browser's
+      // localStorage (e.g. from before the server-side token got persisted
+      // across restarts) would fail 401 forever -- ensureToken() only ever
+      // fetches a fresh one when NOTHING is cached yet, so a wrong-but-
+      // present token never self-heals on its own, and a page reload or
+      // re-login doesn't clear localStorage either. One-shot self-heal:
+      // on a token-specific 401, drop the cached value and retry once with
+      // a freshly issued token before giving up.
+      if (res.status === 401 && !_retried && detail.includes("X-Sindhu-Token")) {
+        apiToken = "";
+        try { localStorage.removeItem("sindhu_token"); } catch (e) {}
+        return apiSend(method, path, body, timeoutMs, true);
+      }
       throw new Error(detail);
     }
     return res.json();
@@ -190,7 +203,7 @@
   const apiPost = (path, body, timeoutMs) => apiSend("POST", path, body, timeoutMs);
   const apiDelete = (path) => apiSend("DELETE", path);
 
-  async function apiUpload(path, formData, timeoutMs = 180000) {
+  async function apiUpload(path, formData, timeoutMs = 180000, _retried = false) {
     await ensureToken();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -206,6 +219,12 @@
     if (!res.ok) {
       let detail = `POST ${path} -> ${res.status}`;
       try { detail = JSON.stringify(await res.json()); } catch (e) {}
+      // Same one-shot self-heal as apiSend() above -- see its comment.
+      if (res.status === 401 && !_retried && detail.includes("X-Sindhu-Token")) {
+        apiToken = "";
+        try { localStorage.removeItem("sindhu_token"); } catch (e) {}
+        return apiUpload(path, formData, timeoutMs, true);
+      }
       throw new Error(detail);
     }
     return res.json();
