@@ -36,7 +36,22 @@ _EXEMPT_PATHS = {"/", "/api/token"}
 # minutes of inactivity) never needs credentials. It reveals nothing
 # beyond "the process is up" -- no trading data, no settings, not even
 # whether an account has been configured yet.
-_LOGIN_EXEMPT_PATHS = {"/login", "/api/auth/status", "/api/auth/setup", "/api/auth/login", "/health"}
+# Master Task Expansion, Part 1: /strategy-sync/push is a machine-to-machine
+# endpoint (a local sync script pushing a strategy config to this cloud
+# deployment) -- it has no browser session to log in with, so it is
+# exempted here and instead gated by its own X-Sindhu-Sync-Secret header
+# (see paper_trading/strategy_sync.py's receive_synced_strategy()), a
+# wholly separate secret from both the login session and the X-Sindhu-Token
+# below. A wrong/missing secret there returns 401 before the payload is
+# ever touched -- exempting this one path from the LOGIN gate does not
+# loosen that check at all.
+_LOGIN_EXEMPT_PATHS = {"/login", "/api/auth/status", "/api/auth/setup", "/api/auth/login", "/health",
+                        "/api/paper-trading/strategy-sync/push",
+                        # Master Task Expansion, Part 2: the LOCAL machine's cloud-aware
+                        # auto-stop scheduler polls this from outside any browser session,
+                        # same reasoning as strategy-sync/push above -- gated by the SAME
+                        # X-Sindhu-Sync-Secret header/secret instead of a login session.
+                        "/api/paper-trading/cloud-status-for-auto-stop"}
 
 # A valid session cookie is a stronger signal than the X-Sindhu-Token
 # header below (which exists to distinguish a real browser request from a

@@ -183,6 +183,18 @@ async def _lifespan(app: FastAPI):
     _tg_enabled = _telegram_bot.load_settings().get("master_send_enabled", True)
     log(f"[telegram] Sending is currently {'ON' if _tg_enabled else 'OFF'} "
         f"(restored from the last saved setting).")
+    # Master Task Expansion, Part 2: Cloud-Aware Local Auto-Stop -- LOCAL
+    # app only (never cloud_runtime/app.py, which has no "more cloud" to
+    # watch). Started after resume_engine_on_startup() above so its own
+    # immediate first check can re-pause the engine within seconds if the
+    # cloud is already both Paper-Trading-and-Telegram ON at boot time.
+    from paper_trading.cloud_aware_auto_stop import start_scheduler_thread as _start_cloud_aware_auto_stop
+    _start_cloud_aware_auto_stop()
+    # Master Task Expansion, Part 4: Simple Paper-Trading Status Ping --
+    # runs on both this local app and cloud_runtime/app.py (each pings
+    # about its OWN engine/balance, independently).
+    from paper_trading.status_ping import start_scheduler_thread as _start_status_ping
+    _start_status_ping()
     threading.Thread(target=_warm_caches, daemon=True).start()
     task = asyncio.create_task(_broadcast_loop())
     yield

@@ -3,7 +3,7 @@ from typing import Optional
 
 import os
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Header
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
@@ -22,6 +22,9 @@ from paper_trading import signal_tracker
 from paper_trading import pattern_stats
 from paper_trading import challenge_mode
 from paper_trading import cloud_sync
+from paper_trading import strategy_sync
+from paper_trading import cloud_aware_auto_stop
+from paper_trading import status_ping
 from paper_trading import signal_explainer
 from paper_trading import kill_switch, account_drawdown_guard, coin_heatmap, custom_alerts
 from paper_trading import trade_journal_export
@@ -127,9 +130,18 @@ def account_drawdown_resume(req: AccountDrawdownResumeRequest = AccountDrawdownR
 @router.post("/api/paper-trading/run-tick-now")
 def run_tick_now():
     """Manual single-tick trigger -- used for testing/demoing the pipeline
-    without waiting for the next scheduled tick."""
+    without waiting for the next scheduled tick. This IS the Cloud
+    Monitoring Roadmap's "Scan All Coins" -- reused as-is, no new endpoint
+    needed for that half of Part 6's Manual Scan Button."""
     summary = engine.run_single_tick_now()
     return {"ok": True, "summary": summary}
+
+
+@router.post("/api/paper-trading/run-coin-scan-now/{symbol}")
+def run_coin_scan_now(symbol: str):
+    """Master Task Expansion, Part 6: Manual Scan -- Scan Selected Coin."""
+    result = engine.run_single_coin_scan_now(symbol)
+    return {"ok": True, **result}
 
 
 class SettingsUpdate(BaseModel):
@@ -807,6 +819,197 @@ def download_cloud_sync_snapshot():
     filename = f"sindhu_cloud_sync_{snapshot['generated_at'][:10]}.json"
     return JSONResponse(content=jsonable_encoder(snapshot),
                          headers={"Content-Disposition": f"attachment; filename={filename}"})
+
+
+# ----------------------------------------------------------------------
+# Master Task Expansion, Part 1: Local -> Cloud Strategy Sync (config-only)
+# See paper_trading/strategy_sync.py's module docstring for the full design.
+# This is the OPPOSITE direction from cloud_sync above (local -> cloud,
+# not cloud -> local), and carries only a strategy's small config JSON,
+# never trading data.
+# ----------------------------------------------------------------------
+
+@router.get("/api/paper-trading/strategy-sync/secret")
+def get_strategy_sync_secret():
+    """Behind the normal login+X-Sindhu-Token gate like every other GET
+    here -- the CEO views this once (on whichever deployment they want to
+    RECEIVE syncs, i.e. the cloud), then pastes it into the SENDING
+    machine's (local laptop's) own Cloud Sync settings via
+    POST /strategy-sync/target below. Never returned to an unauthenticated
+    caller -- this is the shared secret a sync push must present."""
+    return {"secret": strategy_sync.get_or_create_sync_secret()}
+
+
+class SyncTargetUpdate(BaseModel):
+    cloud_url: Optional[str] = None
+    sync_secret: Optional[str] = None
+
+
+@router.get("/api/paper-trading/strategy-sync/target")
+def get_strategy_sync_target():
+    """LOCAL side: this machine's own record of where to push strategies
+    and with what secret. sync_secret is intentionally masked, same
+    write-only convention as the Telegram bot token, so it is never shown
+    back to the browser once saved."""
+    target = strategy_sync.get_sync_target()
+    return {"cloud_url": target["cloud_url"], "sync_secret_configured": bool(target["sync_secret"])}
+
+
+@router.post("/api/paper-trading/strategy-sync/target")
+def update_strategy_sync_target(req: SyncTargetUpdate):
+    strategy_sync.save_sync_target(cloud_url=req.cloud_url, sync_secret=req.sync_secret)
+    target = strategy_sync.get_sync_target()
+    return {"ok": True, "cloud_url": target["cloud_url"], "sync_secret_configured": bool(target["sync_secret"])}
+
+
+@router.post("/api/paper-trading/strategy-sync/trigger/{strategy_id}")
+def trigger_strategy_sync(strategy_id: str):
+    """LOCAL side: the "one-click manual trigger" this task's own
+    instructions explicitly allowed building first (safer than a fully
+    automatic background push). Behind the normal login+token gate --
+    this is a state-changing local action, not the cloud's receive
+    endpoint below."""
+    result = strategy_sync.push_strategy_to_cloud(strategy_id)
+    _log_and_broadcast(f"[strategy-sync] {strategy_id}: "
+                        + ("synced to cloud" if result.get("ok") else f"FAILED -- {result.get('error')}"))
+    return result
+
+
+@router.get("/api/paper-trading/strategy-sync/log")
+def get_strategy_sync_log(limit: int = 50):
+    """LOCAL side: this machine's own history of sync attempts (success and
+    failure both, never silently dropped) -- satisfies the task's own
+    requirement to see "which strategies have been synced, when, whether
+    each succeeded or failed" without needing to log into the cloud."""
+    return {"log": strategy_sync.get_sync_log(limit=limit)}
+
+
+@router.get("/api/paper-trading/strategy-sync/status")
+def get_strategy_sync_status():
+    """CLOUD side: which strategies are currently registered here via a
+    sync (empty on any deployment without Postgres, i.e. every local
+    laptop run -- see strategy_sync.list_synced_strategies())."""
+    synced = strategy_sync.list_synced_strategies()
+    return {"synced_strategies": [
+        {"strategy_id": r["strategy_id"], "name": r.get("name"), "synced_at": r.get("synced_at")}
+        for r in synced
+    ]}
+
+
+class StrategySyncPush(BaseModel):
+    strategy_id: str
+    name: Optional[str] = None
+    tags: Optional[list] = None
+    config_json: dict
+
+
+@router.post("/api/paper-trading/strategy-sync/push")
+def receive_strategy_sync(req: StrategySyncPush, x_sindhu_sync_secret: Optional[str] = Header(None)):
+    """CLOUD side, the actual receive endpoint a local machine's
+    push_strategy_to_cloud() POSTs to. Deliberately added to
+    sindhu_web/security.py's _LOGIN_EXEMPT_PATHS -- a scheduled/CLI sync
+    script has no browser session to log in with -- and instead gated by
+    its own X-Sindhu-Sync-Secret header, checked inside
+    strategy_sync.receive_synced_strategy() against
+    get_or_create_sync_secret(). A wrong/missing secret returns 401 without
+    ever looking at the payload."""
+    result, status_code = strategy_sync.receive_synced_strategy(
+        req.strategy_id, req.name, req.tags, req.config_json, x_sindhu_sync_secret,
+    )
+    if status_code != 200:
+        return JSONResponse(content=result, status_code=status_code)
+    _log_and_broadcast(f"[strategy-sync] received {req.strategy_id} ({req.name}) from a local sync push")
+    return result
+
+
+# ----------------------------------------------------------------------
+# Master Task Expansion, Part 2: Cloud-Aware Local Auto-Stop
+# See paper_trading/cloud_aware_auto_stop.py's module docstring.
+# ----------------------------------------------------------------------
+
+@router.get("/api/paper-trading/cloud-status-for-auto-stop")
+def cloud_status_for_auto_stop(x_sindhu_sync_secret: Optional[str] = Header(None)):
+    """CLOUD side: exactly the two booleans a local machine needs to decide
+    whether to pause itself -- nothing else. Reuses the SAME secret as
+    strategy-sync/push (see strategy_sync.get_or_create_sync_secret()) --
+    a scheduled local check has no browser session, same reasoning as that
+    endpoint. Deliberately NOT folded into /health (which is intentionally
+    a zero-database-read, unauthenticated, external-uptime-pinger-facing
+    endpoint) -- this one is authenticated and allowed a normal DB read."""
+    expected = strategy_sync.get_or_create_sync_secret()
+    if not x_sindhu_sync_secret or x_sindhu_sync_secret != expected:
+        return JSONResponse(content={"ok": False, "error": "invalid or missing sync secret"}, status_code=401)
+    return {
+        "ok": True,
+        "paper_trading_running": engine.is_running(),
+        "telegram_sending_enabled": bool(telegram_bot.public_settings().get("master_send_enabled")),
+    }
+
+
+@router.get("/api/paper-trading/cloud-aware-auto-stop/state")
+def get_cloud_aware_auto_stop_state():
+    """LOCAL side: the dashboard's own view of this machine's auto-stop
+    watcher -- whether it's currently paused because the cloud was both-on,
+    and the last check's result, so "why is Paper Trading off?" always has
+    a visible, honest answer instead of just looking broken."""
+    return cloud_aware_auto_stop.get_state()
+
+
+@router.post("/api/paper-trading/cloud-aware-auto-stop/resume")
+def resume_local_after_cloud_pause():
+    """LOCAL side: the ONLY way local trading restarts after an auto-stop
+    -- a deliberate CEO click, exactly like the normal Start button (this
+    task's own explicit 'never auto-resume' rule)."""
+    cloud_aware_auto_stop.resume_local_after_cloud_pause()
+    try:
+        started = engine.start(log=_log_and_broadcast, on_event=_on_engine_event)
+    except RuntimeError as e:
+        raise HTTPException(409, str(e))
+    if started:
+        pt_config.update(engine_enabled=True)
+        sync.notify("paper_trading", "started", "Paper Trading engine resumed (manual, after a cloud-aware auto-stop)")
+    return {"ok": True, "started": started}
+
+
+# ----------------------------------------------------------------------
+# Master Task Expansion, Part 4: Simple Paper-Trading Status Ping
+# See paper_trading/status_ping.py's module docstring.
+# ----------------------------------------------------------------------
+
+@router.get("/api/paper-trading/status-ping/state")
+def get_status_ping_state():
+    """When the last private status ping actually went out -- lets the
+    dashboard show 'last pinged 3h ago' without needing Telegram itself."""
+    return status_ping.get_state()
+
+
+@router.post("/api/paper-trading/status-ping/send-now")
+def send_status_ping_now():
+    """Manual trigger -- also what the scheduler itself calls. Returns
+    skipped=True (never a bare failure) when personal_chat_id isn't
+    configured, so the dashboard can show the real blocking reason."""
+    return status_ping.send_status_ping_now()
+
+
+@router.get("/api/paper-trading/dashboard-badge-status")
+def get_dashboard_badge_status():
+    """Part 4's persistent, every-page dashboard badge: the 3 things the
+    task asked for -- Paper Trading engine, live-candles data source, and
+    Telegram delivery -- reusing already-computed signals (engine.status(),
+    LIVE_CANDLES_ONLY, telegram_bot.public_settings()) rather than any new
+    check logic."""
+    from data_engine.resample import LIVE_CANDLES_ONLY
+
+    pt_status = engine.status()
+    tg_settings = telegram_bot.public_settings()
+    return {
+        "paper_trading": {"ok": pt_status["running"], "detail": "running" if pt_status["running"] else "stopped"},
+        "live_candles": {"ok": LIVE_CANDLES_ONLY, "detail": "live-only" if LIVE_CANDLES_ONLY else "historical fallback allowed"},
+        "telegram": {"ok": bool(tg_settings.get("token_configured") and tg_settings.get("channel_id")
+                              and tg_settings.get("master_send_enabled")),
+                     "detail": "sending" if tg_settings.get("master_send_enabled") else "configured but sending is OFF"
+                               if tg_settings.get("token_configured") else "bot not configured"},
+    }
 
 
 @router.get("/api/paper-trading/analytics")

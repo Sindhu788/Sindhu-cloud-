@@ -25,7 +25,12 @@ def relevant_strategies(symbol, market_state):
 
     configs = storage.list_paper_strategy_configs()
     matches = []
-    for meta in lib.list_all():
+    # Master Task Expansion, Part 1: list_all_including_synced()/
+    # load_including_synced() also pick up strategies pushed live from a
+    # local machine via paper_trading/strategy_sync.py -- a no-op fallback
+    # to plain list_all()/load() on any deployment without Postgres (i.e.
+    # every local laptop run), see that module's own docstring.
+    for meta in lib.list_all_including_synced():
         strategy_id = meta["id"]
         # Opt-in: a strategy with no config row has never been deliberately
         # activated -- see storage.get_paper_strategy_config()'s matching
@@ -42,7 +47,7 @@ def relevant_strategies(symbol, market_state):
             continue
 
         try:
-            config = lib.load(strategy_id)
+            config = lib.load_including_synced(strategy_id)
         except FileNotFoundError:
             continue
 

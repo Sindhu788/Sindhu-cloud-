@@ -74,18 +74,30 @@ def _recent_errors(limit=10, tail_bytes=200_000):
 def _active_background_processes():
     """Plain-language count of what's actually running right now, reusing
     the same per-engine is_running()/list_jobs() calls /api/home already
-    uses for module_status -- no new tracking mechanism invented."""
+    uses for module_status -- no new tracking mechanism invented.
+
+    Master Task Expansion, Part 6: this endpoint is now ALSO mounted on
+    cloud_runtime/app.py (see that file's lifespan) -- evolution_engine.engine
+    is deliberately never imported there at all (cloud_runtime's own tests
+    assert this: it has no Evolution Engine, no Governor, by design, to
+    keep the cloud runner lightweight). Checking CLOUD_MODE here rather than
+    unconditionally importing evolution_engine.engine avoids pulling that
+    whole module (and its background-thread machinery) into a live cloud
+    process just because someone opened a health-check page -- the cloud
+    correctly reports zero evolution activity without ever importing it."""
     from sindhu_web.jobs import job_manager
     from paper_trading.engine import engine as paper_engine
-    from evolution_engine.engine import engine as evolution_engine
+    from sindhu_web.security import CLOUD_MODE
 
     jobs = job_manager.list_jobs()
     running_jobs = [j for j in jobs if j.status == "running"]
     items = [{"name": j.kind, "detail": getattr(j, "label", None) or j.id} for j in running_jobs]
     if paper_engine.is_running():
         items.append({"name": "paper_trading", "detail": "Paper Trading Engine"})
-    if evolution_engine.is_running():
-        items.append({"name": "evolution", "detail": "Evolution Engine"})
+    if not CLOUD_MODE:
+        from evolution_engine.engine import engine as evolution_engine
+        if evolution_engine.is_running():
+            items.append({"name": "evolution", "detail": "Evolution Engine"})
     return items
 
 

@@ -58,6 +58,7 @@ from data_engine.logging_setup import log
 from sindhu_web import auth, broadcast
 from sindhu_web.api import auth as auth_api
 from sindhu_web.api import paper_trading as paper_trading_api
+from sindhu_web.api import system as system_api
 from sindhu_web.api import ws
 from sindhu_web.security import get_or_create_token, token_guard_middleware
 
@@ -174,6 +175,12 @@ async def _lifespan(app: FastAPI):
     from paper_trading.challenge_multi import start_achievability_snapshot_scheduler_thread
     start_achievability_snapshot_scheduler_thread()
 
+    # Master Task Expansion, Part 4: Simple Paper-Trading Status Ping --
+    # this deployment pings about ITS OWN engine/balance (see sindhu_web/
+    # server.py's lifespan for the local laptop's own copy of this).
+    from paper_trading.status_ping import start_scheduler_thread as _start_status_ping
+    _start_status_ping()
+
     task = asyncio.create_task(_broadcast_loop())
     yield
     task.cancel()
@@ -204,7 +211,13 @@ def create_app():
         log(f"[cloud-runtime] API ERROR on {request.method} {request.url.path}: {exc!r}")
         return JSONResponse({"detail": "internal error"}, status_code=500)
 
-    for router in (paper_trading_api.router, ws.router, auth_api.router):
+    # Master Task Expansion, Part 6: system_api.router (uptime, CPU/RAM,
+    # database size, active background processes, recent real errors from
+    # this process's own log) added here -- it already existed, local-only,
+    # from a prior session; now also reachable on the cloud dashboard,
+    # satisfying the Cloud Monitoring Roadmap's Health Dashboard + Error
+    # Center items without any new check logic.
+    for router in (paper_trading_api.router, ws.router, auth_api.router, system_api.router):
         app.include_router(router)
 
     @app.get("/api/token")

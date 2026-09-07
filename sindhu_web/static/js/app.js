@@ -919,16 +919,28 @@
   async function refreshEngineStatusBanner() {
     const banner = document.getElementById("engineStatusBanner");
     if (!banner) return;
-    const s = await apiGet("/api/paper-trading/status").catch(() => null);
+    const [s, badge] = await Promise.all([
+      apiGet("/api/paper-trading/status").catch(() => null),
+      apiGet("/api/paper-trading/dashboard-badge-status").catch(() => null),
+    ]);
     if (!s) { banner.style.display = "none"; document.documentElement.style.setProperty("--banner-h", "0px"); return; }
     const en = getLang() === "en";
     const runningLabel = s.running
       ? `<span class="esb-running">🟢 ${en ? "RUNNING" : "CHAL RAHA HAI"}${s.started_at ? ` (${en ? "since" : "se"} ${_fmtClock(s.started_at)})` : ""}</span>`
       : `<span class="esb-stopped">🔴 ${en ? "STOPPED" : "BAND HAI"}</span>`;
+    // Master Task Expansion, Part 4: persistent every-page badges for the
+    // 3 things the task asked for -- Paper Trading engine (already shown
+    // above via runningLabel), live-candles data source, and Telegram
+    // delivery -- reusing already-computed signals, no new checks.
+    const badgeDot = (ok) => ok ? "🟢" : "🔴";
+    const badgesHtml = badge ? `
+      <span class="esb-item" title="${esc(badge.live_candles.detail)}">${badgeDot(badge.live_candles.ok)} ${en ? "Live Candles" : "Live Candles"}</span>
+      <span class="esb-item" title="${esc(badge.telegram.detail)}">${badgeDot(badge.telegram.ok)} Telegram</span>` : "";
     banner.innerHTML = `
       <span class="esb-item">${runningLabel}</span>
       <span class="esb-item esb-muted">${en ? "Last heartbeat" : "Aakhri Dhadkan"}: ${_fmtClock(s.last_tick_at)}</span>
-      <span class="esb-item esb-muted">${en ? "Today" : "Aaj"}: ${s.trades_today || 0} ${en ? "trades" : "trades"}</span>`;
+      <span class="esb-item esb-muted">${en ? "Today" : "Aaj"}: ${s.trades_today || 0} ${en ? "trades" : "trades"}</span>
+      ${badgesHtml}`;
     banner.style.display = "flex";
     document.documentElement.style.setProperty("--banner-h", "30px");
   }
@@ -6311,6 +6323,19 @@
           </div>
           <p class="muted plain-note">Shown here so you can see the rule that is protecting you, but deliberately not editable from this screen &mdash; this is the gate that stops an out-of-date signal from ever being sent, and it is not something a stray click should be able to weaken.</p>
         </div>
+
+        <div class="section-title">Cloud Strategy Sync ${helpIcon("strategy_sync")}</div>
+        <div class="card settings-card">
+          <p class="muted plain-note">When a strategy is built or improved on the local machine, it can be pushed here (small config only, never trades/history/the engines) so THIS deployment can start paper-trading it. To let your local machine push here, copy the secret below into the local dashboard's Strategy Sync settings (Strategies page) once.</p>
+          <div class="form-row"><label>Sync Secret (paste into your local machine once)</label>
+            <div style="display:flex;gap:6px;">
+              <input id="syncSecretBox" type="password" readonly style="flex:1;">
+              <button class="btn-ghost" id="btnRevealSyncSecret">Show</button>
+              <button class="btn-ghost" id="btnCopySyncSecret">Copy</button>
+            </div>
+          </div>
+          <div id="syncedStrategiesList" class="table-wrap"><p class="muted">Loading...</p></div>
+        </div>
       </div>
     `;
 
@@ -6377,6 +6402,39 @@
           : `It did not get through: ${r.error}`);
       } catch (e) { setStatus("tgProxyStatus", `Failed: ${e.message}`); }
     };
+
+    (async () => {
+      try {
+        const secretBox = document.getElementById("syncSecretBox");
+        const btnReveal = document.getElementById("btnRevealSyncSecret");
+        const btnCopy = document.getElementById("btnCopySyncSecret");
+        if (!secretBox) return; // this card only renders on a Postgres/cloud deployment view
+        const { secret } = await apiGet("/api/paper-trading/strategy-sync/secret");
+        secretBox.value = secret;
+        let revealed = false;
+        btnReveal.onclick = () => {
+          revealed = !revealed;
+          secretBox.type = revealed ? "text" : "password";
+          btnReveal.textContent = revealed ? "Hide" : "Show";
+        };
+        btnCopy.onclick = async () => {
+          try { await navigator.clipboard.writeText(secret); btnCopy.textContent = "Copied!"; }
+          catch (e) { btnCopy.textContent = "Copy failed"; }
+          setTimeout(() => { btnCopy.textContent = "Copy"; }, 1500);
+        };
+        const { synced_strategies } = await apiGet("/api/paper-trading/strategy-sync/status");
+        const listEl = document.getElementById("syncedStrategiesList");
+        listEl.innerHTML = synced_strategies.length
+          ? `<table><thead><tr><th>Strategy</th><th>Synced At</th></tr></thead><tbody>
+              ${synced_strategies.map(s => `<tr><td>${esc(s.name || s.strategy_id)}</td><td>${esc(s.synced_at || "-")}</td></tr>`).join("")}
+             </tbody></table>`
+          : `<p class="muted">No strategies have been synced from a local machine yet.</p>`;
+      } catch (e) {
+        // Local-mode dashboards (no Postgres) don't need this card to work --
+        // fail silently rather than showing an alarming error for a feature
+        // that's meaningless outside the cloud deployment.
+      }
+    })();
 
     await loadPeriod("today");
     content.querySelectorAll('[data-period-tab="tgdash"]').forEach(btn => {
@@ -6446,6 +6504,14 @@
           <button class="btn-ghost" id="evoRunTick">Run One Tick Now</button>
           <span id="evoStatusMsg" class="muted"></span>
         </div>
+        ${status.job ? `
+        <div class="muted" style="font-size:12px;margin-top:6px;">
+          Last tick: <b>${esc((status.job.stage || "-").replace(/_/g, " "))}</b> at ${esc((status.job.updated_at || "").slice(0, 19))}
+          ${status.job.stage === "skipped_over_resource_limit"
+            ? `<span class="pill pill-muted" style="margin-left:6px;" title="CPU or RAM was over the Governor's limit, so this tick did no analyzing/mutating/ranking work at all -- a resource constraint, not a bug. It will try again on the next scheduled tick.">⏸ Skipped -- over CPU/RAM limit</span>`
+            : ""}
+          ${status.job.error ? `<span class="pill pill-error" style="margin-left:6px;">${esc(status.job.error)}</span>` : ""}
+        </div>` : ""}
 
         <div class="section-title">Evolution Mode ${helpIcon("evolution_mode")}</div>
         <div class="card" style="max-width:560px;">
@@ -6602,9 +6668,29 @@
             const maturedBadge = lineageRes && lineageRes.matured
               ? `<span class="pill pill-muted" style="margin-left:6px;" title="This strategy's mode-based generation cap was reached, or it plateaued for 2 generations in a row -- automatic evolution has stopped for it. It can still be manually re-opened for another attempt any time.">🌳 Matured</span>`
               : "";
+            const gens = (lineageRes && lineageRes.generations) || [];
+            const bs = (g) => g.backtest_summary || {};
+            const fmt = (v, suffix = "") => v == null ? "-" : `${Number(v).toFixed(2)}${suffix}`;
+            const compareTable = gens.length ? `
+              <div class="section-title" style="font-size:13px;margin-top:14px;">Generation Compare Table ${helpIcon("evolution_generation_compare")}</div>
+              <div class="table-wrap"><table>
+                <thead><tr><th>Metric</th>${gens.map(g => `<th>${g.generation === 1 ? "Original (Gen 1)" : `Gen ${g.generation}`}</th>`).join("")}</tr></thead>
+                <tbody>
+                  <tr><td>Status</td>${gens.map(g => `<td><span class="pill ${g.status === "active" ? "pill-completed" : "pill-muted"}">${esc(g.status)}</span></td>`).join("")}</tr>
+                  <tr><td>Win Rate</td>${gens.map(g => `<td>${fmt(bs(g).win_rate, "%")}</td>`).join("")}</tr>
+                  <tr><td>Profit Factor</td>${gens.map(g => `<td>${fmt(bs(g).avg_profit_factor)}</td>`).join("")}</tr>
+                  <tr><td>Net PnL</td>${gens.map(g => `<td>${fmt(bs(g).total_pnl)}</td>`).join("")}</tr>
+                  <tr><td>Max Drawdown</td>${gens.map(g => `<td>${fmt(bs(g).max_drawdown_pct, "%")}</td>`).join("")}</tr>
+                  <tr><td>Total Trades</td>${gens.map(g => `<td>${g.backtest_summary ? fmtNum(bs(g).trades || 0) : "-"}</td>`).join("")}</tr>
+                  <tr><td>Evolution Score</td>${gens.map(g => `<td>${fmt(g.evolution_score)}</td>`).join("")}</tr>
+                  <tr><td>Created</td>${gens.map(g => `<td>${esc((g.created_at || "").slice(0, 10))}</td>`).join("")}</tr>
+                </tbody>
+              </table></div>
+              <p class="muted plain-note">Real data stored from actual Evolution runs -- never estimated. "Awaiting backtest" columns mean that generation hasn't been tested yet.</p>` : "";
             box.innerHTML = `
               <div class="label">Lineage ${esc(r.base_id)} -- ${r.generation_count} generation(s), currently on Gen ${r.active_generation} ${maturedBadge}</div>
-              <p style="margin-top:8px;line-height:1.5;">${esc(r.narrative)}</p>`;
+              <p style="margin-top:8px;line-height:1.5;">${esc(r.narrative)}</p>
+              ${compareTable}`;
           } catch (e) {
             box.innerHTML = `<p class="muted">${esc(e.message)}</p>`;
           }
@@ -8213,7 +8299,7 @@
              candidatesRes, portfolioRes, riskScoreRes, exposureRes, corrWarningsRes, strategyCorrMatrixRes, coinHeatmapRes,
              strategyExposureRes, directionExposureRes, customRulesRes, patternReliabilityRes,
              lifecycleRes, configsRes, pausedRes, killSwitch, acctDrawdown, coinBlacklistRes,
-             riskPctRecsRes, dupExposureRes, cloudSyncStatusRes] = await Promise.all([
+             riskPctRecsRes, dupExposureRes, cloudSyncStatusRes, autoStopState] = await Promise.all([
         apiGet("/api/paper-trading/status"),
         apiGet("/api/paper-trading/positions"),
         apiGet("/api/paper-trading/trades?limit=50"),
@@ -8247,6 +8333,7 @@
         apiGet("/api/paper-trading/risk-pct-recommendations").catch(() => ({ recommendations: [] })),
         apiGet("/api/paper-trading/duplicate-exposure-warnings").catch(() => ({ warnings: [] })),
         apiGet("/api/paper-trading/cloud-sync/status").catch(() => ({ has_run: false })),
+        apiGet("/api/paper-trading/cloud-aware-auto-stop/state").catch(() => ({ paused_by_cloud: false })),
       ]);
       if (isStaleRoute(myToken)) return;
 
@@ -8513,16 +8600,36 @@
             <button class="btn" id="ptKillSwitchDeactivate">Deactivate Kill Switch</button>
           </div>
         </div>` : ""}
+        ${autoStopState.paused_by_cloud ? `
+        <div class="card" style="border:2px solid var(--orange,#d68910);background:rgba(214,137,16,0.08);margin-bottom:10px;">
+          <div style="font-weight:700;color:var(--orange,#d68910);">⏸ Local Paper Trading paused -- Cloud is active</div>
+          <div class="muted" style="font-size:12px;margin-top:4px;">The cloud deployment currently has BOTH Paper Trading and Telegram ON, so this machine stopped itself to avoid duplicate/conflicting trades. It will NOT resume on its own -- click below once you want it running again.</div>
+          <div class="btn-row" style="margin-top:8px;">
+            <button class="btn" id="ptResumeAfterCloudPause">Resume Local Paper Trading</button>
+          </div>
+        </div>` : ""}
         <div class="btn-row">
           <button class="btn" id="ptStart" ${status.running || killSwitch.active ? "disabled" : ""}>${t("Start Engine")}</button>
           <button class="btn-ghost" id="ptStop" ${status.running ? "" : "disabled"}>${t("Stop Engine")}</button>
           <button class="btn-ghost" id="ptRunTick">${t("Run One Tick Now")}</button>
+          <input id="ptScanCoinSymbol" placeholder="e.g. BTCUSDT" style="width:120px;">
+          <button class="btn-ghost" id="ptScanCoin">Scan This Coin Now</button>
           <label style="display:flex;align-items:center;gap:6px;width:auto;">
             <input type="checkbox" id="ptDryRun" ${settings.dry_run ? "checked" : ""} style="width:auto;"> Dry Run Mode
           </label>
           <button class="btn-ghost" id="ptResetBalance" style="border-color:var(--red,#c0392b);color:var(--red,#c0392b);">${t("Reset Balance")}</button>
           ${!killSwitch.active ? `<button class="btn" id="ptKillSwitchActivate" style="background:var(--red,#c0392b);border-color:var(--red,#c0392b);color:#fff;">🛑 EMERGENCY STOP</button>` : ""}
           <span id="ptStatusMsg" class="muted"></span>
+        </div>
+        <div class="section-title" style="font-size:13px;">Emergency Control Center</div>
+        <div class="card settings-card" style="border:1px solid var(--red,#c0392b);">
+          <p class="muted plain-note">🛑 EMERGENCY STOP above (kill switch) already stops the engine, cancels all Telegram signals, AND force-closes every open position -- the single most complete stop. The buttons below are narrower, individual stops for when you want to keep some things running.</p>
+          <div class="btn-row">
+            <button class="btn-ghost" id="eccStopTelegram">Stop Telegram Sending</button>
+            <button class="btn-ghost" id="eccDisableAutoSignals">Disable Auto Signals</button>
+            <button class="btn-ghost" id="eccEmergencyRestart">Emergency Soft-Restart</button>
+            <span id="eccStatusMsg" class="muted"></span>
+          </div>
         </div>
         ${status.running ? `<div class="muted pt-engine-status-line" style="font-size:12px;">Started ${esc((status.started_at||"").slice(0,19))} -- tick #${status.tick_count}${
           /* `last at ${(last_tick_at||"-").slice(11,19)}` rendered a dangling
@@ -8915,6 +9022,17 @@
         appendLog("Paper Trading engine stopped.");
         render();
       };
+      const resumeAfterCloudPauseBtn = document.getElementById("ptResumeAfterCloudPause");
+      if (resumeAfterCloudPauseBtn) resumeAfterCloudPauseBtn.onclick = async () => {
+        if (!confirm("Resume local Paper Trading now? If the cloud is still both Paper-Trading-and-Telegram ON, this machine will pause itself again on its next check.")) return;
+        try {
+          await apiPost("/api/paper-trading/cloud-aware-auto-stop/resume");
+          appendLog("Local Paper Trading resumed (manual, after a cloud-aware auto-stop).");
+        } catch (e) {
+          showToast({ title: "Resume failed", body: e.message, isError: true });
+        }
+        render();
+      };
       const killActivateBtn = document.getElementById("ptKillSwitchActivate");
       if (killActivateBtn) killActivateBtn.onclick = async () => {
         if (!confirm("EMERGENCY STOP: this immediately halts the engine, stops all Telegram signals, and closes every open position at the current market price. Continue?")) return;
@@ -8989,6 +9107,48 @@
         document.getElementById("ptStatusMsg").textContent =
           `Tick done: ${res.summary.opened} opened, ${res.summary.closed} closed, ${res.summary.rejected} rejected.`;
         render();
+      };
+      document.getElementById("ptScanCoin").onclick = async () => {
+        const symbol = document.getElementById("ptScanCoinSymbol").value.trim().toUpperCase();
+        const statusEl = document.getElementById("ptStatusMsg");
+        if (!symbol) { statusEl.textContent = "Enter a coin symbol first (e.g. BTCUSDT)."; return; }
+        statusEl.textContent = `Scanning ${symbol}...`;
+        try {
+          const r = await apiPost(`/api/paper-trading/run-coin-scan-now/${encodeURIComponent(symbol)}`, {}, 30000);
+          statusEl.textContent = r.skipped
+            ? `Skipped -- ${r.reason}`
+            : r.error
+              ? `Error: ${r.error}`
+              : `${symbol}: ${r.market_state} -- ${r.opened} opened, ${r.rejected} rejected.`;
+        } catch (e) { statusEl.textContent = `Failed: ${e.message}`; }
+        render();
+      };
+      document.getElementById("eccStopTelegram").onclick = async () => {
+        if (!confirm("Stop ALL Telegram sending (public signals and private alerts)? You can turn it back on any time.")) return;
+        const s = document.getElementById("eccStatusMsg");
+        s.textContent = "Stopping Telegram...";
+        try {
+          await apiPost("/api/paper-trading/telegram/settings", { master_send_enabled: false });
+          s.textContent = "Telegram sending is now OFF.";
+        } catch (e) { s.textContent = `Failed: ${e.message}`; }
+      };
+      document.getElementById("eccDisableAutoSignals").onclick = async () => {
+        if (!confirm("Disable automatic high-confidence Telegram signals? Manual sends and other Telegram features are unaffected.")) return;
+        const s = document.getElementById("eccStatusMsg");
+        s.textContent = "Disabling auto-send...";
+        try {
+          await apiPost("/api/paper-trading/telegram/settings", { auto_send_enabled: false });
+          s.textContent = "Automatic signal sending is now OFF.";
+        } catch (e) { s.textContent = `Failed: ${e.message}`; }
+      };
+      document.getElementById("eccEmergencyRestart").onclick = async () => {
+        if (!confirm("Soft-restart services now? This clears in-memory caches (a safe, non-destructive reset) -- it does not kill the server process itself.")) return;
+        const s = document.getElementById("eccStatusMsg");
+        s.textContent = "Restarting services...";
+        try {
+          await apiPost("/api/system/restart-services");
+          s.textContent = "Services soft-restarted.";
+        } catch (e) { s.textContent = `Failed: ${e.message}`; }
       };
       document.getElementById("ptDryRun").addEventListener("change", async (e) => {
         await autosave("POST", "/api/paper-trading/settings", { dry_run: e.target.checked });
@@ -9571,6 +9731,19 @@
         <div style="font-weight:600;">⚠️ Render Free Postgres -- Expiry Reminder</div>
         <p style="font-size:13px;margin:6px 0 0;">Cloud database created (approx.) <b>${esc(s.postgres_free_tier.created_date)}</b> -- Render's free tier expires 30 days after creation, around <b>${esc(s.postgres_free_tier.expiry_date)}</b> (${s.postgres_free_tier.days_remaining} days left). Migrate to a paid Postgres plan or a new free instance before then, or Paper Trading data will be lost when it expires.</p>
       </div>` : ""}
+
+      <div class="section-title">Cloud Strategy Sync</div>
+      <div class="card" style="max-width:520px;">
+        <p class="muted" style="font-size:12px;margin-top:0;">Pushes ONE strategy's small config (rules/SL/TP/filters) to a cloud deployment so it can start paper-trading there too -- never the backtest engine, Evolution/Self-Learning engines, historical candles, or the full database. Get the Sync Secret from the cloud dashboard's Telegram Signals page (Cloud Strategy Sync card) once, paste it below.</p>
+        <div class="form-row"><label>Cloud URL</label><input id="syncCloudUrl" value="https://sindhu-cloud-1.onrender.com"></div>
+        <div class="form-row"><label>Sync Secret</label><input id="syncSecretInput" type="password" placeholder="Paste the secret from the cloud dashboard"></div>
+        <div class="btn-row"><button class="btn" id="btnSaveSyncTarget">Save</button><span id="syncTargetStatus" class="muted"></span></div>
+        <div class="form-row" style="margin-top:10px;"><label>Strategy ID to sync</label><input id="syncStrategyId" placeholder="e.g. 96f7cb9100f0"></div>
+        <div class="btn-row"><button class="btn-ghost" id="btnTriggerSync">Sync This Strategy to Cloud Now</button><span id="syncTriggerStatus" class="muted"></span></div>
+        <div class="section-title" style="margin-top:14px;font-size:13px;">Sync History (this machine)</div>
+        <div id="syncLogList" class="table-wrap"><p class="muted">Loading...</p></div>
+      </div>
+
       <div class="section-title">System Health</div>
       <div class="grid" id="healthGrid">
         ${cardId("healthUptime", "Server Uptime", "...")}
@@ -9662,6 +9835,11 @@
           <button class="btn-ghost" id="btnSendMonthlyReportNow">Send Monthly Report Now</button>
           <span id="privateReportStatus" class="muted"></span>
         </div>
+        <div class="btn-row" style="margin-top:6px;">
+          <button class="btn-ghost" id="btnSendStatusPingNow">Send Status Ping Now</button>
+          <span id="statusPingStatus" class="muted"></span>
+        </div>
+        <p class="muted" style="font-size:11px;margin-top:6px;">A short private status message (Paper Trading ON/OFF, balance, open trades, last tick) also goes out automatically every ~5 hours -- this button sends one immediately, e.g. to confirm it's working.</p>
       </div>
 
       <div class="section-title">Telegram Proxy (for networks that block Telegram)</div>
@@ -9744,6 +9922,53 @@
       el.addEventListener("change", debouncedSaveSettings);
     });
     document.getElementById("btnSaveSettings").onclick = saveSettings;
+
+    async function loadSyncLog() {
+      const listEl = document.getElementById("syncLogList");
+      try {
+        const { log } = await apiGet("/api/paper-trading/strategy-sync/log?limit=20");
+        listEl.innerHTML = log.length
+          ? `<table><thead><tr><th>When</th><th>Result</th><th>Message</th></tr></thead><tbody>
+              ${log.map(row => `<tr><td>${esc(row.created_at)}</td>
+                <td><span class="pill ${row.action === "success" ? "pill-up" : "pill-error"}">${esc(row.action)}</span></td>
+                <td>${esc(row.message)}</td></tr>`).join("")}
+             </tbody></table>`
+          : `<p class="muted">No sync attempts yet.</p>`;
+      } catch (e) { listEl.innerHTML = `<p class="muted">Couldn't load: ${esc(e.message)}</p>`; }
+    }
+    (async () => {
+      try {
+        const target = await apiGet("/api/paper-trading/strategy-sync/target");
+        document.getElementById("syncCloudUrl").value = target.cloud_url;
+        if (target.sync_secret_configured) {
+          document.getElementById("syncSecretInput").placeholder = "•••••• (one is already saved)";
+        }
+      } catch (e) {}
+      loadSyncLog();
+    })();
+    document.getElementById("btnSaveSyncTarget").onclick = async () => {
+      const status = document.getElementById("syncTargetStatus");
+      status.textContent = "Saving...";
+      const body = { cloud_url: document.getElementById("syncCloudUrl").value.trim() };
+      const secret = document.getElementById("syncSecretInput").value.trim();
+      if (secret) body.sync_secret = secret;
+      try {
+        await apiPost("/api/paper-trading/strategy-sync/target", body);
+        document.getElementById("syncSecretInput").value = "";
+        status.textContent = "Saved.";
+      } catch (e) { status.textContent = `Failed: ${e.message}`; }
+    };
+    document.getElementById("btnTriggerSync").onclick = async () => {
+      const status = document.getElementById("syncTriggerStatus");
+      const sid = document.getElementById("syncStrategyId").value.trim();
+      if (!sid) { status.textContent = "Enter a strategy id first."; return; }
+      status.textContent = "Syncing...";
+      try {
+        const r = await apiPost(`/api/paper-trading/strategy-sync/trigger/${encodeURIComponent(sid)}`, {}, 30000);
+        status.textContent = r.ok ? "Synced to the cloud successfully." : `Failed: ${r.error}`;
+      } catch (e) { status.textContent = `Failed: ${e.message}`; }
+      loadSyncLog();
+    };
 
     const voiceAlertsMutedEl = document.getElementById("voiceAlertsMuted");
     voiceAlertsMutedEl.checked = localStorage.getItem("sindhu_voice_alerts_muted") === "true";
@@ -9925,6 +10150,18 @@
       try {
         const r = await apiPost("/api/paper-trading/private-report/send-now", { period_label: "Monthly", days: 30 }, 60000);
         status.textContent = r.ok ? "Sent -- check your private Telegram chat." : `Failed: ${r.error}`;
+      } catch (e) {
+        status.textContent = `Failed: ${e.message}`;
+      }
+    };
+    document.getElementById("btnSendStatusPingNow").onclick = async () => {
+      const status = document.getElementById("statusPingStatus");
+      status.textContent = "Sending...";
+      try {
+        const r = await apiPost("/api/paper-trading/status-ping/send-now", {}, 30000);
+        status.textContent = r.skipped
+          ? `Not sent -- ${r.reason}. Add your Personal Telegram Chat ID above first.`
+          : (r.ok ? "Sent -- check your private Telegram chat." : `Failed: ${r.error}`);
       } catch (e) {
         status.textContent = `Failed: ${e.message}`;
       }

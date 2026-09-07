@@ -3714,6 +3714,22 @@ def save_cloud_setting(key, data, now_iso):
         )
 
 
+def list_cloud_settings_by_prefix(prefix):
+    """Master Task Expansion, Part 1: enumerate every cloud_settings row
+    whose key starts with `prefix` (e.g. every synced strategy config, one
+    row per strategy_id) -- get_cloud_setting() above only ever reads one
+    exact key, this is the missing "list" counterpart, added instead of a
+    dedicated new table since cloud_settings already covers arbitrary
+    per-key JSON blobs. `prefix` is always a caller-controlled constant
+    (never raw user input) so a plain LIKE is safe here."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT key, value_json, updated_at FROM cloud_settings WHERE key LIKE ? ORDER BY updated_at DESC",
+            (prefix + "%",),
+        ).fetchall()
+    return [{"key": r[0], "value": json.loads(r[1]), "updated_at": r[2]} for r in rows]
+
+
 def get_paper_strategy_config(strategy_id):
     with get_conn() as conn:
         row = conn.execute(

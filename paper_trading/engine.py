@@ -238,6 +238,29 @@ class PaperTradingEngine:
         self._tick()
         return self._last_summary
 
+    def run_single_coin_scan_now(self, symbol):
+        """Master Task Expansion, Part 6: Manual Scan -- Scan Selected Coin
+        (Cloud Monitoring Roadmap). Runs the exact same per-coin pipeline
+        _tick() uses for every coin (market_state.classify -> _process_coin,
+        with every one of its usual gates -- guards, confluence, ensemble
+        voting, risk_manager) for JUST this one symbol, for testing/
+        debugging -- deliberately still checks the kill switch and coin
+        blacklist first, exactly like a real tick would, so this manual
+        debug path can never become a way to bypass either gate."""
+        if kill_switch.is_active():
+            return {"symbol": symbol, "skipped": True, "reason": "kill switch is active"}
+        if not coin_blacklist.filter_out_blacklisted([symbol]):
+            return {"symbol": symbol, "skipped": True, "reason": f"{symbol} is on the coin blacklist"}
+        settings = pt_config.load()
+        exchange = _default_exchange()
+        try:
+            snapshot = market_state.classify(exchange, symbol)
+        except Exception as e:
+            return {"symbol": symbol, "skipped": False, "error": str(e)}
+        opened, rejected = self._process_coin(exchange, symbol, snapshot, settings)
+        return {"symbol": symbol, "skipped": False, "market_state": snapshot["market_state"],
+                "opened": opened, "rejected": rejected}
+
     # ------------------------------------------------------------ loop
     def _loop(self):
         self._log("[paper-trading] engine started")

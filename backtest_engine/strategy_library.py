@@ -159,6 +159,13 @@ def save_walk_forward_result(strategy_id, result):
     _write_meta(strategy_id, meta)
 
 
+def get_meta(strategy_id):
+    """Public accessor for a strategy's catalog entry (name/tags/etc.) --
+    used by callers outside this module (e.g. paper_trading/strategy_sync.py)
+    that need just the metadata without loading a full StrategyConfig."""
+    return _read_meta(strategy_id)
+
+
 def load(strategy_id, version=None):
     meta = _read_meta(strategy_id)
     version = version or meta["current_version"]
@@ -179,6 +186,50 @@ def list_all():
         if os.path.isfile(_meta_path(strategy_id)):
             result.append(_read_meta(strategy_id))
     return result
+
+
+def list_all_including_synced():
+    """Master Task Expansion, Part 1: like list_all(), but also includes
+    strategies pushed from a local machine via paper_trading/strategy_sync.py
+    (meaningful only on a cloud/Postgres deployment -- returns exactly
+    list_all() unchanged everywhere else, since strategy_sync.list_synced_
+    strategies() is always empty without Postgres). A synced entry wins over
+    a filesystem one with the same id, since a sync represents a live push
+    made AFTER the last git deploy, i.e. more current than whatever shipped
+    with the running code. Local import avoids a circular import (strategy_
+    sync itself needs this module to load/validate a strategy before
+    pushing it)."""
+    from paper_trading import strategy_sync
+
+    combined = {m["id"]: m for m in list_all()}
+    for record in strategy_sync.list_synced_strategies():
+        strategy_id = record["strategy_id"]
+        combined[strategy_id] = {
+            "id": strategy_id, "name": record.get("name", strategy_id),
+            "tags": record.get("tags", []), "favourite": False, "archived": False,
+            "created_at": record.get("synced_at"), "updated_at": record.get("synced_at"),
+            "current_version": None, "safety_status": "ready", "safety_reasons": [],
+            "synced": True,
+        }
+    return list(combined.values())
+
+
+def load_including_synced(strategy_id):
+    """Master Task Expansion, Part 1 counterpart to load() -- tries a
+    cloud-synced config first (more current than the filesystem snapshot,
+    see list_all_including_synced()'s docstring), falls back to the normal
+    filesystem version. Raises FileNotFoundError exactly like load() when
+    neither source has this id, so callers built around that contract
+    (e.g. paper_trading/strategy_matcher.py) don't need special-casing."""
+    from paper_trading import strategy_sync
+
+    record = strategy_sync.get_synced_strategy(strategy_id)
+    if record:
+        config = StrategyConfig.from_dict(record["config_json"])
+        config.tags = record.get("tags", [])
+        config.favourite = False
+        return config
+    return load(strategy_id)
 
 
 def find_by_name(name):
