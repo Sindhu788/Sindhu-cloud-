@@ -1,6 +1,7 @@
 import os
 import re
 import time
+from datetime import datetime, timezone
 
 import psutil
 from fastapi import APIRouter, Request
@@ -18,6 +19,7 @@ router = APIRouter()
 # enough proxy for "server start time" without needing a dedicated startup
 # hook.
 _SERVER_START_TIME = time.time()
+_SERVER_START_ISO = datetime.fromtimestamp(_SERVER_START_TIME, tz=timezone.utc).isoformat()
 _ERROR_LINE_RE = re.compile(r"error|exception|traceback|failed", re.IGNORECASE)
 
 
@@ -101,6 +103,15 @@ def _active_background_processes():
     return items
 
 
+@router.get("/api/system/api-monitor")
+def get_api_monitor():
+    """Grand Master Prompt, Phase 3.11. In-memory, since-this-process-
+    started counters -- see sindhu_web/api_monitor.py's own docstring for
+    why this is deliberately not a permanent record."""
+    from sindhu_web import api_monitor
+    return api_monitor.get_stats()
+
+
 @router.get("/api/system/health")
 def get_system_health():
     """Live system health at a glance -- auto-refreshed by the dashboard
@@ -116,4 +127,85 @@ def get_system_health():
         "active_background_processes": active,
         "active_process_count": len(active),
         "recent_errors": _recent_errors(),
+        # Grand Master Prompt, Phase 3.4 (Render Server Monitor): this
+        # process's own last start time -- the exact same value each
+        # deployment's own restart_analytics.record_startup() call wrote
+        # to server_restart_log at boot.
+        "last_restart_at": _SERVER_START_ISO,
+    }
+
+
+def _deployment_name():
+    from sindhu_web.security import CLOUD_MODE
+    return "cloud" if CLOUD_MODE else "local"
+
+
+def record_startup():
+    """Call exactly once from each deployment's own lifespan (both
+    sindhu_web/server.py and cloud_runtime/app.py) -- Grand Master Prompt,
+    Phase 3.13 (Restart Analytics). See server_restart_log's own schema
+    comment in data_engine/storage.py for the honest scope of what this
+    can and cannot tell the CEO."""
+    deployment = _deployment_name()
+    storage.record_server_restart(deployment, _SERVER_START_ISO)
+    _send_restart_notification(deployment)
+
+
+def _send_restart_notification(deployment):
+    """Grand Master Prompt, Phase 3.10 (Server Notification System):
+    "server restarted" + "database connected" in one private Telegram
+    message, sent exactly once per process start. Same silent-skip-if-
+    not-configured contract as paper_trading/status_ping.py -- never
+    raises, never sends to the public channel.
+
+    Honest scope: a genuine "server OFFLINE" alert is NOT possible from
+    inside this same process (a dead process cannot notify anyone) -- that
+    needs an external uptime pinger, already flagged as a CEO action item
+    in a prior session (data/checkpoints/master_task_6.json) for the
+    /health endpoint. "System recovered" is this same startup message --
+    a restart notification IS the recovery signal, there is no separate
+    downtime state this process can observe about itself."""
+    try:
+        from paper_trading import telegram_bot
+        from data_engine import db_backend
+        db_status = "Postgres (persists across restarts)" if db_backend.IS_POSTGRES else "local SQLite file"
+        message = (f"SINDHU {deployment} deployment restarted at {_SERVER_START_ISO}.\n"
+                   f"Database: {db_status}.")
+        telegram_bot.send_private_message(message)
+    except Exception as e:
+        log(f"[restart-notification] failed (non-fatal): {e!r}")
+
+
+@router.get("/api/system/restart-analytics")
+def get_restart_analytics():
+    """Grand Master Prompt, Phase 3.13. Counts PROCESS STARTS for this
+    deployment -- it cannot distinguish a deliberate restart from a crash
+    (both look identical from inside the process), and the "gap since
+    previous start" figures are the closest honest proxy for downtime
+    available without an external watchdog. Real crash detection /
+    minute-accurate downtime would need exactly the kind of external
+    uptime pinger already flagged in a prior session (data/checkpoints/
+    master_task_6.json) for the /health endpoint -- this does not
+    duplicate or replace that, it only makes the app's OWN restart
+    history visible from inside itself."""
+    deployment = _deployment_name()
+    restarts = storage.list_server_restarts(deployment=deployment, limit=50)
+    gaps = []
+    for newer, older in zip(restarts, restarts[1:]):
+        try:
+            t_new = datetime.fromisoformat(newer["started_at"])
+            t_old = datetime.fromisoformat(older["started_at"])
+            gaps.append({"between": [older["started_at"], newer["started_at"]],
+                         "gap_seconds": round((t_new - t_old).total_seconds())})
+        except ValueError:
+            continue
+    return {
+        "deployment": deployment,
+        "restart_count": storage.count_server_restarts(deployment=deployment),
+        "last_restart_at": _SERVER_START_ISO,
+        "recent_restarts": restarts,
+        "gaps_between_recent_restarts": gaps,
+        "note": ("Counts process starts only -- cannot tell a deliberate restart apart from a "
+                 "crash, and a gap here is time between two starts, not confirmed downtime. "
+                 "For real crash/downtime detection, use an external uptime monitor."),
     }

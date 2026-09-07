@@ -1346,6 +1346,38 @@ def deactivate_auto_lesson(lesson_id: int):
     return {"ok": True}
 
 
+# --------------------------------------------------------------- Maintenance Mode (Grand Master Prompt, Phase 3.7)
+
+@router.get("/api/paper-trading/maintenance-mode")
+def get_maintenance_mode_state():
+    from paper_trading import maintenance_mode
+    return maintenance_mode.get_state()
+
+
+class MaintenanceModeRequest(BaseModel):
+    actor: str = "CEO"
+
+
+@router.post("/api/paper-trading/maintenance-mode/enter")
+def enter_maintenance_mode_endpoint(req: MaintenanceModeRequest = MaintenanceModeRequest()):
+    from paper_trading import maintenance_mode
+    result = maintenance_mode.enter_maintenance_mode(actor=req.actor)
+    if result["ok"]:
+        _log_and_broadcast(f"[maintenance-mode] entered by {req.actor} -- Paper Trading and Telegram sending paused")
+        sync.notify("system", "maintenance_mode", "Maintenance Mode entered")
+    return result
+
+
+@router.post("/api/paper-trading/maintenance-mode/exit")
+def exit_maintenance_mode_endpoint(req: MaintenanceModeRequest = MaintenanceModeRequest()):
+    from paper_trading import maintenance_mode
+    result = maintenance_mode.exit_maintenance_mode(actor=req.actor)
+    if result["ok"]:
+        _log_and_broadcast(f"[maintenance-mode] exited by {req.actor} -- restored to its pre-maintenance state")
+        sync.notify("system", "maintenance_mode", "Maintenance Mode exited")
+    return result
+
+
 # --------------------------------------------------------------- Auto-Downgrade Rule (Grand Master Prompt, Phase 2.4)
 
 @router.get("/api/paper-trading/auto-downgrade/state")
@@ -1797,6 +1829,13 @@ def get_telegram_connection_status():
     else:
         state, reason = "unknown", "No real send has been attempted yet, so there is nothing to judge from."
 
+    # Grand Master Prompt, Phase 3.3 (Telegram Status Monitor): "total
+    # messages today" -- the one real gap the research pass found in this
+    # already-thorough endpoint. "Today" = since UTC midnight, same
+    # convention paper_trading/engine.py's own trades_today already uses.
+    today_start_iso = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    messages_sent_today = storage.count_telegram_messages_since(today_start_iso)
+
     return {
         "state": state,
         "reason": reason,
@@ -1807,6 +1846,8 @@ def get_telegram_connection_status():
         "last_failure_reason": (last_failure or {}).get("error"),
         "proxy_enabled": settings["proxy_enabled"],
         "proxy_configured": settings["proxy_configured"],
+        "messages_sent_today": messages_sent_today,
+        "channel_connected": bool(settings["channel_id"]) and state not in ("not_configured",),
     }
 
 
@@ -2219,6 +2260,132 @@ def get_retirement_suggestions():
     return {"suggestions": graveyard.compute_retirement_suggestions()}
 
 
+@router.get("/api/paper-trading/signal-history")
+def get_signal_history(status: Optional[str] = None, strategy_id: Optional[str] = None,
+                        symbol: Optional[str] = None, limit: int = 200):
+    """Grand Master Prompt, Phase 3.2 (Signal History): one filterable
+    list across every signal state -- running (open positions), win/loss
+    (closed trades, tagged by real pnl sign), and cancelled (rejected
+    decisions from paper_decision_log) -- instead of three separate views.
+    `status`: one of running/win/loss/cancelled, or omit for all. No new
+    data source -- reuses the exact three tables every other paper-trading
+    page already reads."""
+    rows = []
+    if status in (None, "running"):
+        for p in storage.get_open_paper_positions(symbol=symbol, strategy_id=strategy_id):
+            rows.append({**p, "signal_status": "running"})
+    if status in (None, "win", "loss"):
+        for p in storage.list_closed_paper_positions(limit=limit, strategy_id=strategy_id):
+            if symbol and p["symbol"] != symbol:
+                continue
+            tag = "win" if (p.get("pnl") or 0) > 0 else "loss"
+            if status and status != tag:
+                continue
+            rows.append({**p, "signal_status": tag})
+    if status in (None, "cancelled"):
+        for d in storage.list_paper_decisions(decision="rejected", limit=limit):
+            if strategy_id and d["strategy_id"] != strategy_id:
+                continue
+            if symbol and d["symbol"] != symbol:
+                continue
+            rows.append({**d, "signal_status": "cancelled"})
+    rows.sort(key=lambda r: r.get("closed_at") or r.get("created_at") or "", reverse=True)
+    return {"signals": rows[:limit]}
+
+
+@router.get("/api/paper-trading/active-signals")
+def get_active_signals():
+    """Grand Master Prompt, Phase 3.1 (Active Signals Dashboard): every
+    open position with a LIVE current price and computed unrealized PnL/
+    TP-SL proximity alongside the entry/SL/TP the existing open-positions
+    view already shows -- the one thing that view was missing. One batched
+    get_tickers() call for every open symbol at once, same pattern already
+    used by engine.py's own orphaned-position ticker fetch."""
+    from data_engine.exchanges.registry import get_exchange_client
+
+    positions = storage.get_open_paper_positions()
+    if not positions:
+        return {"signals": []}
+    exchanges_cfg = base_config.load_or_seed("exchanges.json", base_config.DEFAULTS["exchanges.json"])
+    coins_cfg = base_config.load_or_seed("coins.json", base_config.DEFAULTS["coins.json"])
+    try:
+        client = get_exchange_client(exchanges_cfg["default"])
+        tickers = client.get_tickers(coins_cfg["quote_asset"])
+    except Exception as e:
+        file_log(f"[active-signals] ticker fetch failed: {e!r}")
+        tickers = {}
+
+    signals = []
+    for p in positions:
+        ticker = tickers.get(p["symbol"])
+        current_price = ticker["price"] if ticker else None
+        unrealized_pnl = unrealized_pnl_pct = None
+        tp_sl_status = "unknown"
+        if current_price is not None and p.get("entry_price"):
+            direction = 1 if p["direction"] == "long" else -1
+            unrealized_pnl = round((current_price - p["entry_price"]) * direction * p["size"], 4)
+            unrealized_pnl_pct = round((current_price - p["entry_price"]) / p["entry_price"] * direction * 100, 2)
+            if p.get("take_profit") is not None and (
+                (direction == 1 and current_price >= p["take_profit"]) or
+                (direction == -1 and current_price <= p["take_profit"])
+            ):
+                tp_sl_status = "TP reached (pending close)"
+            elif p.get("stop_loss") is not None and (
+                (direction == 1 and current_price <= p["stop_loss"]) or
+                (direction == -1 and current_price >= p["stop_loss"])
+            ):
+                tp_sl_status = "SL reached (pending close)"
+            else:
+                tp_sl_status = "running"
+        signals.append({
+            **p, "current_price": current_price, "unrealized_pnl": unrealized_pnl,
+            "unrealized_pnl_pct": unrealized_pnl_pct, "tp_sl_status": tp_sl_status,
+        })
+    return {"signals": signals}
+
+
+_EXPORT_CENTER_FIELDS = [
+    "id", "symbol", "direction", "strategy_id", "strategy_name", "entry_price", "exit_price",
+    "size", "pnl", "pnl_pct", "exit_reason", "status", "created_at", "closed_at",
+]
+
+
+@router.get("/api/paper-trading/export-center/trades.csv")
+def export_center_trades_csv(strategy_id: Optional[str] = None, limit: int = 1000):
+    """Grand Master Prompt, Phase 3.9 (Export Center): closed AND open
+    trades/positions as a real downloadable CSV -- distinct from the
+    existing PDF trade journal (formatted report) and Excel strategy
+    comparison (aggregate, not per-trade). Same underlying data source
+    (storage.list_closed_paper_positions / get_open_paper_positions) as
+    every other trades view -- no new computation."""
+    import csv
+    import io
+    from fastapi.responses import StreamingResponse
+
+    rows = storage.list_closed_paper_positions(limit=limit, strategy_id=strategy_id) + \
+        storage.get_open_paper_positions(strategy_id=strategy_id)
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=_EXPORT_CENTER_FIELDS, extrasaction="ignore")
+    writer.writeheader()
+    for r in rows:
+        writer.writerow(r)
+    buf.seek(0)
+    filename = f"sindhu_trades_{strategy_id or 'all'}.csv"
+    return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv",
+                              headers={"Content-Disposition": f"attachment; filename={filename}"})
+
+
+@router.get("/api/paper-trading/export-center/trades.json")
+def export_center_trades_json(strategy_id: Optional[str] = None, limit: int = 1000):
+    """Same data as the CSV export above, as a downloadable JSON file."""
+    from fastapi.responses import JSONResponse
+
+    rows = storage.list_closed_paper_positions(limit=limit, strategy_id=strategy_id) + \
+        storage.get_open_paper_positions(strategy_id=strategy_id)
+    filename = f"sindhu_trades_{strategy_id or 'all'}.json"
+    return JSONResponse(content=rows, headers={"Content-Disposition": f"attachment; filename={filename}"})
+
+
 @router.get("/api/paper-trading/trade-journal/export-pdf")
 def export_trade_journal(strategy_id: Optional[str] = None, limit: int = 200):
     """Grand Feature Expansion, Phase 4 Feature 23: Trade Journal Export to
@@ -2257,6 +2424,49 @@ def add_coin_blacklist(req: CoinBlacklistRequest):
 def remove_coin_blacklist(symbol: str):
     coin_blacklist.remove(symbol)
     sync.notify("coin_blacklist", "removed", f"Removed {symbol.upper()} from the blacklist")
+    return {"ok": True}
+
+
+# --------------------------------------------------------------- Coin Manager / Priority (Grand Master Prompt, Phase 3.6)
+
+class CoinPriorityRequest(BaseModel):
+    symbol: str
+    reason: Optional[str] = None
+
+
+@router.get("/api/paper-trading/coin-priority")
+def get_coin_priority():
+    from paper_trading import coin_priority
+    return coin_priority.list_all()
+
+
+@router.post("/api/paper-trading/coin-priority/pin")
+def pin_coin(req: CoinPriorityRequest):
+    from paper_trading import coin_priority
+    symbol = req.symbol.strip().upper()
+    if not symbol:
+        raise HTTPException(400, "symbol is required")
+    coin_priority.pin(symbol, req.reason)
+    sync.notify("coin_priority", "pinned", f"Pinned {symbol}" + (f" ({req.reason})" if req.reason else ""))
+    return {"ok": True}
+
+
+@router.post("/api/paper-trading/coin-priority/demote")
+def demote_coin(req: CoinPriorityRequest):
+    from paper_trading import coin_priority
+    symbol = req.symbol.strip().upper()
+    if not symbol:
+        raise HTTPException(400, "symbol is required")
+    coin_priority.demote(symbol, req.reason)
+    sync.notify("coin_priority", "demoted", f"Demoted {symbol}" + (f" ({req.reason})" if req.reason else ""))
+    return {"ok": True}
+
+
+@router.delete("/api/paper-trading/coin-priority/{symbol}")
+def clear_coin_priority(symbol: str):
+    from paper_trading import coin_priority
+    coin_priority.clear(symbol)
+    sync.notify("coin_priority", "cleared", f"Cleared priority for {symbol.upper()}")
     return {"ok": True}
 
 

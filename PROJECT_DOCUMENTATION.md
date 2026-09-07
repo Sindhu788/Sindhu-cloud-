@@ -599,3 +599,22 @@ Poori app ko 10 departments mein reorganize kiya (CEO/Orchestrator, Research, Da
 - **One-Change-At-A-Time** (2.7): real bug fix — `evolution_engine/mutator.py` mein pehle ek mutation mein 2-5 fields ek saath badal sakte the (weakest-component + regime-adaptation dono ek saath); ab dono mutually exclusive hain aur regime-adaptation khud bhi sirf ek field rakhta hai. Naya test (`test_regime_aware_evolution.py`) is invariant ko prove karta hai.
 
 Naya module: `paper_trading/auto_downgrade.py`. Naya DB table: `paper_downgrade_state` (additive, existing schema untouched). 27+ nayi tests, sab pass.
+
+### 21.3 Phase 3 — Cloud Monitoring Roadmap (Remaining 14 Items, COMPLETE)
+Pehle session mein already ban chuke the: Health Dashboard, Error Center, Manual Scan Button, Emergency Control Center. Is session mein baaki 14 items:
+- **Active Signals Dashboard**: har open position ka LIVE current price + unrealized PnL + TP/SL kitna paas hai — on-demand button se (page load har baar slow na ho isliye).
+- **Signal History**: Running/Win/Loss/Cancelled — sab ek hi filterable list mein.
+- **Telegram Status Monitor**: "aaj kitne messages gaye" add kiya (baaki sab pehle se tha).
+- **Render Server Monitor**: last restart time add kiya (baaki pehle se tha).
+- **Configuration Panel**: naya ek page jahan scan interval, risk, coins, aur Telegram auto-send — sab ek jagah (backend bilkul naya nahi, sirf 3 purane endpoints ek page pe la diye).
+- **Coin Manager** (genuinely naya): per-coin Pin/Demote — permanent Blacklist se alag, halka aur aasani se palatne wala. Real tick loop mein wire kiya, lekin sirf ranking ke BAAD add/remove karta hai, khud ranking formula nahi chhera.
+- **Maintenance Mode** (genuinely naya): ek switch se Paper Trading + Telegram dono ek saath pause; wapas on karne par bilkul wahi pehli state restore hoti hai (agar Telegram pehle se off tha to wapas off hi rahega).
+- **Database Backup Center**: already poora bana hua tha — verify kiya, dobara nahi banaya.
+- **Export Center**: CSV/JSON trades export add kiya (pehle sirf PDF/Excel tha).
+- **Server Notification System** (genuinely naya): server restart hote hi ek private Telegram message. Honestly likha hai ke "server OFFLINE hone ka alert" andar se possible nahi (uske liye external watchdog chahiye).
+- **API Monitor** (genuinely naya): is app ki apni API ki total/failed requests aur average response time.
+- **Scan Timer**: agla scan kab, aakhri scan mein kitna time laga — add kiya.
+- **Restart Analytics** (genuinely naya): restart count/history save hota hai. Honestly likha hai ke crash aur deliberate restart mein farak nahi bata sakta.
+- **Scanner Progress**: tick chalte waqt "abhi kaunsa coin scan ho raha hai (3/20)" live dikhta hai.
+
+Naye modules: `paper_trading/coin_priority.py`, `paper_trading/maintenance_mode.py`, `sindhu_web/api_monitor.py`. Naye DB tables: `server_restart_log`, `paper_coin_priority` (dono additive). 20 nayi tests, sab pass.

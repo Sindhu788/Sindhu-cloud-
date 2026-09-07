@@ -13,8 +13,8 @@
 |---|---|---|---|
 | 1 — Company Structure (10 Departments) | ✅ COMPLETE | 12 | 12 |
 | 2 — Strategy Lifecycle + Workflow | ✅ COMPLETE | 7 | 7 |
-| 3 — Cloud Monitoring Roadmap (remaining) | ⏳ IN PROGRESS | 14 | — |
-| 4 — UI/UX Product Improvements | ⏳ NOT STARTED | 20 | — |
+| 3 — Cloud Monitoring Roadmap (remaining) | ✅ COMPLETE | 14 | 14 |
+| 4 — UI/UX Product Improvements | ⏳ IN PROGRESS | 20 | — |
 | 5 — Grand Feature Backlog (remaining) | ⏳ NOT STARTED | ~90 | — |
 
 Full test suite baseline at task start: **1714 passed, 0 failed**. Re-verified after every phase — see each phase's own section below for that phase's exact number.
@@ -65,7 +65,31 @@ Both new routers mounted on both `sindhu_web/server.py` and `cloud_runtime/app.p
 
 ## Phase 3 — Cloud Monitoring Roadmap (Remaining Sections)
 
-*(to be filled in as this phase completes)*
+**Status: COMPLETE.**
+
+| Item | Outcome |
+|---|---|
+| 3.1 Active Signals Dashboard | Built — live current price + unrealized PnL + TP/SL proximity for every open position, fetched on demand (not in the page's heavy initial load) to avoid slowing every page open with a live exchange call. |
+| 3.2 Signal History | Built — one filterable list unifying running/win/loss/cancelled, no new data source. |
+| 3.3 Telegram Status Monitor | Mostly already existed; added the one real gap (messages sent today). |
+| 3.4 Render Server Monitor | Already existed; added last_restart_at. |
+| 3.5 Configuration Panel | Built — one consolidated page for scan interval/risk/coins/Telegram auto-send; zero new backend, every save still goes through its original endpoint. |
+| 3.6 Coin Manager | Built (genuine gap) — pin/demote per-coin priority, distinct from the permanent Blacklist and the automatic ranker; wired into the real tick loop as a post-hoc adjustment only. |
+| 3.7 Maintenance Mode | Built (genuine gap) — one switch pauses Paper Trading + Telegram together and restores each to its exact pre-maintenance state on exit. |
+| 3.8 Database Backup Center | Already fully existed — verified, not rebuilt. |
+| 3.9 Export Center | Built — added CSV/JSON trade export (existing exports were PDF/Excel only). |
+| 3.10 Server Notification System | Built (genuine gap) — private Telegram alert on every server restart + DB-connection status. Honestly documented: cannot alert on the server going OFFLINE from inside itself (needs an external watchdog). |
+| 3.11 API Monitor | Built (genuine gap) — in-memory total/failed request counts + average response time for this app's own API. |
+| 3.12 Scan Timer | Built — next_tick_at + last_tick_duration_seconds added to the engine's existing status endpoint. |
+| 3.13 Restart Analytics | Built (genuine gap) — persistent restart count/history per deployment. Honestly documented: counts process starts only, cannot distinguish a crash from a deliberate restart. |
+| 3.14 Scanner Progress | Built — live per-coin "scanning X of N" during an in-progress tick. |
+
+**New files**: `paper_trading/coin_priority.py`, `paper_trading/maintenance_mode.py`, `sindhu_web/api_monitor.py`. **New DB tables**: `server_restart_log`, `paper_coin_priority` (both additive). **New tests**: `tests/test_phase3_cloud_monitoring.py` (20 tests).
+
+**Judgment calls made autonomously**:
+- Coin Manager's pin/demote only adjusts the shortlist AFTER `coin_filter.py`'s own ranking runs (post-hoc, same safety pattern the pre-existing Blacklist already uses) — never touches the ranking formula itself.
+- Maintenance Mode is pure orchestration of two controls that were already individually safe (engine stop/start, Telegram master switch) — no new pause/resume primitive, no safety gate touched.
+- Server Notification and Restart Analytics both explicitly document what they cannot do (detect the server going offline, or a crash vs. deliberate restart) rather than overclaiming — true crash/downtime detection needs an external uptime monitor, consistent with a prior session's own finding for the `/health` endpoint.
 
 ---
 

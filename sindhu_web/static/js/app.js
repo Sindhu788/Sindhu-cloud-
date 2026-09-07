@@ -2461,6 +2461,7 @@
     strategy_overview: renderStrategyOverview,
     risk_department: renderRiskDepartment,
     memory_core: renderMemoryCore,
+    configuration_panel: renderConfigurationPanel,
   };
   let refreshTimer = null;
   let pendingStrategyLoadId = null;
@@ -6077,6 +6078,7 @@
           <div><span class="muted">Proxy</span><b>${cs.proxy_enabled ? (cs.proxy_configured ? "On" : "On, but empty") : "Off"}</b></div>
           <div><span class="muted">Last success</span><b>${cs.last_success_at ? esc(cs.last_success_at.slice(0, 16).replace("T", " ")) : "Never"}</b></div>
           <div><span class="muted">Last failure</span><b>${cs.last_failure_at ? esc(cs.last_failure_at.slice(0, 16).replace("T", " ")) : "None"}</b></div>
+          <div><span class="muted">Messages today</span><b>${cs.messages_sent_today != null ? cs.messages_sent_today : "-"}</b></div>
         </div>
         ${cs.last_failure_reason ? `<div class="conn-detail">Last recorded failure: ${esc(cs.last_failure_reason)}</div>` : ""}
       </div>`;
@@ -8358,7 +8360,7 @@
              candidatesRes, portfolioRes, riskScoreRes, exposureRes, corrWarningsRes, strategyCorrMatrixRes, coinHeatmapRes,
              strategyExposureRes, directionExposureRes, customRulesRes, patternReliabilityRes,
              lifecycleRes, configsRes, pausedRes, killSwitch, acctDrawdown, coinBlacklistRes,
-             riskPctRecsRes, dupExposureRes, cloudSyncStatusRes, autoStopState] = await Promise.all([
+             riskPctRecsRes, dupExposureRes, cloudSyncStatusRes, autoStopState, maintenanceState, coinPriorityRes] = await Promise.all([
         apiGet("/api/paper-trading/status"),
         apiGet("/api/paper-trading/positions"),
         apiGet("/api/paper-trading/trades?limit=50"),
@@ -8393,6 +8395,8 @@
         apiGet("/api/paper-trading/duplicate-exposure-warnings").catch(() => ({ warnings: [] })),
         apiGet("/api/paper-trading/cloud-sync/status").catch(() => ({ has_run: false })),
         apiGet("/api/paper-trading/cloud-aware-auto-stop/state").catch(() => ({ paused_by_cloud: false })),
+        apiGet("/api/paper-trading/maintenance-mode").catch(() => ({ active: false })),
+        apiGet("/api/paper-trading/coin-priority").catch(() => ({ pinned: [], demoted: [] })),
       ]);
       if (isStaleRoute(myToken)) return;
 
@@ -8510,6 +8514,29 @@
                 <td style="font-size:12px;">${esc((b.added_at || "").slice(0, 16).replace("T", " "))}</td>
                 <td><button class="btn-ghost cbl-remove" data-symbol="${esc(b.symbol)}">${getLang() === "en" ? "Remove" : "Hataayein"}</button></td>
               </tr>`).join("") || `<tr><td colspan="4">${getLang() === "en" ? "No coins blacklisted." : "Koi coin blacklist nahi."}</td></tr>`}</tbody>
+          </table></div>
+        </div>
+
+        <div class="section-title">${getLang() === "en" ? "Coin Manager (Pin / Demote)" : "Coin Manager (Pin / Demote)"}</div>
+        <div class="card">
+          <p class="muted" style="font-size:12px;margin-top:0;">${getLang() === "en"
+            ? "Pinned coins are always scanned this tick, even if their activity score wouldn't otherwise make the shortlist. Demoted coins are excluded, the same way Blacklist works, but as a lighter, easily-reversible choice -- use Blacklist above for a coin you never want traded again."
+            : "Pinned coins hamesha is tick mein scan hote hain, chahe unka activity score shortlist mein na aaye. Demoted coins exclude ho jaate hain (Blacklist jaisa), lekin ek halka, aasani se palatne wala faisla -- hamesha ke liye ban ke liye upar Blacklist use karein."}</p>
+          <div class="btn-row">
+            <input id="cprSymbol" placeholder="${getLang() === "en" ? "e.g. DOGEUSDT" : "misaal: DOGEUSDT"}" style="max-width:160px;text-transform:uppercase;">
+            <input id="cprReason" placeholder="${getLang() === "en" ? "Reason (optional)" : "Wajah (optional)"}" style="max-width:220px;">
+            <button class="btn" id="btnPinCoin">${getLang() === "en" ? "Pin" : "Pin Karein"}</button>
+            <button class="btn-ghost" id="btnDemoteCoin">${getLang() === "en" ? "Demote" : "Demote Karein"}</button>
+          </div>
+          <div class="table-wrap" style="margin-top:8px;"><table>
+            <thead><tr><th>Symbol</th><th>${getLang() === "en" ? "Priority" : "Priority"}</th><th>${getLang() === "en" ? "Reason" : "Wajah"}</th><th></th></tr></thead>
+            <tbody>${[...(coinPriorityRes.pinned || []), ...(coinPriorityRes.demoted || [])].map(c => `
+              <tr>
+                <td>${esc(c.symbol)}</td>
+                <td><span class="pill ${c.priority === "pinned" ? "pill-up" : "pill-muted"}">${esc(c.priority)}</span></td>
+                <td style="font-size:12px;">${esc(c.reason || "-")}</td>
+                <td><button class="btn-ghost cpr-clear" data-symbol="${esc(c.symbol)}">${getLang() === "en" ? "Clear" : "Hataayein"}</button></td>
+              </tr>`).join("") || `<tr><td colspan="4">${getLang() === "en" ? "No coin priorities set." : "Koi coin priority set nahi."}</td></tr>`}</tbody>
           </table></div>
         </div>
 
@@ -8687,6 +8714,7 @@
             <button class="btn-ghost" id="eccStopTelegram">Stop Telegram Sending</button>
             <button class="btn-ghost" id="eccDisableAutoSignals">Disable Auto Signals</button>
             <button class="btn-ghost" id="eccEmergencyRestart">Emergency Soft-Restart</button>
+            <button class="btn-ghost" id="eccMaintenanceMode">${maintenanceState && maintenanceState.active ? "Exit Maintenance Mode" : "Enter Maintenance Mode"}</button>
             <span id="eccStatusMsg" class="muted"></span>
           </div>
         </div>
@@ -8699,6 +8727,13 @@
              Now the clause only appears once there IS a last tick. */
           status.last_tick_at ? `, last at ${esc(String(status.last_tick_at).slice(11,19))}` : ` (first tick still running)`
         }</div>` : ""}
+        ${status.running ? `
+        <div class="muted pt-engine-status-line" style="font-size:12px;">
+          ${status.scan_progress && status.scan_progress.in_progress
+            ? `${en ? "Scanning now" : "Abhi Scan Ho Raha Hai"}: ${esc(status.scan_progress.current_symbol || "-")} (${status.scan_progress.index}/${status.scan_progress.total})`
+            : `${status.next_tick_at ? `${en ? "Next scan" : "Agla Scan"}: ${esc(String(status.next_tick_at).slice(11,19))}` : ""}${
+                status.last_tick_duration_seconds != null ? ` -- ${en ? "last scan took" : "aakhri scan mein laga"} ${status.last_tick_duration_seconds}s` : ""}`}
+        </div>` : ""}
         </div>
 
         <div class="pt-tab-panel" data-pt-tab="settings">
@@ -8868,29 +8903,48 @@
         ${confidenceFilterHtml()}
 
         <div class="section-title">Open Positions</div>
+        <div class="btn-row" style="margin:-8px 0 8px;">
+          <button class="btn-ghost" id="btnRefreshLivePrices">Refresh Live Prices</button>
+          <span id="livePricesStatus" class="muted"></span>
+        </div>
         <div class="table-wrap"><table>
-          <thead><tr><th>Coin</th><th>Direction</th><th>Entry</th><th>SL</th><th>TP</th><th>Size</th><th>Confidence ${helpIcon("confidence_score")}</th><th>Confluence ${helpIcon("confluence_score")}</th><th>Source</th><th>Session</th><th></th></tr></thead>
+          <thead><tr><th>Coin</th><th>Direction</th><th>Entry</th><th>SL</th><th>TP</th><th>Size</th><th>Live Price</th><th>Unrealized PnL</th><th>Confidence ${helpIcon("confidence_score")}</th><th>Confluence ${helpIcon("confluence_score")}</th><th>Source</th><th>Session</th><th></th></tr></thead>
           <tbody>${(positionsRes.positions || []).map(p => `
-            <tr data-confidence="${p.confidence != null ? p.confidence : ""}">
+            <tr data-confidence="${p.confidence != null ? p.confidence : ""}" data-position-id="${p.id}">
               <td>${esc(p.symbol)}</td>
               <td><span class="pill ${p.direction === "long" ? "pill-bullish" : "pill-bearish"}">${esc(p.direction)}</span></td>
               <td>${p.entry_price}</td>
               <td>${p.stop_loss != null ? p.stop_loss.toFixed(6) : "-"}</td>
               <td>${p.take_profit != null ? p.take_profit.toFixed(6) : "-"}</td>
               <td>${p.size.toFixed(4)}</td>
+              <td class="pt-live-price-cell">-</td>
+              <td class="pt-unrealized-pnl-cell">-</td>
               <td>${p.confidence != null ? p.confidence + "%" : "-"}</td>
               <td class="pt-confluence-cell" data-position-id="${p.id}">-</td>
               <td>${esc(p.strategy_name || (p.lesson_ids||[]).length + " lesson(s)")}</td>
               <td>${esc(p.session || "-")}</td>
               <td><button class="btn-ghost pt-close-position" data-id="${p.id}">Close</button></td>
-            </tr>`).join("") || '<tr><td colspan="11">No open positions.</td></tr>'}</tbody>
+            </tr>`).join("") || '<tr><td colspan="13">No open positions.</td></tr>'}</tbody>
         </table></div>
         </div>
 
         <div class="pt-tab-panel" data-pt-tab="history">
+        <div class="section-title">Signal History (Grand Master Prompt, Phase 3.2)</div>
+        <p class="muted" style="margin-top:-10px;font-size:12px;">Every signal state in one filterable list -- running (open), win/loss (closed), and cancelled (rejected before ever opening).</p>
+        <div class="btn-row" style="margin-bottom:8px;">
+          <button class="btn-ghost sh-filter" data-status="">All</button>
+          <button class="btn-ghost sh-filter" data-status="running">Running</button>
+          <button class="btn-ghost sh-filter" data-status="win">Win</button>
+          <button class="btn-ghost sh-filter" data-status="loss">Loss</button>
+          <button class="btn-ghost sh-filter" data-status="cancelled">Cancelled</button>
+        </div>
+        <div id="signalHistoryBox" class="table-wrap"><p class="muted">Pick a filter above to load signal history.</p></div>
+
         <div class="section-title">Closed Trades (most recent 30 of ${allTimeSummary.closed_trades})</div>
         <div class="btn-row" style="margin-bottom:8px;">
           <button class="btn-ghost" id="btnExportTradeJournal">${getLang() === "en" ? "Export Trade Journal (PDF)" : "Trade Journal Export Karein (PDF)"}</button>
+          <a class="btn-ghost" href="/api/paper-trading/export-center/trades.csv" target="_blank">${getLang() === "en" ? "Export Trades (CSV)" : "Trades Export Karein (CSV)"}</a>
+          <a class="btn-ghost" href="/api/paper-trading/export-center/trades.json" target="_blank">${getLang() === "en" ? "Export Trades (JSON)" : "Trades Export Karein (JSON)"}</a>
         </div>
         <div class="table-wrap"><table>
           <thead><tr><th>Strategy</th><th>Coin</th><th>Direction</th><th>Entry</th><th>Exit</th><th>PnL</th><th>PnL%</th><th>Result</th><th>Why</th><th></th></tr></thead>
@@ -9150,6 +9204,26 @@
         await apiSend("DELETE", `/api/paper-trading/coin-blacklist/${btn.dataset.symbol}`);
         render();
       });
+      const btnPinCoin = document.getElementById("btnPinCoin");
+      if (btnPinCoin) btnPinCoin.onclick = async () => {
+        const symbol = document.getElementById("cprSymbol").value.trim().toUpperCase();
+        if (!symbol) return;
+        const reason = document.getElementById("cprReason").value.trim() || null;
+        await apiPost("/api/paper-trading/coin-priority/pin", { symbol, reason });
+        render();
+      };
+      const btnDemoteCoin = document.getElementById("btnDemoteCoin");
+      if (btnDemoteCoin) btnDemoteCoin.onclick = async () => {
+        const symbol = document.getElementById("cprSymbol").value.trim().toUpperCase();
+        if (!symbol) return;
+        const reason = document.getElementById("cprReason").value.trim() || null;
+        await apiPost("/api/paper-trading/coin-priority/demote", { symbol, reason });
+        render();
+      };
+      document.querySelectorAll(".cpr-clear").forEach(btn => btn.onclick = async () => {
+        await apiSend("DELETE", `/api/paper-trading/coin-priority/${btn.dataset.symbol}`);
+        render();
+      });
       document.querySelectorAll(".risk-pct-apply").forEach(btn => btn.onclick = async () => {
         // Reuses the EXACT SAME, already-validated per-strategy override
         // endpoint the manual risk-pct-override UI already calls -- this
@@ -9207,6 +9281,19 @@
         try {
           await apiPost("/api/system/restart-services");
           s.textContent = "Services soft-restarted.";
+        } catch (e) { s.textContent = `Failed: ${e.message}`; }
+      };
+      document.getElementById("eccMaintenanceMode").onclick = async () => {
+        const entering = !(maintenanceState && maintenanceState.active);
+        if (!confirm(entering
+          ? "Enter Maintenance Mode? This pauses Paper Trading AND Telegram sending together. Resuming later restores both to exactly the state they were in before (e.g. if Telegram was already off, it stays off)."
+          : "Exit Maintenance Mode and resume Paper Trading / Telegram to their pre-maintenance state?")) return;
+        const s = document.getElementById("eccStatusMsg");
+        s.textContent = entering ? "Entering Maintenance Mode..." : "Exiting Maintenance Mode...";
+        try {
+          await apiPost(`/api/paper-trading/maintenance-mode/${entering ? "enter" : "exit"}`, {});
+          s.textContent = entering ? "Maintenance Mode is now ON." : "Maintenance Mode is now OFF.";
+          render();
         } catch (e) { s.textContent = `Failed: ${e.message}`; }
       };
       document.getElementById("ptDryRun").addEventListener("change", async (e) => {
@@ -9349,6 +9436,55 @@
           render();
         };
       });
+
+      // Grand Master Prompt, Phase 3.1 (Active Signals Dashboard): fetched
+      // on demand, NOT as part of the page's own (already heavy) initial
+      // Promise.all -- a live get_tickers() exchange call added to that
+      // would slow down every single load of this page, not just the
+      // moments someone actually wants a live price.
+      document.querySelectorAll(".sh-filter").forEach(btn => {
+        btn.onclick = async () => {
+          const box = document.getElementById("signalHistoryBox");
+          box.innerHTML = `<p class="muted">Loading...</p>`;
+          const status = btn.dataset.status;
+          const res = await apiGet(`/api/paper-trading/signal-history${status ? `?status=${status}` : ""}&limit=100`).catch(() => ({ signals: [] }));
+          const rows = res.signals || [];
+          if (!rows.length) { box.innerHTML = `<p class="muted">No signals for this filter.</p>`; return; }
+          box.innerHTML = `<table>
+            <thead><tr><th>Status</th><th>Coin</th><th>Strategy</th><th>PnL</th><th>When</th></tr></thead>
+            <tbody>${rows.map(r => `<tr>
+              <td><span class="pill ${r.signal_status === "win" ? "pill-up" : r.signal_status === "loss" ? "pill-down" : "pill-muted"}">${esc(r.signal_status)}</span></td>
+              <td>${esc(r.symbol || "-")}</td>
+              <td>${esc(r.strategy_name || r.strategy_id || "-")}</td>
+              <td>${r.pnl != null ? r.pnl : "-"}</td>
+              <td style="font-size:12px;">${esc((r.closed_at || r.created_at || "").replace("T", " ").slice(0, 19))}</td>
+            </tr>`).join("")}</tbody>
+          </table>`;
+        };
+      });
+      const btnRefreshLivePrices = document.getElementById("btnRefreshLivePrices");
+      if (btnRefreshLivePrices) {
+        btnRefreshLivePrices.onclick = async () => {
+          const statusEl = document.getElementById("livePricesStatus");
+          statusEl.textContent = "Loading live prices...";
+          try {
+            const res = await apiGet("/api/paper-trading/active-signals");
+            const byId = {};
+            (res.signals || []).forEach(s => { byId[s.id] = s; });
+            document.querySelectorAll("tr[data-position-id]").forEach(tr => {
+              const s = byId[tr.dataset.positionId];
+              if (!s) return;
+              const priceCell = tr.querySelector(".pt-live-price-cell");
+              const pnlCell = tr.querySelector(".pt-unrealized-pnl-cell");
+              if (priceCell) priceCell.textContent = s.current_price != null ? s.current_price : "-";
+              if (pnlCell && s.unrealized_pnl != null) {
+                pnlCell.innerHTML = pnlSpan(s.unrealized_pnl) + ` <span class="muted" style="font-size:11px;">(${s.tp_sl_status})</span>`;
+              }
+            });
+            statusEl.textContent = `Updated ${new Date().toLocaleTimeString()}.`;
+          } catch (e) { statusEl.textContent = `Failed: ${e.message}`; }
+        };
+      }
 
       document.querySelectorAll(".pt-override").forEach(btn => {
         btn.onclick = async () => {
@@ -9810,6 +9946,9 @@
         ${cardId("healthRam", "Memory Usage", "...")}
         ${cardId("healthDbSize", "Database Size", "...")}
         ${cardId("healthActive", "Active Processes", "...")}
+        ${cardId("healthRestartCount", "Restart Count", "...")}
+        ${cardId("healthLastRestart", "Last Restart", "...")}
+        ${cardId("healthApiRequests", "API Requests (this process)", "...")}
       </div>
       <div class="card" id="healthErrorsCard" style="margin-bottom:22px;">
         <div class="label">Recent Errors (from logs)</div>
@@ -9957,6 +10096,26 @@
     }
     loadHealth();
     autoRefresh(loadHealth, 15);
+
+    // Grand Master Prompt, Phase 3.4/3.11/3.13: Restart Analytics + API
+    // Monitor -- same card grid, separate cheap endpoints (neither needs
+    // psutil/log-tail work, so a shorter combined call isn't worth it).
+    async function loadRestartAndApiStats() {
+      const [restarts, apiStats] = await Promise.all([
+        apiGet("/api/system/restart-analytics").catch(() => null),
+        apiGet("/api/system/api-monitor").catch(() => null),
+      ]);
+      if (restarts) {
+        document.getElementById("healthRestartCount").textContent = restarts.restart_count;
+        document.getElementById("healthLastRestart").textContent = (restarts.last_restart_at || "-").replace("T", " ").slice(0, 19);
+      }
+      if (apiStats) {
+        document.getElementById("healthApiRequests").textContent =
+          `${apiStats.total_requests} (${apiStats.failed_requests} failed)`;
+      }
+    }
+    loadRestartAndApiStats();
+    autoRefresh(loadRestartAndApiStats, 30);
 
     async function saveSettings() {
       const status = document.getElementById("setSaveStatus");
@@ -11362,6 +11521,87 @@
           </tbody></table>`}
       </div>
     `;
+  }
+
+  // ------------------------------------------------------------ CONFIGURATION PANEL
+  // Grand Master Prompt, Phase 3.5: the key fields from 3 previously-
+  // scattered settings surfaces (global /api/settings, /api/paper-trading/
+  // settings, /api/paper-trading/telegram/settings), shown and edited
+  // together. Every save below posts to the EXACT SAME existing endpoint
+  // that field's own dedicated page already uses -- no new backend route,
+  // no new validation, purely a consolidated view.
+  async function renderConfigurationPanel() {
+    const myToken = activeRouteToken;
+    async function render() {
+      const [general, pt, tg] = await Promise.all([
+        apiGet("/api/settings"),
+        apiGet("/api/paper-trading/settings"),
+        apiGet("/api/paper-trading/telegram/settings").catch(() => ({})),
+      ]);
+      if (isStaleRoute(myToken)) return;
+      content.innerHTML = `
+        <div class="section-title">Configuration Panel</div>
+        <p class="muted" style="margin-top:-10px;">Scan interval, risk settings, coin selection, and Telegram auto-send in one place -- each field still saves through its own existing settings page underneath.</p>
+
+        <div class="section-title" style="font-size:14px;">Coin Selection &amp; Exchange</div>
+        <div class="card" style="max-width:480px;margin-bottom:16px;">
+          <div class="form-row"><label>Number of Coins</label><input id="cfgNumCoins" type="number" value="${general.num_coins}"></div>
+          <div class="form-row"><label>Quote Asset</label><input id="cfgQuoteAsset" value="${esc(general.quote_asset)}"></div>
+          <div class="btn-row"><button class="btn" id="cfgSaveGeneral">Save</button><span id="cfgGeneralStatus" class="muted"></span></div>
+        </div>
+
+        <div class="section-title" style="font-size:14px;">Scan Interval &amp; Risk Settings</div>
+        <div class="card" style="max-width:480px;margin-bottom:16px;">
+          <div class="form-row"><label>Scan Interval (seconds)</label><input id="cfgTickInterval" type="number" value="${pt.tick_interval_seconds}"></div>
+          <div class="form-row"><label>Default Risk %</label><input id="cfgRiskPct" type="number" step="0.1" value="${pt.risk_pct_default}"></div>
+          <div class="form-row"><label>Max Open Trades (per strategy)</label><input id="cfgMaxOpen" type="number" value="${pt.max_open_trades}"></div>
+          <div class="btn-row"><button class="btn" id="cfgSavePt">Save</button><span id="cfgPtStatus" class="muted"></span></div>
+        </div>
+
+        <div class="section-title" style="font-size:14px;">Telegram Options</div>
+        <div class="card" style="max-width:480px;">
+          <div class="form-row"><label><input id="cfgMasterSend" type="checkbox" style="width:auto;" ${tg.master_send_enabled ? "checked" : ""}> Telegram sending ON</label></div>
+          <div class="form-row"><label><input id="cfgAutoSend" type="checkbox" style="width:auto;" ${tg.auto_send_enabled ? "checked" : ""}> Automatic high-confidence signals ON</label></div>
+          <div class="btn-row"><button class="btn" id="cfgSaveTg">Save</button><span id="cfgTgStatus" class="muted"></span>
+            <a class="btn-ghost" href="#telegram_dashboard">Full Telegram settings</a></div>
+        </div>
+      `;
+      document.getElementById("cfgSaveGeneral").onclick = async () => {
+        const s = document.getElementById("cfgGeneralStatus");
+        s.textContent = "Saving...";
+        try {
+          await apiPost("/api/settings", {
+            num_coins: parseInt(document.getElementById("cfgNumCoins").value, 10),
+            quote_asset: document.getElementById("cfgQuoteAsset").value.trim(),
+          });
+          s.textContent = "Saved.";
+        } catch (e) { s.textContent = `Failed: ${e.message}`; }
+      };
+      document.getElementById("cfgSavePt").onclick = async () => {
+        const s = document.getElementById("cfgPtStatus");
+        s.textContent = "Saving...";
+        try {
+          await apiPost("/api/paper-trading/settings", {
+            tick_interval_seconds: parseInt(document.getElementById("cfgTickInterval").value, 10),
+            risk_pct_default: parseFloat(document.getElementById("cfgRiskPct").value),
+            max_open_trades: parseInt(document.getElementById("cfgMaxOpen").value, 10),
+          });
+          s.textContent = "Saved.";
+        } catch (e) { s.textContent = `Failed: ${e.message}`; }
+      };
+      document.getElementById("cfgSaveTg").onclick = async () => {
+        const s = document.getElementById("cfgTgStatus");
+        s.textContent = "Saving...";
+        try {
+          await apiPost("/api/paper-trading/telegram/settings", {
+            master_send_enabled: document.getElementById("cfgMasterSend").checked,
+            auto_send_enabled: document.getElementById("cfgAutoSend").checked,
+          });
+          s.textContent = "Saved.";
+        } catch (e) { s.textContent = `Failed: ${e.message}`; }
+      };
+    }
+    await render();
   }
 
   function statusDot(level) {

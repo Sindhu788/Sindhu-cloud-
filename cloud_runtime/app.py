@@ -197,6 +197,11 @@ async def _lifespan(app: FastAPI):
     from paper_trading.auto_downgrade import start_scheduler_thread as _start_auto_downgrade
     _start_auto_downgrade()
 
+    # Grand Master Prompt, Phase 3.13: Restart Analytics -- records this
+    # process start once, for this deployment ("cloud", via CLOUD_MODE).
+    from sindhu_web.api.system import record_startup as _record_startup
+    _record_startup()
+
     task = asyncio.create_task(_broadcast_loop())
     yield
     task.cancel()
@@ -218,6 +223,18 @@ def create_app():
     @app.middleware("http")
     async def _token_guard(request: Request, call_next):
         return await token_guard_middleware(request, call_next)
+
+    # Grand Master Prompt, Phase 3.11: API Monitor -- see sindhu_web/
+    # server.py's identical middleware for the reasoning; each deployment
+    # tracks its own in-memory counters.
+    @app.middleware("http")
+    async def _api_monitor_middleware(request: Request, call_next):
+        import time as _time
+        from sindhu_web import api_monitor
+        started = _time.monotonic()
+        response = await call_next(request)
+        api_monitor.record_request(response.status_code, _time.monotonic() - started)
+        return response
 
     @app.exception_handler(Exception)
     async def _unhandled_exception_handler(request: Request, exc: Exception):

@@ -1223,6 +1223,37 @@ CREATE TABLE IF NOT EXISTS paper_downgrade_state (
     reason TEXT,
     updated_at TEXT NOT NULL
 );
+
+-- Grand Master Prompt, Phase 3.13: Restart Analytics -- one row per
+-- process start (local app or cloud runner), written once from each
+-- deployment's own lifespan. This counts PROCESS STARTS -- it cannot
+-- distinguish a deliberate restart from a crash (both look identical
+-- from inside the process itself), and "downtime" here is only ever the
+-- gap between two logged starts, not real crash/recovery telemetry --
+-- see paper_trading/restart_analytics.py's own docstring for why a true
+-- crash/downtime monitor needs an EXTERNAL watchdog, not this table
+-- (see the /api/system/restart-analytics endpoint in sindhu_web/api/
+-- system.py for the honest caveat surfaced to the CEO).
+CREATE TABLE IF NOT EXISTS server_restart_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    deployment TEXT NOT NULL,
+    started_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_server_restart_log_deployment ON server_restart_log(deployment, started_at DESC);
+
+-- Grand Master Prompt, Phase 3.6: Coin Manager (per-coin priority) --
+-- DISTINCT from paper_coin_blacklist (a permanent deny-list) and from
+-- coin_filter.py's shortlist() (an activity-score ranker). "pinned" always
+-- gets included in the tick's shortlist regardless of ranking; "demoted"
+-- is excluded the same way blacklist is, but as a separate, easily
+-- reversible CEO choice rather than a permanent ban. See
+-- paper_trading/coin_priority.py.
+CREATE TABLE IF NOT EXISTS paper_coin_priority (
+    symbol TEXT PRIMARY KEY,
+    priority TEXT NOT NULL CHECK (priority IN ('pinned', 'demoted')),
+    reason TEXT,
+    added_at TEXT NOT NULL
+);
 """
 
 _COMPILED_DOCUMENT_V6_COLUMNS = {
@@ -5234,6 +5265,62 @@ def set_paper_downgrade_state(strategy_id, downgraded, profit_factor, sample_siz
                  sample_size=excluded.sample_size, reason=excluded.reason, updated_at=excluded.updated_at""",
             (strategy_id, int(downgraded), profit_factor, sample_size, reason, now_iso),
         )
+
+
+def record_server_restart(deployment, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO server_restart_log (deployment, started_at) VALUES (?, ?)",
+            (deployment, now_iso),
+        )
+
+
+def list_server_restarts(deployment=None, limit=50):
+    query = "SELECT id, deployment, started_at FROM server_restart_log"
+    params = []
+    if deployment:
+        query += " WHERE deployment = ?"
+        params.append(deployment)
+    query += " ORDER BY id DESC LIMIT ?"
+    params.append(limit)
+    with get_conn() as conn:
+        rows = conn.execute(query, params).fetchall()
+    return [{"id": r[0], "deployment": r[1], "started_at": r[2]} for r in rows]
+
+
+def count_server_restarts(deployment=None):
+    query = "SELECT COUNT(*) FROM server_restart_log"
+    params = []
+    if deployment:
+        query += " WHERE deployment = ?"
+        params.append(deployment)
+    with get_conn() as conn:
+        return conn.execute(query, params).fetchone()[0]
+
+
+def set_coin_priority(symbol, priority, reason, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO paper_coin_priority (symbol, priority, reason, added_at) VALUES (?, ?, ?, ?)",
+            (symbol, priority, reason, now_iso),
+        )
+
+
+def remove_coin_priority(symbol):
+    with get_conn() as conn:
+        conn.execute("DELETE FROM paper_coin_priority WHERE symbol=?", (symbol,))
+
+
+def list_coin_priority(priority=None):
+    query = "SELECT symbol, priority, reason, added_at FROM paper_coin_priority"
+    params = []
+    if priority:
+        query += " WHERE priority = ?"
+        params.append(priority)
+    query += " ORDER BY added_at DESC"
+    with get_conn() as conn:
+        rows = conn.execute(query, params).fetchall()
+    return [{"symbol": r[0], "priority": r[1], "reason": r[2], "added_at": r[3]} for r in rows]
 
 
 def save_paper_lesson_candidate(strategy_id, strategy_name, symbol, market_state, session,

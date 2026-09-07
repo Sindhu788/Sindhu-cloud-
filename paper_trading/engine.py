@@ -37,7 +37,7 @@ from data_engine.logging_setup import log as default_log
 LIVE_CANDLES_ONLY = env_flag("SINDHU_LIVE_CANDLES")
 
 from paper_trading import config as pt_config
-from paper_trading import coin_filter, coin_blacklist, live_feed, market_state, strategy_matcher, lesson_matcher
+from paper_trading import coin_filter, coin_blacklist, coin_priority, live_feed, market_state, strategy_matcher, lesson_matcher
 from paper_trading import signal_generator, confidence, risk_manager, guards, position_manager
 from paper_trading import auto_avoid, drawdown_guard, kill_switch, lesson_auto_apply, telegram_bot, capital_allocation
 from paper_trading import confluence, signal_tracker, insights, custom_alerts, ensemble_voting
@@ -117,6 +117,10 @@ class PaperTradingEngine:
         self._last_retry_sweep_at = None  # Grand Feature Expansion, Phase 2 Feature 11
         self._last_decay_sweep_at = None  # Grand Feature Expansion, Phase 3 Feature 11
         self._last_custom_alerts_sweep_at = None  # Grand Feature Expansion, Phase 4 Feature 25
+        # Grand Master Prompt, Phase 3.12/3.14: Scan Timer + Scanner
+        # Progress -- pure bookkeeping, never read by any trade decision.
+        self._scan_progress = {"in_progress": False, "current_symbol": None, "index": 0, "total": 0}
+        self._last_tick_duration_seconds = None
 
     # ------------------------------------------------------------ control
     def is_running(self):
@@ -218,11 +222,24 @@ class PaperTradingEngine:
             hour=0, minute=0, second=0, microsecond=0
         ).isoformat()
         trades_today = storage.count_paper_trades_opened_since(today_start_iso)
+        # Grand Master Prompt, Phase 3.12 (Scan Timer): next_tick_at is a
+        # plain last_tick_at + tick_interval_seconds projection, only
+        # meaningful while the engine is actually running.
+        next_tick_at = None
+        if self._running and self._last_tick_at:
+            try:
+                last = datetime.fromisoformat(self._last_tick_at)
+                next_tick_at = (last + _timedelta(seconds=settings.get("tick_interval_seconds", 60))).isoformat()
+            except ValueError:
+                pass
         return {
             "running": self._running,
             "dry_run": settings.get("dry_run", True),
             "started_at": self._started_at,
             "last_tick_at": self._last_tick_at,
+            "next_tick_at": next_tick_at,
+            "last_tick_duration_seconds": self._last_tick_duration_seconds,
+            "scan_progress": dict(self._scan_progress),
             "trades_today": trades_today,
             "tick_count": self._tick_count,
             "open_trades": len(open_positions),
@@ -285,8 +302,10 @@ class PaperTradingEngine:
 
     # ------------------------------------------------------------ tick
     def _tick(self):
+        tick_started_monotonic = time.monotonic()
         if kill_switch.is_active():
             self._last_summary = {"shortlisted": [], "opened": 0, "closed": 0, "rejected": 0}
+            self._last_tick_duration_seconds = round(time.monotonic() - tick_started_monotonic, 2)
             return
         settings = pt_config.load()
         exchange = _default_exchange()
@@ -299,6 +318,7 @@ class PaperTradingEngine:
             symbols = storage.load_symbols(exchange)
         if not symbols:
             self._last_summary = {"shortlisted": [], "opened": 0, "closed": 0, "rejected": 0}
+            self._last_tick_duration_seconds = round(time.monotonic() - tick_started_monotonic, 2)
             return
 
         # Grand Feature Expansion, Phase 5 Feature 1: Coin Blacklist -- a
@@ -306,8 +326,15 @@ class PaperTradingEngine:
         # by coin_filter.shortlist(), so it can never be traded regardless
         # of how strong its activity score would otherwise be.
         symbols = coin_blacklist.filter_out_blacklisted(symbols)
+        # Grand Master Prompt, Phase 3.6: Coin Manager -- demoted coins are
+        # excluded the same way blacklisted ones are (just a lighter,
+        # easily-reversible CEO choice); pinned coins are added back in
+        # AFTER ranking, on top of whatever coin_filter.shortlist() already
+        # picked, never instead of it.
+        symbols = coin_priority.filter_out_demoted(symbols)
         shortlist = coin_filter.shortlist(exchange, symbols, settings.get("coin_filter_top_n", 20),
                                           log=self._log)
+        shortlist = coin_priority.ensure_pinned_included(shortlist, symbols, log=self._log)
         shortlisted_symbols = [s["symbol"] for s in shortlist]
         if not LIVE_CANDLES_ONLY:
             live_feed.refresh_coins(client, shortlisted_symbols, log=self._log)
@@ -315,8 +342,11 @@ class PaperTradingEngine:
         opened, closed, rejected = 0, 0, 0
         self._guards.release_all()
 
+        self._scan_progress = {"in_progress": True, "current_symbol": None, "index": 0, "total": len(shortlist)}
         for entry in shortlist:
             symbol = entry["symbol"]
+            self._scan_progress["index"] += 1
+            self._scan_progress["current_symbol"] = symbol
             try:
                 snapshot = market_state.classify(exchange, symbol)
             except Exception as e:
@@ -340,6 +370,9 @@ class PaperTradingEngine:
                 rejected += r
             except Exception as e:
                 self._log(f"[paper-trading] decision error {symbol}: {e!r}")
+
+        self._scan_progress["in_progress"] = False
+        self._scan_progress["current_symbol"] = None
 
         closed += self._monitor_orphaned_positions(exchange, client, shortlisted_symbols)
 
@@ -424,6 +457,7 @@ class PaperTradingEngine:
 
         self._tick_count += 1
         self._last_tick_at = _now_iso()
+        self._last_tick_duration_seconds = round(time.monotonic() - tick_started_monotonic, 2)
         self._last_summary = {
             "shortlisted": shortlisted_symbols, "opened": opened, "closed": closed, "rejected": rejected,
         }

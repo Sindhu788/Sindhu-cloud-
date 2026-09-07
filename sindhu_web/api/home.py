@@ -32,6 +32,7 @@ NAV_ICONS = {
     "compare": "mirror", "live_logs": "spark", "project_status": "news",
     "strategy_lifecycle": "layers", "incidents": "flask", "self_learning": "spark",
     "challenge_mode": "target", "risk_department": "gear", "memory_core": "history",
+    "configuration_panel": "gear",
 }
 
 # Grand Master Prompt, Phase 1 (10-Department Company Structure): every
@@ -158,6 +159,14 @@ NAV_PAGES = [
     {"id": "incidents", "label": "Incidents", "enabled": True,
      "icon": NAV_ICONS["incidents"], "group": "Operations / System"},
     {"id": "settings", "label": "Settings", "enabled": True, "icon": NAV_ICONS["settings"], "group": "Operations / System"},
+    # Grand Master Prompt, Phase 3.5: Configuration Panel -- one page that
+    # shows/edits the key fields from the 3 previously-scattered settings
+    # surfaces (global /api/settings, /api/paper-trading/settings,
+    # /api/paper-trading/telegram/settings) together. Pure frontend
+    # consolidation -- no new backend endpoint, every save still goes
+    # through the exact same existing POST route each field always used.
+    {"id": "configuration_panel", "label": "Configuration Panel", "enabled": True,
+     "icon": NAV_ICONS["configuration_panel"], "group": "Operations / System"},
 ]
 
 
