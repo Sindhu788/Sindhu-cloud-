@@ -91,7 +91,7 @@ def test_cloud_nav_only_lists_pages_this_runner_actually_mounts(cloud_app):
     in the cloud sidebar with no way to notice except a user clicking it."""
     page_ids = {p["id"] for p in cloud_app._CLOUD_NAV_PAGES}
     assert page_ids == {"paper_trading", "telegram_dashboard", "strategy_overview", "signal_tracker",
-                         "challenge_mode", "self_learning"}
+                         "challenge_mode", "self_learning", "risk_department", "memory_core"}
     for group in (p["group"] for p in cloud_app._CLOUD_NAV_PAGES):
         assert group in cloud_app._CLOUD_NAV_GROUPS
 
@@ -122,6 +122,8 @@ def test_app_mounts_exactly_the_expected_routers(cloud_app):
     assert "/api/paper-trading/cloud-sync/download" in route_paths
     assert "/api/auth/login" in route_paths
     assert "/ws/logs" in route_paths
+    assert "/api/risk-department" in route_paths
+    assert "/api/memory-core/checkpoints" in route_paths
     # A page this runner does NOT serve must not have leaked in via some
     # other import path.
     assert "/api/backtesting/run" not in route_paths

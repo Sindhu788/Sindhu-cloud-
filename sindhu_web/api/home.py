@@ -31,132 +31,133 @@ NAV_ICONS = {
     "clarification_center": "book", "external_signals": "send",
     "compare": "mirror", "live_logs": "spark", "project_status": "news",
     "strategy_lifecycle": "layers", "incidents": "flask", "self_learning": "spark",
-    "challenge_mode": "target",
+    "challenge_mode": "target", "risk_department": "gear", "memory_core": "history",
 }
 
-# Navigation Audit + Reorganization: every page now belongs to exactly one
-# named group, rendered as labeled sections in the sidebar instead of one
-# long flat list. Dead placeholder entries that were never built
-# (Reflection, News, a separate disabled "Telegram" entry -- real
-# Telegram settings live inside Settings) have been removed outright
-# rather than just left disabled.
-NAV_GROUPS = ["Overview", "Project", "Strategies", "Backtesting", "Paper Trading", "Intelligence", "Strategy Lab",
-              "External Signals", "Control", "Reports"]
+# Grand Master Prompt, Phase 1 (10-Department Company Structure): every
+# page is regrouped under one of 10 department names instead of the
+# earlier 10 feature-shaped groups (Overview/Project/Strategies/...). This
+# is a pure regrouping -- every id/route/icon/external_url below is
+# byte-for-byte unchanged, so every existing bookmark, deep link, and
+# frontend call site (PAGES{}, CEO_MODULES, etc.) keeps working exactly as
+# before. Two genuinely new pages (risk_department, memory_core) were
+# added because no existing page already covered them -- see their own
+# router modules for what they surface and why.
+NAV_GROUPS = ["CEO / Orchestrator", "Research", "Data", "Strategy", "Trading / Execution",
+              "Risk", "Learning / Reflection", "Reporting", "Memory Core", "Operations / System"]
 
 NAV_PAGES = [
-    # Overview
-    {"id": "ceo", "label": "SINDHU CEO", "enabled": True, "icon": NAV_ICONS["ceo"], "group": "Overview"},
-    {"id": "home", "label": "Dashboard", "enabled": True, "icon": NAV_ICONS["home"], "group": "Overview"},
+    # 1.1 CEO / Orchestrator -- the default landing page (see route() in
+    # app.js), coordinating/surfacing every other department at a glance.
+    {"id": "ceo", "label": "SINDHU CEO", "enabled": True, "icon": NAV_ICONS["ceo"], "group": "CEO / Orchestrator"},
+    {"id": "home", "label": "Dashboard", "enabled": True, "icon": NAV_ICONS["home"], "group": "CEO / Orchestrator"},
 
-    # Project: 3 consolidated views replacing the earlier scattered
-    # standalone pages (Strategy Optimizer, Project Overview) -- Compare
-    # (all 14 strategies side by side), Live Logs (running/queued/recent
-    # jobs), Project Status (what-changed log, summary, pending, feedback).
-    {"id": "compare", "label": "Compare", "enabled": True, "icon": NAV_ICONS["compare"], "group": "Project"},
-    {"id": "live_logs", "label": "Live Logs", "enabled": True, "icon": NAV_ICONS["live_logs"], "group": "Project"},
-    {"id": "project_status", "label": "Project Status", "enabled": True,
-     "icon": NAV_ICONS["project_status"], "group": "Project"},
-    # Strategy Lifecycle: one consolidated table -- every active strategy's
-    # backtest result, real computed why-win/why-loss summary (Part 1), and
-    # confirmation-strictness optimizer result (Part 2) in one place, with a
-    # gated "Move to paper trading" action per row. See
-    # sindhu_web/api/strategy_lifecycle.py.
-    {"id": "strategy_lifecycle", "label": "Strategy Lifecycle", "enabled": True,
-     "icon": NAV_ICONS["strategy_lifecycle"], "group": "Project"},
-    # Incident Management (Grand Feature Expansion, Phase 1 Feature 4): a
-    # structured problem -> detection -> root cause -> fix -> test ->
-    # resolution record. See sindhu_web/api/incidents.py.
-    {"id": "incidents", "label": "Incidents", "enabled": True,
-     "icon": NAV_ICONS["incidents"], "group": "Project"},
+    # 1.2 Research -- strategy research/evaluation, historical reference
+    # data: which strategies exist, where they came from, backtest
+    # evaluation of ideas.
+    {"id": "compare", "label": "Compare", "enabled": True, "icon": NAV_ICONS["compare"], "group": "Research"},
+    {"id": "backtesting", "label": "Backtesting", "enabled": True, "icon": NAV_ICONS["backtesting"], "group": "Research"},
+    {"id": "backtest_history", "label": "Backtest History", "enabled": True,
+     "icon": NAV_ICONS["backtest_history"], "group": "Research"},
+    {"id": "pipeline_history", "label": "Pipeline History", "enabled": True,
+     "icon": NAV_ICONS["pipeline_history"], "group": "Research"},
+    {"id": "web_sourced_strategies", "label": "Web-Sourced Strategies", "enabled": True,
+     "icon": NAV_ICONS["web_sourced_strategies"], "group": "Research"},
+    {"id": "knowledge", "label": "Knowledge", "enabled": True, "icon": NAV_ICONS["knowledge"], "group": "Research"},
     # Concepts Library is still a standalone static page (concepts.html),
     # not ported into the SPA's hash-routed PAGES{} -- external_url makes
     # app.js's renderNav() link straight to it instead of a `#hash`, so it's
     # reachable by one click without touching the page's own content/logic.
     {"id": "concepts", "label": "Concepts", "enabled": True, "icon": NAV_ICONS["knowledge"],
-     "group": "Project", "external_url": "/static/concepts.html"},
+     "group": "Research", "external_url": "/static/concepts.html"},
 
-    # Strategies: everything about building, importing, and understanding a strategy
-    {"id": "strategies", "label": "Strategies", "enabled": True, "icon": NAV_ICONS["strategies"], "group": "Strategies"},
-    {"id": "sindhu_strategy", "label": "SINDHU Strategy", "enabled": True, "icon": NAV_ICONS["sindhu_strategy"], "group": "Strategies"},
-    {"id": "web_sourced_strategies", "label": "Web-Sourced Strategies", "enabled": True,
-     "icon": NAV_ICONS["web_sourced_strategies"], "group": "Strategies"},
-    {"id": "knowledge", "label": "Knowledge", "enabled": True, "icon": NAV_ICONS["knowledge"], "group": "Strategies"},
+    # 1.3 Data -- market data collection/management: coverage, freshness.
+    {"id": "market", "label": "Market", "enabled": True, "icon": NAV_ICONS["market"], "group": "Data"},
+    {"id": "data", "label": "Data", "enabled": True, "icon": NAV_ICONS["data"], "group": "Data"},
+
+    # 1.4 Strategy -- understanding and preparing a strategy: NL-to-rules
+    # conversion, ambiguity clarification, validator status, readiness.
+    {"id": "strategies", "label": "Strategies", "enabled": True, "icon": NAV_ICONS["strategies"], "group": "Strategy"},
+    {"id": "sindhu_strategy", "label": "SINDHU Strategy", "enabled": True, "icon": NAV_ICONS["sindhu_strategy"], "group": "Strategy"},
     {"id": "knowledge_compiler", "label": "Knowledge Compiler", "enabled": True,
-     "icon": NAV_ICONS["knowledge_compiler"], "group": "Strategies"},
-    {"id": "ai_center", "label": "AI Center", "enabled": True, "icon": NAV_ICONS["ai_center"], "group": "Strategies"},
+     "icon": NAV_ICONS["knowledge_compiler"], "group": "Strategy"},
+    {"id": "ai_center", "label": "AI Center", "enabled": True, "icon": NAV_ICONS["ai_center"], "group": "Strategy"},
     # Clarification Page (Step 3, Part B): the dedicated place to resolve
     # every strategy's unclear/unmapped items -- replaces the earlier
     # inline modal-only flow (openClarifyBox) with a full page (progress
     # counter, grouped-by-strategy list, Read Mode summary, etc.).
     {"id": "clarification_center", "label": "Clarification", "enabled": True,
-     "icon": NAV_ICONS["clarification_center"], "group": "Strategies"},
+     "icon": NAV_ICONS["clarification_center"], "group": "Strategy"},
 
-    # Backtesting: running backtests and reviewing their raw results
-    {"id": "backtesting", "label": "Backtesting", "enabled": True, "icon": NAV_ICONS["backtesting"], "group": "Backtesting"},
-    {"id": "backtest_history", "label": "Backtest History", "enabled": True,
-     "icon": NAV_ICONS["backtest_history"], "group": "Backtesting"},
-    {"id": "pipeline_history", "label": "Pipeline History", "enabled": True,
-     "icon": NAV_ICONS["pipeline_history"], "group": "Backtesting"},
-
-    # Paper Trading: everything about the live (fake-money) trading loop --
-    # Telegram Signals lives here too (Batch 6, Task 2): paper trading is
-    # what generates the signals Telegram sends, so the two belong together
-    # rather than Telegram Signals sitting under Control. Nav grouping only
-    # -- id/route/API untouched, so every existing link/bookmark still works.
-    {"id": "paper_trading", "label": "Paper Trading", "enabled": True, "icon": NAV_ICONS["paper_trading"], "group": "Paper Trading"},
+    # 1.5 Trading / Execution -- the live (fake-money) trading loop and
+    # every signal-facing surface that rides on it.
+    {"id": "paper_trading", "label": "Paper Trading", "enabled": True, "icon": NAV_ICONS["paper_trading"], "group": "Trading / Execution"},
     {"id": "telegram_dashboard", "label": "Telegram Signals", "enabled": True,
-     "icon": NAV_ICONS["telegram_dashboard"], "group": "Paper Trading"},
+     "icon": NAV_ICONS["telegram_dashboard"], "group": "Trading / Execution"},
     {"id": "signal_tracker", "label": "Signal Tracker", "enabled": True,
-     "icon": NAV_ICONS["signal_tracker"], "group": "Paper Trading"},
-    {"id": "market", "label": "Market", "enabled": True, "icon": NAV_ICONS["market"], "group": "Paper Trading"},
-    {"id": "data", "label": "Data", "enabled": True, "icon": NAV_ICONS["data"], "group": "Paper Trading"},
-
-    # Master Task 3, Phase 2.1: Challenge Mode gets its own standalone nav
-    # page (the original single-challenge widget stays embedded inside
-    # Paper Trading too, untouched, for backward compatibility) -- this new
-    # page is the one that supports 2-3 simultaneous challenges side by
-    # side plus the rest of Phase 2's analysis features.
+     "icon": NAV_ICONS["signal_tracker"], "group": "Trading / Execution"},
     {"id": "challenge_mode", "label": "Challenge Mode", "enabled": True,
-     "icon": NAV_ICONS["challenge_mode"], "group": "Paper Trading"},
+     "icon": NAV_ICONS["challenge_mode"], "group": "Trading / Execution"},
+    # External Signal Tracker: a COMPLETELY SEPARATE module from the CEO's
+    # own Paper Trading above -- external Telegram channels the CEO merely
+    # follows, paper-traded and scored in total isolation, never mixed with
+    # the CEO's own strategy results. Keeps its own distinct label here so
+    # that separation stays visible in the nav itself, not just in the data.
+    {"id": "external_signals", "label": "External Signal Tracker", "enabled": True,
+     "icon": NAV_ICONS["external_signals"], "group": "Trading / Execution"},
 
-    # Intelligence: self-learning / evolutionary systems
-    {"id": "evolution", "label": "Evolution", "enabled": True, "icon": NAV_ICONS["evolution"], "group": "Intelligence"},
+    # 1.6 Risk -- every safety-gate/limit's current live state in one
+    # place. See sindhu_web/api/risk_department.py (Grand Master Prompt,
+    # Phase 1: genuinely new -- no existing page consolidated this, it's a
+    # read-only aggregation of already-existing gate state).
+    {"id": "risk_department", "label": "Risk", "enabled": True,
+     "icon": NAV_ICONS["risk_department"], "group": "Risk"},
+
+    # 1.7 Learning / Reflection -- honest analysis of backtest/paper-trading
+    # results and the self-improvement systems built on top of them.
+    {"id": "strategy_lifecycle", "label": "Strategy Lifecycle", "enabled": True,
+     "icon": NAV_ICONS["strategy_lifecycle"], "group": "Learning / Reflection"},
+    {"id": "evolution", "label": "Evolution", "enabled": True, "icon": NAV_ICONS["evolution"], "group": "Learning / Reflection"},
     {"id": "evolution_history", "label": "Evolution History", "enabled": True,
-     "icon": NAV_ICONS["evolution_history"], "group": "Intelligence"},
-
+     "icon": NAV_ICONS["evolution_history"], "group": "Learning / Reflection"},
     # Master Task 3, Phase 1: Self-Learning Engine -- deliberately its own
     # nav entry, NOT folded into Evolution above: Evolution only tweaks
     # existing strategies, this discovers brand-new candidate strategies
-    # by combining concepts. Kept in the same "Intelligence" group since
-    # both are automated strategy-improvement systems the CEO checks on
-    # together, just genuinely separate mechanisms underneath.
+    # by combining concepts. Kept in the same group since both are
+    # automated strategy-improvement systems the CEO checks on together,
+    # just genuinely separate mechanisms underneath.
     {"id": "self_learning", "label": "Self-Learning Engine", "enabled": True,
-     "icon": NAV_ICONS["self_learning"], "group": "Intelligence"},
-
+     "icon": NAV_ICONS["self_learning"], "group": "Learning / Reflection"},
     # Strategy Lab: a weekly, honest check for a genuinely profitable
     # strategy -- real, after-cost results only, never a losing strategy
-    # dressed up as "best." Its own top-level section since it's a
-    # standing verdict the CEO should be able to find at a glance, not
-    # buried inside another page.
+    # dressed up as "best."
     {"id": "strategy_lab", "label": "Strategy Lab", "enabled": True,
-     "icon": NAV_ICONS["strategy_lab"], "group": "Strategy Lab"},
+     "icon": NAV_ICONS["strategy_lab"], "group": "Learning / Reflection"},
 
-    # External Signal Tracker: a COMPLETELY SEPARATE module from the
-    # CEO's own Paper Trading above -- external Telegram channels the CEO
-    # merely follows, paper-traded and scored in total isolation, never
-    # mixed with the CEO's own strategy results. Deliberately its own
-    # top-level nav group (not folded into "Paper Trading") so this
-    # separation is visible in the nav itself, not just in the data.
-    {"id": "external_signals", "label": "External Signal Tracker", "enabled": True,
-     "icon": NAV_ICONS["external_signals"], "group": "External Signals"},
+    # 1.8 Reporting -- cross-strategy performance/attribution reports.
+    {"id": "reports", "label": "Reports", "enabled": True, "icon": NAV_ICONS["reports"], "group": "Reporting"},
 
-    # Control: the one place to turn automated features on/off, plus account/app settings
+    # 1.9 Memory Core -- checkpoints, session history, and past decisions
+    # in one readable place. See sindhu_web/api/memory_core.py (Grand
+    # Master Prompt, Phase 1: genuinely new -- no existing page surfaced
+    # the data/checkpoints/ files or activity_log/audit_trail_log history
+    # in human-readable form together).
+    {"id": "memory_core", "label": "Memory Core", "enabled": True,
+     "icon": NAV_ICONS["memory_core"], "group": "Memory Core"},
+
+    # 1.10 Operations / System -- health monitoring, incidents,
+    # backup/recovery, workflow automation, overall system condition.
     {"id": "control_center", "label": "Control Center", "enabled": True,
-     "icon": NAV_ICONS["control_center"], "group": "Control"},
-    {"id": "settings", "label": "Settings", "enabled": True, "icon": NAV_ICONS["settings"], "group": "Control"},
-
-    # Reports: cross-strategy summaries, not raw per-batch results (see Backtesting)
-    {"id": "reports", "label": "Reports", "enabled": True, "icon": NAV_ICONS["reports"], "group": "Reports"},
+     "icon": NAV_ICONS["control_center"], "group": "Operations / System"},
+    {"id": "live_logs", "label": "Live Logs", "enabled": True, "icon": NAV_ICONS["live_logs"], "group": "Operations / System"},
+    {"id": "project_status", "label": "Project Status", "enabled": True,
+     "icon": NAV_ICONS["project_status"], "group": "Operations / System"},
+    # Incident Management (Grand Feature Expansion, Phase 1 Feature 4): a
+    # structured problem -> detection -> root cause -> fix -> test ->
+    # resolution record. See sindhu_web/api/incidents.py.
+    {"id": "incidents", "label": "Incidents", "enabled": True,
+     "icon": NAV_ICONS["incidents"], "group": "Operations / System"},
+    {"id": "settings", "label": "Settings", "enabled": True, "icon": NAV_ICONS["settings"], "group": "Operations / System"},
 ]
 
 

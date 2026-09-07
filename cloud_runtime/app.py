@@ -60,6 +60,8 @@ from sindhu_web.api import auth as auth_api
 from sindhu_web.api import paper_trading as paper_trading_api
 from sindhu_web.api import system as system_api
 from sindhu_web.api import strategy_lifecycle as strategy_lifecycle_api
+from sindhu_web.api import risk_department as risk_department_api
+from sindhu_web.api import memory_core as memory_core_api
 from sindhu_web.api import ws
 from sindhu_web.security import get_or_create_token, token_guard_middleware
 
@@ -113,8 +115,15 @@ _CLOUD_NAV_PAGES = [
     # own comment. This entry is intentionally informational-only, not a
     # broken link: the page always renders something useful.
     {"id": "self_learning", "label": "Self-Learning Engine", "enabled": True, "icon": "spark", "group": "Intelligence"},
+    # Grand Master Prompt, Phase 1.6/1.9: both read only paper_trading.*/
+    # data_engine.storage/os -- confirmed safe against this runner's own
+    # "never import evolution_engine.engine/governor, backtest runner,
+    # optimizer, or ai_integration's extraction pipeline" rule (see
+    # sindhu_web/api/risk_department.py and memory_core.py docstrings).
+    {"id": "risk_department", "label": "Risk", "enabled": True, "icon": "gear", "group": "Risk"},
+    {"id": "memory_core", "label": "Memory Core", "enabled": True, "icon": "history", "group": "Memory Core"},
 ]
-_CLOUD_NAV_GROUPS = ["Paper Trading", "Intelligence"]
+_CLOUD_NAV_GROUPS = ["Paper Trading", "Intelligence", "Risk", "Memory Core"]
 
 
 async def _broadcast_loop():
@@ -228,7 +237,8 @@ def create_app():
     # (no evolution_engine.engine/governor or other forbidden heavy module
     # pulled in, unlike sindhu_web.api.backtesting which stays local-only
     # on purpose).
-    for router in (paper_trading_api.router, ws.router, auth_api.router, system_api.router, strategy_lifecycle_api.router):
+    for router in (paper_trading_api.router, ws.router, auth_api.router, system_api.router, strategy_lifecycle_api.router,
+                   risk_department_api.router, memory_core_api.router):
         app.include_router(router)
 
     @app.get("/api/token")

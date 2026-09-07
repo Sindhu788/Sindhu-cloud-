@@ -2406,6 +2406,8 @@
     incidents: renderIncidents,
     strategy_lifecycle: renderStrategyLifecycle,
     strategy_overview: renderStrategyOverview,
+    risk_department: renderRiskDepartment,
+    memory_core: renderMemoryCore,
   };
   let refreshTimer = null;
   let pendingStrategyLoadId = null;
@@ -2426,7 +2428,11 @@
 
   async function route() {
     activeRouteToken++;
-    const id = (location.hash || "#home").slice(1);
+    // Grand Master Prompt, Phase 1.1: SINDHU CEO (the company-wide
+    // orchestrator/control-room view) is now the default landing page
+    // instead of the plain Dashboard -- "Dashboard" (#home) is still one
+    // click away under CEO / Orchestrator in the sidebar, unchanged.
+    const id = (location.hash || "#ceo").slice(1);
     setActiveNav(id);
     clearLiveListeners();
     if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
@@ -11084,7 +11090,8 @@
   const CEO_MODULES = [
     "home", "feature_control", "market", "data", "strategies", "clarification_center", "knowledge", "knowledge_compiler",
     "ai_center", "backtesting", "backtest_history", "pipeline_history", "paper_trading", "challenge_mode",
-    "evolution", "sindhu_strategy", "web_sourced_strategies", "external_signals", "reports", "settings",
+    "evolution", "sindhu_strategy", "web_sourced_strategies", "external_signals", "risk_department", "memory_core",
+    "reports", "settings",
   ];
   const CEO_LABELS = {
     home: "Dashboard", feature_control: "Control Center",
@@ -11095,6 +11102,7 @@
     pipeline_history: "Pipeline History",
     paper_trading: "Paper Trading", challenge_mode: "Challenge Mode", evolution: "Evolution", sindhu_strategy: "SINDHU Strategy",
     web_sourced_strategies: "Web-Sourced Strategies", external_signals: "External Signal Tracker",
+    risk_department: "Risk", memory_core: "Memory Core",
     reports: "Reports", settings: "Settings",
   };
   const FEATURE_CATEGORY_ORDER = ["Risk & Safety", "Self-Learning", "Signals", "Other"];
@@ -11169,6 +11177,138 @@
       wireFeatureControlHandlers(render);
     }
     await render();
+  }
+
+  // ------------------------------------------------------------ RISK DEPARTMENT
+  // Grand Master Prompt, Phase 1.6: a single, read-only page for every
+  // safety gate/limit's current live state. Every number here is a plain
+  // display of what sindhu_web/api/risk_department.py already computes
+  // from the real existing gates -- this page cannot change, weaken, or
+  // bypass any of them; the on/off controls for Kill Switch etc. still
+  // live only on their own existing pages (Paper Trading, Control Center).
+  async function renderRiskDepartment() {
+    const myToken = activeRouteToken;
+    const d = await apiGet("/api/risk-department").catch(() => null);
+    if (isStaleRoute(myToken)) return;
+    if (!d) { content.innerHTML = `<div class="card"><b>Failed to load Risk data.</b></div>`; return; }
+
+    const ks = d.kill_switch, dd = d.account_drawdown, evo = d.evolution_gate, gov = evo.governor;
+    content.innerHTML = `
+      <div class="section-title">Risk</div>
+      <p class="muted" style="margin-top:-10px;">Every safety gate and risk limit's current live state, in one place -- read-only.</p>
+
+      <div class="card" style="margin-bottom:14px;">
+        <b>${statusDot(ks.active ? "attention" : "active")} Kill Switch</b>
+        <div class="muted" style="margin-top:6px;">${ks.active
+          ? `ACTIVE -- all trading halted. Reason: ${esc(ks.reason || "-")} (since ${esc(ks.activated_at || "-")})`
+          : `OFF -- trading allowed, subject to every other gate below. Activated ${ks.activation_count} time(s) total.`}</div>
+      </div>
+
+      <div class="card" style="margin-bottom:14px;">
+        <b>${statusDot(dd.paused ? "attention" : "active")} Account-Wide Drawdown Circuit-Breaker</b>
+        <div class="muted" style="margin-top:6px;">
+          Current drawdown: <b>${dd.drawdown_pct}%</b> from peak balance ${dd.peak_balance.toFixed(2)} (now ${dd.current_balance.toFixed(2)}).
+          ${dd.paused ? `<br><b>PAUSED</b> -- ${esc(dd.paused_reason || "-")}` : ""}
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:14px;">
+        <b>Per-Strategy Drawdown / Consecutive-Loss Pauses</b>
+        ${d.paused_strategies.length === 0 ? `<p class="muted">No strategy is currently paused.</p>` : `
+          <table><thead><tr><th>Strategy</th><th>Reason</th><th>Paused At</th></tr></thead><tbody>
+            ${d.paused_strategies.map(p => `<tr><td>${esc(p.strategy_id)}</td><td>${esc(p.reason || "-")}</td><td>${esc(p.paused_at || "-")}</td></tr>`).join("")}
+          </tbody></table>`}
+      </div>
+
+      <div class="card" style="margin-bottom:14px;">
+        <b>Per-Strategy Coin Position Cap</b>
+        <p class="muted" style="margin:4px 0 8px;">Each strategy is independently limited to its own max distinct coins held at once.</p>
+        ${d.position_cap_usage.length === 0 ? `<p class="muted">No strategy currently enabled.</p>` : `
+          <table><thead><tr><th>Strategy</th><th>Open Coins</th><th>Cap</th><th>Status</th></tr></thead><tbody>
+            ${d.position_cap_usage.map(r => `<tr><td>${esc(r.strategy_id)}</td><td>${r.open_coins}</td><td>${r.max_coins}</td><td>${r.at_cap ? `<span class="pill pill-down">At Cap</span>` : `<span class="pill pill-up">OK</span>`}</td></tr>`).join("")}
+          </tbody></table>`}
+      </div>
+
+      <div class="card" style="margin-bottom:14px;">
+        <b>Wilson Score Reliability Gate</b>
+        <div class="muted" style="margin-top:6px;">Minimum sample size: <b>${d.wilson_gate.min_sample_size}</b> trades. Currently tracking <b>${d.wilson_gate.total_patterns_tracked}</b> (strategy, coin, regime, session) patterns this session -- <b>${d.wilson_gate.patterns_crossed_threshold}</b> have crossed the reliability threshold.</div>
+      </div>
+
+      <div class="card" style="margin-bottom:14px;">
+        <b>Incomplete Lock</b>
+        <div class="muted" style="margin-top:6px;">${d.incomplete_lock.locked_count} of ${d.incomplete_lock.total_active_strategies} active strategies are currently locked (incomplete extraction) -- cannot be tested/traded until resolved on the Clarification page.</div>
+      </div>
+
+      <div class="card" style="margin-bottom:14px;">
+        <b>Confluence &amp; Signal Freshness Gates</b>
+        <div class="muted" style="margin-top:6px;">
+          Auto-send requires confluence ratio &ge; <b>${d.confluence_threshold.auto_send_min_confluence_ratio}</b> with at least <b>${d.confluence_threshold.auto_send_min_confluence_count}</b> agreeing factors.
+          <br>Signal Freshness Gate: signals older than <b>${d.signal_freshness_minutes}</b> minutes are rejected.
+        </div>
+      </div>
+
+      <div class="card">
+        <b>Evolution Gate (100-trade) &amp; Governor</b>
+        <div class="muted" style="margin-top:6px;">
+          Judged after <b>${evo.trade_threshold_for_judgement}</b> completed trades. Recent comparisons checked: ${evo.recent_comparisons_checked}, rollbacks: ${evo.recent_rollbacks}.
+          ${gov
+            ? `<br>Governor -- CPU ${gov.cpu_percent}% (limit ${gov.cpu_limit_percent}%), RAM ${gov.ram_percent}% (limit ${gov.ram_limit_percent}%), queue ${gov.queue_size}/${gov.max_queue_size}.`
+            : `<br><i>Evolution Engine / Governor only runs on the local app, not this cloud deployment.</i>`}
+        </div>
+      </div>
+    `;
+  }
+
+  // ------------------------------------------------------------ MEMORY CORE
+  // Grand Master Prompt, Phase 1.9: a readable index of task checkpoints
+  // (data/checkpoints/*.json) plus the two history feeds that already
+  // existed (Activity, Audit Trail) but had no single dedicated home --
+  // reused here exactly as-is, not recomputed.
+  async function renderMemoryCore() {
+    const myToken = activeRouteToken;
+    const [ckpt, activity, audit] = await Promise.all([
+      apiGet("/api/memory-core/checkpoints").catch(() => ({ checkpoints: [], total_count: 0, directory_exists: false })),
+      apiGet("/api/activity?limit=30").catch(() => ({ activity: [] })),
+      apiGet("/api/audit-trail?limit=30").catch(() => ({ audit_trail: [], total_count: 0 })),
+    ]);
+    if (isStaleRoute(myToken)) return;
+
+    const historyRow = a => `<tr><td>${esc((a.created_at || "").replace("T", " ").slice(0, 19))}</td><td>${esc(a.entity || "-")}</td><td>${esc(a.action || "-")}</td><td>${esc(a.message || "-")}</td></tr>`;
+
+    content.innerHTML = `
+      <div class="section-title">Memory Core</div>
+      <p class="muted" style="margin-top:-10px;">SINDHU's saved task checkpoints and history, in one readable place -- so nothing has to start from zero again.</p>
+
+      <div class="card" style="margin-bottom:14px;">
+        <b>Task Checkpoints</b> <span class="muted">(${ckpt.total_count})</span>
+        ${!ckpt.directory_exists ? `<p class="muted">No checkpoints folder found on this deployment.</p>` :
+          ckpt.checkpoints.length === 0 ? `<p class="muted">No checkpoint files yet.</p>` : `
+          <table><thead><tr><th>File</th><th>Task</th><th>Status / Stage</th><th>Modified</th></tr></thead><tbody>
+            ${ckpt.checkpoints.map(c => `<tr>
+              <td>${esc(c.filename)}</td>
+              <td>${esc(c.task || "-")}</td>
+              <td>${esc(c.status || c.current_phase || c.next_item_to_resume || "-")}</td>
+              <td>${esc((c.modified_at || "").replace("T", " ").slice(0, 19))}</td>
+            </tr>`).join("")}
+          </tbody></table>`}
+      </div>
+
+      <div class="card" style="margin-bottom:14px;">
+        <b>Recent Activity</b>
+        ${activity.activity.length === 0 ? `<p class="muted">No recent activity.</p>` : `
+          <table><thead><tr><th>When</th><th>Entity</th><th>Action</th><th>Message</th></tr></thead><tbody>
+            ${activity.activity.slice(0, 20).map(historyRow).join("")}
+          </tbody></table>`}
+      </div>
+
+      <div class="card">
+        <b>Audit Trail</b> <span class="muted">(${audit.total_count} total, permanent)</span>
+        ${audit.audit_trail.length === 0 ? `<p class="muted">No audit trail entries yet.</p>` : `
+          <table><thead><tr><th>When</th><th>Entity</th><th>Action</th><th>Message</th></tr></thead><tbody>
+            ${audit.audit_trail.slice(0, 20).map(historyRow).join("")}
+          </tbody></table>`}
+      </div>
+    `;
   }
 
   function statusDot(level) {
@@ -11381,6 +11521,10 @@
           };
         case "settings":
           return { level: "idle", text: `${esc(d.settings.exchange || "-")} -- ${d.settings.num_coins ?? "-"} coins -- ${esc(d.settings.theme || "-")} theme` };
+        case "risk_department":
+          return { level: "idle", text: "Kill Switch, drawdown guards, coin caps, Wilson gate, Governor -- every safety gate's live status" };
+        case "memory_core":
+          return { level: "idle", text: "Task checkpoints, activity, and audit trail history" };
         default:
           return { level: "idle", text: "" };
       }
@@ -11457,7 +11601,7 @@
       // Cards for pages that are ALREADY their own real top-level page
       // (not an in-CEO "expand" panel) just link straight there, instead
       // of duplicating a second implementation inside this file.
-      const CEO_DIRECT_LINK_CARDS = { feature_control: "control_center", web_sourced_strategies: "web_sourced_strategies", clarification_center: "clarification_center", challenge_mode: "paper_trading" };
+      const CEO_DIRECT_LINK_CARDS = { feature_control: "control_center", web_sourced_strategies: "web_sourced_strategies", clarification_center: "clarification_center", challenge_mode: "paper_trading", risk_department: "risk_department", memory_core: "memory_core" };
       document.querySelectorAll("[data-ceo-card]").forEach(el => {
         const directTarget = CEO_DIRECT_LINK_CARDS[el.dataset.ceoCard];
         el.onclick = () => directTarget ? (location.hash = `#${directTarget}`) : showExpanded(el.dataset.ceoCard);

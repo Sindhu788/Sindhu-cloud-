@@ -2,6 +2,13 @@
 Telegram Signals are grouped together (paper trading is what generates
 the signals Telegram sends). No route/id/API changes -- every page must
 remain reachable under its exact same id.
+
+Grand Master Prompt, Phase 1 (10-Department Company Structure) regrouped
+every page under a department name instead of the earlier feature-shaped
+groups -- "Paper Trading" -> "Trading / Execution", "Control" ->
+"Operations / System" -- but never touched any id/route, so the two
+`test_every_page_id...`/`test_no_duplicate_page_ids` invariants below are
+unchanged; only the specific group-name assertions were updated to match.
 """
 
 from sindhu_web.api.home import NAV_PAGES, NAV_GROUPS, get_nav
@@ -13,7 +20,7 @@ def _page(pid):
 
 def test_paper_trading_and_telegram_signals_share_a_group():
     assert _page("paper_trading")["group"] == _page("telegram_dashboard")["group"]
-    assert _page("paper_trading")["group"] == "Paper Trading"
+    assert _page("paper_trading")["group"] == "Trading / Execution"
 
 
 def test_every_page_id_from_before_this_change_still_exists():
@@ -37,8 +44,8 @@ def test_get_nav_still_returns_every_enabled_page():
 
 
 def test_control_center_and_settings_remain_reachable_under_control():
-    assert _page("control_center")["group"] == "Control"
-    assert _page("settings")["group"] == "Control"
+    assert _page("control_center")["group"] == "Operations / System"
+    assert _page("settings")["group"] == "Operations / System"
 
 
 def test_no_duplicate_page_ids():
