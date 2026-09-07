@@ -14,7 +14,7 @@ from fastapi import APIRouter
 from backtest_engine import strategy_library, lifecycle_checkpoint as ckpt
 from data_engine import storage
 from sindhu_web import cache
-from sindhu_web.api.home import _compute_strategy_summary
+from sindhu_web.strategy_aggregate import compute_strategy_summary as _compute_strategy_summary
 
 router = APIRouter()
 

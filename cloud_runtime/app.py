@@ -59,6 +59,7 @@ from sindhu_web import auth, broadcast
 from sindhu_web.api import auth as auth_api
 from sindhu_web.api import paper_trading as paper_trading_api
 from sindhu_web.api import system as system_api
+from sindhu_web.api import strategy_lifecycle as strategy_lifecycle_api
 from sindhu_web.api import ws
 from sindhu_web.security import get_or_create_token, token_guard_middleware
 
@@ -217,7 +218,17 @@ def create_app():
     # from a prior session; now also reachable on the cloud dashboard,
     # satisfying the Cloud Monitoring Roadmap's Health Dashboard + Error
     # Center items without any new check logic.
-    for router in (paper_trading_api.router, ws.router, auth_api.router, system_api.router):
+    # GET /api/strategy-lifecycle (strategy_lifecycle_api) added: this was
+    # the real root cause of the Paper Trading page's Profitable/Under-
+    # Evaluation split always showing "Profitable (0)" on the cloud
+    # dashboard -- app.js's renderPaperTrading() fetches this endpoint
+    # with a silent .catch(() => ({ rows: [] })) fallback (so it never
+    # crashed the page, it just silently emptied backtestPfById), and this
+    # router was never mounted here before. Confirmed safe to import here
+    # (no evolution_engine.engine/governor or other forbidden heavy module
+    # pulled in, unlike sindhu_web.api.backtesting which stays local-only
+    # on purpose).
+    for router in (paper_trading_api.router, ws.router, auth_api.router, system_api.router, strategy_lifecycle_api.router):
         app.include_router(router)
 
     @app.get("/api/token")
