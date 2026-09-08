@@ -196,6 +196,21 @@ CREATE TABLE IF NOT EXISTS custom_alert_rules (
     last_triggered_at TEXT
 );
 
+-- Confirmed live on Render, 2026-09-09 (read-only log audit): same
+-- missing-table mistake as custom_alert_rules above -- present in the
+-- SQLite schema (data_engine/storage.py) but never added here, so both
+-- GET /api/paper-trading/account-drawdown-status and GET
+-- /api/risk-department 500'd with UndefinedTable('relation
+-- "account_drawdown_state" does not exist') on every single load.
+CREATE TABLE IF NOT EXISTS account_drawdown_state (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    peak_balance REAL NOT NULL,
+    paused INTEGER NOT NULL DEFAULT 0,
+    paused_reason TEXT,
+    paused_at TEXT,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS paper_positions (
     id TEXT PRIMARY KEY,
     exchange TEXT NOT NULL,

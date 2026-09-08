@@ -193,6 +193,11 @@ def test_app_mounts_exactly_the_expected_routers(cloud_app):
     assert "/ws/logs" in route_paths
     assert "/api/risk-department" in route_paths
     assert "/api/memory-core/checkpoints" in route_paths
+    # Urgent bug fix, 2026-09-09: confirmed live (404, 19 times in one
+    # hour) that this router was simply never mounted here even though
+    # its tables already exist in this runner's own Postgres schema.
+    assert "/api/activity" in route_paths
+    assert "/api/audit-trail" in route_paths
     # A page this runner does NOT serve must not have leaked in via some
     # other import path.
     assert "/api/backtesting/run" not in route_paths

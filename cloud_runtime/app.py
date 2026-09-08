@@ -66,6 +66,7 @@ from sindhu_web.api import dashboard_scores as dashboard_scores_api
 from sindhu_web.api import project_meta as project_meta_api
 from sindhu_web.api import timeline_compare as timeline_compare_api
 from sindhu_web.api import report_builder as report_builder_api
+from sindhu_web.api import activity as activity_api
 from sindhu_web.api import ws
 from sindhu_web.security import get_or_create_token, token_guard_middleware
 
@@ -276,9 +277,17 @@ def create_app():
     # (no evolution_engine.engine/governor or other forbidden heavy module
     # pulled in, unlike sindhu_web.api.backtesting which stays local-only
     # on purpose).
+    # GET /api/activity + /api/audit-trail (activity_api) added: confirmed
+    # live (read-only log audit, 2026-09-09) that this router was simply
+    # never mounted here, even though its underlying tables (activity_log,
+    # audit_trail_log) already exist in this file's own POSTGRES_SCHEMA --
+    # every request 404'd (19 times in one hour alone, since app.js polls
+    # /api/activity on effectively every page). Purely additive: no new
+    # schema needed, same safe pattern as strategy_lifecycle_api above.
     for router in (paper_trading_api.router, ws.router, auth_api.router, system_api.router, strategy_lifecycle_api.router,
                    risk_department_api.router, memory_core_api.router, dashboard_scores_api.router,
-                   project_meta_api.router, timeline_compare_api.router, report_builder_api.router):
+                   project_meta_api.router, timeline_compare_api.router, report_builder_api.router,
+                   activity_api.router):
         app.include_router(router)
 
     @app.get("/api/token")

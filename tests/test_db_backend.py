@@ -152,6 +152,9 @@ def test_schema_contains_every_table_the_lightweight_runner_needs():
         # custom_alert_rules: confirmed missing live on Render -- see its
         # own comment in db_backend.py.
         "custom_alert_rules",
+        # account_drawdown_state: same story, found in the same audit --
+        # see its own comment in db_backend.py.
+        "account_drawdown_state",
     }
     for table in expected_tables:
         assert f"CREATE TABLE IF NOT EXISTS {table} (" in db_backend.POSTGRES_SCHEMA, table

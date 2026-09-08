@@ -167,9 +167,21 @@ class PaperTradingEngine:
         balance (each strategy starts from the same initial_balance and
         accrues its own realized pnl), never one shared/averaged number."""
         settings = pt_config.load()
-        open_positions = storage.get_open_paper_positions()
         initial_balance = settings.get("initial_balance", 10000.0)
-        states = storage.list_paper_account_states()
+        # Urgent bug fix, 2026-09-09: this endpoint is the dashboard's most
+        # heavily-polled one -- 3 separate storage calls here used to open
+        # 3 separate fresh Postgres connections (no pooling on the cloud
+        # runner, see data_engine.db_backend.get_postgres_conn), which
+        # compounded into real >15s timeouts under the concurrent request
+        # load a full page load fires. One connection now answers all
+        # three (see storage.get_paper_status_snapshot's own docstring).
+        # Master Task 3, Phase 0.8c: "Today" = since the most recent UTC
+        # midnight -- same convention as the existing weekly/monthly report
+        # windows elsewhere in this module, just a 1-day window instead.
+        today_start_iso = datetime.now(timezone.utc).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        ).isoformat()
+        open_positions, states, trades_today = storage.get_paper_status_snapshot(today_start_iso)
 
         # paper_account_state only gets a row once a book has CLOSED its
         # first trade. A freshly-activated strategy that already holds OPEN
@@ -216,13 +228,6 @@ class PaperTradingEngine:
         # contribute its initial_balance -- previously it contributed
         # nothing at all, understating the combined figure.
         combined_balance = initial_balance * len(books) + sum(s["realized_pnl_total"] for s in books.values())
-        # Master Task 3, Phase 0.8c: "Today" = since the most recent UTC
-        # midnight -- same convention as the existing weekly/monthly report
-        # windows elsewhere in this module, just a 1-day window instead.
-        today_start_iso = datetime.now(timezone.utc).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        ).isoformat()
-        trades_today = storage.count_paper_trades_opened_since(today_start_iso)
         # Grand Master Prompt, Phase 3.12 (Scan Timer): next_tick_at is a
         # plain last_tick_at + tick_interval_seconds projection, only
         # meaningful while the engine is actually running.

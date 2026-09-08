@@ -134,6 +134,10 @@ CURATED_TABLES = [
     # data worth actually carrying over to a fresh cloud deploy, same
     # reasoning as paper_coin_blacklist/challenges above.
     "custom_alert_rules",
+    # account_drawdown_state: a single real (peak_balance/paused) row --
+    # worth actually carrying over to a fresh cloud deploy, same reasoning
+    # as custom_alert_rules above.
+    "account_drawdown_state",
 ]
 
 

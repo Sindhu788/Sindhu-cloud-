@@ -3522,6 +3522,39 @@ def count_paper_trades_opened_since(since_iso):
     return row[0] if row else 0
 
 
+def get_paper_status_snapshot(since_iso):
+    """Urgent bug fix, 2026-09-09: GET /api/paper-trading/status timed out
+    (15000ms) on Render -- this is the dashboard's single most-polled
+    endpoint (fired on every Paper Trading page load and every refresh),
+    and PaperTradingEngine.status() was opening 3 SEPARATE fresh Postgres
+    connections for it (get_open_paper_positions, list_paper_account_states,
+    count_paper_trades_opened_since each call get_conn() independently) --
+    data_engine.db_backend.get_postgres_conn() opens a brand-new TCP+TLS+
+    auth connection per call with no pooling, so on a page that already
+    fires ~30 other concurrent requests (each opening their own
+    connections too), the connection-setup overhead compounds under real
+    concurrent load. Same fix category as the strategy-overview timeout
+    (cut repeated/redundant work), just here it's redundant CONNECTIONS
+    rather than redundant COMPUTATION: this single function answers all
+    three needs in ONE connection instead of three."""
+    with get_conn() as conn:
+        position_rows = conn.execute(
+            f"SELECT {','.join(_PAPER_POSITION_COLUMNS)} FROM paper_positions WHERE status='open'"
+        ).fetchall()
+        state_rows = conn.execute(
+            "SELECT strategy_id, realized_pnl_total, closed_count, win_count, updated_at FROM paper_account_state"
+        ).fetchall()
+        today_row = conn.execute(
+            "SELECT COUNT(*) FROM paper_positions WHERE created_at >= ?", (since_iso,)
+        ).fetchone()
+
+    open_positions = [_row_to_paper_position(r) for r in position_rows]
+    state_cols = ["strategy_id", "realized_pnl_total", "closed_count", "win_count", "updated_at"]
+    account_states = [dict(zip(state_cols, r)) for r in state_rows]
+    trades_today = today_row[0] if today_row else 0
+    return open_positions, account_states, trades_today
+
+
 def list_closed_paper_trades_since(since_iso):
     """Every CLOSED trade's real pnl/risk_amount, system-wide across every
     strategy, closed at or after since_iso -- Batch 9, Task 4's Challenge
