@@ -21,5 +21,8 @@
     "total_trades": 14761,
     "batch_id": "s1_liquidity_sweep_multi_confirm",
     "computed_at": "2026-08-28T19:16:57.254996+00:00"
-  }
+  },
+  "validator_status": "ready",
+  "validator_errors": [],
+  "fixed_rr": null
 }

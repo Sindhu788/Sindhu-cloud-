@@ -21,5 +21,8 @@
     "total_trades": 20253,
     "batch_id": "s3_ote_liquidity_sweep_reversal",
     "computed_at": "2026-08-28T19:22:52.605427+00:00"
-  }
+  },
+  "validator_status": "ready",
+  "validator_errors": [],
+  "fixed_rr": null
 }

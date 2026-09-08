@@ -18,9 +18,12 @@
   "safety_reasons": [],
   "backtest_snapshot": {
     "win_rate": 44.55,
-    "profit_factor": 0.6519,
+    "profit_factor": null,
     "total_trades": 14369,
     "batch_id": "20260902_044013_156a8b",
     "computed_at": "2026-09-01T23:40:13.331511+00:00"
-  }
+  },
+  "validator_status": "ready",
+  "validator_errors": [],
+  "fixed_rr": null
 }

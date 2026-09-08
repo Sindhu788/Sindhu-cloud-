@@ -21,5 +21,8 @@
     "total_trades": 9082,
     "batch_id": "s2_sniper_headshot_entry",
     "computed_at": "2026-08-28T04:47:57.744751+00:00"
-  }
+  },
+  "validator_status": "ready",
+  "validator_errors": [],
+  "fixed_rr": null
 }

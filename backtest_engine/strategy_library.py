@@ -10,6 +10,7 @@ import shutil
 import uuid
 from datetime import datetime, timezone
 
+from backtest_engine import validator
 from backtest_engine.strategy_config import StrategyConfig
 from backtest_engine.strategy_safety_check import run_safety_check
 
@@ -72,20 +73,57 @@ def save_backtest_snapshot(strategy_id, snapshot):
     _write_meta(strategy_id, meta)
 
 
+def _compute_fixed_rr(config):
+    """The strategy's own FIXED configured risk:reward ratio (take_profit.
+    type == "rr", or the legacy risk_reward field), or None when its
+    stop-loss/take-profit are structure-based (no single fixed ratio to
+    state) -- same logic sindhu_web/api/paper_trading.py's
+    get_strategy_overview() used to compute inline on every request."""
+    tp = config.take_profit
+    if tp and tp.type == "rr" and tp.value:
+        return tp.value
+    if config.risk_reward:
+        return config.risk_reward
+    return None
+
+
+def _compute_activation_gates(config):
+    """Both mandatory activation gates (validator + Strategy Safety Check)
+    plus the display-only fixed R:R, all in one pass -- cached into
+    meta.json by every save path below so a page listing every strategy
+    (e.g. the Strategies page) never has to re-run either check or
+    re-load the full config just to show status. Urgent bug fix,
+    2026-09-09: confirmed live that recomputing both checks (plus a
+    redundant lib.load() per row) for all 154 library strategies on every
+    single GET /api/paper-trading/strategy-overview request was the exact
+    cause of that endpoint's "timed out after 15000ms" failure -- these
+    results only ever change when a strategy is actually saved, so
+    recomputing them on every page view was pure waste."""
+    errors = validator.validate(config)
+    safety = run_safety_check(config)
+    return {
+        "safety_status": safety["status"],
+        "safety_reasons": safety["reasons"],
+        "validator_status": "ready" if not errors else "needs_clarification",
+        "validator_errors": errors,
+        "fixed_rr": _compute_fixed_rr(config),
+    }
+
+
 def create(config, tags=None):
     """Saves a new strategy as version 1. Returns its library id.
 
-    Automatic Strategy Safety Check: runs on every save (new strategy or
-    new version of an existing one) so a strategy's "ready"/"needs_review"
-    status is always current, without any caller having to remember to
-    call it separately -- covers every creation path (manual import, AI
+    Automatic Strategy Safety Check + validator: run on every save (new
+    strategy or new version of an existing one) so a strategy's "ready"/
+    "needs_review"/"needs_clarification" status and fixed R:R are always
+    current in meta.json, without any caller having to remember to call
+    them separately -- covers every creation path (manual import, AI
     import, pasted strategy, optimizer's winning candidate saved via
     save_version) through this one choke point."""
     os.makedirs(_LIBRARY_DIR, exist_ok=True)
     strategy_id = uuid.uuid4().hex[:12]
     os.makedirs(_versions_dir(strategy_id), exist_ok=True)
 
-    safety = run_safety_check(config)
     now = _now_iso()
     meta = {
         "id": strategy_id,
@@ -96,8 +134,7 @@ def create(config, tags=None):
         "created_at": now,
         "updated_at": now,
         "current_version": 1,
-        "safety_status": safety["status"],
-        "safety_reasons": safety["reasons"],
+        **_compute_activation_gates(config),
     }
     _write_meta(strategy_id, meta)
     with open(os.path.join(_versions_dir(strategy_id), "v1.json"), "w", encoding="utf-8") as f:
@@ -118,13 +155,11 @@ def save_version(strategy_id, config, reason=None):
     new_version = meta["current_version"] + 1
     with open(os.path.join(_versions_dir(strategy_id), f"v{new_version}.json"), "w", encoding="utf-8") as f:
         json.dump(config.to_dict(), f, indent=2)
-    safety = run_safety_check(config)
     now = _now_iso()
     meta["current_version"] = new_version
     meta["updated_at"] = now
     meta["name"] = config.name
-    meta["safety_status"] = safety["status"]
-    meta["safety_reasons"] = safety["reasons"]
+    meta.update(_compute_activation_gates(config))
     version_log = list(meta.get("version_log") or [])
     version_log.append({"version": new_version, "reason": reason, "at": now})
     meta["version_log"] = version_log
@@ -133,17 +168,18 @@ def save_version(strategy_id, config, reason=None):
 
 
 def recheck_safety(strategy_id):
-    """Re-runs the safety check against a strategy's CURRENT version and
-    updates meta.json in place, without creating a new version -- used by
-    the one-time backfill over strategies saved before this check existed.
-    Returns the safety result dict."""
+    """Re-runs BOTH activation gates (safety check + validator) plus the
+    fixed R:R against a strategy's CURRENT version and updates meta.json
+    in place, without creating a new version -- used by the one-time
+    backfill over strategies saved before these were cached. Returns the
+    safety result dict (unchanged return shape -- existing callers only
+    ever read the safety half of this)."""
     meta = _read_meta(strategy_id)
     config = load(strategy_id)
-    safety = run_safety_check(config)
-    meta["safety_status"] = safety["status"]
-    meta["safety_reasons"] = safety["reasons"]
+    gates = _compute_activation_gates(config)
+    meta.update(gates)
     _write_meta(strategy_id, meta)
-    return safety
+    return {"status": gates["safety_status"], "reasons": gates["safety_reasons"], "passed": gates["safety_status"] == "ready"}
 
 
 def save_walk_forward_result(strategy_id, result):

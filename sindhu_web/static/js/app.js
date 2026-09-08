@@ -1692,10 +1692,76 @@
       </div>`;
   }
 
+  // CEO Task A: color-coded Independent Paper Trading Groups summary,
+  // fixed top-to-bottom order Challenge (green) -> Profitable (yellow) ->
+  // Losing (red). Shared by the Strategies page (right below the "Enable
+  // All for Paper Trading" button, so the result of that action is
+  // immediately visible) -- same /api/paper-trading/groups data source
+  // and shape the Paper Trading page's own "Groups" tab already uses.
+  function strategyOverviewGroupsHtml(groupsRes, en) {
+    if (!groupsRes) {
+      return `<div class="card"><p class="muted">${en ? "Groups data not available yet." : "Groups data abhi available nahi."}</p></div>`;
+    }
+    const GROUP_META = {
+      challenge: { label: "Challenge", color: "var(--green)", dot: "\u{1F7E2}" },
+      profitable: { label: "Profitable", color: "var(--yellow)", dot: "\u{1F7E1}" },
+      losing: { label: "Losing", color: "var(--red)", dot: "\u{1F534}" },
+    };
+    const groupCard = (key) => {
+      const g = groupsRes.groups[key];
+      const meta = GROUP_META[key];
+      return `
+        <div class="section-title" style="margin-top:14px;color:${meta.color};">${meta.dot} ${meta.label} (${g.strategy_count} ${en ? "strategies" : "strategies"})</div>
+        <div class="grid" style="border-left:3px solid ${meta.color};padding-left:10px;">
+          ${card("Balance", `$${Number(g.balance).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}`)}
+          ${cardClass("Total PnL", `${g.total_pnl >= 0 ? "+" : ""}$${g.total_pnl.toFixed(2)}`, g.total_pnl > 0 ? "positive" : g.total_pnl < 0 ? "negative" : "")}
+          ${card("Win Rate", `${g.win_rate_pct.toFixed(1)}%`)}
+          ${card("Closed Trades", fmtNum(g.closed_trades))}
+          ${card("Open Positions", fmtNum(g.open_positions))}
+        </div>
+        ${key === "challenge" && groupsRes.challenge_daily ? `
+        <div class="card" style="margin-top:8px;max-width:640px;border-left:3px solid ${meta.color};">
+          <div class="btn-row" style="align-items:center;">
+            <span class="pill ${groupsRes.challenge_daily.hit ? "pill-completed" : "pill-pending"}">
+              ${groupsRes.challenge_daily.hit
+                ? (en ? "Today's target HIT" : "Aaj ka target HIT")
+                : (en ? "Today's target not hit yet" : "Aaj ka target abhi hit nahi hua")}
+            </span>
+            <span class="muted" style="font-size:12px;">
+              ${en ? "Today's real PnL" : "Aaj ka real PnL"}: $${groupsRes.challenge_daily.pnl_today.toFixed(2)}
+              &nbsp;/&nbsp; ${en ? "Target" : "Target"}: $${groupsRes.challenge_daily.target_usd.toFixed(2)}/day
+            </span>
+          </div>
+          <div style="margin-top:8px;display:flex;gap:4px;flex-wrap:wrap;">
+            ${(groupsRes.challenge_recent_days || []).map(d => `
+              <span class="pill ${!d.has_data ? "pill-muted" : d.hit ? "pill-completed" : "pill-pending"}"
+                    title="${esc(d.date)}${d.has_data ? `: $${d.pnl.toFixed(2)}` : ": " + (en ? "no closed trade" : "koi closed trade nahi")}">
+                ${d.date.slice(5)}
+              </span>`).join("")}
+          </div>
+        </div>` : ""}
+        <div class="table-wrap" style="margin-top:8px;"><table>
+          <thead><tr><th>${en ? "Strategy" : "Strategy"}</th><th>Balance</th><th>PnL</th><th>Win Rate</th><th>Closed Trades</th></tr></thead>
+          <tbody>${g.strategies.map(s => `
+            <tr>
+              <td>${esc(s.strategy_name)}</td>
+              <td>$${s.balance.toFixed(2)}</td>
+              <td class="${s.total_pnl > 0 ? "positive" : s.total_pnl < 0 ? "negative" : ""}">${s.total_pnl >= 0 ? "+" : ""}$${s.total_pnl.toFixed(2)}</td>
+              <td>${s.win_rate_pct.toFixed(1)}%</td>
+              <td>${fmtNum(s.closed_trades)}</td>
+            </tr>`).join("") || `<tr><td colspan="5">${en ? "No strategies in this group yet." : "Is group mein abhi koi strategy nahi."}</td></tr>`}</tbody>
+        </table></div>`;
+    };
+    return groupCard("challenge") + groupCard("profitable") + groupCard("losing");
+  }
+
   async function renderStrategyOverview() {
     const en = getLang() === "en";
     const myToken = activeRouteToken;
-    const data = await apiGet("/api/paper-trading/strategy-overview");
+    const [data, groupsRes] = await Promise.all([
+      apiGet("/api/paper-trading/strategy-overview"),
+      apiGet("/api/paper-trading/groups").catch(() => null),
+    ]);
     if (isStaleRoute(myToken)) return;
     const strategies = data.strategies || [];
 
@@ -1718,25 +1784,64 @@
 
       const cards = sorted.map(s => strategyOverviewCard(s, en)).join("");
 
+      const notYetAddedCount = strategies.filter(s => !s.in_paper_trading).length;
+
       content.innerHTML = `
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:6px;">
           <div class="section-title" style="margin:0;">${en ? "Strategies" : "Strategies"}</div>
-          <label style="font-size:12px;display:flex;align-items:center;gap:6px;">
-            ${en ? "Sort by" : "Sort Karein"}:
-            <select id="strategyOverviewSortSelect">
-              ${SORT_OPTIONS.map(o => `<option value="${o.key}" ${strategyOverviewSort === o.key ? "selected" : ""}>${o.label}</option>`).join("")}
-            </select>
-          </label>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <button class="btn" id="btnEnableAllPaperTrading" ${notYetAddedCount === 0 ? "disabled" : ""}>
+              ${en ? "Enable All for Paper Trading" : "Sab Ko Paper Trading Ke Liye Enable Karein"}
+            </button>
+            <label style="font-size:12px;display:flex;align-items:center;gap:6px;">
+              ${en ? "Sort by" : "Sort Karein"}:
+              <select id="strategyOverviewSortSelect">
+                ${SORT_OPTIONS.map(o => `<option value="${o.key}" ${strategyOverviewSort === o.key ? "selected" : ""}>${o.label}</option>`).join("")}
+              </select>
+            </label>
+          </div>
         </div>
         <p class="muted" style="font-size:12px;margin:0 0 14px;">${en
           ? "Every strategy currently in the system, one card each -- the top row is what the backtest predicted (from the local machine's own last completed batch), the bottom row is what Paper Trading has actually done since. A strategy not yet added shows $0.00 until it starts trading."
           : "System mein maujood har strategy, ek-ek card mein -- upar wali row backtest ne kya predict kiya (local machine ke aakhri complete batch se), neeche wali row Paper Trading ne asal mein kya kiya hai. Jo strategy abhi shamil nahi hui uska $0.00 dikhega jab tak trading shuru nahi hoti."}</p>
-        <div class="grid">${cards || `<p class="muted">${en ? "No strategies saved yet." : "Abhi koi strategy save nahi hui."}</p>`}</div>`;
+        <div class="grid">${cards || `<p class="muted">${en ? "No strategies saved yet." : "Abhi koi strategy save nahi hui."}</p>`}</div>
+
+        <div class="section-title" style="margin-top:24px;">${en ? "Independent Paper Trading Groups" : "Independent Paper Trading Groups"}</div>
+        <p class="muted plain-note">${en
+          ? "3 completely independent books -- Challenge, Profitable, and Losing -- each with its own balance, PnL, win rate, and trade history. Never mixed or averaged together."
+          : "3 bilkul independent books -- Challenge, Profitable, aur Losing -- har ek ka apna balance, PnL, win rate, aur trade history. Kabhi mix ya average nahi hote."}</p>
+        <div id="strategyOverviewGroups">${strategyOverviewGroupsHtml(groupsRes, en)}</div>`;
 
       document.getElementById("strategyOverviewSortSelect").onchange = (e) => {
         strategyOverviewSort = e.target.value;
         renderTable();
       };
+
+      const enableAllBtn = document.getElementById("btnEnableAllPaperTrading");
+      if (enableAllBtn) {
+        enableAllBtn.onclick = async () => {
+          const confirmMsg = en
+            ? `Enable ALL ${notYetAddedCount} not-yet-added strategies for Paper Trading in one action?\n\nOnly strategies that pass the automatic Strategy Safety Check + validator are actually enabled -- any that fail are skipped and listed. Every other safety gate still applies before any trade fires.`
+            : `${notYetAddedCount} abhi shamil-na-hui strategies ko ek hi baar mein Paper Trading ke liye Enable karna hai?\n\nSirf woh strategies enable hongi jo automatic Strategy Safety Check + validator pass karti hain -- jo fail hoti hain unhe skip karke list ki jayegi. Baaki har safety gate ab bhi lagu rahega, kisi bhi trade se pehle.`;
+          if (!confirm(confirmMsg)) return;
+          enableAllBtn.disabled = true;
+          enableAllBtn.textContent = en ? "Enabling..." : "Enable Ho Raha Hai...";
+          try {
+            const result = await apiPost("/api/paper-trading/strategy-config/enable-all", {});
+            showToast({
+              title: en ? "Enable All complete" : "Enable All Mukammal",
+              body: en
+                ? `${result.enabled_count} enabled, ${result.already_enabled_count} already on, ${result.blocked_count} blocked (failed a safety/validator gate).`
+                : `${result.enabled_count} enable hui, ${result.already_enabled_count} pehle se on thi, ${result.blocked_count} block hui (safety/validator gate fail).`,
+            });
+            renderStrategyOverview();
+          } catch (e) {
+            enableAllBtn.disabled = false;
+            enableAllBtn.textContent = en ? "Enable All for Paper Trading" : "Sab Ko Paper Trading Ke Liye Enable Karein";
+            showToast({ title: en ? "Failed" : "Nakam", body: e.message, isError: true });
+          }
+        };
+      }
 
       content.querySelectorAll("[data-activate]").forEach(btn => {
         btn.onclick = async () => {
@@ -8620,17 +8725,19 @@
           ? "3 completely independent books -- Losing, Profitable, and Challenge -- each with its own balance, PnL, win rate, and trade history. Never mixed or averaged together."
           : "3 bilkul independent books -- Losing, Profitable, aur Challenge -- har ek ka apna balance, PnL, win rate, aur trade history. Kabhi mix ya average nahi hote."}</p>
         ${!groupsRes ? `<div class="card"><p class="muted">Groups data not available yet.</p></div>` : (() => {
+          // CEO Task A: color-coded, fixed top-to-bottom order -- Challenge
+          // (green) first, then Profitable (yellow), then Losing (red).
           const GROUP_META = {
-            losing: { label: "Losing" },
-            profitable: { label: "Profitable" },
-            challenge: { label: "Challenge" },
+            challenge: { label: "Challenge", color: "var(--green)", dot: "\u{1F7E2}" },
+            profitable: { label: "Profitable", color: "var(--yellow)", dot: "\u{1F7E1}" },
+            losing: { label: "Losing", color: "var(--red)", dot: "\u{1F534}" },
           };
           const groupCard = (key) => {
             const g = groupsRes.groups[key];
             const meta = GROUP_META[key];
             return `
-              <div class="section-title" style="margin-top:14px;">${meta.label} (${g.strategy_count} ${getLang() === "en" ? "strategies" : "strategies"})</div>
-              <div class="grid">
+              <div class="section-title" style="margin-top:14px;color:${meta.color};">${meta.dot} ${meta.label} (${g.strategy_count} ${getLang() === "en" ? "strategies" : "strategies"})</div>
+              <div class="grid" style="border-left:3px solid ${meta.color};padding-left:10px;">
                 ${card("Balance", `$${Number(g.balance).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}`)}
                 ${cardClass("Total PnL", `${g.total_pnl >= 0 ? "+" : ""}$${g.total_pnl.toFixed(2)}`, g.total_pnl > 0 ? "positive" : g.total_pnl < 0 ? "negative" : "")}
                 ${card("Win Rate", `${g.win_rate_pct.toFixed(1)}%`)}
@@ -8638,7 +8745,7 @@
                 ${card("Open Positions", fmtNum(g.open_positions))}
               </div>
               ${key === "challenge" && groupsRes.challenge_daily ? `
-              <div class="card" style="margin-top:8px;max-width:640px;">
+              <div class="card" style="margin-top:8px;max-width:640px;border-left:3px solid ${meta.color};">
                 <div class="btn-row" style="align-items:center;">
                   <span class="pill ${groupsRes.challenge_daily.hit ? "pill-completed" : "pill-pending"}">
                     ${groupsRes.challenge_daily.hit
@@ -8670,7 +8777,7 @@
                   </tr>`).join("") || `<tr><td colspan="5">${getLang() === "en" ? "No strategies in this group yet." : "Is group mein abhi koi strategy nahi."}</td></tr>`}</tbody>
               </table></div>`;
           };
-          return groupCard("losing") + groupCard("profitable") + groupCard("challenge");
+          return groupCard("challenge") + groupCard("profitable") + groupCard("losing");
         })()}
         </div>
 

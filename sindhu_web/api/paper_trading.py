@@ -313,6 +313,64 @@ def update_strategy_config(strategy_id: str, req: StrategyConfigUpdate):
     return {"ok": True}
 
 
+@router.post("/api/paper-trading/strategy-config/enable-all")
+def enable_all_for_paper_trading():
+    """"Enable All for Paper Trading" button on the Strategies page. Goes
+    through the exact same single-strategy activation write
+    (storage.save_paper_strategy_config, identical to what
+    update_strategy_config above does for one strategy at a time) for
+    every library strategy that passes BOTH mandatory gates -- the
+    validator and the automatic Strategy Safety Check, cached in
+    meta.json by backtest_engine.strategy_library's create()/
+    save_version() (see that module's _compute_activation_gates) -- and
+    isn't already enabled or archived. Never bypasses either gate: a
+    strategy that fails one is skipped, exactly like the per-strategy
+    button's own can_activate check on the Strategies page already
+    prevents.
+
+    Reachable only through the normal logged-in dashboard session --
+    this is a plain POST route on the same router, protected by the same
+    login+token middleware as every other state-changing endpoint here.
+    No new auth path, no bypass, no direct database access outside the
+    app's own storage layer.
+
+    After enabling, runs the same idempotent paper_trading.strategy_groups.
+    sync_group_assignments() used everywhere else so newly-enabled
+    strategies are immediately split into Losing/Profitable/Challenge."""
+    metas = lib.list_all()
+    configs = storage.list_paper_strategy_configs()
+    now = datetime.now(timezone.utc).isoformat()
+
+    enabled, already_enabled, blocked = [], [], []
+    for meta in metas:
+        sid = meta["id"]
+        if meta.get("archived"):
+            continue
+        if configs.get(sid, {}).get("enabled"):
+            already_enabled.append({"strategy_id": sid, "name": meta.get("name", sid)})
+            continue
+        can_activate = meta.get("safety_status") == "ready" and meta.get("validator_status") == "ready"
+        if not can_activate:
+            blocked.append({"strategy_id": sid, "name": meta.get("name", sid)})
+            continue
+        storage.save_paper_strategy_config(sid, True, 5, [], [], now)
+        enabled.append({"strategy_id": sid, "name": meta.get("name", sid)})
+
+    if enabled:
+        _log_and_broadcast(f"[paper-trading] Enable All: activated {len(enabled)} strategies by a person")
+        sync.notify("paper_trading", "updated", f"Enable All: {len(enabled)} strategies activated")
+
+    group_sync_result = strategy_groups.sync_group_assignments()
+
+    return {
+        "ok": True,
+        "enabled_count": len(enabled), "enabled": enabled,
+        "already_enabled_count": len(already_enabled), "already_enabled": already_enabled,
+        "blocked_count": len(blocked), "blocked": blocked,
+        "group_sync": group_sync_result,
+    }
+
+
 # --------------------------------------------------- Master Task 2, Part 3
 # Advanced per-strategy controls: manual pause/resume, full stats reset
 # (archived, not deleted), and risk%/max-open-positions overrides.
@@ -627,7 +685,21 @@ def get_strategy_overview():
     Strategy Safety Check plus the config validator) -- a strategy that
     fails either is not safe to run unattended, so the frontend disables
     its Move-to-Paper-Trading button and shows why, rather than silently
-    letting it through."""
+    letting it through.
+
+    Urgent bug fix, 2026-09-09: confirmed the real cause of this
+    endpoint's live "timed out after 15000ms" failure was recomputing
+    both activation gates (validator.validate + run_safety_check) AND
+    re-loading each strategy's full config from disk (lib.load(), on top
+    of the meta.json read list_all() already did) for all ~150 library
+    strategies, synchronously, on EVERY single page view -- these results
+    only ever change when a strategy is actually saved. Both gates (plus
+    the display-only fixed R:R) are now computed once per save and cached
+    in meta.json by backtest_engine.strategy_library.create()/
+    save_version()/recheck_safety() (see that module's
+    _compute_activation_gates for the shared logic) -- this endpoint now
+    just reads the already-loaded meta dict, no per-row file I/O or
+    recomputation at all."""
     metas = lib.list_all()
     configs = storage.list_paper_strategy_configs()
     stats_by_id = {s["strategy_id"]: s for s in storage.list_paper_strategy_stats()}
@@ -640,24 +712,22 @@ def get_strategy_overview():
         stat = stats_by_id.get(sid)
         perf = perf_by_id.get(sid)
 
-        fixed_rr = None
-        can_activate = False
+        fixed_rr = meta.get("fixed_rr")
+        safety_reasons = meta.get("safety_reasons") or []
+        validator_errors = meta.get("validator_errors") or []
+        # A strategy saved before this cache existed has neither field yet
+        # -- treated the same as "blocked" (never silently assumed safe)
+        # until the one-time backfill (scripts/backfill_validator_status.py)
+        # or its own next save populates it.
+        gates_cached = "safety_status" in meta and "validator_status" in meta
+        can_activate = gates_cached and meta.get("safety_status") == "ready" and meta.get("validator_status") == "ready"
         blocked_reason = None
-        try:
-            cfg = lib.load(sid)
-            tp = cfg.take_profit
-            if tp and tp.type == "rr" and tp.value:
-                fixed_rr = tp.value
-            elif cfg.risk_reward:
-                fixed_rr = cfg.risk_reward
-            errors = validator.validate(cfg)
-            safety = run_safety_check(cfg)
-            can_activate = bool(safety["passed"]) and not errors
-            if not can_activate:
-                reasons = list(safety.get("reasons") or []) + list(errors or [])
+        if not can_activate:
+            if not gates_cached:
+                blocked_reason = "Activation status not yet computed for this strategy -- save it once to refresh."
+            else:
+                reasons = list(safety_reasons) + list(validator_errors)
                 blocked_reason = "; ".join(reasons) if reasons else "Failed the automatic Strategy Safety Check."
-        except Exception as exc:
-            blocked_reason = f"Could not load this strategy's saved configuration ({exc})."
 
         avg_rr = perf.get("avg_rr") if perf else None
         rows.append({

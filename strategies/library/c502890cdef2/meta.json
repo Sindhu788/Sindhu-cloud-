@@ -18,5 +18,8 @@
     "total_trades": 1867,
     "batch_id": "dmc_combined_20260826_011218",
     "computed_at": "2026-08-25T20:12:18.234337+00:00"
-  }
+  },
+  "validator_status": "ready",
+  "validator_errors": [],
+  "fixed_rr": null
 }

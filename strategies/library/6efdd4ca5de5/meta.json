@@ -15,5 +15,8 @@
     "total_trades": 27033,
     "batch_id": "20260831_113524_ebe965",
     "computed_at": "2026-08-31T06:35:24.490970+00:00"
-  }
+  },
+  "validator_status": "ready",
+  "validator_errors": [],
+  "fixed_rr": null
 }

@@ -21,5 +21,8 @@
     "total_trades": 34221,
     "batch_id": "s5_fractal_sweep_reversal",
     "computed_at": "2026-08-28T06:09:12.739886+00:00"
-  }
+  },
+  "validator_status": "ready",
+  "validator_errors": [],
+  "fixed_rr": 2.0
 }

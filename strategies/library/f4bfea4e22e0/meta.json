@@ -21,5 +21,8 @@
     "total_trades": 571,
     "batch_id": "s4_cisd_entry",
     "computed_at": "2026-08-28T06:00:29.947358+00:00"
-  }
+  },
+  "validator_status": "ready",
+  "validator_errors": [],
+  "fixed_rr": null
 }

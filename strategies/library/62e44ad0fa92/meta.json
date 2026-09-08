@@ -15,5 +15,8 @@
     "total_trades": 18925,
     "batch_id": "pdhl_full_20260826_164403",
     "computed_at": "2026-08-26T11:44:03.520850+00:00"
-  }
+  },
+  "validator_status": "ready",
+  "validator_errors": [],
+  "fixed_rr": null
 }
