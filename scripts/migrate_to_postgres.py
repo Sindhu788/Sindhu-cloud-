@@ -130,6 +130,10 @@ CURATED_TABLES = [
     # carrying over to a fresh cloud deploy, same reasoning as
     # paper_coin_blacklist/challenges above.
     "paper_strategy_groups",
+    # custom_alert_rules: user-authored alert rules -- small, CEO-curated
+    # data worth actually carrying over to a fresh cloud deploy, same
+    # reasoning as paper_coin_blacklist/challenges above.
+    "custom_alert_rules",
 ]
 
 

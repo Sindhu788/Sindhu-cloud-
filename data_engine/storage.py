@@ -4222,7 +4222,7 @@ def list_paper_coin_pattern_memory(strategy_id=None, since=None):
     if since:
         query += " AND created_at >= ?"
         params.append(since)
-    query += " GROUP BY strategy_id, symbol, market_state, session ORDER BY COUNT(*) DESC"
+    query += " GROUP BY strategy_id, strategy_name, symbol, market_state, session ORDER BY COUNT(*) DESC"
     with get_conn() as conn:
         rows = conn.execute(query, params).fetchall()
     return [

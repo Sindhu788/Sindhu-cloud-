@@ -178,6 +178,24 @@ CREATE TABLE IF NOT EXISTS paper_coin_blacklist (
     added_at TEXT NOT NULL
 );
 
+-- Confirmed live on Render, 2026-09-08: custom_alerts.sweep_custom_alert_rules()
+-- runs every tick from paper_trading/engine.py and hit
+-- UndefinedTable('relation "custom_alert_rules" does not exist') because this
+-- table -- present in the SQLite schema (data_engine/storage.py) -- was never
+-- added to the curated Postgres schema. Same mistake as paper_coin_blacklist
+-- and paper_strategy_groups above; fixed here the same way.
+CREATE TABLE IF NOT EXISTS custom_alert_rules (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    metric TEXT NOT NULL,
+    strategy_id TEXT,
+    comparison TEXT NOT NULL,
+    threshold REAL NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    last_triggered_at TEXT
+);
+
 CREATE TABLE IF NOT EXISTS paper_positions (
     id TEXT PRIMARY KEY,
     exchange TEXT NOT NULL,

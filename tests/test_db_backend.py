@@ -149,6 +149,9 @@ def test_schema_contains_every_table_the_lightweight_runner_needs():
         # CEO Task 3 (Independent Paper Trading Groups): group-label table,
         # see paper_strategy_groups' own comment in db_backend.py.
         "paper_strategy_groups",
+        # custom_alert_rules: confirmed missing live on Render -- see its
+        # own comment in db_backend.py.
+        "custom_alert_rules",
     }
     for table in expected_tables:
         assert f"CREATE TABLE IF NOT EXISTS {table} (" in db_backend.POSTGRES_SCHEMA, table
