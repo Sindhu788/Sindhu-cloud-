@@ -62,6 +62,10 @@ from sindhu_web.api import system as system_api
 from sindhu_web.api import strategy_lifecycle as strategy_lifecycle_api
 from sindhu_web.api import risk_department as risk_department_api
 from sindhu_web.api import memory_core as memory_core_api
+from sindhu_web.api import dashboard_scores as dashboard_scores_api
+from sindhu_web.api import project_meta as project_meta_api
+from sindhu_web.api import timeline_compare as timeline_compare_api
+from sindhu_web.api import report_builder as report_builder_api
 from sindhu_web.api import ws
 from sindhu_web.security import get_or_create_token, token_guard_middleware
 
@@ -261,7 +265,8 @@ def create_app():
     # pulled in, unlike sindhu_web.api.backtesting which stays local-only
     # on purpose).
     for router in (paper_trading_api.router, ws.router, auth_api.router, system_api.router, strategy_lifecycle_api.router,
-                   risk_department_api.router, memory_core_api.router):
+                   risk_department_api.router, memory_core_api.router, dashboard_scores_api.router,
+                   project_meta_api.router, timeline_compare_api.router, report_builder_api.router):
         app.include_router(router)
 
     @app.get("/api/token")

@@ -12,6 +12,7 @@ send audit trail -- no new table needed.
 """
 
 from datetime import datetime, timezone
+from datetime import timedelta as _timedelta
 
 from backtest_engine import strategy_library as lib
 from data_engine import storage
@@ -61,6 +62,20 @@ def generate_daily_report(now=None):
 
     strategy_stats_today = storage.list_paper_strategy_stats(today_start_iso, None)
     best_today = max(strategy_stats_today, key=lambda s: s["total_pnl"], default=None) if strategy_stats_today else None
+    # Grand Master Prompt, Phase 4.7 (Daily Insights): worst strategy today,
+    # best/worst coin today, and an honest today-vs-yesterday comparison --
+    # all from data this function already fetches or from the one existing
+    # per-coin aggregate (storage.list_paper_coin_stats), no new computation
+    # invented for any of these.
+    worst_today = min(strategy_stats_today, key=lambda s: s["total_pnl"], default=None) if strategy_stats_today else None
+    coin_stats_today = storage.list_paper_coin_stats(today_start_iso, None)
+    best_coin_today = coin_stats_today[0] if coin_stats_today else None
+    worst_coin_today = coin_stats_today[-1] if coin_stats_today else None
+    yesterday_start = (now.replace(hour=0, minute=0, second=0, microsecond=0) - _timedelta(days=1)).isoformat()
+    yesterday_summary = storage.get_paper_period_summary(yesterday_start, today_start_iso)
+    improved_vs_yesterday = None
+    if yesterday_summary["closed_trades"] > 0:
+        improved_vs_yesterday = today_summary["total_pnl"] > yesterday_summary["total_pnl"]
 
     streaks = insights.all_streaks()
     # Names come from paper_positions' own recorded strategy_name (the
@@ -149,6 +164,11 @@ def generate_daily_report(now=None):
         "month_to_date_pnl": month_summary["total_pnl"],
         "month_to_date_closed_trades": month_summary["closed_trades"],
         "best_strategy_today": best_today,
+        "worst_strategy_today": worst_today,
+        "best_coin_today": best_coin_today,
+        "worst_coin_today": worst_coin_today,
+        "improved_vs_yesterday": improved_vs_yesterday,
+        "yesterday_pnl": yesterday_summary["total_pnl"] if yesterday_summary["closed_trades"] > 0 else None,
         "losing_streaks": losing_streaks,
         "challenge_progress": challenge_progress,
     }

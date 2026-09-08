@@ -56,11 +56,43 @@ class Job:
         self.error = None
         self.progress = {}
 
+    def _estimated_completion(self):
+        """Grand Master Prompt, Phase 4.13: Estimated Completion -- a
+        plain linear-rate projection (elapsed / done * remaining) from
+        whatever done/total this job's own caller already writes into
+        progress. No per-job-kind logic needed here; any future job kind
+        that reports done/total gets this for free. Returns None whenever
+        the job isn't running, or hasn't done at least one unit yet (rate
+        is undefined with zero data points)."""
+        if self.status != "running":
+            return None
+        done = self.progress.get("done")
+        total = self.progress.get("total")
+        if not done or not total or done <= 0 or total <= done:
+            return None
+        try:
+            started = datetime.fromisoformat(self.started_at)
+        except ValueError:
+            return None
+        elapsed = (datetime.now(timezone.utc) - started).total_seconds()
+        if elapsed <= 0:
+            return None
+        rate = done / elapsed
+        remaining_seconds = (total - done) / rate
+        from datetime import timedelta
+        eta = datetime.now(timezone.utc) + timedelta(seconds=remaining_seconds)
+        return {
+            "percent": round(done / total * 100, 1),
+            "remaining_seconds": round(remaining_seconds),
+            "eta": eta.isoformat(),
+        }
+
     def to_dict(self):
         return {
             "id": self.id, "kind": self.kind, "status": self.status,
             "started_at": self.started_at, "finished_at": self.finished_at,
             "error": self.error, "progress": self.progress, "result": self.result,
+            "estimated_completion": self._estimated_completion(),
         }
 
 

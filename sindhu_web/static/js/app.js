@@ -2278,7 +2278,7 @@
           </div>
           <button class="btn-ghost quick-note-delete" data-id="${n.id}">${en ? "Delete" : "Hataayein"}</button>
         </div>
-      `).join("") || `<p class="muted">${en ? "No quick notes yet." : "Abhi koi quick note nahi."}</p>`;
+      `).join("") || `<p class="muted">${en ? "No quick notes yet -- type one above and it'll appear here." : "Abhi koi quick note nahi -- upar type karein, yahan aa jayega."}</p>`;
       list.querySelectorAll(".quick-note-delete").forEach(btn => {
         btn.onclick = async () => {
           await apiDelete(`/api/quick-notes/${btn.dataset.id}`);
@@ -2297,16 +2297,28 @@
           <div style="margin-top:6px;">${esc(f.text)}</div>
           <div class="muted" style="font-size:11px;margin-top:4px;">${esc((f.created_at || "").replace("T", " ").slice(0, 19))}</div>
         </div>
-      `).join("") || `<p class="muted">${en ? "No notes yet." : "Abhi koi note nahi."}</p>`;
+      `).join("") || `<p class="muted">${en ? "No feedback logged yet -- session feedback shows up here automatically." : "Abhi koi feedback nahi -- session feedback yahan khud aayega."}</p>`;
     }
 
     async function load(period) {
-      const [d, handoff] = await Promise.all([
+      const [d, handoff, home] = await Promise.all([
         apiGet(`/api/project-status?period=${period}`),
         apiGet(`/api/session-handoff?period=${period}`).catch(() => null),
+        apiGet("/api/home").catch(() => null),
       ]);
       content.innerHTML = `
         <div class="section-title">${en ? "Project Status" : "Project Status"}</div>
+
+        <div class="card" style="margin-bottom:8px;">
+          <b>${en ? "Project Timeline" : "Project Timeline"}</b>
+          <div class="muted" style="font-size:12.5px;margin-top:4px;">
+            ${en ? "Current version" : "Abhi Ka Version"}: <b>${esc((home && home.version) || "-")}</b> --
+            ${en ? "full history in PROJECT_DOCUMENTATION.md" : "poori history PROJECT_DOCUMENTATION.md mein"}.
+          </div>
+          <div class="muted" style="font-size:12.5px;margin-top:2px;">${en
+            ? "Roadmap: the Grand Master Prompt backlog (Company Structure, Strategy Lifecycle, Cloud Monitoring, UI/UX, Feature Backlog) -- current progress in GRAND_MASTER_FINAL_REPORT.md."
+            : "Roadmap: Grand Master Prompt ka backlog -- current progress GRAND_MASTER_FINAL_REPORT.md mein."}</div>
+        </div>
 
         <div class="period-tabs">${PS_PERIOD_TABS.map(([id, label]) => `
           <button class="period-tab ${id === period ? "active" : ""}" data-ps-period="${id}">${label}</button>
@@ -2645,7 +2657,7 @@
 
       const activityRows = (act.activity || []).map(a => `
         <div class="activity-item"><span class="activity-time">${esc((a.created_at || "").slice(11, 19))}</span> ${esc(a.message)}</div>
-      `).join("") || `<div class="muted">No activity yet.</div>`;
+      `).join("") || `<div class="muted">No activity yet -- actions across the app will show up here as they happen.</div>`;
 
       const lb = h.latest_batch;
       const pnlClass = lb ? (lb.profit_pct > 0 ? "positive" : lb.profit_pct < 0 ? "negative" : "") : "";
@@ -2673,6 +2685,7 @@
         <div class="card" id="sessionChecklistCard" style="margin-bottom:14px;">
           <div style="font-weight:600;font-size:13px;">${getLang() === "en" ? "Today's Checklist" : "Aaj Ki Checklist"}</div>
           <p class="muted" style="font-size:11.5px;margin:4px 0 8px;">${getLang() === "en" ? "Resets fresh every day -- just for this browser." : "Har din nayi ho jaati hai -- sirf is browser ke liye."}</p>
+          <div id="sessionChecklistProgress"></div>
           <div id="sessionChecklistBody"></div>
         </div>
 
@@ -2857,6 +2870,20 @@
       // periodic auto-refresh), not from the server.
       let checked = {};
       try { checked = JSON.parse(localStorage.getItem(checklistStorageKey) || "{}"); } catch (e) { checked = {}; }
+      // Grand Master Prompt, Phase 4.2 (Today's Mission): a literal
+      // progress bar + a rough estimated-time-remaining, on top of the
+      // pre-existing checklist. ~2 min/item is a plain, labeled rough
+      // estimate (this app has no real per-task timing data to draw on),
+      // not a measured figure.
+      const progressBox = document.getElementById("sessionChecklistProgress");
+      if (progressBox) {
+        const doneCount = checklistItems.filter(t => checked[t]).length;
+        const pct = checklistItems.length ? Math.round(doneCount / checklistItems.length * 100) : 100;
+        const remainingMinutes = (checklistItems.length - doneCount) * 2;
+        progressBox.innerHTML = `
+          <div class="progress-bar" style="margin:6px 0;"><div class="progress-bar-fill" style="width:${pct}%"></div></div>
+          <div class="muted" style="font-size:11px;">${doneCount}/${checklistItems.length} done (${pct}%) -- ${getLang() === "en" ? `roughly ${remainingMinutes} min left` : `taqreeban ${remainingMinutes} minute baaki`}</div>`;
+      }
       const checklistBody = document.getElementById("sessionChecklistBody");
       if (checklistBody) {
         // Keyed by the item's own text (not array index) so a checked box
@@ -2873,6 +2900,14 @@
             localStorage.setItem(checklistStorageKey, JSON.stringify(checked));
             cb.nextElementSibling.style.textDecoration = cb.checked ? "line-through" : "none";
             cb.nextElementSibling.style.opacity = cb.checked ? ".55" : "1";
+            if (progressBox) {
+              const doneCount = checklistItems.filter(t => checked[t]).length;
+              const pct = checklistItems.length ? Math.round(doneCount / checklistItems.length * 100) : 100;
+              const remainingMinutes = (checklistItems.length - doneCount) * 2;
+              progressBox.innerHTML = `
+                <div class="progress-bar" style="margin:6px 0;"><div class="progress-bar-fill" style="width:${pct}%"></div></div>
+                <div class="muted" style="font-size:11px;">${doneCount}/${checklistItems.length} done (${pct}%) -- ${getLang() === "en" ? `roughly ${remainingMinutes} min left` : `taqreeban ${remainingMinutes} minute baaki`}</div>`;
+            }
           };
         });
       }
@@ -3637,6 +3672,11 @@
 
   async function renderStrategies() {
     const myToken = activeRouteToken;
+    // Grand Master Prompt, Phase 4.12: Smart Filters -- one-click chips,
+    // filtered client-side over the same strategies list already fetched
+    // (no new backend query), reusing the existing performance_verdict/
+    // favourite/archived fields every row already carries.
+    let stratSmartFilter = "all";
     const render = async () => {
       const searchEl = document.getElementById("stratLibSearch");
       const q = searchEl ? searchEl.value : "";
@@ -3659,7 +3699,21 @@
         const ddCls = r.max_drawdown_pct > 15 ? "negative" : "";
         return `Sharpe ${r.sharpe_ratio.toFixed(2)}, Max DD <span class="${ddCls}">${r.max_drawdown_pct.toFixed(1)}%</span>`;
       }
-      const rows = res.strategies.map(s => `
+      const SMART_FILTERS = [
+        { id: "all", label: "All" },
+        { id: "best", label: "Best (Profitable)" },
+        { id: "worst", label: "Worst (Under Evaluation)" },
+        { id: "favourites", label: "Favourites" },
+        { id: "archived", label: "Archived" },
+      ];
+      const filteredStrategies = res.strategies.filter(s => {
+        if (stratSmartFilter === "best") return s.performance_verdict === "GREEN";
+        if (stratSmartFilter === "worst") return s.performance_verdict === "RED";
+        if (stratSmartFilter === "favourites") return s.favourite;
+        if (stratSmartFilter === "archived") return s.archived;
+        return true;
+      });
+      const rows = filteredStrategies.map(s => `
         <tr${s.archived ? ' style="opacity:0.55;"' : ""}>
           <td>${s.favourite ? "★" : "☆"}</td>
           <td>${esc(s.name)} ${s.archived ? '<span class="pill pill-muted">Archived</span>' : ""} ${performanceBadge(s.performance_verdict, s.performance_label, s.performance_failed_factors)}
@@ -3693,6 +3747,9 @@
 
       content.innerHTML = `
         <div class="section-title">${t("Strategies")}</div>
+        <div class="btn-row" style="margin-bottom:8px;">
+          ${SMART_FILTERS.map(f => `<button class="btn-ghost strat-smart-filter${stratSmartFilter === f.id ? " active" : ""}" data-filter="${f.id}" style="${stratSmartFilter === f.id ? "font-weight:600;text-decoration:underline;" : ""}">${f.label}</button>`).join("")}
+        </div>
         ${(retirementRes.suggestions || []).length ? `
         <div class="card" style="border:1px solid var(--orange,#d68910);background:rgba(214,137,16,0.08);margin-bottom:10px;">
           <div style="font-weight:600;">Retirement Suggestions ${helpIcon("retirement_suggestion")}</div>
@@ -3807,6 +3864,18 @@
       document.getElementById("stratLibSearch").addEventListener("input", debounce(render, 300));
       document.getElementById("btnNewStrategy").onclick = () => { showImportChoiceModal(); };
       document.getElementById("stratShowArchived").addEventListener("change", render);
+      document.querySelectorAll(".strat-smart-filter").forEach(btn => btn.onclick = () => {
+        stratSmartFilter = btn.dataset.filter;
+        // "Archived" needs the underlying query to actually include
+        // archived strategies (excluded by default) -- flip that
+        // checkbox too, otherwise this filter would always show zero
+        // results even when archived strategies exist.
+        if (stratSmartFilter === "archived") {
+          const cb = document.getElementById("stratShowArchived");
+          if (cb) cb.checked = true;
+        }
+        render();
+      });
       document.querySelectorAll(".retirement-archive").forEach(btn => btn.onclick = async () => {
         // Grand Feature Expansion, Phase 4 Feature 4: reuses the EXACT
         // same reversible archive endpoint the row-level Archive action
@@ -8549,6 +8618,28 @@
         <div class="section-title">Challenge Mode</div>
         <p class="muted plain-note">Set a starting amount, a target, and a number of days. Instead of one blended guess across everything, the system checks each strategy on each coin separately against its own real trade history and tells you honestly which single combination &mdash; if any &mdash; has actually been performing fast enough to get there.</p>
         <div id="challengeBox"><p class="muted">Loading...</p></div>
+
+        <div class="section-title">${getLang() === "en" ? "Goals" : "Goals"}</div>
+        <p class="muted plain-note">${getLang() === "en"
+          ? "A goal on a real metric (win rate, net PnL, total trades) -- distinct from Challenge Mode's dollar-amount pace tracking above. Never affects trading, purely a progress display."
+          : "Ek asli metric (win rate, net PnL, total trades) par goal -- Challenge Mode ke dollar-target se alag. Trading par asar nahi dalta, sirf progress dikhata hai."}</p>
+        <div class="card" style="max-width:560px;margin-bottom:10px;">
+          <div class="btn-row">
+            <select id="goalMetric">
+              <option value="win_rate_pct">Win Rate %</option>
+              <option value="net_pnl">Net PnL</option>
+              <option value="total_trades">Total Trades</option>
+            </select>
+            <select id="goalComparison">
+              <option value="gte">at least (&ge;)</option>
+              <option value="lte">at most (&le;)</option>
+            </select>
+            <input id="goalTarget" type="number" placeholder="Target value" style="max-width:120px;">
+            <input id="goalLabel" placeholder="Label (optional)" style="max-width:200px;">
+            <button class="btn" id="btnCreateGoal">${getLang() === "en" ? "Add Goal" : "Goal Jodein"}</button>
+          </div>
+        </div>
+        <div id="goalsBox" class="table-wrap"><p class="muted">Loading...</p></div>
         </div>
 
         <div class="pt-tab-panel" data-pt-tab="portfolio">
@@ -9104,6 +9195,17 @@
       loadPaperAnalytics("ptAnalyticsBox", "pt", "today");
       loadChallenge();
       loadBestPortfolio();
+      loadGoals();
+      const btnCreateGoal = document.getElementById("btnCreateGoal");
+      if (btnCreateGoal) btnCreateGoal.onclick = async () => {
+        const metric = document.getElementById("goalMetric").value;
+        const comparison = document.getElementById("goalComparison").value;
+        const target_value = parseFloat(document.getElementById("goalTarget").value);
+        const label = document.getElementById("goalLabel").value.trim() || null;
+        if (isNaN(target_value)) return;
+        await apiPost("/api/paper-trading/goals", { metric, comparison, target_value, label });
+        loadGoals();
+      };
 
       document.getElementById("ptStart").onclick = async () => {
         // Master Task 3, Phase 0.8h: Start/Stop are real trading state
@@ -9671,6 +9773,31 @@
             <span class="${p.total_pnl >= 0 ? "positive" : "negative"}">${p.total_pnl >= 0 ? "+" : ""}$${p.total_pnl.toFixed(2)}</span>
           </div>`).join("")}
         <div class="muted" style="font-size:12px;margin-top:8px;">${en ? "Combined PnL" : "Combined PnL"}: <b class="${r.combined_pnl >= 0 ? "positive" : "negative"}">${r.combined_pnl >= 0 ? "+" : ""}$${r.combined_pnl.toFixed(2)}</b></div>`;
+    }
+
+    // Grand Master Prompt, Phase 4.6: Goal System -- same "loaded
+    // independently, never touches trading" reasoning as Challenge Mode
+    // just below.
+    async function loadGoals() {
+      const box = document.getElementById("goalsBox");
+      if (!box) return;
+      const en = getLang() === "en";
+      const res = await apiGet("/api/paper-trading/goals").catch(() => ({ goals: [] }));
+      const goals = res.goals || [];
+      box.innerHTML = goals.length ? `<table>
+        <thead><tr><th>${en ? "Label" : "Label"}</th><th>${en ? "Target" : "Target"}</th><th>${en ? "Current" : "Abhi"}</th><th>${en ? "Status" : "Status"}</th><th></th></tr></thead>
+        <tbody>${goals.map(g => `<tr>
+          <td>${esc(g.label || g.metric)}</td>
+          <td>${g.comparison === "gte" ? "&ge;" : "&le;"} ${g.target_value}</td>
+          <td>${g.current_value != null ? g.current_value : "-"}</td>
+          <td>${g.achieved ? `<span class="pill pill-up">${en ? "Achieved" : "Hasil"}</span>` : `<span class="pill pill-muted">${en ? "In progress" : "Jari Hai"}</span>`}</td>
+          <td><button class="btn-ghost goal-archive" data-id="${g.id}">${en ? "Archive" : "Archive Karein"}</button></td>
+        </tr>`).join("")}</tbody>
+      </table>` : `<p class="muted">${en ? "No goals set yet -- add one above." : "Abhi koi goal nahi -- upar se add karein."}</p>`;
+      box.querySelectorAll(".goal-archive").forEach(btn => btn.onclick = async () => {
+        await apiSend("DELETE", `/api/paper-trading/goals/${btn.dataset.id}`);
+        loadGoals();
+      });
     }
 
     // Batch 9, Task 4: Challenge Mode. Deliberately loaded independently
@@ -11604,6 +11731,53 @@
     await render();
   }
 
+  // Grand Master Prompt, Phase 4.1: Decision Center -- the single biggest
+  // problem, recommended action, estimated impact, and priority, computed
+  // fresh server-side (GET /api/decision-center) from real gate/module
+  // state every request. Never a static placeholder.
+  function decisionCenterHtml(dc) {
+    if (!dc || !dc.biggest_problem) {
+      return `<div class="card" style="margin-bottom:16px;border-left:3px solid var(--positive,#2ecc71);">
+        <b>Decision Center</b>
+        <div class="muted" style="margin-top:4px;">${dc && dc.message ? esc(dc.message) : "No significant problems detected right now."}</div>
+      </div>`;
+    }
+    const priorityColor = { critical: "#e74c3c", high: "#e67e22", medium: "#f1c40f" }[dc.priority_level] || "#999";
+    return `<div class="card" style="margin-bottom:16px;border-left:3px solid ${priorityColor};">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <b>Decision Center -- Biggest Problem</b>
+        <span class="pill" style="background:${priorityColor};color:#fff;text-transform:uppercase;font-size:10px;">${esc(dc.priority_level)}</span>
+      </div>
+      <div style="margin-top:6px;">${esc(dc.biggest_problem)}</div>
+      <div class="muted" style="margin-top:4px;font-size:12.5px;"><b>Recommended:</b> ${esc(dc.recommended_action)}</div>
+      <div class="muted" style="font-size:12.5px;"><b>Impact:</b> ${esc(dc.estimated_impact)}</div>
+      ${dc.all_problems_count > 1 ? `<div class="muted" style="font-size:11px;margin-top:4px;">+${dc.all_problems_count - 1} more thing(s) to check</div>` : ""}
+    </div>`;
+  }
+
+  // Grand Master Prompt, Phase 4.4/4.11: Module Health Score + Project
+  // Score -- a transparent, formula-documented composite (see
+  // sindhu_web/module_health.py and /api/project-score's own
+  // formula_note, shown verbatim here rather than hidden).
+  function projectScoreHtml(ps) {
+    if (!ps || ps.overall == null) return "";
+    const scoreColor = (v) => v == null ? "#999" : v >= 80 ? "#2ecc71" : v >= 60 ? "#f1c40f" : "#e74c3c";
+    const chip = (label, v) => `<div style="text-align:center;"><div style="font-size:20px;font-weight:600;color:${scoreColor(v)};">${v != null ? v : "-"}</div><div class="muted" style="font-size:10.5px;">${label}</div></div>`;
+    return `<div class="card" style="margin-bottom:16px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <b>Project Score</b>
+        <span class="muted" style="font-size:10.5px;" title="${esc(ps.formula_note)}">ⓘ formula</span>
+      </div>
+      <div style="display:flex;gap:18px;margin-top:8px;flex-wrap:wrap;">
+        ${chip("Overall", ps.overall)}
+        ${chip("Reliability", ps.reliability)}
+        ${chip("Stability", ps.stability)}
+        ${chip("Performance", ps.performance)}
+        ${chip("Risk", ps.risk)}
+      </div>
+    </div>`;
+  }
+
   function statusDot(level) {
     // level: "active" (green, pulsing) | "attention" (amber) | "idle" (grey)
     return `<span class="status-dot status-${level}"></span>`;
@@ -11613,13 +11787,18 @@
     const myToken = activeRouteToken;
     let expandedId = null;          // null = grid view
     let ceoPendingRunStrategyId = null; // set by Strategies "Run" -> read by Backtesting expand
+    // Grand Master Prompt, Phase 4.18: Focus Mode -- hides every card whose
+    // level is "idle" (nothing to check), leaving only cards that are
+    // "attention" (something needs a look) or "active" (currently running/
+    // has live tasks) plus Decision Center, which always shows.
+    let focusModeOn = false;
 
     async function fetchAll() {
       const [home, market, data, strategies, knowledgeReport, lessons, kcDocs, aiDash,
              history, paperStatus, paperPositions, paperAnalytics, bestWorst, settings, jobsRes,
              pipelineHistoryRes, evolutionStatus, evolutionChampions, evolutionStrategies,
              sindhuDailyLog, sindhuCandidates, featureControl, clarificationAll, challenge,
-             externalSignalsComparison] = await Promise.all([
+             externalSignalsComparison, decisionCenter, projectScore] = await Promise.all([
         apiGet("/api/home").catch(() => null),
         apiGet("/api/market").catch(() => ({ coins: [], exchange: "-" })),
         apiGet("/api/data").catch(() => ({ coins: [], total_coins: 0, missing_data: [] })),
@@ -11645,6 +11824,8 @@
         apiGet("/api/backtesting/clarification/all").catch(() => ({ groups: [], total_issues: 0, strategy_count: 0 })),
         apiGet("/api/paper-trading/challenge").catch(() => ({ configured: false })),
         apiGet("/api/external-signals/comparison").then(r => r.channels || []).catch(() => []),
+        apiGet("/api/decision-center").catch(() => null),
+        apiGet("/api/project-score").catch(() => null),
       ]);
       return {
         home, market, data, strategies: strategies.strategies || [],
@@ -11655,7 +11836,7 @@
         evolutionStatus, evolutionChampions: evolutionChampions.champions || [],
         evolutionStrategies: evolutionStrategies.strategies || [],
         sindhuDailyLog, sindhuCandidates: sindhuCandidates.candidates || [],
-        featureControl, clarificationAll, challenge, externalSignalsComparison,
+        featureControl, clarificationAll, challenge, externalSignalsComparison, decisionCenter, projectScore,
       };
     }
 
@@ -11884,13 +12065,29 @@
       expandedId = null;
       const d = await fetchAll();
       if (isStaleRoute(myToken) || mySeq !== showGridSeq) return;
+      const visibleModules = focusModeOn
+        ? CEO_MODULES.filter(id => cardSummary(id, d).level !== "idle")
+        : CEO_MODULES;
       content.innerHTML = `
         <div class="section-title">SINDHU CEO -- Control Room</div>
-        <div class="muted" style="margin:-10px 0 16px;font-size:12.5px;">Every module in one place. Click any card to monitor and control it without leaving this page.</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin:-10px 0 16px;flex-wrap:wrap;gap:8px;">
+          <div class="muted" style="font-size:12.5px;">Every module in one place. Click any card to monitor and control it without leaving this page.</div>
+          <label style="font-size:12px;display:flex;align-items:center;gap:6px;">
+            <input type="checkbox" id="ceoFocusModeToggle" style="width:auto;" ${focusModeOn ? "checked" : ""}>
+            Focus Mode (only show things needing attention)
+          </label>
+        </div>
+        ${decisionCenterHtml(d.decisionCenter)}
+        ${projectScoreHtml(d.projectScore)}
+        ${focusModeOn && visibleModules.length === 0 ? `<p class="muted">Nothing needs attention right now -- every module is idle/normal.</p>` : ""}
         <div class="ceo-grid">
           ${tasksCardHtml(d)}
-          ${CEO_MODULES.map(id => moduleCardHtml(id, d)).join("")}
+          ${visibleModules.map(id => moduleCardHtml(id, d)).join("")}
         </div>`;
+      document.getElementById("ceoFocusModeToggle").onchange = (e) => {
+        focusModeOn = e.target.checked;
+        showGrid();
+      };
       // Cards for pages that are ALREADY their own real top-level page
       // (not an in-CEO "expand" panel) just link straight there, instead
       // of duplicating a second implementation inside this file.

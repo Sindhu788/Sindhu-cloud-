@@ -1346,6 +1346,40 @@ def deactivate_auto_lesson(lesson_id: int):
     return {"ok": True}
 
 
+# --------------------------------------------------------------- Goal System (Grand Master Prompt, Phase 4.6)
+
+class GoalCreateRequest(BaseModel):
+    metric: str
+    target_value: float
+    comparison: str = "gte"
+    scope_strategy_id: Optional[str] = None
+    label: Optional[str] = None
+
+
+@router.get("/api/paper-trading/goals")
+def list_goals():
+    from paper_trading import goal_system
+    return {"goals": goal_system.list_goals_with_progress()}
+
+
+@router.post("/api/paper-trading/goals")
+def create_goal(req: GoalCreateRequest):
+    from paper_trading import goal_system
+    try:
+        goal_id = goal_system.create_goal(req.metric, req.target_value, req.comparison,
+                                           req.scope_strategy_id, req.label)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, "goal_id": goal_id}
+
+
+@router.delete("/api/paper-trading/goals/{goal_id}")
+def archive_goal(goal_id: str):
+    from paper_trading import goal_system
+    goal_system.archive_goal(goal_id)
+    return {"ok": True}
+
+
 # --------------------------------------------------------------- Maintenance Mode (Grand Master Prompt, Phase 3.7)
 
 @router.get("/api/paper-trading/maintenance-mode")

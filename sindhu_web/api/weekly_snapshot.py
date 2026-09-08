@@ -114,3 +114,35 @@ def create_weekly_snapshot_now():
     """Manual trigger, bypassing the 7-day gate -- for testing/on-demand use."""
     name = create_weekly_snapshot()
     return {"snapshot": name}
+
+
+def _snapshot_summary(path):
+    """Grand Master Prompt, Phase 4.9 (Snapshot System): a few key
+    aggregate numbers read directly from a snapshot .db file, opened
+    read-only so the live database is never touched. Only counts/sums
+    that exist in every schema version this project has ever shipped
+    (paper_positions) -- anything newer is skipped rather than raising."""
+    import sqlite3
+    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        closed = conn.execute("SELECT COUNT(*), COALESCE(SUM(pnl),0) FROM paper_positions WHERE status='closed'").fetchone()
+        open_count = conn.execute("SELECT COUNT(*) FROM paper_positions WHERE status='open'").fetchone()[0]
+        return {"closed_trades": closed[0], "total_realized_pnl": closed[1], "open_positions": open_count}
+    finally:
+        conn.close()
+
+
+@router.get("/api/weekly-snapshot/compare")
+def compare_weekly_snapshots(snapshot_a: str, snapshot_b: str):
+    """Phase 4.9: compare two snapshot files by name (from the /list
+    endpoint above) -- both opened read-only, never mutated."""
+    from fastapi import HTTPException
+
+    path_a = os.path.join(_SNAPSHOT_DIR, snapshot_a)
+    path_b = os.path.join(_SNAPSHOT_DIR, snapshot_b)
+    if not os.path.isfile(path_a) or not os.path.isfile(path_b):
+        raise HTTPException(404, "One or both snapshots not found")
+    summary_a = _snapshot_summary(path_a)
+    summary_b = _snapshot_summary(path_b)
+    diff = {k: round(summary_b[k] - summary_a[k], 2) for k in summary_a}
+    return {"snapshot_a": {"name": snapshot_a, **summary_a}, "snapshot_b": {"name": snapshot_b, **summary_b}, "diff": diff}

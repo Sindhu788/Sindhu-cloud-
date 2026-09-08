@@ -618,3 +618,19 @@ Pehle session mein already ban chuke the: Health Dashboard, Error Center, Manual
 - **Scanner Progress**: tick chalte waqt "abhi kaunsa coin scan ho raha hai (3/20)" live dikhta hai.
 
 Naye modules: `paper_trading/coin_priority.py`, `paper_trading/maintenance_mode.py`, `sindhu_web/api_monitor.py`. Naye DB tables: `server_restart_log`, `paper_coin_priority` (dono additive). 20 nayi tests, sab pass.
+
+### 21.4 Phase 4 — UI/UX Product Improvements (20 Items, 18 Complete)
+- **Decision Center**: CEO page ke upar "sabse bada masla + kya karna hai + kitna asar + priority" — real gate data se.
+- **Module Health Score + Project Score** (genuinely naye): har module (Paper Trading/Telegram/Database/Evolution/Self-Learning) ka 0-100 score, har point kaat-ne ki wajah likhi hui — koi black box nahi. Sab milakar ek overall Project Score.
+- **Goal System** (genuinely naya): Challenge Mode se alag — koi bhi real metric (win rate, net PnL, total trades) par apna goal set karein.
+- **Time Machine** (genuinely naya): koi purani date choose karein, us din ke real audit events dikhte hain — honestly likha hai ke poori state reconstruct nahi hoti.
+- **Timeline Compare / Quick Compare**: Aaj vs Kal, Is Hafte vs Pichle Hafte, Is Mahine vs Pichle Mahine.
+- **Report Builder** (genuinely naya): date range + modules choose karke real report banayein.
+- **Smart Filters**: Strategies page par ek-click filters (Best/Worst/Favourites/Archived).
+- **Estimated Completion**: background tasks ka ETA (kitna time baaki).
+- **Module Dependency Map + Readiness Meter** (genuinely naye): kaunsa module kis par depend karta hai, aur har feature Stable/Production/Testing.
+- **Focus Mode**: CEO page par ek toggle jo sirf "attention chahiye" wali cheezein dikhata hai.
+- **Today's Mission + Project Timeline + Daily Insights + Smart Empty States**: pehle se maujood widgets mein chhoti, real additions.
+- **Honestly deferred, dobara nahi banaya jaise complete ho**: Mini Analytics (4.15) bilkul nahi bana, aur "Explain Everything" (4.3) sirf un jagah rakha jahan real reasoning already computed hoti hai — har number ke liye fake explanation nahi banayi.
+
+Naye modules: `sindhu_web/module_health.py`, `sindhu_web/api/dashboard_scores.py`, `sindhu_web/api/project_meta.py`, `sindhu_web/api/time_machine.py`, `sindhu_web/api/timeline_compare.py`, `sindhu_web/api/report_builder.py`, `paper_trading/goal_system.py`. Naya DB table: `user_goals`. 26 nayi tests, sab pass.

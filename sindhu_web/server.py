@@ -28,6 +28,9 @@ from sindhu_web.api import (
     weekly_snapshot as weekly_snapshot_api, infra_weekly_digest as infra_weekly_digest_api,
     self_learning as self_learning_api,
     risk_department as risk_department_api, memory_core as memory_core_api,
+    dashboard_scores as dashboard_scores_api, project_meta as project_meta_api,
+    time_machine as time_machine_api, timeline_compare as timeline_compare_api,
+    report_builder as report_builder_api,
 )
 
 _STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -252,7 +255,9 @@ def create_app():
                    wizard_api.router, external_signals_api.router, project_status_api.router,
                    strategy_lifecycle_api.router, concepts_usage_api.router, auth_api.router,
                    incidents_api.router, weekly_snapshot_api.router, infra_weekly_digest_api.router,
-                   self_learning_api.router, risk_department_api.router, memory_core_api.router):
+                   self_learning_api.router, risk_department_api.router, memory_core_api.router,
+                   dashboard_scores_api.router, project_meta_api.router, time_machine_api.router,
+                   timeline_compare_api.router, report_builder_api.router):
         app.include_router(router)
 
     @app.get("/api/token")

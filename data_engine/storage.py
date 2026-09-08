@@ -1254,6 +1254,23 @@ CREATE TABLE IF NOT EXISTS paper_coin_priority (
     reason TEXT,
     added_at TEXT NOT NULL
 );
+
+-- Grand Master Prompt, Phase 4.6: Goal System -- a general, user-set goal
+-- on a real live-trading metric (win rate, net PnL, total trades),
+-- DISTINCT from Challenge Mode (paper_trading/challenge_mode.py, which is
+-- specifically a dollar-amount growth target with pace tracking). See
+-- paper_trading/goal_system.py.
+CREATE TABLE IF NOT EXISTS user_goals (
+    id TEXT PRIMARY KEY,
+    metric TEXT NOT NULL,
+    target_value REAL NOT NULL,
+    comparison TEXT NOT NULL CHECK (comparison IN ('gte', 'lte')),
+    scope_strategy_id TEXT,
+    label TEXT,
+    archived INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    achieved_at TEXT
+);
 """
 
 _COMPILED_DOCUMENT_V6_COLUMNS = {
@@ -2750,6 +2767,20 @@ def record_audit_event(entity, action, message, now_iso):
             "INSERT INTO audit_trail_log (entity, action, message, created_at) VALUES (?, ?, ?, ?)",
             (entity, action, message, now_iso),
         )
+
+
+def list_audit_trail_between(since_iso, until_iso, limit=500):
+    """Grand Master Prompt, Phase 4.5 (Time Machine): every permanent
+    audit event within [since_iso, until_iso) -- unlike list_audit_trail's
+    since_iso-only filter, this needs a closed window to scope to exactly
+    one calendar day."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, entity, action, message, created_at FROM audit_trail_log "
+            "WHERE created_at >= ? AND created_at < ? ORDER BY id ASC LIMIT ?",
+            (since_iso, until_iso, limit),
+        ).fetchall()
+    return [{"id": r[0], "entity": r[1], "action": r[2], "message": r[3], "created_at": r[4]} for r in rows]
 
 
 def list_audit_trail(limit=100, entity=None, since_iso=None):
@@ -4298,6 +4329,20 @@ def count_telegram_messages_since(since_iso):
     return row[0] if row else 0
 
 
+def count_telegram_messages_between(since_iso, until_iso):
+    """Grand Master Prompt, Phase 4.10 (Report Builder): a closed-window
+    variant of count_telegram_messages_since -- needed because that
+    function has no upper bound, which would silently overcount messages
+    sent after the report's own `until` date for any report not ending
+    "now.\""""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM telegram_message_log WHERE sent_at >= ? AND sent_at < ? AND success=1",
+            (since_iso, until_iso),
+        ).fetchone()
+    return row[0] if row else 0
+
+
 def get_last_daily_report_sent_at():
     """Batch 7, Task 5: most recent successfully-sent Daily Honest Report
     -- reuses telegram_message_log (trigger_type='daily_report') as the
@@ -5309,6 +5354,37 @@ def set_coin_priority(symbol, priority, reason, now_iso):
 def remove_coin_priority(symbol):
     with get_conn() as conn:
         conn.execute("DELETE FROM paper_coin_priority WHERE symbol=?", (symbol,))
+
+
+def create_user_goal(goal_id, metric, target_value, comparison, scope_strategy_id, label, now_iso):
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO user_goals (id, metric, target_value, comparison, scope_strategy_id, label, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (goal_id, metric, target_value, comparison, scope_strategy_id, label, now_iso),
+        )
+
+
+def list_user_goals(include_archived=False):
+    query = ("SELECT id, metric, target_value, comparison, scope_strategy_id, label, archived, "
+              "created_at, achieved_at FROM user_goals")
+    if not include_archived:
+        query += " WHERE archived=0"
+    query += " ORDER BY created_at DESC"
+    with get_conn() as conn:
+        rows = conn.execute(query).fetchall()
+    return [{"id": r[0], "metric": r[1], "target_value": r[2], "comparison": r[3], "scope_strategy_id": r[4],
+             "label": r[5], "archived": bool(r[6]), "created_at": r[7], "achieved_at": r[8]} for r in rows]
+
+
+def mark_goal_achieved(goal_id, now_iso):
+    with get_conn() as conn:
+        conn.execute("UPDATE user_goals SET achieved_at=? WHERE id=? AND achieved_at IS NULL", (now_iso, goal_id))
+
+
+def archive_user_goal(goal_id):
+    with get_conn() as conn:
+        conn.execute("UPDATE user_goals SET archived=1 WHERE id=?", (goal_id,))
 
 
 def list_coin_priority(priority=None):
