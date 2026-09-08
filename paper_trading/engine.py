@@ -41,6 +41,7 @@ from paper_trading import coin_filter, coin_blacklist, coin_priority, live_feed,
 from paper_trading import signal_generator, confidence, risk_manager, guards, position_manager
 from paper_trading import auto_avoid, drawdown_guard, kill_switch, lesson_auto_apply, telegram_bot, capital_allocation
 from paper_trading import confluence, signal_tracker, insights, custom_alerts, ensemble_voting
+from paper_trading import sanity_check_alert
 from paper_trading import htf_confluence_filter
 
 
@@ -654,6 +655,18 @@ class PaperTradingEngine:
                 storage.save_confluence_score(book, pos["id"], conf["passed"] / conf["total"], _now_iso())
         except Exception as e:
             self._log(f"[paper-trading] confluence history logging failed: {e!r}")
+
+        # Grand Master Prompt, Phase 5: Sanity Check Alert -- purely
+        # informational (the trade above is already opened by this point;
+        # this can never block or modify it), same non-fatal try/except
+        # shape as the confluence logging just above.
+        try:
+            book_balance = risk_manager.account_balance(book, settings.get("initial_balance", 10000.0))
+            flag = sanity_check_alert.check_and_alert(pos, book, pick.get("strategy_name"), book_balance)
+            if flag:
+                self._log(f"[paper-trading] sanity check flagged: {flag}")
+        except Exception as e:
+            self._log(f"[paper-trading] sanity check failed: {e!r}")
 
         # A3 + Task 4 (Priority Batch 1): automatic Telegram signal, dual
         # tier -- OFF by default (telegram_bot.evaluate_auto_send_tier

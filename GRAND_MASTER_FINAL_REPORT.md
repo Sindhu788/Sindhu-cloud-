@@ -15,7 +15,9 @@
 | 2 — Strategy Lifecycle + Workflow | ✅ COMPLETE | 7 | 7 |
 | 3 — Cloud Monitoring Roadmap (remaining) | ✅ COMPLETE | 14 | 14 |
 | 4 — UI/UX Product Improvements | ✅ COMPLETE (18/20 built, 2 honestly deferred) | 20 | 18 |
-| 5 — Grand Feature Backlog (remaining) | ⏳ IN PROGRESS | ~90 | — |
+| 5 — Grand Feature Backlog (remaining) | ✅ COMPLETE | 95 | 91 (+ 4 flagged for CEO) |
+
+**ALL 5 PHASES OF THE GRAND MASTER PROMPT ARE NOW COMPLETE.**
 
 Full test suite baseline at task start: **1714 passed, 0 failed**. Re-verified after every phase — see each phase's own section below for that phase's exact number.
 
@@ -130,7 +132,25 @@ Both new routers mounted on both `sindhu_web/server.py` and `cloud_runtime/app.p
 
 ## Phase 5 — Grand Feature Backlog (Remaining Items)
 
-*(to be filled in as this phase completes)*
+**Status: COMPLETE.** This phase was a large-scale VERIFICATION AUDIT, exactly as the task itself predicted ("many do from prior sessions") — 4 parallel research passes checked all 95 named items against the actual codebase, citing the real file/function backing each one.
+
+**Result: 90/95 already existed and were verified, not rebuilt. 1 genuine gap was found and built. 4 items are confirmed prior-session DELIBERATE design decisions, correctly left as-is and flagged for the CEO rather than changed autonomously.**
+
+### The 1 genuine gap (built)
+- **Sanity Check Alert** — nothing existed for LIVE signals/trades (only an unrelated pre-backtest config checker). Built `paper_trading/sanity_check_alert.py`: flags a newly-opened position for oversized risk, an implausible stop distance, or non-positive size — purely informational, runs strictly after the trade is already opened, never blocks or modifies anything. Reuses the existing Alerts dashboard. 7 tests passing.
+
+### The 4 deliberately-skipped items (flagged for the CEO, not built)
+These all involve turning an existing WARN-ONLY/display-only mechanism into something that actually blocks or changes live trade execution — a prior session already made the deliberate choice not to do this (documented in `PROJECT_DOCUMENTATION.md` Section 20.8), and this task's own Global Rule 4 says exactly this kind of change should be flagged, not made autonomously:
+1. **Correlation-Aware Position Limiting** — `paper_trading/correlation.py` only warns today.
+2. **Dynamic Confidence Threshold** — `paper_trading/confidence.py` never gates a trade on confidence today.
+3. **Regime-Aware Strategy Switching** — `paper_trading/regime.py` only classifies/displays regime today, never auto-switches strategies.
+4. **Session Notes** — confirmed an intentional duplicate of the already-built Quick Note Box; building a second note feature would just fragment functionality.
+
+### A documentation correction found along the way
+`PROJECT_DOCUMENTATION.md` Section 20.8 still listed **Mobile Push Notifications** as CEO-decision-pending. It is not — `paper_trading/push_notifications.py` (ntfy.sh-based) was built and tested in a later session (the "Master 15-Item task"), and that old section was simply never updated afterward. Noted here as a real, evidence-based correction rather than left silently wrong.
+
+### The other 90 items
+All verified with a concrete file/function citation each — see `data/checkpoints/grand_master_final.json` for the full list (Kill Switch, Disaster Recovery, Audit Trail, every analytics/risk metric named in the original prompt, every Telegram feature, every Evolution/Self-Learning mechanism, every UX convenience feature) — every single one traced to real, working code already in this repository.
 
 ---
 
@@ -147,6 +167,16 @@ Both new routers mounted on both `sindhu_web/server.py` and `cloud_runtime/app.p
 
 ## Execution Notes
 
-This entire run (Phases 2 onward) was executed **autonomously**, per the CEO's explicit instruction to continue through all remaining phases without pausing for confirmation while unavailable for several hours. Every decision point encountered is logged in the relevant phase section above and in `data/checkpoints/grand_master_final.json`, with the reasoning for the choice made. No safety gate was weakened, no data was deleted, and the full test suite was re-run after each phase.
+This entire run (Phases 2 onward) was executed **autonomously**, per the CEO's explicit instruction to continue through all remaining phases without pausing for confirmation while unavailable for several hours. Every decision point encountered is logged in the relevant phase section above and in `data/checkpoints/grand_master_final.json`, with the reasoning for the choice made. No safety gate was weakened, no data was deleted, and the full test suite was re-run after each phase. Every phase was committed, pushed, and confirmed live on Render before moving to the next.
 
-Questions/decisions collected for the CEO's return (per the task's "collect and present only at the end" rule) will be listed here once the run reaches a natural stopping point.
+**All 5 phases are now complete.** This is the natural stopping point the task described ("all phases genuinely complete").
+
+## Questions/Decisions Collected For The CEO
+
+These were the only points where a genuine CEO decision (not a safe default) was involved. Nothing was blocked on them -- the safest reasonable choice was made each time and is fully reversible:
+
+1. **4 Phase 5 items were confirmed as prior-session DELIBERATE decisions, not gaps** -- Correlation-Aware Position Limiting, Dynamic Confidence Threshold, and Regime-Aware Strategy Switching all currently only WARN/DISPLAY and never block or change a live trade; turning any of them into an actual execution-affecting gate is the CEO's call, not something to flip autonomously (same reasoning the prior session that deferred them originally used). If you want any of these three turned from display-only into a real trade-affecting gate, say which one and how strict.
+2. **PROJECT_DOCUMENTATION.md Section 20.8 is stale on Mobile Push Notifications** -- it says CEO-decision-pending, but the feature was actually built in a later session (`paper_trading/push_notifications.py`, ntfy.sh-based). Worth a quick look to confirm the ntfy.sh topic is actually configured and being used, since a free ntfy.sh topic is public-by-obscurity (documented in that file's own comment) -- if you want it locked down further, that's a small follow-up.
+3. **Auto-Downgrade Rule's drawdown threshold** (Phase 2.4) is a documented default (25% of a strategy's initial balance) -- reasonable but arbitrary; tell me if you'd like it tunable per-strategy instead of a fixed constant.
+4. **Several Phase 4 backend features have no dedicated frontend page yet** (Time Machine, Timeline Compare, Report Builder, Module Dependency Map, Readiness Meter) -- all real, tested, and callable via their API today; building dedicated pages for them was deprioritized to make room for Phase 5's 95-item audit within this session. Say if any of these should get a UI next.
+5. **Mobile/desktop visual confirmation still pending** for every UI change across all 4 phases -- this AI session cannot log into the dashboard (entering the session password is a prohibited action even for the CEO's own system), so everything was verified at the code/API level, never by actually clicking through a browser. Please open the app once on both a phone and a desktop browser and confirm things render as expected, especially the new CEO page banners (Decision Center, Project Score, Focus Mode) and the new Risk/Memory Core/Configuration Panel pages.

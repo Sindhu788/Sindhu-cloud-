@@ -634,3 +634,16 @@ Naye modules: `paper_trading/coin_priority.py`, `paper_trading/maintenance_mode.
 - **Honestly deferred, dobara nahi banaya jaise complete ho**: Mini Analytics (4.15) bilkul nahi bana, aur "Explain Everything" (4.3) sirf un jagah rakha jahan real reasoning already computed hoti hai — har number ke liye fake explanation nahi banayi.
 
 Naye modules: `sindhu_web/module_health.py`, `sindhu_web/api/dashboard_scores.py`, `sindhu_web/api/project_meta.py`, `sindhu_web/api/time_machine.py`, `sindhu_web/api/timeline_compare.py`, `sindhu_web/api/report_builder.py`, `paper_trading/goal_system.py`. Naya DB table: `user_goals`. 26 nayi tests, sab pass.
+
+### 21.5 Phase 5 — Grand Feature Backlog (95 Items — Bara Audit, COMPLETE)
+Ye phase mostly ek **verification audit** thi, jaisa task ne khud kaha tha ("many do from prior sessions"). 4 parallel research checks se sab 95 items ko real code ke against verify kiya:
+
+**Result: 90/95 pehle se maujood the (verify kiya, dobara nahi banaya). 1 genuinely missing tha (bana diya). 4 items pehle se hi CEO ke faisle par jaan-boojh kar rukay hue the (waise hi chhod diye, CEO ko bata diya).**
+
+- **Naya bana**: **Sanity Check Alert** — live signals/trades ke liye kuch nahi tha (sirf ek alag, backtest-config wala checker tha). `paper_trading/sanity_check_alert.py` — nayi khuli position ka risk size, stop-loss distance, aur size check karta hai, sirf informational alert deta hai, kabhi trade block nahi karta.
+- **4 items jaan-boojh kar CEO ke faisle par rukay hain** (pehle se): Correlation-Aware Limiting, Dynamic Confidence Threshold, Regime-Aware Switching — teeno abhi sirf display/warn karte hain, kabhi trade block nahi karte; inhe asal mein trade-blocking banana ek bara faisla hai jo CEO ka hona chahiye. Session Notes — Quick Note Box ka hi duplicate hai, dobara nahi banaya.
+- **Ek documentation correction mili**: Section 20.8 mein "Mobile Push Notifications" abhi bhi "CEO ke faisle par ruka" likha hua tha — lekin ye asal mein ek baad ke session mein ban chuka hai (`paper_trading/push_notifications.py`, ntfy.sh). Yahan honestly correct kar diya.
+
+Baaki 90 items — Kill Switch, Disaster Recovery, Audit Trail, har analytics/risk metric, har Telegram feature, har Evolution/Self-Learning mechanism, har UX convenience — sab real file/function ke saath verify hue. Poori list `data/checkpoints/grand_master_final.json` mein.
+
+**SAB 5 PHASES AB COMPLETE HAIN.**
