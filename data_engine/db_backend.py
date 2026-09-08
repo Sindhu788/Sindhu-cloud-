@@ -242,6 +242,21 @@ CREATE TABLE IF NOT EXISTS paper_account_state (
     updated_at TEXT
 );
 
+-- CEO Task 3 (Independent Paper Trading Groups), 2026-09-08: same table
+-- data_engine/storage.py's SQLite schema declares -- added here too so
+-- this project never repeats the exact mistake that crashed the last two
+-- deploys (a table that exists in the SQLite schema but is missing from
+-- this curated Postgres one; see server_restart_log's own comment below
+-- for that incident). Just a group label per strategy -- balances/PnL
+-- keep being tracked in the existing paper_account_state/
+-- paper_strategy_performance rows above, summed per group at read time.
+CREATE TABLE IF NOT EXISTS paper_strategy_groups (
+    strategy_id TEXT PRIMARY KEY,
+    group_key TEXT NOT NULL,
+    assigned_at TEXT NOT NULL,
+    auto_assigned INTEGER NOT NULL DEFAULT 1
+);
+
 CREATE TABLE IF NOT EXISTS paper_strategy_config (
     strategy_id TEXT PRIMARY KEY,
     enabled INTEGER NOT NULL DEFAULT 1,

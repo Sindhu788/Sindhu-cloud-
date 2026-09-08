@@ -209,6 +209,12 @@ async def _lifespan(app: FastAPI):
     # process start once, for this deployment ("local").
     from sindhu_web.api.system import record_startup as _record_startup
     _record_startup()
+    # CEO Task 3 (Independent Paper Trading Groups): same idempotent sync
+    # as cloud_runtime/app.py's own lifespan -- see that file's comment.
+    from paper_trading.strategy_groups import sync_group_assignments as _sync_paper_groups
+    _groups_result = _sync_paper_groups()
+    log(f"[server] Paper Trading groups sync: first_run={_groups_result['first_run']} "
+        f"assigned={ {k: len(v) for k, v in _groups_result['assigned'].items()} }")
     threading.Thread(target=_warm_caches, daemon=True).start()
     task = asyncio.create_task(_broadcast_loop())
     yield

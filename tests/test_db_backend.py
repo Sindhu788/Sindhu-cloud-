@@ -146,6 +146,9 @@ def test_schema_contains_every_table_the_lightweight_runner_needs():
         # particular crashed the cloud runner's lifespan on every single
         # boot (see server_restart_log's own comment in POSTGRES_SCHEMA).
         "paper_downgrade_state", "server_restart_log", "paper_coin_priority", "user_goals",
+        # CEO Task 3 (Independent Paper Trading Groups): group-label table,
+        # see paper_strategy_groups' own comment in db_backend.py.
+        "paper_strategy_groups",
     }
     for table in expected_tables:
         assert f"CREATE TABLE IF NOT EXISTS {table} (" in db_backend.POSTGRES_SCHEMA, table

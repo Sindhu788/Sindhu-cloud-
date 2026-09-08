@@ -335,6 +335,22 @@ CREATE TABLE IF NOT EXISTS paper_account_state (
     updated_at TEXT
 );
 
+-- CEO Task 3 (Independent Paper Trading Groups): one row per strategy
+-- that has ever been assigned a group -- "losing", "profitable", or
+-- "challenge". Deliberately just a group LABEL on top of the existing
+-- per-strategy paper_account_state/paper_strategy_performance rows above;
+-- balances/PnL/win-rate keep being tracked exactly as before per strategy,
+-- a group's own numbers are computed by SUMMING its member strategies'
+-- already-real rows at read time (see paper_trading/strategy_groups.py)
+-- rather than duplicating a second, parallel ledger that could drift out
+-- of sync with the real one.
+CREATE TABLE IF NOT EXISTS paper_strategy_groups (
+    strategy_id TEXT PRIMARY KEY,
+    group_key TEXT NOT NULL,
+    assigned_at TEXT NOT NULL,
+    auto_assigned INTEGER NOT NULL DEFAULT 1
+);
+
 -- Batch 4, Task 2: the Reset Balance button's audit trail. One row per
 -- strategy per reset -- lets get_balance_history() (below) start each
 -- strategy's balance graph fresh from its most recent reset instead of
@@ -3627,6 +3643,71 @@ def list_paper_strategy_stats(since_iso=None, until_iso=None):
     ]
     result.sort(key=lambda r: r["total_pnl"], reverse=True)
     return result
+
+
+def upsert_paper_strategy_group(strategy_id, group_key, now_iso, auto_assigned=True):
+    """CEO Task 3 (Independent Paper Trading Groups): assigns/reassigns one
+    strategy's group label. Never touches paper_account_state/
+    paper_strategy_performance -- those keep being the real ledger; this
+    only records which of the 3 groups a strategy currently belongs to."""
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO paper_strategy_groups (strategy_id, group_key, assigned_at, auto_assigned)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(strategy_id) DO UPDATE SET
+                 group_key = excluded.group_key,
+                 assigned_at = excluded.assigned_at,
+                 auto_assigned = excluded.auto_assigned""",
+            (strategy_id, group_key, now_iso, 1 if auto_assigned else 0),
+        )
+
+
+def list_paper_strategy_groups():
+    """{strategy_id: group_key} for every strategy that has ever been
+    assigned a group."""
+    with get_conn() as conn:
+        rows = conn.execute("SELECT strategy_id, group_key FROM paper_strategy_groups").fetchall()
+    return dict(rows)
+
+
+def sum_paper_pnl_for_strategies_since(strategy_ids, since_iso):
+    """Real closed-trade PnL, summed across `strategy_ids`, for trades
+    closed at or after since_iso -- used by Group C's daily $ target check.
+    Deliberately queries paper_positions directly (the actual trade
+    ledger) rather than a cached/derived total, so this can never drift
+    from what really closed today."""
+    if not strategy_ids:
+        return 0.0
+    placeholders = ",".join("?" * len(strategy_ids))
+    with get_conn() as conn:
+        row = conn.execute(
+            f"SELECT COALESCE(SUM(pnl), 0) FROM paper_positions "
+            f"WHERE status='closed' AND pnl IS NOT NULL AND closed_at >= ? "
+            f"AND strategy_id IN ({placeholders})",
+            [since_iso] + list(strategy_ids),
+        ).fetchone()
+    return row[0] or 0.0
+
+
+def daily_paper_pnl_for_strategies(strategy_ids, since_iso):
+    """Real closed-trade PnL for `strategy_ids`, grouped by UTC calendar
+    day, for every day at or after since_iso -- powers Group C's "hit the
+    target N days in a row" consistency view. Returns {date_str: pnl},
+    only for days that actually had a closed trade (a day with zero closed
+    trades is not silently reported as $0 profit -- the caller decides how
+    to treat a day with no data, since "$0 realized" and "no data yet" are
+    not the same honest claim)."""
+    if not strategy_ids:
+        return {}
+    placeholders = ",".join("?" * len(strategy_ids))
+    with get_conn() as conn:
+        rows = conn.execute(
+            f"SELECT substr(closed_at, 1, 10) AS day, COALESCE(SUM(pnl), 0) FROM paper_positions "
+            f"WHERE status='closed' AND pnl IS NOT NULL AND closed_at >= ? "
+            f"AND strategy_id IN ({placeholders}) GROUP BY day ORDER BY day",
+            [since_iso] + list(strategy_ids),
+        ).fetchall()
+    return {day: pnl for day, pnl in rows}
 
 
 def list_paper_strategy_trading_since():

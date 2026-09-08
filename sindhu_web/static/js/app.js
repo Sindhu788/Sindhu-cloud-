@@ -8410,6 +8410,7 @@
   // unchanged, since all elements still exist in the DOM at all times.
   const PT_TABS = [
     ["overview", "Overview"], ["analytics", "Analytics"],
+    ["groups", "Groups"],
     ["challenge", "Challenge"], ["portfolio", "Portfolio & Risk"],
     ["history", "Trade History"], ["settings", "Settings"],
   ];
@@ -8429,7 +8430,8 @@
              candidatesRes, portfolioRes, riskScoreRes, exposureRes, corrWarningsRes, strategyCorrMatrixRes, coinHeatmapRes,
              strategyExposureRes, directionExposureRes, customRulesRes, patternReliabilityRes,
              lifecycleRes, configsRes, pausedRes, killSwitch, acctDrawdown, coinBlacklistRes,
-             riskPctRecsRes, dupExposureRes, cloudSyncStatusRes, autoStopState, maintenanceState, coinPriorityRes] = await Promise.all([
+             riskPctRecsRes, dupExposureRes, cloudSyncStatusRes, autoStopState, maintenanceState, coinPriorityRes,
+             groupsRes] = await Promise.all([
         apiGet("/api/paper-trading/status"),
         apiGet("/api/paper-trading/positions"),
         apiGet("/api/paper-trading/trades?limit=50"),
@@ -8466,6 +8468,7 @@
         apiGet("/api/paper-trading/cloud-aware-auto-stop/state").catch(() => ({ paused_by_cloud: false })),
         apiGet("/api/paper-trading/maintenance-mode").catch(() => ({ active: false })),
         apiGet("/api/paper-trading/coin-priority").catch(() => ({ pinned: [], demoted: [] })),
+        apiGet("/api/paper-trading/groups").catch(() => null),
       ]);
       if (isStaleRoute(myToken)) return;
 
@@ -8609,6 +8612,66 @@
           </table></div>
         </div>
 
+        </div>
+
+        <div class="pt-tab-panel" data-pt-tab="groups">
+        <div class="section-title">${getLang() === "en" ? "Independent Paper Trading Groups" : "Independent Paper Trading Groups"}</div>
+        <p class="muted plain-note">${getLang() === "en"
+          ? "3 completely independent books -- Losing, Profitable, and Challenge -- each with its own balance, PnL, win rate, and trade history. Never mixed or averaged together."
+          : "3 bilkul independent books -- Losing, Profitable, aur Challenge -- har ek ka apna balance, PnL, win rate, aur trade history. Kabhi mix ya average nahi hote."}</p>
+        ${!groupsRes ? `<div class="card"><p class="muted">Groups data not available yet.</p></div>` : (() => {
+          const GROUP_META = {
+            losing: { label: "Losing" },
+            profitable: { label: "Profitable" },
+            challenge: { label: "Challenge" },
+          };
+          const groupCard = (key) => {
+            const g = groupsRes.groups[key];
+            const meta = GROUP_META[key];
+            return `
+              <div class="section-title" style="margin-top:14px;">${meta.label} (${g.strategy_count} ${getLang() === "en" ? "strategies" : "strategies"})</div>
+              <div class="grid">
+                ${card("Balance", `$${Number(g.balance).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}`)}
+                ${cardClass("Total PnL", `${g.total_pnl >= 0 ? "+" : ""}$${g.total_pnl.toFixed(2)}`, g.total_pnl > 0 ? "positive" : g.total_pnl < 0 ? "negative" : "")}
+                ${card("Win Rate", `${g.win_rate_pct.toFixed(1)}%`)}
+                ${card("Closed Trades", fmtNum(g.closed_trades))}
+                ${card("Open Positions", fmtNum(g.open_positions))}
+              </div>
+              ${key === "challenge" && groupsRes.challenge_daily ? `
+              <div class="card" style="margin-top:8px;max-width:640px;">
+                <div class="btn-row" style="align-items:center;">
+                  <span class="pill ${groupsRes.challenge_daily.hit ? "pill-completed" : "pill-pending"}">
+                    ${groupsRes.challenge_daily.hit
+                      ? (getLang() === "en" ? "Today's target HIT" : "Aaj ka target HIT")
+                      : (getLang() === "en" ? "Today's target not hit yet" : "Aaj ka target abhi hit nahi hua")}
+                  </span>
+                  <span class="muted" style="font-size:12px;">
+                    ${getLang() === "en" ? "Today's real PnL" : "Aaj ka real PnL"}: $${groupsRes.challenge_daily.pnl_today.toFixed(2)}
+                    &nbsp;/&nbsp; ${getLang() === "en" ? "Target" : "Target"}: $${groupsRes.challenge_daily.target_usd.toFixed(2)}/day
+                  </span>
+                </div>
+                <div style="margin-top:8px;display:flex;gap:4px;flex-wrap:wrap;">
+                  ${(groupsRes.challenge_recent_days || []).map(d => `
+                    <span class="pill ${!d.has_data ? "pill-muted" : d.hit ? "pill-completed" : "pill-pending"}"
+                          title="${esc(d.date)}${d.has_data ? `: $${d.pnl.toFixed(2)}` : ": " + (getLang() === "en" ? "no closed trade" : "koi closed trade nahi")}">
+                      ${d.date.slice(5)}
+                    </span>`).join("")}
+                </div>
+              </div>` : ""}
+              <div class="table-wrap" style="margin-top:8px;"><table>
+                <thead><tr><th>${getLang() === "en" ? "Strategy" : "Strategy"}</th><th>Balance</th><th>PnL</th><th>Win Rate</th><th>Closed Trades</th></tr></thead>
+                <tbody>${g.strategies.map(s => `
+                  <tr>
+                    <td>${esc(s.strategy_name)}</td>
+                    <td>$${s.balance.toFixed(2)}</td>
+                    <td class="${s.total_pnl > 0 ? "positive" : s.total_pnl < 0 ? "negative" : ""}">${s.total_pnl >= 0 ? "+" : ""}$${s.total_pnl.toFixed(2)}</td>
+                    <td>${s.win_rate_pct.toFixed(1)}%</td>
+                    <td>${fmtNum(s.closed_trades)}</td>
+                  </tr>`).join("") || `<tr><td colspan="5">${getLang() === "en" ? "No strategies in this group yet." : "Is group mein abhi koi strategy nahi."}</td></tr>`}</tbody>
+              </table></div>`;
+          };
+          return groupCard("losing") + groupCard("profitable") + groupCard("challenge");
+        })()}
         </div>
 
         <div class="pt-tab-panel" data-pt-tab="challenge">

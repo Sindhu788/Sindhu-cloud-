@@ -21,6 +21,7 @@ from paper_trading import telegram_delivery
 from paper_trading import signal_tracker
 from paper_trading import pattern_stats
 from paper_trading import challenge_mode
+from paper_trading import strategy_groups
 from paper_trading import cloud_sync
 from paper_trading import strategy_sync
 from paper_trading import cloud_aware_auto_stop
@@ -691,6 +692,57 @@ def get_strategy_overview():
             "activation_blocked_reason": blocked_reason,
         })
     return {"strategies": rows}
+
+
+# ----------------------------------------------------------- CEO Task 3: Independent Paper Trading Groups
+
+@router.get("/api/paper-trading/groups")
+def get_paper_trading_groups():
+    """Powers the dashboard's 3 independent-group tabs (Losing/Profitable/
+    Challenge) -- each group's balance/PnL/win-rate/trade-count is summed
+    straight from the same real per-strategy rows the rest of this file
+    already reads, never a second parallel ledger. Also runs the
+    idempotent group-assignment sync first, so a strategy newly enabled in
+    Paper Trading since the last sync is never missing from every group."""
+    strategy_groups.sync_group_assignments()
+    return {
+        "groups": strategy_groups.all_group_summaries(),
+        "challenge_daily": strategy_groups.challenge_daily_status(),
+        "challenge_recent_days": strategy_groups.challenge_recent_days(),
+    }
+
+
+@router.get("/api/paper-trading/groups/{group_key}")
+def get_one_paper_trading_group(group_key: str):
+    if group_key not in strategy_groups.GROUP_KEYS:
+        raise HTTPException(404, f"Unknown group '{group_key}' -- must be one of {strategy_groups.GROUP_KEYS}")
+    return strategy_groups.group_summary(group_key)
+
+
+@router.post("/api/paper-trading/groups/sync")
+def sync_paper_trading_groups():
+    """Manual re-run of the idempotent auto-assignment (also run
+    automatically on every server startup and on every GET /groups call)
+    -- exposed here so the CEO can re-check it on demand without
+    restarting the server. Never reassigns an already-grouped strategy."""
+    result = strategy_groups.sync_group_assignments()
+    return result
+
+
+class MoveStrategyGroupRequest(BaseModel):
+    group_key: str
+
+
+@router.post("/api/paper-trading/groups/{strategy_id}/move")
+def move_strategy_group(strategy_id: str, body: MoveStrategyGroupRequest):
+    """Manual override -- the CEO moving one strategy into a different
+    group by hand (e.g. curating Group C's exact membership). Marked
+    auto_assigned=False so a future sync never treats this strategy as
+    still needing its default assignment."""
+    if body.group_key not in strategy_groups.GROUP_KEYS:
+        raise HTTPException(400, f"Unknown group '{body.group_key}' -- must be one of {strategy_groups.GROUP_KEYS}")
+    storage.upsert_paper_strategy_group(strategy_id, body.group_key, datetime.now(timezone.utc).isoformat(), auto_assigned=False)
+    return {"ok": True, "strategy_id": strategy_id, "group_key": body.group_key}
 
 
 @router.get("/api/paper-trading/periods")

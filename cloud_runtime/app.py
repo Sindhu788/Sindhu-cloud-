@@ -206,6 +206,18 @@ async def _lifespan(app: FastAPI):
     from sindhu_web.api.system import record_startup as _record_startup
     _record_startup()
 
+    # CEO Task 3 (Independent Paper Trading Groups): idempotent -- the
+    # very first call ever ranks every real-performance strategy into
+    # losing/profitable/challenge and never reshuffles them again; every
+    # later call just fills in any strategy newly enabled since then.
+    # Logged explicitly (not just silently persisted) so the real result
+    # is visible in this deployment's own logs as evidence, without
+    # needing dashboard/DB access to confirm it ran.
+    from paper_trading.strategy_groups import sync_group_assignments as _sync_paper_groups
+    _groups_result = _sync_paper_groups()
+    log(f"[cloud-runtime] Paper Trading groups sync: first_run={_groups_result['first_run']} "
+        f"assigned={ {k: len(v) for k, v in _groups_result['assigned'].items()} }")
+
     task = asyncio.create_task(_broadcast_loop())
     yield
     task.cancel()

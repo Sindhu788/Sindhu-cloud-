@@ -28,12 +28,19 @@ def _filter_tradeable(raw_tradeable):
     }
 
 
-def pick_top_symbols(exchange_client, n=NUM_COINS, quote=QUOTE_ASSET):
+def pick_top_symbols(exchange_client, n=NUM_COINS, quote=QUOTE_ASSET, tradeable=None):
     """Top n real cryptocurrencies (ranked by CoinGecko market cap) that also
     trade as a spot pair against `quote` on `exchange_client`. Market cap
     ranking (rather than raw 24h volume) avoids pulling in stablecoins,
-    tokenized stocks/commodities, and volume-spiking new listings."""
-    tradeable = _filter_tradeable(exchange_client.get_tradeable_symbols(quote))
+    tokenized stocks/commodities, and volume-spiking new listings.
+
+    `tradeable` can be passed in already-fetched (e.g. by the cloud exchange
+    failover's own health-check call in data_engine.exchanges.registry) to
+    avoid a second, redundant get_tradeable_symbols() call against the
+    exchange every tick."""
+    if tradeable is None:
+        tradeable = exchange_client.get_tradeable_symbols(quote)
+    tradeable = _filter_tradeable(tradeable)
 
     coins = get_top_market_cap_coins(limit=max(n * 4, 200))
     seen_base = set()

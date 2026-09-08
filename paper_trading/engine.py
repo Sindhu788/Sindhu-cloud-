@@ -21,7 +21,7 @@ from datetime import datetime, timezone, timedelta as _timedelta
 
 from data_engine import storage, config as base_config, feature_toggles
 from data_engine.config import env_flag
-from data_engine.exchanges.registry import get_exchange_client
+from data_engine.exchanges.registry import get_exchange_client, get_working_exchange_client, last_known_working_exchange
 from data_engine.logging_setup import log as default_log
 
 # Lightweight cloud runner support: same opt-in flag data_engine/resample.py
@@ -270,7 +270,13 @@ class PaperTradingEngine:
         if not coin_blacklist.filter_out_blacklisted([symbol]):
             return {"symbol": symbol, "skipped": True, "reason": f"{symbol} is on the coin blacklist"}
         settings = pt_config.load()
-        exchange = _default_exchange()
+        # Same exchange-failover awareness as _tick(): prefer whichever
+        # exchange the real tick loop last confirmed actually works (e.g.
+        # in cloud mode, once bybit's geo-block forced a fallback to okx/
+        # gate/bitget), rather than always re-asking for the hardcoded
+        # default that may be the very one currently geo-blocked.
+        exchange = last_known_working_exchange() if LIVE_CANDLES_ONLY else None
+        exchange = exchange or _default_exchange()
         try:
             snapshot = market_state.classify(exchange, symbol)
         except Exception as e:
@@ -309,13 +315,27 @@ class PaperTradingEngine:
             self._last_tick_duration_seconds = round(time.monotonic() - tick_started_monotonic, 2)
             return
         settings = pt_config.load()
-        exchange = _default_exchange()
-        client = get_exchange_client(exchange)
         if LIVE_CANDLES_ONLY:
+            # Urgent bug fix, 2026-09-08: Binance 451-blocked Render (fixed by
+            # defaulting to bybit), then bybit ITSELF started 403-ing every
+            # request from the same servers -- a crypto exchange's geo-block
+            # is decided entirely on their end and has now changed twice
+            # under this project with no code change here, so a single
+            # hardcoded "safe" exchange isn't trustworthy. Try every enabled
+            # exchange (binance excluded in cloud mode -- confirmed always
+            # 451-blocked there, never worth retrying) and use whichever one
+            # actually answers; see get_working_exchange_client's own
+            # docstring for why almost every tick still only costs one call.
             from data_engine.symbols import pick_top_symbols
             coins_cfg = base_config.load_or_seed("coins.json", base_config.DEFAULTS["coins.json"])
-            symbols = pick_top_symbols(client, n=coins_cfg["num_coins"], quote=coins_cfg["quote_asset"])
+            candidates = list(base_config.load_or_seed("exchanges.json", base_config.DEFAULTS["exchanges.json"])["enabled"])
+            if env_flag("SINDHU_CLOUD_MODE") and "binance" in candidates:
+                candidates.remove("binance")
+            exchange, client, tradeable = get_working_exchange_client(candidates, coins_cfg["quote_asset"], log=self._log)
+            symbols = pick_top_symbols(client, n=coins_cfg["num_coins"], quote=coins_cfg["quote_asset"], tradeable=tradeable)
         else:
+            exchange = _default_exchange()
+            client = get_exchange_client(exchange)
             symbols = storage.load_symbols(exchange)
         if not symbols:
             self._last_summary = {"shortlisted": [], "opened": 0, "closed": 0, "rejected": 0}

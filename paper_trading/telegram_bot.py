@@ -970,6 +970,13 @@ def send_signal_for_position(position_id, trigger_type="manual", high_confidence
     grade_result = signal_explainer.grade_signal(conf, reliability)
     text = format_signal_message(pos, conf, reliability, high_confidence=high_confidence, live_price=live_price,
                                   explanation_text=explanation_text, grade_result=grade_result)
+    # CEO Task 3 (Independent Paper Trading Groups): a Group C ("Challenge")
+    # signal must be instantly visually distinguishable from a normal
+    # Group A/B one -- ONLY a Group C strategy's signal gets this marker,
+    # appended at the very end with no extra explanation.
+    from paper_trading import strategy_groups
+    if strategy_groups.get_group(pos.get("strategy_id")) == "challenge":
+        text = f"{text}\n\n{strategy_groups.CHALLENGE_TELEGRAM_MARKER}"
     ok, err = _raw_send(text, channel_id_override=channel_for_strategy(pos.get("strategy_id")))
     storage.log_telegram_message(
         position_id, pos.get("strategy_id"), pos.get("strategy_name"), trigger_type, text, ok, err, now,

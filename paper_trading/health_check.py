@@ -12,8 +12,9 @@ well under a second per check.
 from datetime import datetime, timezone
 
 from data_engine import storage, config as base_config
-from data_engine.exchanges.registry import get_exchange_client
-from paper_trading.engine import engine, _default_exchange
+from data_engine.config import env_flag
+from data_engine.exchanges.registry import get_exchange_client, get_working_exchange_client
+from paper_trading.engine import engine, _default_exchange, LIVE_CANDLES_ONLY
 
 
 def _check_database():
@@ -37,9 +38,20 @@ def _check_engine_state():
 
 def _check_last_candle_fetch():
     try:
-        exchange = _default_exchange()
-        client = get_exchange_client(exchange)
         coins_cfg = base_config.load_or_seed("coins.json", base_config.DEFAULTS["coins.json"])
+        if LIVE_CANDLES_ONLY:
+            # Same exchange-failover awareness as the engine's own tick loop
+            # (see data_engine.exchanges.registry.get_working_exchange_client)
+            # -- this check must exercise whichever exchange is ACTUALLY in
+            # use, not a single hardcoded default that may itself be the one
+            # currently geo-blocked.
+            candidates = list(base_config.load_or_seed("exchanges.json", base_config.DEFAULTS["exchanges.json"])["enabled"])
+            if env_flag("SINDHU_CLOUD_MODE") and "binance" in candidates:
+                candidates.remove("binance")
+            exchange, client, _tradeable = get_working_exchange_client(candidates, coins_cfg["quote_asset"])
+        else:
+            exchange = _default_exchange()
+            client = get_exchange_client(exchange)
         tickers = client.get_tickers(coins_cfg["quote_asset"])
         if not tickers:
             return {"name": "Live candle/ticker fetch", "ok": False, "detail": f"{exchange} returned no tickers"}

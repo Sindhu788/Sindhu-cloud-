@@ -125,6 +125,11 @@ CURATED_TABLES = [
     "server_restart_log",
     "paper_coin_priority",
     "user_goals",
+    # paper_strategy_groups: CEO-assigned group labels (Task 3, Independent
+    # Paper Trading Groups) -- small, CEO-curated data worth actually
+    # carrying over to a fresh cloud deploy, same reasoning as
+    # paper_coin_blacklist/challenges above.
+    "paper_strategy_groups",
 ]
 
 
