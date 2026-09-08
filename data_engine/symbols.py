@@ -37,12 +37,28 @@ def pick_top_symbols(exchange_client, n=NUM_COINS, quote=QUOTE_ASSET, tradeable=
     `tradeable` can be passed in already-fetched (e.g. by the cloud exchange
     failover's own health-check call in data_engine.exchanges.registry) to
     avoid a second, redundant get_tradeable_symbols() call against the
-    exchange every tick."""
+    exchange every tick.
+
+    Urgent bug fix, 2026-09-08: CoinGecko's free tier confirmed live to
+    sustain 429 (Too Many Requests) from Render's shared/datacenter IP for
+    40+ minutes straight, with zero successful calls in that whole window
+    -- caching alone (data_engine.coingecko_client's own fix) cannot help
+    when there has never even been ONE successful call to cache. Rather
+    than leave every tick permanently stuck with zero symbols whenever
+    CoinGecko's free tier is unavailable, a failure here falls back to
+    ranking the exact same already-tradeable/filtered symbols by the
+    exchange's own real 24h quote volume instead of market cap -- a
+    different but still real, still honest liquidity signal, not a
+    fabricated one."""
     if tradeable is None:
         tradeable = exchange_client.get_tradeable_symbols(quote)
     tradeable = _filter_tradeable(tradeable)
 
-    coins = get_top_market_cap_coins(limit=max(n * 4, 200))
+    try:
+        coins = get_top_market_cap_coins(limit=max(n * 4, 200))
+    except Exception:
+        return _pick_top_symbols_by_exchange_volume(exchange_client, tradeable, n, quote)
+
     seen_base = set()
     picked = []
     for coin in coins:
@@ -55,3 +71,20 @@ def pick_top_symbols(exchange_client, n=NUM_COINS, quote=QUOTE_ASSET, tradeable=
             break
 
     return picked
+
+
+def _pick_top_symbols_by_exchange_volume(exchange_client, tradeable, n, quote):
+    """CoinGecko-unavailable fallback -- see pick_top_symbols's own
+    docstring. Never raises: an exchange ticker-fetch failure here just
+    means no symbols this tick (same as CoinGecko being unavailable used
+    to mean before this fix), not a second exception replacing the first."""
+    try:
+        tickers = exchange_client.get_tickers(quote)
+    except Exception:
+        return []
+    ranked = sorted(
+        (symbol for symbol in tradeable.values() if tickers.get(symbol, {}).get("volume")),
+        key=lambda symbol: tickers[symbol]["volume"],
+        reverse=True,
+    )
+    return ranked[:n]
