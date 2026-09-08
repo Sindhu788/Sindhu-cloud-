@@ -70,6 +70,75 @@ def test_importing_cloud_runtime_never_imports_the_batch_backtest_runner(isolate
     assert hits == [], f"cloud_runtime.app pulled in forbidden heavy module(s): {sorted(set(hits))}"
 
 
+def test_every_third_party_import_cloud_runtime_touches_is_in_requirements_cloud_txt(isolated_import_graph):
+    """Real incident: sindhu_web/api/system.py imports psutil at module
+    level, and cloud_runtime/app.py imports system.py at module level too --
+    but psutil was never added to requirements-cloud.txt, so Render's build
+    (which installs ONLY that file, not the full requirements.txt psutil is
+    actually listed in) failed with ModuleNotFoundError on every single
+    deploy, crashing the whole app before startup/lifespan even ran. This
+    file was traced once, by hand, when cloud_runtime.app was first built --
+    psutil was added to system.py's CPU/RAM monitoring feature afterwards
+    and nothing re-checked this file against the real import graph.
+
+    Only checks packages this project's OWN code imports directly -- a
+    package pip installs as some OTHER package's own transitive dependency
+    (numpy via pandas, starlette/pydantic via fastapi, etc.) does not need
+    its own line here, since pip resolves those automatically."""
+    import os
+    import sys as _sys
+
+    stdlib_names = set(_sys.stdlib_module_names) | set(_sys.builtin_module_names)
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    local_names = set()
+    for entry in os.listdir(project_root):
+        full = os.path.join(project_root, entry)
+        if os.path.isdir(full) and os.path.exists(os.path.join(full, "__init__.py")):
+            local_names.add(entry)
+        elif entry.endswith(".py"):
+            local_names.add(entry[:-3])
+
+    top_level = {m.split(".")[0] for m in isolated_import_graph}
+    third_party = {n for n in top_level if n not in stdlib_names and n not in local_names and not n.startswith("_")}
+
+    # Transitive-only: pulled in as some directly-required package's own
+    # dependency, never imported by this project's code directly -- pip
+    # installs these automatically, so they need no line of their own.
+    transitive_only = {
+        "numpy", "python_dateutil", "dateutil", "pytz", "tzdata",
+        "certifi", "charset_normalizer", "idna", "urllib3",
+        "anyio", "starlette", "pydantic", "pydantic_core",
+        "annotated_types", "annotated_doc", "typing_extensions", "typing_inspection",
+        "six", "coincurve", "cryptography", "cython_runtime", "sniffio", "h11", "click", "colorama",
+    }
+    # A directly-required package's PyPI name doesn't always match its
+    # import name -- same mapping used by requirements-cloud.txt itself.
+    import_to_pypi = {
+        "socks": "PySocks",
+        "python_multipart": "python-multipart",
+        "psycopg2": "psycopg2-binary",
+    }
+
+    with open(os.path.join(project_root, "requirements-cloud.txt"), encoding="utf-8") as f:
+        cloud_reqs = {line.strip().split("[")[0] for line in f if line.strip() and not line.startswith("#")}
+
+    missing = []
+    for name in sorted(third_party):
+        if len(name) > 20 and any(c.isdigit() for c in name):
+            continue  # a compiled mypyc/Cython extension's mangled module name, not a real package
+        if name in transitive_only:
+            continue
+        pypi_name = import_to_pypi.get(name, name)
+        if pypi_name not in cloud_reqs and name not in cloud_reqs:
+            missing.append(name)
+
+    assert missing == [], (
+        f"cloud_runtime.app imports {missing} directly but requirements-cloud.txt "
+        f"does not list it -- Render's build would crash the whole app on import, "
+        f"exactly like the psutil incident this test guards against."
+    )
+
+
 def test_importing_cloud_runtime_never_imports_the_evolution_governor(isolated_import_graph):
     """evolution_engine.lesson_generator/generation_manager are
     deliberately imported (see module docstring); the actual Governor/

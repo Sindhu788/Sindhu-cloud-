@@ -19,3 +19,10 @@ PySocks
 psycopg2-binary
 openpyxl
 python-multipart
+# psutil: this was missing and caused every single Render deploy to crash
+# at import time (sindhu_web/api/system.py imports it at module level, and
+# cloud_runtime/app.py imports system.py at module level too -- so the
+# WHOLE app failed to import, before startup/lifespan ever ran). Confirmed
+# the only genuinely missing dependency by tracing cloud_runtime.app's real
+# import graph in a fresh subprocess and diffing against this file.
+psutil
