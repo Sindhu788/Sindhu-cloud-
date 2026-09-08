@@ -145,10 +145,19 @@ def record_startup():
     sindhu_web/server.py and cloud_runtime/app.py) -- Grand Master Prompt,
     Phase 3.13 (Restart Analytics). See server_restart_log's own schema
     comment in data_engine/storage.py for the honest scope of what this
-    can and cannot tell the CEO."""
-    deployment = _deployment_name()
-    storage.record_server_restart(deployment, _SERVER_START_ISO)
-    _send_restart_notification(deployment)
+    can and cannot tell the CEO.
+
+    Called synchronously, before the app finishes starting -- so this must
+    NEVER raise (a real incident: a missing Postgres table here once took
+    the whole cloud deploy's startup down with it, not just this one
+    feature). This is a monitoring side-effect, not a safety gate, so
+    swallowing a failure here is a pure robustness improvement."""
+    try:
+        deployment = _deployment_name()
+        storage.record_server_restart(deployment, _SERVER_START_ISO)
+        _send_restart_notification(deployment)
+    except Exception as exc:
+        log(f"[system] record_startup failed non-fatally: {exc}")
 
 
 def _send_restart_notification(deployment):

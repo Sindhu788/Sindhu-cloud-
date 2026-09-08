@@ -141,6 +141,11 @@ def test_schema_contains_every_table_the_lightweight_runner_needs():
         "lessons", "paper_strategy_performance", "paper_lesson_performance",
         "bot_strategies", "bot_lessons", "auth_credentials", "auth_sessions", "cloud_settings",
         "kill_switch_state", "activity_log", "audit_trail_log", "telegram_retry_queue",
+        # Grand Master Prompt Phase 2/3/4: added to storage.py's SQLite schema
+        # but NOT to this curated Postgres one -- server_restart_log's gap in
+        # particular crashed the cloud runner's lifespan on every single
+        # boot (see server_restart_log's own comment in POSTGRES_SCHEMA).
+        "paper_downgrade_state", "server_restart_log", "paper_coin_priority", "user_goals",
     }
     for table in expected_tables:
         assert f"CREATE TABLE IF NOT EXISTS {table} (" in db_backend.POSTGRES_SCHEMA, table

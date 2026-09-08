@@ -152,10 +152,11 @@ def test_health_endpoint_exists_and_is_trivial(cloud_app):
     route = next(r for r in cloud_app.app.routes if getattr(r, "path", None) == "/health")
     body = route.endpoint()
     assert body["status"] == "ok"
-    assert set(body) == {"status", "cloud_mode", "live_candles_only", "db_backend"}
+    assert set(body) == {"status", "cloud_mode", "live_candles_only", "db_backend", "started_at"}
     assert isinstance(body["cloud_mode"], bool)
     assert isinstance(body["live_candles_only"], bool)
     assert body["db_backend"] in ("postgres", "local_file (ephemeral on most hosts)")
+    assert isinstance(body["started_at"], str) and body["started_at"]
 
 
 def test_health_endpoint_reports_db_backend_honestly(cloud_app, monkeypatch):

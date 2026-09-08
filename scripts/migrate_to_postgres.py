@@ -118,6 +118,13 @@ CURATED_TABLES = [
     # challenge_achievability_snapshots: same parity-only story -- a
     # rolling analytics log, never migrated from the laptop's own history.
     "challenge_achievability_snapshots",
+    # Grand Master Prompt Phase 2.4/3.6/3.13/4.6: same parity-only story as
+    # activity_log/kill_switch_state above -- live/rolling state that starts
+    # fresh on a new cloud deploy, never migrated from the laptop's history.
+    "paper_downgrade_state",
+    "server_restart_log",
+    "paper_coin_priority",
+    "user_goals",
 ]
 
 

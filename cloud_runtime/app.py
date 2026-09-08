@@ -311,15 +311,26 @@ def create_app():
         process) and login/trading state will be wiped on the next
         restart/redeploy/sleep-wake cycle -- the exact bug Part 1 fixed
         for the Postgres case. No connection string or credential is ever
-        exposed here, only which of the two modes the process picked."""
+        exposed here, only which of the two modes the process picked.
+
+        started_at added after a real incident: a failed Render deploy
+        keeps the PREVIOUS successful process serving traffic, so polling
+        this endpoint for a 200 after a push proves nothing about whether
+        the NEW commit is actually live -- it only proves *some* process
+        is up. started_at is this process's own boot time (same value
+        system.py's record_startup() logs), so comparing it against the
+        push time is what actually distinguishes "new deploy is live" from
+        "old deploy never died"."""
         from data_engine.resample import LIVE_CANDLES_ONLY
         from sindhu_web.security import CLOUD_MODE
         from data_engine import db_backend
+        from sindhu_web.api.system import _SERVER_START_ISO
         return {
             "status": "ok",
             "cloud_mode": CLOUD_MODE,
             "live_candles_only": LIVE_CANDLES_ONLY,
             "db_backend": "postgres" if db_backend.IS_POSTGRES else "local_file (ephemeral on most hosts)",
+            "started_at": _SERVER_START_ISO,
         }
 
     app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")

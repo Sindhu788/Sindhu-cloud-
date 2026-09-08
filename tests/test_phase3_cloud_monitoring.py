@@ -61,6 +61,20 @@ def test_restart_analytics_note_is_honest_about_scope(test_db):
     assert "cannot tell a deliberate restart apart from a crash" in result["note"]
 
 
+def test_record_startup_never_raises_even_if_storage_write_fails(test_db, monkeypatch):
+    """Real incident: server_restart_log was missing from the curated
+    Postgres schema, so storage.record_server_restart() raised on every
+    single cloud boot -- and record_startup() is called synchronously,
+    before yield, in cloud_runtime/app.py's lifespan, so that exception
+    crashed the whole deploy's startup, not just this one feature. This is
+    a monitoring side-effect, not a safety gate, so it must degrade to a
+    log line instead of ever taking the app down again."""
+    def _boom(*a, **k):
+        raise Exception('relation "server_restart_log" does not exist')
+    monkeypatch.setattr(storage, "record_server_restart", _boom)
+    system.record_startup()  # must not raise
+
+
 # ------------------------------------------------------------ 3.11 API Monitor
 
 def test_api_monitor_tracks_total_and_failed_requests():

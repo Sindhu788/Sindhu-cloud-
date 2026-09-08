@@ -628,6 +628,57 @@ CREATE TABLE IF NOT EXISTS challenge_achievability_snapshots (
     achievability_score REAL,
     recorded_at TEXT NOT NULL
 );
+
+-- Grand Master Prompt Phase 3.13 (Restart Analytics): record_startup() in
+-- sindhu_web/api/system.py calls storage.record_server_restart()
+-- UNCONDITIONALLY and SYNCHRONOUSLY from cloud_runtime/app.py's lifespan,
+-- before the app finishes starting -- exactly the same failure shape as
+-- activity_log above (a table the curated schema forgot, hit on every
+-- single boot instead of only on one route). Missing this table crashed
+-- the whole cloud deploy's startup, not just one endpoint.
+CREATE TABLE IF NOT EXISTS server_restart_log (
+    id SERIAL PRIMARY KEY,
+    deployment TEXT NOT NULL,
+    started_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_server_restart_log_deployment ON server_restart_log(deployment, started_at DESC);
+
+-- Grand Master Prompt Phase 2.4 (Auto-Downgrade Rule): read/written from
+-- paper_trading/auto_downgrade.py's background thread, which runs on this
+-- cloud runner (started from cloud_runtime/app.py's lifespan).
+CREATE TABLE IF NOT EXISTS paper_downgrade_state (
+    strategy_id TEXT PRIMARY KEY,
+    downgraded INTEGER NOT NULL DEFAULT 0,
+    profit_factor REAL,
+    sample_size INTEGER NOT NULL DEFAULT 0,
+    reason TEXT,
+    updated_at TEXT NOT NULL
+);
+
+-- Grand Master Prompt Phase 3.6 (Coin Manager): paper_trading_api.router is
+-- fully mounted on this cloud runner, so its pin/demote endpoints (backed
+-- by paper_trading/coin_priority.py) must have this table on Postgres too.
+CREATE TABLE IF NOT EXISTS paper_coin_priority (
+    symbol TEXT PRIMARY KEY,
+    priority TEXT NOT NULL CHECK (priority IN ('pinned', 'demoted')),
+    reason TEXT,
+    added_at TEXT NOT NULL
+);
+
+-- Grand Master Prompt Phase 4.6 (Goal System): paper_trading_api.router's
+-- goals endpoints (backed by paper_trading/goal_system.py) are reachable
+-- on this cloud runner the same way.
+CREATE TABLE IF NOT EXISTS user_goals (
+    id TEXT PRIMARY KEY,
+    metric TEXT NOT NULL,
+    target_value REAL NOT NULL,
+    comparison TEXT NOT NULL CHECK (comparison IN ('gte', 'lte')),
+    scope_strategy_id TEXT,
+    label TEXT,
+    archived INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    achieved_at TEXT
+);
 """
 
 
