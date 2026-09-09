@@ -67,6 +67,40 @@ class _PGCursorResult:
         )
 
 
+_NATIVE_PARAM_TYPES = (int, float, str, bytes, bool, type(None))
+
+
+def _normalize_param(value):
+    """Urgent bug fix, 2026-09-09: confirmed live -- a numpy.float64 (from
+    an ATR/indicator-based stop/take-profit calculation upstream) reached
+    a paper_positions INSERT's parameter tuple and crashed with
+    InvalidSchemaName('schema "np" does not exist'): psycopg2 has no
+    built-in adapter for numpy scalar types, so it fell back to str()'ing
+    the value (producing the literal text "np.float64(0.123)"), which
+    Postgres then tried to parse as a schema-qualified function call --
+    silently corrupting the query instead of raising a clear type error.
+
+    Duck-typed on numpy scalars' own `.item()` method (every numpy scalar
+    type -- float64, int64, bool_, etc. -- implements it to return the
+    native Python equivalent) rather than importing numpy here, so this
+    stays the thin, dependency-free adapter layer this module's own
+    docstring describes -- one fix here covers every call site across
+    storage.py's 5000+ lines rather than auditing each one for where a
+    pandas/numpy computation might reach a query parameter."""
+    if type(value) in _NATIVE_PARAM_TYPES:
+        return value
+    if hasattr(value, "item"):
+        try:
+            return value.item()
+        except Exception:
+            return value
+    return value
+
+
+def _normalize_params(params):
+    return tuple(_normalize_param(p) for p in params)
+
+
 class _PGConnection:
     """Wraps a psycopg2 connection to look enough like sqlite3.Connection
     for storage.py's existing call patterns: .execute(sql, params),
@@ -78,12 +112,12 @@ class _PGConnection:
 
     def execute(self, sql, params=()):
         cur = self._conn.cursor()
-        cur.execute(_translate_placeholders(sql), tuple(params))
+        cur.execute(_translate_placeholders(sql), _normalize_params(params))
         return _PGCursorResult(cur)
 
     def executemany(self, sql, seq_of_params):
         cur = self._conn.cursor()
-        cur.executemany(_translate_placeholders(sql), [tuple(p) for p in seq_of_params])
+        cur.executemany(_translate_placeholders(sql), [_normalize_params(p) for p in seq_of_params])
         return _PGCursorResult(cur)
 
     def executescript(self, sql):
