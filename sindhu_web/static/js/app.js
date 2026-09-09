@@ -8514,8 +8514,9 @@
   // every existing element id and event handler wiring completely
   // unchanged, since all elements still exist in the DOM at all times.
   const PT_TABS = [
-    ["overview", "Overview"], ["analytics", "Analytics"],
-    ["groups", "Groups"],
+    ["overview", "Overview"], ["groups", "Groups"],
+    ["positions", "Live Positions"], ["decisions", "Recent Decisions"],
+    ["analytics", "Analytics"],
     ["challenge", "Challenge"], ["portfolio", "Portfolio & Risk"],
     ["history", "Trade History"], ["settings", "Settings"],
   ];
@@ -8643,7 +8644,8 @@
             </div>`).join("")}
         </div>` : ""}
 
-        <div class="section-title">Custom Alert Rules ${helpIcon("custom_alert_rules")}</div>
+        <details class="pt-collapsible">
+        <summary class="section-title">Custom Alert Rules ${helpIcon("custom_alert_rules")}</summary>
         <div class="card">
           <p class="muted" style="font-size:12px;margin-top:0;">Define your own "alert me if X" rules on top of the system's built-in alerts.</p>
           <div class="btn-row">
@@ -8671,8 +8673,10 @@
               </tr>`).join("") || `<tr><td colspan="5">No custom rules yet.</td></tr>`}</tbody>
           </table></div>
         </div>
+        </details>
 
-        <div class="section-title">${getLang() === "en" ? "Coin Blacklist" : "Coin Blacklist"} ${helpIcon("coin_blacklist")}</div>
+        <details class="pt-collapsible">
+        <summary class="section-title">${getLang() === "en" ? "Coin Blacklist" : "Coin Blacklist"} ${helpIcon("coin_blacklist")}</summary>
         <div class="card">
           <p class="muted" style="font-size:12px;margin-top:0;">${getLang() === "en"
             ? "Coins listed here are never traded by any strategy -- removed before they're even ranked, no matter how strong their activity score would otherwise be."
@@ -8693,8 +8697,10 @@
               </tr>`).join("") || `<tr><td colspan="4">${getLang() === "en" ? "No coins blacklisted." : "Koi coin blacklist nahi."}</td></tr>`}</tbody>
           </table></div>
         </div>
+        </details>
 
-        <div class="section-title">${getLang() === "en" ? "Coin Manager (Pin / Demote)" : "Coin Manager (Pin / Demote)"}</div>
+        <details class="pt-collapsible">
+        <summary class="section-title">${getLang() === "en" ? "Coin Manager (Pin / Demote)" : "Coin Manager (Pin / Demote)"}</summary>
         <div class="card">
           <p class="muted" style="font-size:12px;margin-top:0;">${getLang() === "en"
             ? "Pinned coins are always scanned this tick, even if their activity score wouldn't otherwise make the shortlist. Demoted coins are excluded, the same way Blacklist works, but as a lighter, easily-reversible choice -- use Blacklist above for a coin you never want traded again."
@@ -8716,6 +8722,7 @@
               </tr>`).join("") || `<tr><td colspan="4">${getLang() === "en" ? "No coin priorities set." : "Koi coin priority set nahi."}</td></tr>`}</tbody>
           </table></div>
         </div>
+        </details>
 
         </div>
 
@@ -8727,8 +8734,9 @@
         ${!groupsRes ? `<div class="card"><p class="muted">Groups data not available yet.</p></div>` : (() => {
           // CEO Task A: color-coded, fixed top-to-bottom order -- Challenge
           // (green) first, then Profitable (yellow), then Losing (red).
+          const challengeTargetUsd = groupsRes.challenge_daily ? groupsRes.challenge_daily.target_usd : 2;
           const GROUP_META = {
-            challenge: { label: "Challenge", color: "var(--green)", dot: "\u{1F7E2}" },
+            challenge: { label: `Challenge ($${challengeTargetUsd}/day)`, color: "var(--green)", dot: "\u{1F7E2}" },
             profitable: { label: "Profitable", color: "var(--yellow)", dot: "\u{1F7E1}" },
             losing: { label: "Losing", color: "var(--red)", dot: "\u{1F534}" },
           };
@@ -9160,7 +9168,7 @@
         </div>
         </div>
 
-        <div class="pt-tab-panel" data-pt-tab="overview">
+        <div class="pt-tab-panel" data-pt-tab="positions">
         ${confidenceFilterHtml()}
 
         <div class="section-title">Open Positions</div>
@@ -9227,8 +9235,11 @@
             </tr>`).join("") || '<tr><td colspan="10">No closed trades yet.</td></tr>'}</tbody>
         </table></div>
         <div id="ptTradeDetail" class="card" style="display:none;white-space:pre-wrap;font-family:Consolas,monospace;font-size:12px;"></div>
+        </div>
 
+        <div class="pt-tab-panel" data-pt-tab="decisions">
         <div class="section-title">No-Trade Journal &amp; Decision Log</div>
+        <p class="muted" style="margin-top:-10px;font-size:12px;">Every strategy signal the tick loop evaluated -- opened, dry-run, or rejected (and why) -- newest first.</p>
         <div class="table-wrap"><table>
           <thead><tr><th>Time</th><th>Coin</th><th>Decision</th><th>Reason</th><th>Confidence</th></tr></thead>
           <tbody>${(decisionsRes.decisions || []).map(d => `

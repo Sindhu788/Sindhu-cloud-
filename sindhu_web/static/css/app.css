@@ -360,6 +360,21 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round
 }
 .section-title:first-child { margin-top: 0; }
 
+/* Collapsible sub-sections (e.g. Overview's Custom Alert Rules / Coin
+   Blacklist / Coin Manager) -- native <details>/<summary>, no JS needed.
+   The summary reuses .section-title's own look; just adds a pointer
+   cursor and lets the browser's native disclosure triangle sit to its
+   left instead of the accent bar, so the two markers never overlap. */
+.pt-collapsible { margin-bottom: 6px; }
+.pt-collapsible > summary.section-title {
+  cursor: pointer;
+  list-style: revert;
+  padding-left: 4px;
+  user-select: none;
+}
+.pt-collapsible > summary.section-title::before { display: none; }
+.pt-collapsible > summary.section-title:hover { color: var(--accent); }
+
 /* ============================================================
    Overview hierarchy (design pass)
    ------------------------------------------------------------
