@@ -2209,6 +2209,35 @@ def latest_completed_batch_for_strategy_name(strategy_name):
     return row[0] if row else None
 
 
+def latest_completed_batches_for_strategy_names(strategy_names):
+    """{strategy_name: batch_id} for every completed backtest matching one
+    of `strategy_names`, in ONE query instead of one
+    latest_completed_batch_for_strategy_name() call per name. Urgent bug
+    fix, 2026-09-09: paper_trading.signal_tracker.strategy_match_table()
+    called the single-name version once per strategy in a loop -- with 75
+    strategies enabled that's 75 fresh Postgres connections (and, on the
+    cloud runner, 75 UndefinedTable exceptions in a row, since
+    backtest_batches is deliberately excluded from POSTGRES_SCHEMA) for a
+    page that's supposed to be read-only reporting. Same name-based
+    matching caveat as the single-name version -- a name with multiple
+    completed batches keeps only its most recent one."""
+    names = sorted(set(strategy_names))
+    if not names:
+        return {}
+    placeholders = ",".join("?" * len(names))
+    with get_conn() as conn:
+        rows = conn.execute(
+            f"SELECT strategy_name, batch_id FROM backtest_batches "
+            f"WHERE strategy_name IN ({placeholders}) AND status = 'completed' "
+            f"ORDER BY created_at DESC",
+            names,
+        ).fetchall()
+    result = {}
+    for name, batch_id in rows:
+        result.setdefault(name, batch_id)  # first row per name is the most recent (ORDER BY created_at DESC)
+    return result
+
+
 def update_batch_status(batch_id, status, now_iso):
     with get_conn() as conn:
         conn.execute(
@@ -3811,6 +3840,45 @@ def log_paper_decision(entry):
                 entry.get("market_state"), entry.get("session"), entry.get("timeframe"),
                 entry.get("position_id"), json.dumps(entry.get("market_snapshot", {})), entry["created_at"],
             ),
+        )
+        conn.execute(
+            """DELETE FROM paper_decision_log WHERE id NOT IN (
+                 SELECT id FROM paper_decision_log ORDER BY id DESC LIMIT 2000
+               )"""
+        )
+
+
+def log_paper_decisions_batch(entries):
+    """Writes many decisions in ONE connection instead of one
+    log_paper_decision() call (one connection AND one full-table prune
+    query) per entry. Urgent bug fix, 2026-09-09: paper_trading.engine
+    calls this once per candidate evaluated per coin per tick -- with 75
+    strategies enabled at once a single tick can produce hundreds of
+    these, and running the prune query that many times in one tick (each
+    a `NOT IN` anti-join over the whole table -- expensive regardless of
+    table size, and genuinely does work once the table exceeds 2000 rows,
+    which now happens fast) was slow enough on its own to starve
+    concurrent dashboard requests of their share of Postgres's unpooled
+    connections. The prune now runs once per batch, not once per row."""
+    if not entries:
+        return
+    with get_conn() as conn:
+        conn.executemany(
+            """INSERT INTO paper_decision_log
+               (exchange, symbol, direction, decision, reason, strategy_id, strategy_name,
+                lesson_ids_json, confidence, market_state, session, timeframe, position_id,
+                market_snapshot_json, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                (
+                    entry["exchange"], entry["symbol"], entry.get("direction"), entry["decision"],
+                    entry.get("reason"), entry.get("strategy_id"), entry.get("strategy_name"),
+                    json.dumps(entry.get("lesson_ids", [])), entry.get("confidence"),
+                    entry.get("market_state"), entry.get("session"), entry.get("timeframe"),
+                    entry.get("position_id"), json.dumps(entry.get("market_snapshot", {})), entry["created_at"],
+                )
+                for entry in entries
+            ],
         )
         conn.execute(
             """DELETE FROM paper_decision_log WHERE id NOT IN (

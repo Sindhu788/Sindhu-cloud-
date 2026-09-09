@@ -51,14 +51,16 @@ def test_recommended_risk_pct_respects_the_same_bounds_as_the_multiplier():
 
 def test_too_little_data_produces_no_recommendation(test_db, monkeypatch):
     sid = lib.create(_config("Fresh Strategy"))
-    monkeypatch.setattr(insights, "compute_risk_metrics", lambda *a, **k: {"sharpe_ratio": 2.0, "sample_size": 2})
+    monkeypatch.setattr(insights, "compute_risk_metrics_batch",
+                         lambda ids, since=None: {sid: {"sharpe_ratio": 2.0, "sample_size": 2} for sid in ids})
     recs = capital_allocation.compute_all_risk_pct_recommendations(1.0)
     assert recs == []
 
 
 def test_a_strong_sharpe_produces_an_increase_recommendation(test_db, monkeypatch):
     sid = lib.create(_config("Strong Strategy"))
-    monkeypatch.setattr(insights, "compute_risk_metrics", lambda *a, **k: {"sharpe_ratio": 2.0, "sample_size": 10})
+    monkeypatch.setattr(insights, "compute_risk_metrics_batch",
+                         lambda ids, since=None: {i: {"sharpe_ratio": 2.0, "sample_size": 10} for i in ids})
     recs = capital_allocation.compute_all_risk_pct_recommendations(1.0)
     assert len(recs) == 1
     assert recs[0]["strategy_id"] == sid
@@ -69,7 +71,8 @@ def test_a_strong_sharpe_produces_an_increase_recommendation(test_db, monkeypatc
 
 def test_a_weak_sharpe_produces_a_decrease_recommendation(test_db, monkeypatch):
     lib.create(_config("Weak Strategy"))
-    monkeypatch.setattr(insights, "compute_risk_metrics", lambda *a, **k: {"sharpe_ratio": -2.0, "sample_size": 10})
+    monkeypatch.setattr(insights, "compute_risk_metrics_batch",
+                         lambda ids, since=None: {i: {"sharpe_ratio": -2.0, "sample_size": 10} for i in ids})
     recs = capital_allocation.compute_all_risk_pct_recommendations(1.0)
     assert len(recs) == 1
     assert recs[0]["recommended_risk_pct"] == pytest.approx(0.8)
@@ -78,7 +81,8 @@ def test_a_weak_sharpe_produces_a_decrease_recommendation(test_db, monkeypatch):
 
 def test_a_near_zero_sharpe_produces_no_recommendation(test_db, monkeypatch):
     lib.create(_config("Average Strategy"))
-    monkeypatch.setattr(insights, "compute_risk_metrics", lambda *a, **k: {"sharpe_ratio": 0.01, "sample_size": 10})
+    monkeypatch.setattr(insights, "compute_risk_metrics_batch",
+                         lambda ids, since=None: {i: {"sharpe_ratio": 0.01, "sample_size": 10} for i in ids})
     recs = capital_allocation.compute_all_risk_pct_recommendations(1.0)
     assert recs == []
 
@@ -87,6 +91,7 @@ def test_endpoint_returns_recommendations(test_db, monkeypatch):
     from sindhu_web.api.paper_trading import get_risk_pct_recommendations
 
     lib.create(_config("Strong Strategy"))
-    monkeypatch.setattr(insights, "compute_risk_metrics", lambda *a, **k: {"sharpe_ratio": 2.0, "sample_size": 10})
+    monkeypatch.setattr(insights, "compute_risk_metrics_batch",
+                         lambda ids, since=None: {i: {"sharpe_ratio": 2.0, "sample_size": 10} for i in ids})
     result = get_risk_pct_recommendations()
     assert len(result["recommendations"]) == 1

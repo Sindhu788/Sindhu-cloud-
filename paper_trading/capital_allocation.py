@@ -48,15 +48,22 @@ def compute_multiplier(sharpe_ratio):
 
 def recompute_all_allocations():
     """Called periodically (see engine.py's tick loop) -- recomputes every
-    strategy's multiplier from its current Sharpe Ratio. Cheap: reuses
-    already-computed per-strategy risk metrics, no new DB scans beyond
-    what insights.compute_risk_metrics already does."""
+    strategy's multiplier from its current Sharpe Ratio. Urgent bug fix,
+    2026-09-09: this used to call insights.compute_risk_metrics() once per
+    library strategy (one fresh Postgres connection each, regardless of
+    whether that strategy is even enabled) -- at ~154 library strategies
+    that was up to 154 connections on every periodic tick-loop sweep, the
+    same class of bug already fixed for decisions/analytics/status. Now
+    one shared query via compute_risk_metrics_batch() answers all of
+    them."""
     since = insights.fresh_session_start()
     now = _now_iso()
+    metas = lib.list_all()
+    metrics_by_sid = insights.compute_risk_metrics_batch([m["id"] for m in metas], since=since)
     updated = []
-    for meta in lib.list_all():
+    for meta in metas:
         sid = meta["id"]
-        metrics = insights.compute_risk_metrics(sid, since=since)
+        metrics = metrics_by_sid[sid]
         if metrics["sample_size"] < 5:
             continue  # too little data -- leave at the default 1.0, don't guess
         multiplier = compute_multiplier(metrics["sharpe_ratio"])
@@ -98,13 +105,20 @@ def compute_all_risk_pct_recommendations(base_risk_pct_default):
     barely differs from its current setting is left out entirely, so this
     never nags about a rounding-sized difference."""
     since = insights.fresh_session_start()
+    metas = lib.list_all()
+    # Urgent bug fix, 2026-09-09: same per-library-strategy connection
+    # multiplication as recompute_all_allocations() -- see its docstring
+    # -- plus a second one from get_paper_strategy_config() called per
+    # strategy here too. Both replaced with one shared fetch each.
+    metrics_by_sid = insights.compute_risk_metrics_batch([m["id"] for m in metas], since=since)
+    configs = storage.list_paper_strategy_configs()
     recommendations = []
-    for meta in lib.list_all():
+    for meta in metas:
         sid = meta["id"]
-        metrics = insights.compute_risk_metrics(sid, since=since)
+        metrics = metrics_by_sid[sid]
         if metrics["sample_size"] < 5:
             continue
-        overrides = storage.get_paper_strategy_config(sid)
+        overrides = configs.get(sid, {})
         current_risk_pct = overrides.get("risk_pct_override") or base_risk_pct_default
         recommended = compute_recommended_risk_pct(current_risk_pct, metrics["sharpe_ratio"])
         if abs(recommended - current_risk_pct) < _MEANINGFUL_CHANGE_PCT_POINTS:

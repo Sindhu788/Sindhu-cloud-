@@ -48,6 +48,7 @@ def test_htf_filter_blocks_when_explicitly_enabled_for_this_strategy(test_db):
             "strat_a", "binance", "BTCUSDT", _candidate(), _snapshot(), {"dry_run": True},
         )
     assert (opened, rejected) == (0, 1)
+    engine._flush_decisions()  # decisions are buffered per-tick now, not written immediately
     decision = _last_decision()
     assert "HTF confluence filter" in decision["reason"]
 
@@ -67,6 +68,7 @@ def test_volume_filter_blocks_when_enabled_and_no_spike(test_db):
         "strat_a", "binance", "BTCUSDT", _candidate(), _snapshot(volume_spike=False), {"dry_run": True},
     )
     assert (opened, rejected) == (0, 1)
+    engine._flush_decisions()  # decisions are buffered per-tick now, not written immediately
     decision = _last_decision()
     assert "Volume/Volatility filter" in decision["reason"]
 

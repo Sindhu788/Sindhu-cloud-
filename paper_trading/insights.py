@@ -271,6 +271,14 @@ def compute_risk_metrics(strategy_id, since=None):
     anything -- degrades gracefully instead of showing a misleading 0.00
     Sharpe for a strategy with one or two trades."""
     trades = storage.list_paper_closed_trades_ordered(strategy_id=strategy_id, limit=2000, since=since)
+    return _risk_metrics_from_trades(trades)
+
+
+def _risk_metrics_from_trades(trades):
+    """The actual Sharpe/Sortino/drawdown math, factored out of
+    compute_risk_metrics() so compute_risk_metrics_batch() (below) can
+    reuse it against trades already fetched in bulk, instead of running
+    this same shared query once per strategy."""
     if len(trades) < 2:
         return {"sharpe_ratio": None, "sortino_ratio": None, "max_drawdown_pct": None,
                 "current_drawdown_pct": None, "sample_size": len(trades)}
@@ -319,6 +327,33 @@ def compute_risk_metrics(strategy_id, since=None):
         "sharpe_ratio": sharpe, "sortino_ratio": sortino, "max_drawdown_pct": round(max_dd_pct, 2),
         "current_drawdown_pct": round(current_dd_pct, 2), "sample_size": n,
     }
+
+
+def compute_risk_metrics_batch(strategy_ids, since=None):
+    """{strategy_id: metrics} for every id in strategy_ids, from ONE
+    shared closed-trades query instead of one compute_risk_metrics() call
+    per strategy. Urgent bug fix, 2026-09-09:
+    capital_allocation.recompute_all_allocations() (every tick, when
+    enabled) and portfolio.compute_portfolio_analytics() both looped this
+    per strategy -- recompute_all_allocations loops literally every
+    library strategy regardless of enabled state, so at 75+ enabled
+    strategies (out of ~154 in the library) this was up to 154 fresh
+    Postgres connections for one periodic tick-loop sweep, on top of the
+    same class of bug already fixed for decisions/analytics/status.
+    Same per-strategy 2000-trade cap as calling compute_risk_metrics()
+    once per id -- just computed from one shared fetch."""
+    ids = set(strategy_ids)
+    if not ids:
+        return {}
+    # A generous cap on the ONE shared query -- large enough that no
+    # single strategy's own 2000-trade slice below is ever starved by
+    # another strategy's volume, without fetching literally unbounded
+    # history.
+    all_trades = storage.list_paper_closed_trades_ordered(limit=max(2000 * len(ids), 20000), since=since)
+    by_strategy = {}
+    for t in all_trades:
+        by_strategy.setdefault(t["strategy_id"], []).append(t)
+    return {sid: _risk_metrics_from_trades(by_strategy.get(sid, [])[:2000]) for sid in ids}
 
 
 def compute_value_at_risk(strategy_id, confidence=0.95, since=None):

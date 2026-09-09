@@ -122,6 +122,16 @@ class PaperTradingEngine:
         # Progress -- pure bookkeeping, never read by any trade decision.
         self._scan_progress = {"in_progress": False, "current_symbol": None, "index": 0, "total": 0}
         self._last_tick_duration_seconds = None
+        # Urgent bug fix, 2026-09-09: _log_decision() used to write straight
+        # to storage.log_paper_decision() (one fresh Postgres connection AND
+        # one full-table prune query) on every single call -- fine when a
+        # tick only ever evaluated a couple of strategies, but with 75
+        # enabled at once a single tick can generate hundreds of these
+        # calls, and that connection+prune churn was starving concurrent
+        # dashboard requests (GET /api/paper-trading/decisions included) of
+        # their own connections. Decisions are now buffered here and
+        # flushed in ONE batched write per tick -- see _flush_decisions().
+        self._pending_decisions = []
 
     # ------------------------------------------------------------ control
     def is_running(self):
@@ -287,6 +297,7 @@ class PaperTradingEngine:
         except Exception as e:
             return {"symbol": symbol, "skipped": False, "error": str(e)}
         opened, rejected = self._process_coin(exchange, symbol, snapshot, settings)
+        self._flush_decisions()
         return {"symbol": symbol, "skipped": False, "market_state": snapshot["market_state"],
                 "opened": opened, "rejected": rejected}
 
@@ -399,6 +410,10 @@ class PaperTradingEngine:
 
         self._scan_progress["in_progress"] = False
         self._scan_progress["current_symbol"] = None
+
+        # One batched write for every decision the whole coin-scan loop
+        # above just buffered -- see _flush_decisions' own docstring.
+        self._flush_decisions()
 
         closed += self._monitor_orphaned_positions(exchange, client, shortlisted_symbols)
 
@@ -712,7 +727,11 @@ class PaperTradingEngine:
         return 1, 0
 
     def _log_decision(self, exchange, symbol, candidate, decision, reason, snapshot, position_id=None):
-        storage.log_paper_decision({
+        """Buffers the decision instead of writing it immediately -- see
+        _pending_decisions' own comment in __init__ for why. Flushed by
+        _flush_decisions() once per tick (or once per manual single-coin
+        scan), never left across ticks."""
+        self._pending_decisions.append({
             "exchange": exchange, "symbol": symbol, "direction": candidate.get("direction"),
             "decision": decision, "reason": reason,
             "strategy_id": candidate.get("strategy_id"), "strategy_name": candidate.get("strategy_name"),
@@ -721,6 +740,20 @@ class PaperTradingEngine:
             "timeframe": candidate.get("timeframe"), "position_id": position_id,
             "market_snapshot": snapshot, "created_at": _now_iso(),
         })
+
+    def _flush_decisions(self):
+        """Writes every decision buffered since the last flush in ONE
+        connection (see storage.log_paper_decisions_batch), and clears the
+        buffer regardless of outcome -- a logging failure must never repeat
+        forever or block the next tick's decisions from also being
+        buffered."""
+        if not self._pending_decisions:
+            return
+        pending, self._pending_decisions = self._pending_decisions, []
+        try:
+            storage.log_paper_decisions_batch(pending)
+        except Exception as e:
+            self._log(f"[paper-trading] decision log flush error: {e!r}")
 
 
 engine = PaperTradingEngine()

@@ -175,15 +175,20 @@ def suggest_best_portfolio(top_n=3):
 
 # --------------------------------------------------------------- Level 2: consistency check
 
-def consistency_check(strategy_id, symbol, window_days=CONSISTENCY_WINDOW_DAYS):
+def consistency_check(strategy_id, symbol, window_days=CONSISTENCY_WINDOW_DAYS, rows=None):
     """Breaks this combination's closed-trade history into window_days
     chronological buckets and flags whether its positive PnL is actually
     concentrated in one unusually good window rather than sustained
     across its whole history. Never guesses with fewer than
     pattern_stats.MIN_SAMPLE_SIZE trades (nothing statistically meaningful
     to check yet), or with only a single time window (nothing to compare
-    against)."""
-    rows = [r for r in _closed_rows(strategy_id, symbol) if r.get("closed_at")]
+    against).
+
+    `rows`: optional pre-fetched rows for this exact (strategy_id, symbol)
+    combo -- same reuse-instead-of-requery pattern as _combo_daily_rate's
+    own `rows` param, used by recommend_paths() so a portfolio-wide call
+    doesn't re-query per combination (see that function's own comment)."""
+    rows = [r for r in (rows if rows is not None else _closed_rows(strategy_id, symbol)) if r.get("closed_at")]
     if len(rows) < pattern_stats.MIN_SAMPLE_SIZE:
         return {"checked": False, "concentrated": None,
                 "reason": f"only {len(rows)} closed trades so far -- need {pattern_stats.MIN_SAMPLE_SIZE} "
@@ -273,17 +278,29 @@ def recommend_paths(start_amount, target_amount, days, restrict_symbols=None, re
     if restrict_strategy_ids:
         combos = [c for c in combos if c["strategy_id"] in restrict_strategy_ids]
 
+    # Urgent bug fix, 2026-09-09: this loop used to call _closed_rows(sid,
+    # sym) TWICE per combo -- once here, once again inside
+    # consistency_check() -- each its own fresh Postgres connection (no
+    # pooling on the cloud runner). With 75 strategies enabled and trading
+    # across several coins each, that was hundreds of connections for one
+    # request. ONE fetch of every closed row here, grouped by
+    # (strategy_id, symbol) in memory, replaces both.
+    all_rows = _closed_rows()
+    rows_by_combo = defaultdict(list)
+    for r in all_rows:
+        rows_by_combo[(r["strategy_id"], r["symbol"])].append(r)
+
     required_daily_rate = _required_daily_rate(start_amount, target_amount, days)
     paths = []
     for combo in combos:
         sid, sym, n = combo["strategy_id"], combo["symbol"], combo["total_closed_trades"]
-        combo_rows = _closed_rows(sid, sym)
+        combo_rows = rows_by_combo.get((sid, sym), [])
         daily_rate, avg_r_multiple, trades_per_day = _combo_daily_rate(sid, sym, combo_rows)
         if daily_rate is None:
             continue
 
         conf = pattern_stats.classify(combo["win_count"], n)
-        consistency = consistency_check(sid, sym)
+        consistency = consistency_check(sid, sym, rows=combo_rows)
         achievable = daily_rate > 0 and required_daily_rate <= daily_rate
         projected_days = None
         if daily_rate > 0 and target_amount > start_amount:

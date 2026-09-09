@@ -70,9 +70,15 @@ def compute_portfolio_risk_score(strategy_ids, since=None):
         documented heuristic for an at-a-glance number -- not a claim to
         any industry-standard "portfolio risk score" formula.
     """
+    # Urgent bug fix, 2026-09-09: this used to call compute_risk_metrics()
+    # once per strategy_id (one fresh Postgres connection each) -- the
+    # caller passes literally every library strategy, so at ~154
+    # strategies this was 154 connections for one GET request. One shared
+    # query via compute_risk_metrics_batch() now answers all of them.
+    metrics_by_sid = insights.compute_risk_metrics_batch(strategy_ids, since=since)
     sharpes, drawdowns, contributing = [], [], 0
     for sid in strategy_ids:
-        m = insights.compute_risk_metrics(sid, since=since)
+        m = metrics_by_sid[sid]
         if m["sharpe_ratio"] is not None:
             sharpes.append(m["sharpe_ratio"])
         if m["max_drawdown_pct"] is not None:

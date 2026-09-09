@@ -48,18 +48,25 @@ def live_signal_feed(limit=50):
     }
 
 
-def _backtest_win_rate(strategy_name):
-    # The lightweight cloud runner's curated Postgres schema deliberately
-    # excludes backtest_batches/backtest_results (see data_engine/
-    # db_backend.py's POSTGRES_SCHEMA docstring) -- on that runner this
-    # query would raise "relation does not exist" rather than return no
-    # rows. Treated the same as "no backtest exists yet for this strategy"
-    # (None, None) rather than crashing this page's other two, genuinely
-    # available comparisons (paper vs Telegram-sent).
+def _latest_batch_ids_by_name(names):
+    # ONE query for every strategy's most recent completed batch, instead
+    # of one latest_completed_batch_for_strategy_name() call per strategy
+    # inside strategy_match_table()'s loop -- see
+    # storage.latest_completed_batches_for_strategy_names' docstring for
+    # the real incident this fixes. The lightweight cloud runner's curated
+    # Postgres schema deliberately excludes backtest_batches (see
+    # data_engine/db_backend.py's POSTGRES_SCHEMA docstring), so this
+    # query raises "relation does not exist" there -- caught ONCE here
+    # rather than once per strategy, and treated the same as "no backtest
+    # exists yet for any of them" rather than crashing this page's other
+    # two, genuinely available comparisons (paper vs Telegram-sent).
     try:
-        batch_id = storage.latest_completed_batch_for_strategy_name(strategy_name)
+        return storage.latest_completed_batches_for_strategy_names(names)
     except Exception:
-        return None, None
+        return {}
+
+
+def _backtest_win_rate(batch_id):
     if not batch_id:
         return None, None
     summary = quick_batch_summary(batch_id)
@@ -80,12 +87,15 @@ def strategy_match_table():
     telegram_stats = {s["strategy_id"]: s for s in telegram_analytics.strategy_breakdown()}
 
     strategy_ids = set(paper_stats) | set(telegram_stats)
+    names_by_sid = {sid: (paper_stats.get(sid) or telegram_stats[sid])["strategy_name"] for sid in strategy_ids}
+    batch_ids_by_name = _latest_batch_ids_by_name(names_by_sid.values())
+
     rows = []
     for sid in strategy_ids:
         p = paper_stats.get(sid)
         t = telegram_stats.get(sid)
-        name = (p or t)["strategy_name"]
-        backtest_win_rate, backtest_batch_id = _backtest_win_rate(name)
+        name = names_by_sid[sid]
+        backtest_win_rate, backtest_batch_id = _backtest_win_rate(batch_ids_by_name.get(name))
 
         paper_win_rate = p["win_rate"] if p else None
         paper_closed = p["closed_trades"] if p else 0
@@ -149,10 +159,16 @@ def check_and_alert_divergence(now_iso=None):
 
     alerted = []
     table = strategy_match_table()
+    # ONE query for every strategy's recent-alert state instead of one
+    # get_recent_paper_alert() call per diverging strategy -- same pattern
+    # as insights.detect_alerts' own fix, kept consistent here too even
+    # though this loop is naturally small today (bounded by strategies
+    # with both a real backtest match and 25+ closed paper trades).
+    recent_keys = storage.list_recent_paper_alert_keys(since)
     for row in table["strategies"]:
         if not row["backtest_vs_paper_diverges"]:
             continue
-        if storage.get_recent_paper_alert("backtest_paper_divergence", row["strategy_id"], since):
+        if ("backtest_paper_divergence", row["strategy_id"]) in recent_keys:
             continue
         message = (
             f"{row['strategy_name']}: backtest showed a {row['backtest_win_rate']:.1f}% win rate, "
