@@ -93,6 +93,21 @@ def test_triggers_group_sync_after_enabling(test_db, monkeypatch):
     assert list(assignments.values())[0] in ("losing", "profitable", "challenge")
 
 
+def test_cleans_up_the_bogus_row_from_the_route_shadowing_incident(test_db):
+    """2026-09-09 incident: before the {strategy_id} route was reordered
+    to stop shadowing this one, every real click here actually hit
+    update_strategy_config(strategy_id="enable-all"), writing a garbage
+    paper_strategy_config row keyed by the literal string "enable-all" (never
+    a real strategy id). This handler must self-heal that artifact on the
+    very next real invocation rather than leaving it there forever."""
+    storage.save_paper_strategy_config("enable-all", True, 5, [], [], "2026-01-01T00:00:00+00:00")
+
+    pt_api.enable_all_for_paper_trading()
+
+    configs = storage.list_paper_strategy_configs()
+    assert "enable-all" not in configs
+
+
 def test_never_calls_validator_or_safety_check_live(test_db, monkeypatch):
     """Same fast-path guarantee as the strategy-overview fix -- reads
     cached meta fields only, no per-strategy recomputation."""

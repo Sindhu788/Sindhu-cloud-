@@ -4015,6 +4015,14 @@ def save_paper_strategy_config(strategy_id, enabled, priority, supported_coins, 
         )
 
 
+def delete_paper_strategy_config(strategy_id):
+    """Removes one strategy's row entirely (as opposed to disabling it) --
+    for cleaning up a config row that should never have been written, e.g.
+    one keyed by a route-parameter value that isn't a real strategy id."""
+    with get_conn() as conn:
+        conn.execute("DELETE FROM paper_strategy_config WHERE strategy_id=?", (strategy_id,))
+
+
 def set_strategy_risk_overrides(strategy_id, risk_pct_override, max_open_trades_override, now_iso):
     """Master Task 2, Part 3: per-strategy risk %/max-open-positions
     override. None means "use the global paper_trading default" for that
@@ -4114,6 +4122,23 @@ def list_paper_alerts(limit=50):
          "message": r[4], "severity": r[5], "created_at": r[6]}
         for r in rows
     ]
+
+
+def list_recent_paper_alert_keys(since_iso):
+    """{(alert_type, strategy_id)} for every alert raised at/after since_iso
+    -- ONE query instead of one get_recent_paper_alert() call per strategy
+    per alert type. insights.detect_alerts() runs this check for every
+    strategy on every /api/paper-trading/analytics request; with no
+    connection pooling (every get_conn() opens a brand-new Postgres
+    connection) a per-strategy loop here was the same class of slowdown
+    already fixed for the status and strategy-overview endpoints, and with
+    100+ strategies enabled it was enough to time the request out."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT alert_type, strategy_id FROM paper_alerts WHERE created_at >= ?",
+            (since_iso,),
+        ).fetchall()
+    return {(r[0], r[1]) for r in rows}
 
 
 def get_recent_paper_alert(alert_type, strategy_id, since_iso):

@@ -289,36 +289,12 @@ def get_lesson_performance():
     return {"performance": storage.list_paper_lesson_performance()}
 
 
-@router.get("/api/paper-trading/strategy-config/{strategy_id}")
-def get_strategy_config(strategy_id: str):
-    return storage.get_paper_strategy_config(strategy_id)
-
-
-class StrategyConfigUpdate(BaseModel):
-    enabled: bool = True
-    priority: int = 5
-    supported_coins: list = []
-    supported_market_types: list = []
-
-
-@router.post("/api/paper-trading/strategy-config/{strategy_id}")
-def update_strategy_config(strategy_id: str, req: StrategyConfigUpdate):
-    storage.save_paper_strategy_config(
-        strategy_id, req.enabled, req.priority, req.supported_coins,
-        req.supported_market_types, datetime.now(timezone.utc).isoformat(),
-    )
-    action = "activated" if req.enabled else "deactivated (manual override)"
-    _log_and_broadcast(f"[paper-trading] {strategy_id} {action} by a person")
-    sync.notify("paper_trading", "updated", "Paper strategy config updated", id=strategy_id)
-    return {"ok": True}
-
-
 @router.post("/api/paper-trading/strategy-config/enable-all")
 def enable_all_for_paper_trading():
     """"Enable All for Paper Trading" button on the Strategies page. Goes
     through the exact same single-strategy activation write
     (storage.save_paper_strategy_config, identical to what
-    update_strategy_config above does for one strategy at a time) for
+    update_strategy_config below does for one strategy at a time) for
     every library strategy that passes BOTH mandatory gates -- the
     validator and the automatic Strategy Safety Check, cached in
     meta.json by backtest_engine.strategy_library's create()/
@@ -334,9 +310,23 @@ def enable_all_for_paper_trading():
     No new auth path, no bypass, no direct database access outside the
     app's own storage layer.
 
+    MUST be registered before the POST /strategy-config/{strategy_id}
+    route below -- FastAPI matches routes in registration order, and a
+    single-segment path parameter matches the literal string "enable-all"
+    too. (This exact shadowing previously made every click here silently
+    write a config row for a fake strategy_id "enable-all" via the other
+    handler instead of ever reaching this one -- see the defensive
+    cleanup a few lines down.)
+
     After enabling, runs the same idempotent paper_trading.strategy_groups.
     sync_group_assignments() used everywhere else so newly-enabled
     strategies are immediately split into Losing/Profitable/Challenge."""
+    # One-time cleanup of the exact garbage row the routing bug above used
+    # to produce -- "enable-all" can never be a real strategy id (those
+    # come from the backtest strategy library), so this is safe to always
+    # attempt regardless of whether that bug ever fired on this deployment.
+    storage.delete_paper_strategy_config("enable-all")
+
     metas = lib.list_all()
     configs = storage.list_paper_strategy_configs()
     now = datetime.now(timezone.utc).isoformat()
@@ -369,6 +359,30 @@ def enable_all_for_paper_trading():
         "blocked_count": len(blocked), "blocked": blocked,
         "group_sync": group_sync_result,
     }
+
+
+@router.get("/api/paper-trading/strategy-config/{strategy_id}")
+def get_strategy_config(strategy_id: str):
+    return storage.get_paper_strategy_config(strategy_id)
+
+
+class StrategyConfigUpdate(BaseModel):
+    enabled: bool = True
+    priority: int = 5
+    supported_coins: list = []
+    supported_market_types: list = []
+
+
+@router.post("/api/paper-trading/strategy-config/{strategy_id}")
+def update_strategy_config(strategy_id: str, req: StrategyConfigUpdate):
+    storage.save_paper_strategy_config(
+        strategy_id, req.enabled, req.priority, req.supported_coins,
+        req.supported_market_types, datetime.now(timezone.utc).isoformat(),
+    )
+    action = "activated" if req.enabled else "deactivated (manual override)"
+    _log_and_broadcast(f"[paper-trading] {strategy_id} {action} by a person")
+    sync.notify("paper_trading", "updated", "Paper strategy config updated", id=strategy_id)
+    return {"ok": True}
 
 
 # --------------------------------------------------- Master Task 2, Part 3

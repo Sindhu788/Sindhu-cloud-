@@ -105,6 +105,12 @@ def detect_alerts(strategy_stats, streaks=None):
     if streaks is None:
         streaks = all_streaks()
     now = _now_iso()
+    # ONE query for every strategy's recent-alert state, instead of the
+    # get_recent_paper_alert() per (strategy, alert type) loop this used to
+    # be -- see list_recent_paper_alert_keys()'s docstring for why that was
+    # slow enough to time out /api/paper-trading/analytics once dozens of
+    # strategies were enabled at once.
+    recent_keys = storage.list_recent_paper_alert_keys(_dedupe_window())
     raised = []
     for s in strategy_stats:
         sid = s.get("strategy_id")
@@ -114,17 +120,19 @@ def detect_alerts(strategy_stats, streaks=None):
         total_pnl = s.get("total_pnl") or 0.0
 
         if trades >= 5 and win_rate >= 70 and total_pnl > 0:
-            if not storage.get_recent_paper_alert("strong_performance", sid, _dedupe_window()):
+            if ("strong_performance", sid) not in recent_keys:
                 msg = f"{name} is performing strongly: {win_rate:.0f}% win rate over {trades} trades."
                 storage.create_paper_alert("strong_performance", sid, name, msg, "positive", now)
+                recent_keys.add(("strong_performance", sid))
                 raised.append({"alert_type": "strong_performance", "strategy_id": sid,
                                 "strategy_name": name, "message": msg, "severity": "positive", "created_at": now})
 
         streak = streaks.get(sid, {"type": "none", "count": 0})
         if streak["type"] == "loss" and streak["count"] >= 3:
-            if not storage.get_recent_paper_alert("drawdown", sid, _dedupe_window()):
+            if ("drawdown", sid) not in recent_keys:
                 msg = f"{name} has lost {streak['count']} trades in a row -- worth a look."
                 storage.create_paper_alert("drawdown", sid, name, msg, "warning", now)
+                recent_keys.add(("drawdown", sid))
                 raised.append({"alert_type": "drawdown", "strategy_id": sid,
                                 "strategy_name": name, "message": msg, "severity": "warning", "created_at": now})
     return raised
