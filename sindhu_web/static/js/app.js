@@ -8991,9 +8991,9 @@
         ${status.running ? `
         <div class="muted pt-engine-status-line" style="font-size:12px;">
           ${status.scan_progress && status.scan_progress.in_progress
-            ? `${en ? "Scanning now" : "Abhi Scan Ho Raha Hai"}: ${esc(status.scan_progress.current_symbol || "-")} (${status.scan_progress.index}/${status.scan_progress.total})`
-            : `${status.next_tick_at ? `${en ? "Next scan" : "Agla Scan"}: ${esc(String(status.next_tick_at).slice(11,19))}` : ""}${
-                status.last_tick_duration_seconds != null ? ` -- ${en ? "last scan took" : "aakhri scan mein laga"} ${status.last_tick_duration_seconds}s` : ""}`}
+            ? `${getLang() === "en" ? "Scanning now" : "Abhi Scan Ho Raha Hai"}: ${esc(status.scan_progress.current_symbol || "-")} (${status.scan_progress.index}/${status.scan_progress.total})`
+            : `${status.next_tick_at ? `${getLang() === "en" ? "Next scan" : "Agla Scan"}: ${esc(String(status.next_tick_at).slice(11,19))}` : ""}${
+                status.last_tick_duration_seconds != null ? ` -- ${getLang() === "en" ? "last scan took" : "aakhri scan mein laga"} ${status.last_tick_duration_seconds}s` : ""}`}
         </div>` : ""}
         </div>
 
