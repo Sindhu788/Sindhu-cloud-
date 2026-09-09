@@ -3192,13 +3192,30 @@ def close_paper_position(position_id, exit_price, exit_time, pnl, pnl_pct, exit_
              json.dumps(lifecycle), json.dumps(reflection), closed_at, position_id),
         )
         if pnl is not None:
+            # Urgent bug fix, 2026-09-09: confirmed live -- this INSERT
+            # started failing on Postgres with AmbiguousColumn('column
+            # reference "realized_pnl_total" is ambiguous') on EVERY
+            # single tick that had an open position to check, which
+            # aborted _tick() outright (this call is not inside
+            # _process_coin's own try/except) -- so no coin scanning
+            # happened for the rest of that tick either. Worse: because
+            # this statement shares one connection/transaction with the
+            # paper_positions UPDATE just above, the exception rolled
+            # that back too, so the position was never actually marked
+            # closed -- next tick hit its SL/TP again and repeated the
+            # exact same failure forever. Bare `realized_pnl_total`/
+            # `closed_count`/`win_count` on the right of `=` in an ON
+            # CONFLICT DO UPDATE SET are meant to mean "this row's
+            # pre-conflict value", but explicitly table-qualifying them
+            # removes any possible ambiguity outright rather than relying
+            # on that implicit resolution.
             conn.execute(
                 """INSERT INTO paper_account_state (strategy_id, realized_pnl_total, closed_count, win_count, updated_at)
                    VALUES (?, ?, 1, ?, ?)
                    ON CONFLICT(strategy_id) DO UPDATE SET
-                     realized_pnl_total = realized_pnl_total + excluded.realized_pnl_total,
-                     closed_count = closed_count + 1,
-                     win_count = win_count + excluded.win_count,
+                     realized_pnl_total = paper_account_state.realized_pnl_total + excluded.realized_pnl_total,
+                     closed_count = paper_account_state.closed_count + 1,
+                     win_count = paper_account_state.win_count + excluded.win_count,
                      updated_at = excluded.updated_at""",
                 (_account_state_key(book_key), pnl, 1 if pnl > 0 else 0, closed_at),
             )
