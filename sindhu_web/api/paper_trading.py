@@ -343,8 +343,14 @@ def enable_all_for_paper_trading():
         if not can_activate:
             blocked.append({"strategy_id": sid, "name": meta.get("name", sid)})
             continue
-        storage.save_paper_strategy_config(sid, True, 5, [], [], now)
         enabled.append({"strategy_id": sid, "name": meta.get("name", sid)})
+
+    # ONE connection for every activation write, not one per strategy --
+    # see enable_paper_strategy_configs_batch's docstring for the real
+    # incident (75 sequential connections made this request itself slow
+    # enough to time out, and starved concurrent requests like /status of
+    # their own connections while it ran).
+    storage.enable_paper_strategy_configs_batch([e["strategy_id"] for e in enabled], 5, now)
 
     if enabled:
         _log_and_broadcast(f"[paper-trading] Enable All: activated {len(enabled)} strategies by a person")

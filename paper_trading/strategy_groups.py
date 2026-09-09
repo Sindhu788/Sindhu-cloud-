@@ -96,6 +96,7 @@ def sync_group_assignments():
 
     now_iso = _now_iso()
     assigned = {k: [] for k in GROUP_KEYS}
+    new_assignments = {}
 
     if first_run:
         eligible_for_challenge = sorted(
@@ -110,14 +111,20 @@ def sync_group_assignments():
             else:
                 pnl = stats_by_id.get(sid, {}).get("total_pnl", 0.0)
                 group_key = "losing" if pnl < 0 else "profitable"
-            storage.upsert_paper_strategy_group(sid, group_key, now_iso, auto_assigned=True)
+            new_assignments[sid] = group_key
             assigned[group_key].append(sid)
     else:
         for sid in to_assign:
             pnl = stats_by_id.get(sid, {}).get("total_pnl", 0.0)
             group_key = "losing" if pnl < 0 else "profitable"
-            storage.upsert_paper_strategy_group(sid, group_key, now_iso, auto_assigned=True)
+            new_assignments[sid] = group_key
             assigned[group_key].append(sid)
+
+    # ONE connection for every new assignment -- see
+    # upsert_paper_strategy_groups_batch's docstring for why a per-strategy
+    # loop here (on top of the same shape of loop enable-all's own
+    # activation write already had) mattered enough to fix.
+    storage.upsert_paper_strategy_groups_batch(new_assignments, now_iso, auto_assigned=True)
 
     return {"first_run": first_run, "assigned": assigned}
 

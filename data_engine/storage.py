@@ -3712,6 +3712,30 @@ def upsert_paper_strategy_group(strategy_id, group_key, now_iso, auto_assigned=T
         )
 
 
+def upsert_paper_strategy_groups_batch(assignments, now_iso, auto_assigned=True):
+    """Same write as upsert_paper_strategy_group(), for many strategies in
+    ONE connection. sync_group_assignments() used to call the single-row
+    version once per newly-assigned strategy -- fine for a handful of
+    strategies trickling in, but the very first sync after "Enable All for
+    Paper Trading" activates 75+ at once, and that loop ran immediately
+    after (and in the same request as) enable_paper_strategy_configs_batch,
+    compounding the exact same per-item connection-count problem right
+    when the request could least afford it. `assignments` is
+    {strategy_id: group_key}."""
+    if not assignments:
+        return
+    with get_conn() as conn:
+        conn.executemany(
+            """INSERT INTO paper_strategy_groups (strategy_id, group_key, assigned_at, auto_assigned)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(strategy_id) DO UPDATE SET
+                 group_key = excluded.group_key,
+                 assigned_at = excluded.assigned_at,
+                 auto_assigned = excluded.auto_assigned""",
+            [(sid, group_key, now_iso, 1 if auto_assigned else 0) for sid, group_key in assignments.items()],
+        )
+
+
 def list_paper_strategy_groups():
     """{strategy_id: group_key} for every strategy that has ever been
     assigned a group."""
@@ -4012,6 +4036,35 @@ def save_paper_strategy_config(strategy_id, enabled, priority, supported_coins, 
                  updated_at=excluded.updated_at""",
             (strategy_id, int(enabled), priority, json.dumps(supported_coins or []),
              json.dumps(supported_market_types or []), now_iso),
+        )
+
+
+def enable_paper_strategy_configs_batch(strategy_ids, priority, now_iso):
+    """Activates every strategy_id in ONE connection (via executemany)
+    instead of one save_paper_strategy_config() call -- and therefore one
+    brand-new Postgres connection -- per strategy. "Enable All for Paper
+    Trading" doing this sequentially for 75+ strategies (each a full
+    connection round trip on a free-tier, unpooled Postgres instance) made
+    that single POST request itself take long enough to blow past the
+    frontend's 15s timeout, and while it ran it also starved concurrent
+    page-load requests (including /api/paper-trading/status) of their own
+    connections -- the same class of bug already fixed for the status and
+    analytics endpoints, just triggered by activation-batch size this
+    time. Always enables with no coin/market-type restriction, matching
+    what the per-strategy activation write already defaults to."""
+    if not strategy_ids:
+        return
+    with get_conn() as conn:
+        conn.executemany(
+            """INSERT INTO paper_strategy_config
+               (strategy_id, enabled, priority, supported_coins_json, supported_market_types_json, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)
+               ON CONFLICT(strategy_id) DO UPDATE SET
+                 enabled=excluded.enabled, priority=excluded.priority,
+                 supported_coins_json=excluded.supported_coins_json,
+                 supported_market_types_json=excluded.supported_market_types_json,
+                 updated_at=excluded.updated_at""",
+            [(sid, 1, priority, "[]", "[]", now_iso) for sid in strategy_ids],
         )
 
 
