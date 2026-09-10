@@ -3516,7 +3516,17 @@ def get_paper_period_summary(since_iso=None, until_iso=None):
     if until_iso:
         query += " AND closed_at < ?"
         params.append(until_iso)
-    rr_query = "SELECT pnl, risk_amount FROM paper_positions WHERE status='closed' AND pnl IS NOT NULL AND risk_amount > 0"
+    # Urgent bug fix, 2026-09-10: unlike the aggregate COUNT/SUM query
+    # above (computed in SQL), this one pulls every matching ROW into
+    # Python to compute a median -- with since_iso/until_iso both None
+    # (period=all), that meant every closed trade EVER, unbounded, growing
+    # every single day this system runs. Bounded periods (today/week) were
+    # always small and fast; only "all" scaled with total history and
+    # eventually timed out. Capped at the most recent 5000 (same bound
+    # already used for all_streaks()/decision batching elsewhere) -- a
+    # sample this size does not meaningfully move a median/mean R-multiple.
+    rr_query = ("SELECT pnl, risk_amount FROM paper_positions "
+                "WHERE status='closed' AND pnl IS NOT NULL AND risk_amount > 0")
     rr_params = []
     if since_iso:
         rr_query += " AND closed_at >= ?"
@@ -3524,6 +3534,7 @@ def get_paper_period_summary(since_iso=None, until_iso=None):
     if until_iso:
         rr_query += " AND closed_at < ?"
         rr_params.append(until_iso)
+    rr_query += " ORDER BY closed_at DESC LIMIT 5000"
     with get_conn() as conn:
         row = conn.execute(query, params).fetchone()
         rr_rows = conn.execute(rr_query, rr_params).fetchall()
