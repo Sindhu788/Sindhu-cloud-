@@ -276,6 +276,23 @@
     return `${v.toFixed(1)} ${units[i]}`;
   }
   function fmtNum(n) { return n == null ? "-" : Number(n).toLocaleString(); }
+  // Display-only Pakistan-time (UTC+5) formatting, 12-hour AM/PM -- every
+  // timestamp is still stored/transmitted as UTC ISO, this only affects
+  // how it's rendered on screen.
+  function fmtPKT(input) {
+    if (!input) return "--";
+    try {
+      const d = input instanceof Date ? input : new Date(input);
+      return d.toLocaleTimeString("en-US", { timeZone: "Asia/Karachi", hour: "numeric", minute: "2-digit", hour12: true });
+    } catch (e) { return "--"; }
+  }
+  function fmtPKTFull(input) {
+    if (!input) return "--";
+    try {
+      const d = input instanceof Date ? input : new Date(input);
+      return d.toLocaleString("en-US", { timeZone: "Asia/Karachi", year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true });
+    } catch (e) { return "--"; }
+  }
   // Same tick-style display rounding as the Telegram message itself
   // (paper_trading.telegram_bot._format_price) -- 3 decimals floor, more
   // for sub-$1 coins so real precision isn't rounded away. Display-only.
@@ -889,7 +906,7 @@
 
   // Live clock (topbar).
   function updateClock() {
-    document.getElementById("clockDisplay").textContent = new Date().toLocaleTimeString();
+    document.getElementById("clockDisplay").textContent = fmtPKT(new Date()) + " PKT";
   }
   updateClock();
   setInterval(updateClock, 1000);
@@ -913,8 +930,7 @@
   // (running/started_at/last_tick_at/trades_today), just a second consumer
   // of data that already exists.
   function _fmtClock(iso) {
-    if (!iso) return "--";
-    try { return new Date(iso).toLocaleTimeString(); } catch (e) { return "--"; }
+    return fmtPKT(iso);
   }
   async function refreshEngineStatusBanner() {
     const banner = document.getElementById("engineStatusBanner");
@@ -2761,7 +2777,7 @@
       const ts = h.task_summary || { running: 0, waiting: 0, completed: 0, failed: 0 };
 
       const activityRows = (act.activity || []).map(a => `
-        <div class="activity-item"><span class="activity-time">${esc((a.created_at || "").slice(11, 19))}</span> ${esc(a.message)}</div>
+        <div class="activity-item"><span class="activity-time">${esc(fmtPKT(a.created_at))}</span> ${esc(a.message)}</div>
       `).join("") || `<div class="muted">No activity yet -- actions across the app will show up here as they happen.</div>`;
 
       const lb = h.latest_batch;
@@ -2906,7 +2922,7 @@
               <td>${s.profitable ? `<span class="pill pill-completed">${getLang() === "en" ? "Profitable" : "Profitable"}</span>` : `<span class="pill pill-muted">${getLang() === "en" ? "Not Profitable" : "Not Profitable"}</span>`}</td>
             </tr>`).join("")}</tbody>
         </table></div>
-        <div class="muted" style="font-size:11px; margin-top:6px;">${getLang() === "en" ? "Last updated" : "Aakhri update"}: ${new Date(stratSummary.generated_at).toLocaleString()}</div>
+        <div class="muted" style="font-size:11px; margin-top:6px;">${getLang() === "en" ? "Last updated" : "Aakhri update"}: ${fmtPKTFull(stratSummary.generated_at)}</div>
         ` : ""}
 
         <div class="section-title">${t("System Monitor")}</div>
@@ -4521,7 +4537,7 @@
       el.innerHTML = `<details style="margin-top:6px;"><summary class="muted">${en ? "Previous answers" : "Pichle jawab"} (${data.answer_log.length})</summary>
         ${data.answer_log.map(a => `
           <div style="padding:4px 0;border-top:1px solid var(--border,#333);">
-            <span class="muted">${new Date(a.at).toLocaleString()}:</span> ${esc(a.detail)}
+            <span class="muted">${fmtPKTFull(a.at)}:</span> ${esc(a.detail)}
             ${a.action === "mark_manual_review" ? `<button class="btn btn-ghost btn-reopen-answer" data-strategy-id="${esc(strategyId)}" data-issue-id="${esc(a.id)}">${en ? "Reopen" : "Dobara Kholein"}</button>` : ""}
           </div>`).join("")}
       </details>`;
@@ -5953,8 +5969,8 @@
           resultBox.innerHTML = `
             <div class="card">
               <div class="label">Trade #${t.trade_num} -- ${esc(t.symbol)} ${esc(t.side)}</div>
-              <p><b>Entry:</b> $${t.entry_price} at ${new Date(t.entry_time).toISOString().slice(0,19)} -- reason: "${esc(t.entry_reason || "-")}"</p>
-              <p><b>Exit:</b> $${t.exit_price} at ${t.exit_time ? new Date(t.exit_time).toISOString().slice(0,19) : "-"} -- reason: "${esc(t.exit_reason || "-")}"</p>
+              <p><b>Entry:</b> $${t.entry_price} at ${fmtPKTFull(t.entry_time)} -- reason: "${esc(t.entry_reason || "-")}"</p>
+              <p><b>Exit:</b> $${t.exit_price} at ${t.exit_time ? fmtPKTFull(t.exit_time) : "-"} -- reason: "${esc(t.exit_reason || "-")}"</p>
               <p><b>PnL:</b> <span class="${t.pnl > 0 ? 'positive' : t.pnl < 0 ? 'negative' : ''}">${t.pnl != null ? '$' + t.pnl.toFixed(2) : "-"} (${t.pnl_pct != null ? t.pnl_pct.toFixed(2) : "-"}%)</span></p>
               <p><b>Stop-Loss:</b> ${t.stop_loss != null ? '$' + t.stop_loss : "-"} &nbsp; <b>Take-Profit:</b> ${t.take_profit != null ? '$' + t.take_profit : "-"}</p>
               <p class="muted">${r.candles.length} raw 1-minute candles fetched spanning this trade (30min padding each side) -- available via the API for anyone who wants to plot/verify it directly.</p>
@@ -8994,13 +9010,13 @@
              full 50-coin x 18-strategy pass takes many minutes, so that
              half-sentence is what the CEO sees for the whole first tick.
              Now the clause only appears once there IS a last tick. */
-          status.last_tick_at ? `, last at ${esc(String(status.last_tick_at).slice(11,19))}` : ` (first tick still running)`
+          status.last_tick_at ? `, last at ${esc(fmtPKT(status.last_tick_at))}` : ` (first tick still running)`
         }</div>` : ""}
         ${status.running ? `
         <div class="muted pt-engine-status-line" style="font-size:12px;">
           ${status.scan_progress && status.scan_progress.in_progress
             ? `${getLang() === "en" ? "Scanning now" : "Abhi Scan Ho Raha Hai"}: ${esc(status.scan_progress.current_symbol || "-")} (${status.scan_progress.index}/${status.scan_progress.total})`
-            : `${status.next_tick_at ? `${getLang() === "en" ? "Next scan" : "Agla Scan"}: ${esc(String(status.next_tick_at).slice(11,19))}` : ""}${
+            : `${status.next_tick_at ? `${getLang() === "en" ? "Next scan" : "Agla Scan"}: ${esc(fmtPKT(status.next_tick_at))}` : ""}${
                 status.last_tick_duration_seconds != null ? ` -- ${getLang() === "en" ? "last scan took" : "aakhri scan mein laga"} ${status.last_tick_duration_seconds}s` : ""}`}
         </div>` : ""}
         </div>
@@ -9244,7 +9260,7 @@
           <thead><tr><th>Time</th><th>Coin</th><th>Decision</th><th>Reason</th><th>Confidence</th></tr></thead>
           <tbody>${(decisionsRes.decisions || []).map(d => `
             <tr>
-              <td>${esc((d.created_at||"").slice(11,19))}</td>
+              <td>${esc(fmtPKT(d.created_at))}</td>
               <td>${esc(d.symbol)}</td>
               <td><span class="pill ${d.decision === "opened" ? "pill-completed" : d.decision === "dry_run" ? "pill-pending" : "pill-error"}">${esc(d.decision)}</span></td>
               <td>${esc(d.reason || "-")}</td>
@@ -9764,7 +9780,7 @@
                 pnlCell.innerHTML = pnlSpan(s.unrealized_pnl) + ` <span class="muted" style="font-size:11px;">(${s.tp_sl_status})</span>`;
               }
             });
-            statusEl.textContent = `Updated ${new Date().toLocaleTimeString()}.`;
+            statusEl.textContent = `Updated ${fmtPKT(new Date())} PKT.`;
           } catch (e) { statusEl.textContent = `Failed: ${e.message}`; }
         };
       }
