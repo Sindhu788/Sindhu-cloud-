@@ -75,17 +75,18 @@ def sync_group_assignments():
     stable set it was ranked into rather than reshuffling as new
     strategies are added later.
 
-    On the very first call ever (no strategy has a group yet), this also
-    performs the real one-time ranking: top CHALLENGE_SIZE strategies (by
-    real total_pnl, requiring at least 1 real closed trade) go to
-    "challenge"; every other strategy is split into "losing"/"profitable"
-    by its real total_pnl sign. Every subsequent call only fills gaps for
-    brand-new strategies (losing/profitable only, by pnl sign -- Challenge
-    membership is never auto-expanded after the first run).
+    Every new strategy is split into "losing"/"profitable" by its real
+    effective PnL sign (see _effective_pnl). Separately, whenever Challenge
+    is still empty, the top CHALLENGE_SIZE strategies with real data
+    (across the WHOLE universe, not just brand-new ones) are ranked into
+    "challenge" -- see the challenge-backfill comment below for why this
+    is no longer tied to first_run specifically. Once Challenge has any
+    real member, it is never reshuffled again.
 
-    Returns a summary dict {"first_run": bool, "assigned": {group_key: [strategy_id, ...]}}
-    for the caller to log -- this is exactly the real evidence the CEO
-    asked to see after the migration runs.
+    Returns a summary dict {"first_run": bool, "assigned": {group_key: [strategy_id, ...]},
+    "reclassified": int, "challenge_backfilled": int} for the caller to
+    log -- this is exactly the real evidence the CEO asked to see after
+    the migration runs.
     """
     universe, stats_by_id = _strategy_universe()
     already_assigned = storage.list_paper_strategy_groups_with_auto_assigned()
@@ -110,28 +111,11 @@ def sync_group_assignments():
     backtest_pnl_by_id = _strategy_backtest_net_pnl()
     pnl_cache = {sid: _effective_pnl(sid, stats_by_id, backtest_pnl_by_id) for sid in universe}
 
-    if to_assign:
-        if first_run:
-            eligible_for_challenge = sorted(
-                (sid for sid in to_assign if pnl_cache[sid][1]),
-                key=lambda sid: pnl_cache[sid][0],
-                reverse=True,
-            )
-            challenge_ids = set(eligible_for_challenge[:CHALLENGE_SIZE])
-            for sid in to_assign:
-                if sid in challenge_ids:
-                    group_key = "challenge"
-                else:
-                    pnl, _ = pnl_cache[sid]
-                    group_key = "losing" if pnl < 0 else "profitable"
-                new_assignments[sid] = group_key
-                assigned[group_key].append(sid)
-        else:
-            for sid in to_assign:
-                pnl, _ = pnl_cache[sid]
-                group_key = "losing" if pnl < 0 else "profitable"
-                new_assignments[sid] = group_key
-                assigned[group_key].append(sid)
+    for sid in to_assign:
+        pnl, _ = pnl_cache[sid]
+        group_key = "losing" if pnl < 0 else "profitable"
+        new_assignments[sid] = group_key
+        assigned[group_key].append(sid)
 
     # Reclassify EXISTING losing/profitable members using the same
     # effective-PnL logic -- Challenge is deliberately excluded (that
@@ -162,14 +146,48 @@ def sync_group_assignments():
     # docstring for why a per-strategy loop here (on top of the same shape
     # of loop enable-all's own activation write already had) mattered
     # enough to fix.
+    # Challenge backfill. Bug fixed 2026-09-12, confirmed via Render logs
+    # (zero Challenge-tagged Telegram signals ever sent despite 1000+ real
+    # trades): Challenge used to be ranked ONLY on the very first sync ever
+    # (first_run), which on a fresh deployment can happen -- and here,
+    # did happen -- before any strategy had real performance data, so
+    # `eligible_for_challenge` was empty and Challenge was permanently
+    # stuck at 0 members forever after (the old rule never revisited it).
+    # This runs instead whenever Challenge is STILL EMPTY and the universe
+    # now has at least one strategy with real data (live or backtest PnL)
+    # to rank on -- a strategy already auto-assigned elsewhere is moved
+    # into Challenge (never a manually-overridden one); once Challenge has
+    # any real member, this never runs again, preserving the original
+    # "ranked once, then stable" guarantee -- just correctly deferred
+    # until it can be computed from real data instead of from nothing.
+    challenge_members = {sid for sid, e in already_assigned.items() if e["group_key"] == "challenge"}
+    challenge_backfill = {}
+    if not challenge_members:
+        candidates = sorted(
+            (sid for sid in universe if pnl_cache[sid][1]
+             and (sid not in already_assigned or already_assigned[sid]["auto_assigned"])),
+            key=lambda sid: pnl_cache[sid][0],
+            reverse=True,
+        )
+        for sid in candidates[:CHALLENGE_SIZE]:
+            challenge_backfill[sid] = "challenge"
+            new_assignments.pop(sid, None)
+            for key in GROUP_KEYS:
+                if sid in assigned[key]:
+                    assigned[key].remove(sid)
+            assigned["challenge"].append(sid)
+
     if new_assignments:
         storage.upsert_paper_strategy_groups_batch(new_assignments, now_iso, auto_assigned=True)
     if reclassified:
         storage.upsert_paper_strategy_groups_batch(reclassified, now_iso, auto_assigned=True)
         for sid, group_key in reclassified.items():
             assigned[group_key].append(sid)
+    if challenge_backfill:
+        storage.upsert_paper_strategy_groups_batch(challenge_backfill, now_iso, auto_assigned=True)
 
-    return {"first_run": first_run, "assigned": assigned, "reclassified": len(reclassified)}
+    return {"first_run": first_run, "assigned": assigned, "reclassified": len(reclassified),
+            "challenge_backfilled": len(challenge_backfill)}
 
 
 def get_group(strategy_id):

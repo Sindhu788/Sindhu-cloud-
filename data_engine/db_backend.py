@@ -245,6 +245,26 @@ CREATE TABLE IF NOT EXISTS account_drawdown_state (
     updated_at TEXT NOT NULL
 );
 
+-- Same missing-table mistake as account_drawdown_state/custom_alert_rules
+-- above: present in the SQLite schema (data_engine/storage.py) but never
+-- added here, so paper_trading/drawdown_guard.py's every-tick call into
+-- graveyard.bury_if_abandoned() -> storage.is_strategy_buried() hit
+-- UndefinedTable('relation "strategy_graveyard" does not exist') on the
+-- cloud runner. Unlike backtest_batches/evolution_comparisons (genuinely
+-- local-only concepts, deliberately excluded), burial is real-time
+-- paper-trading drawdown logic that must work on the cloud runner, so
+-- the fix here is to add the real table (same columns as SQLite), not
+-- just guard-and-ignore.
+CREATE TABLE IF NOT EXISTS strategy_graveyard (
+    id SERIAL PRIMARY KEY,
+    strategy_id TEXT NOT NULL,
+    strategy_name TEXT NOT NULL,
+    reason_category TEXT NOT NULL,
+    reason_detail TEXT NOT NULL,
+    concepts_used_json TEXT,
+    buried_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS paper_positions (
     id TEXT PRIMARY KEY,
     exchange TEXT NOT NULL,

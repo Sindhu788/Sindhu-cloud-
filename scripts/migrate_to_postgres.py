@@ -138,6 +138,12 @@ CURATED_TABLES = [
     # worth actually carrying over to a fresh cloud deploy, same reasoning
     # as custom_alert_rules above.
     "account_drawdown_state",
+    # strategy_graveyard: permanent, never-deleted burial records -- real
+    # history worth actually carrying over to a fresh cloud deploy, same
+    # reasoning as account_drawdown_state above. Added to db_backend.py's
+    # POSTGRES_SCHEMA on 2026-09-12 (previously missing -- see that file's
+    # comment for the UndefinedTable incident this caused on every tick).
+    "strategy_graveyard",
 ]
 
 
