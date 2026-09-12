@@ -1871,6 +1871,70 @@ def send_telegram_test():
     return telegram_bot.send_test_message()
 
 
+@router.get("/api/paper-trading/telegram/network-check")
+def telegram_network_check():
+    """Deliberately login-exempt (see sindhu_web/security.py's
+    _LOGIN_EXEMPT_PATHS) -- same reasoning as /health: a real, credential-
+    independent outbound reachability test to api.telegram.org from
+    wherever THIS process is actually running, so "can Telegram be
+    reached from here" can be checked directly (e.g. via curl) without a
+    browser session, and without needing a bot token/channel id to be
+    configured first. Reveals nothing sensitive -- just reachable yes/no,
+    an HTTP status or exception name, and latency."""
+    return telegram_bot.check_telegram_reachability()
+
+
+@router.get("/api/paper-trading/_diag/one-time-report")
+def _diag_one_time_report():
+    """TEMPORARY, added 2026-09-13 -- to be removed in a follow-up commit
+    once its output has been read via a direct curl (no browser session
+    available for this diagnosis). Login-exempt (see security.py) for
+    exactly that reason. Answers three things without needing a browser
+    session or DB credentials:
+      1. Real per-group closed-trade PnL/win-rate (Losing/Profitable/
+         Challenge) -- exactly what strategy_groups.all_group_summaries()
+         already computes for the real Groups tab endpoint, invoked here
+         directly to also prove that function itself runs cleanly.
+      2. Top/bottom 3 strategies by real closed-trade PnL, and the real
+         overall win rate -- from paper_account_state, the same O(1)
+         running totals the rest of the dashboard already trusts.
+      3. Whether TELEGRAM_BOT_TOKEN/TELEGRAM_CHANNEL_ID env vars are SET
+         (booleans only, never the values)."""
+    from paper_trading import strategy_groups
+    from backtest_engine import strategy_library as lib
+
+    groups = strategy_groups.all_group_summaries()
+    challenge_daily = strategy_groups.challenge_daily_status()
+
+    names = {m["id"]: m["name"] for m in lib.list_all()}
+    states = storage.list_paper_account_states()
+    ranked = sorted(
+        ({"strategy_id": s["strategy_id"], "strategy_name": names.get(s["strategy_id"], s["strategy_id"]),
+          "total_pnl": round(s["realized_pnl_total"], 2), "closed_trades": s["closed_count"],
+          "wins": s["win_count"]} for s in states if s["closed_count"] > 0),
+        key=lambda s: s["total_pnl"],
+    )
+    total_closed = sum(s["closed_count"] for s in states)
+    total_wins = sum(s["win_count"] for s in states)
+
+    return {
+        "group_summaries": groups,
+        "challenge_daily": challenge_daily,
+        "overall": {
+            "total_closed_trades": total_closed,
+            "total_wins": total_wins,
+            "overall_win_rate_pct": round(total_wins / total_closed * 100, 2) if total_closed else None,
+            "strategies_with_closed_trades": len(ranked),
+        },
+        "top_3_by_real_pnl": list(reversed(ranked[-3:])),
+        "bottom_3_by_real_pnl": ranked[:3],
+        "env_vars": {
+            "TELEGRAM_BOT_TOKEN_set": bool(os.environ.get("TELEGRAM_BOT_TOKEN")),
+            "TELEGRAM_CHANNEL_ID_set": bool(os.environ.get("TELEGRAM_CHANNEL_ID")),
+        },
+    }
+
+
 @router.post("/api/paper-trading/telegram/test-proxy")
 def test_telegram_proxy():
     """Isolates "is my proxy server reachable at all" from "can it reach

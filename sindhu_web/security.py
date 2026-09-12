@@ -51,7 +51,18 @@ _LOGIN_EXEMPT_PATHS = {"/login", "/api/auth/status", "/api/auth/setup", "/api/au
                         # auto-stop scheduler polls this from outside any browser session,
                         # same reasoning as strategy-sync/push above -- gated by the SAME
                         # X-Sindhu-Sync-Secret header/secret instead of a login session.
-                        "/api/paper-trading/cloud-status-for-auto-stop"}
+                        "/api/paper-trading/cloud-status-for-auto-stop",
+                        # 2026-09-13: same reasoning as /health above -- a real, credential-
+                        # independent network reachability test (paper_trading.telegram_bot.
+                        # check_telegram_reachability) needs to be callable without a browser
+                        # session so it can be verified directly (e.g. via curl) from outside
+                        # the app, and it reveals nothing sensitive (no token, no channel id,
+                        # just reachable yes/no + latency).
+                        "/api/paper-trading/telegram/network-check",
+                        # TEMPORARY, added 2026-09-13 -- see /api/paper-trading/_diag/
+                        # one-time-report's own docstring. To be removed, along with
+                        # that route, in a follow-up commit once read once via curl.
+                        "/api/paper-trading/_diag/one-time-report"}
 
 # A valid session cookie is a stronger signal than the X-Sindhu-Token
 # header below (which exists to distinguish a real browser request from a

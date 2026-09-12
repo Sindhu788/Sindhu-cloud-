@@ -6534,9 +6534,19 @@
       });
     }
 
-    const [cs, tgAlert] = await Promise.all([
+    const [cs, tgAlert, netCheck] = await Promise.all([
       apiGet("/api/paper-trading/telegram/connection-status").catch(() => ({ state: "unknown", reason: "Status unavailable.", settings: {} })),
       apiGet(`/api/paper-trading/telegram/alert-status?lang=${getLang()}`).catch(() => ({ stale: false })),
+      // Fix, 2026-09-13: the static copy below used to unconditionally
+      // claim "Telegram is blocked on this internet connection" -- true
+      // for the CEO's own local machine (confirmed there by direct
+      // testing), but this same page also serves the cloud deployment,
+      // where that claim was never actually verified and is very likely
+      // false (a cloud host's outbound network path has nothing to do
+      // with a home/office ISP). A real, credential-independent check
+      // from wherever THIS page's own server is running replaces the
+      // assumption with an actual answer.
+      apiGet("/api/paper-trading/telegram/network-check").catch(() => null),
     ]);
     if (isStaleRoute(myToken)) return;
     const s = cs.settings || {};
@@ -6578,9 +6588,15 @@
           <span id="tgSettingsStatus" class="muted"></span>
         </div>
 
-        <div class="section-title">Connection (for when the block is lifted)</div>
+        <div class="section-title">Connection (for when the network blocks Telegram)</div>
         <div class="card settings-card">
-          <p class="muted plain-note">Telegram is blocked on this internet connection, so messages cannot get through directly. A working proxy, or running this on a cloud server, fixes that. Fill these in and everything above starts delivering on its own &mdash; nothing else needs rebuilding.</p>
+          ${netCheck == null ? `
+          <p class="muted plain-note">Couldn't run a live reachability check just now. If your OWN network blocks Telegram (this varies by hosting/region -- it does not affect every deployment), a proxy below fixes that.</p>
+          ` : netCheck.reachable ? `
+          <p class="muted plain-note">✅ Live check: this server just reached api.telegram.org directly, no proxy needed (HTTP ${netCheck.http_status}, ${netCheck.latency_ms}ms). If messages still aren't going out, the cause is the Bot Token/Channel ID or the switches above, not the network.</p>
+          ` : `
+          <p class="muted plain-note">⚠️ Live check: this server just tried to reach api.telegram.org directly and could not (${esc(netCheck.error || "connection failed")}). A proxy below routes around that -- fill it in and everything above starts delivering on its own, nothing else needs rebuilding.</p>
+          `}
           <label class="switch-row">
             <input type="checkbox" id="tgProxyEnabled" ${s.proxy_enabled ? "checked" : ""}>
             <span><b>Route through a proxy</b></span>

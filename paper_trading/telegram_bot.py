@@ -371,6 +371,51 @@ def _raw_send(text, channel_id_override=None):
     return False, f"failed after {_API_MAX_ATTEMPTS} attempts: {last_err}"
 
 
+def check_telegram_reachability():
+    """Real, credential-independent network test: can THIS server reach
+    api.telegram.org at all, direct (never through a configured proxy --
+    that's what test_proxy_connectivity()/send_test_message() are for).
+    Needs no bot token or channel id, so it works even before either is
+    configured -- unlike send_test_message(), which requires both.
+
+    Added 2026-09-13: earlier diagnosis that "Telegram is network-blocked"
+    was based on testing from the CEO's own local machine/ISP -- a real,
+    confirmed finding there, but never actually verified against wherever
+    this specific process is running. A cloud deployment's outbound network
+    path is completely independent of the CEO's home/office ISP, so that
+    local finding does not automatically apply here; this is the live,
+    from-here check instead of carrying that assumption over unverified.
+    Classifies failures the same way telegram_delivery._NETWORK_MARKERS
+    does, so "blocked/unreachable" vs. "reachable, just no valid token"
+    (a 404 from the bare domain, since no bot path was given) are told
+    apart correctly."""
+    start = time.time()
+    # Booleans only (public_settings()'s own existing safe-disclosure
+    # design -- never the raw token/proxy credentials), included here so
+    # one call answers both "can this server reach Telegram" and "is a
+    # bot/channel actually configured yet" together.
+    config = public_settings()
+    result = {
+        "bot_token_configured": config["token_configured"],
+        "channel_id_configured": bool(config["channel_id"]),
+        "master_send_enabled": config["master_send_enabled"],
+        "auto_send_enabled": config["auto_send_enabled"],
+        "proxy_enabled": config["proxy_enabled"],
+    }
+    try:
+        resp = requests.get("https://api.telegram.org", timeout=(_API_CONNECT_TIMEOUT, _API_READ_TIMEOUT))
+        elapsed_ms = round((time.time() - start) * 1000)
+        # The bare domain (no /bot<token>/... path) always answers 404 from
+        # a REACHABLE Telegram edge -- any HTTP response at all (regardless
+        # of status code) proves the network path works; only a raised
+        # exception below means it doesn't.
+        result.update({"reachable": True, "http_status": resp.status_code, "latency_ms": elapsed_ms})
+    except requests.RequestException as e:
+        elapsed_ms = round((time.time() - start) * 1000)
+        result.update({"reachable": False, "error": repr(e), "elapsed_ms": elapsed_ms})
+    return result
+
+
 def test_proxy_connectivity():
     """Separate, lighter-weight check than send_test_message(): confirms
     the CONFIGURED PROXY ITSELF is reachable and can reach the public
