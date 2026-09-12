@@ -8679,17 +8679,25 @@
           <span class="pill pill-pending">Reconnecting</span>
           <span class="muted" style="margin-left:8px;">Couldn't reach the engine status just now (the server may be restarting) -- the numbers below are stale. Retrying automatically.</span>
         </div>` : ""}
+        <!-- Master Task (UI simplification, 2026-09-12): "is it working and
+             is it making money" at a glance -- 4 essential numbers only, up
+             top, uncluttered. Engine Status/Mode/Closed Trades/Queue are
+             still real, still always visible (never removed), just moved
+             into a slim secondary line below the hero row instead of
+             competing with it as 4 more full-size cards. -->
         <div class="grid">
-          ${cardClass("Engine Status", statusUnavailable ? "<span class=\"pill pill-pending\">Unknown</span>" : (status.running ? "<span class=\"pill pill-completed\">Running</span>" : "<span class=\"pill pill-muted\">Stopped</span>"), "")}
-          ${cardClass("Mode", statusUnavailable ? "<span class=\"pill pill-pending\">Unknown</span>" : (status.dry_run ? "<span class=\"pill pill-pending\">Dry Run</span>" : "<span class=\"pill pill-bullish\">Live Paper Trading</span>"), "")}
           ${card("Combined Balance", statusUnavailable ? "--" : `$${Number(status.balance).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}`)}
-          ${card("Open Positions", statusUnavailable ? "--" : fmtNum(status.open_trades))}
-          ${card("Closed Trades (All-Time)", analyticsUnavailable ? "--" : fmtNum(allTimeSummary.closed_trades))}
-          ${card("Win Rate (All-Time)", analyticsUnavailable ? "--" : `${allTimeSummary.win_rate.toFixed(1)}%`)}
           ${cardClass("Realized PnL (All-Time)", analyticsUnavailable ? "--" : `${allTimeSummary.total_pnl >= 0 ? "+" : ""}$${allTimeSummary.total_pnl.toFixed(2)}`, analyticsUnavailable ? "" : (allTimeSummary.total_pnl > 0 ? "positive" : allTimeSummary.total_pnl < 0 ? "negative" : ""))}
-          ${card("Queue (shortlisted coins)", statusUnavailable ? "--" : fmtNum(status.queue))}
+          ${card("Win Rate (All-Time)", analyticsUnavailable ? "--" : `${allTimeSummary.win_rate.toFixed(1)}%`)}
+          ${card("Open Positions", statusUnavailable ? "--" : fmtNum(status.open_trades))}
         </div>
-        <div class="muted" style="font-size:12px;">Each strategy runs its own independent book -- balance/PnL/open positions are never merged between strategies. See the breakdown below.</div>
+        <div class="muted" style="font-size:12px;display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-top:2px;">
+          <span>${statusUnavailable ? "<span class=\"pill pill-pending\">Unknown</span>" : (status.running ? "<span class=\"pill pill-completed\">Running</span>" : "<span class=\"pill pill-muted\">Stopped</span>")}</span>
+          <span>${statusUnavailable ? "<span class=\"pill pill-pending\">Unknown</span>" : (status.dry_run ? "<span class=\"pill pill-pending\">Dry Run</span>" : "<span class=\"pill pill-bullish\">Live Paper Trading</span>")}</span>
+          <span>${t("Closed Trades (All-Time)")}: ${analyticsUnavailable ? "--" : fmtNum(allTimeSummary.closed_trades)}</span>
+          <span>${t("Queue (shortlisted coins)")}: ${statusUnavailable ? "--" : fmtNum(status.queue)}</span>
+        </div>
+        <div class="muted" style="font-size:12px;margin-top:4px;">Each strategy runs its own independent book -- balance/PnL/open positions are never merged between strategies. See the breakdown below.</div>
 
         ${scanIndicatorHtml(status)}
         <div id="ptSignalMatchDetail" class="card" style="display:none;margin-bottom:16px;"></div>
@@ -9037,7 +9045,14 @@
           ${!killSwitch.active ? `<button class="btn" id="ptKillSwitchActivate" style="background:var(--red,#c0392b);border-color:var(--red,#c0392b);color:#fff;">🛑 EMERGENCY STOP</button>` : ""}
           <span id="ptStatusMsg" class="muted"></span>
         </div>
-        <div class="section-title" style="font-size:13px;">Emergency Control Center</div>
+        <!-- UI simplification, 2026-09-12: matches the existing
+             .pt-collapsible pattern already used by Custom Alert Rules/
+             Coin Blacklist/Coin Manager above -- collapsed by default so
+             these rarely-used, narrower stop controls don't visually
+             compete with the main numbers/Start-Stop controls, still one
+             click away, nothing removed. -->
+        <details class="pt-collapsible">
+        <summary class="section-title" style="font-size:13px;">Emergency Control Center (Advanced)</summary>
         <div class="card settings-card" style="border:1px solid var(--red,#c0392b);">
           <p class="muted plain-note">🛑 EMERGENCY STOP above (kill switch) already stops the engine, cancels all Telegram signals, AND force-closes every open position -- the single most complete stop. The buttons below are narrower, individual stops for when you want to keep some things running.</p>
           <div class="btn-row">
@@ -9048,6 +9063,7 @@
             <span id="eccStatusMsg" class="muted"></span>
           </div>
         </div>
+        </details>
         ${status.running ? `<div class="muted pt-engine-status-line" style="font-size:12px;">Started ${esc((status.started_at||"").slice(0,19))} -- tick #${status.tick_count}${
           /* `last at ${(last_tick_at||"-").slice(11,19)}` rendered a dangling
              "last at " with nothing after it before the first tick completes:
