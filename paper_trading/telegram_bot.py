@@ -76,15 +76,22 @@ _DEFAULTS = {
     # "ur" (Roman Urdu, the CEO's everyday register) or "en". Deterministic
     # template choice, not an AI translation call.
     "language": "ur",
-    # Confidence filtering (this task): only High Confidence tier signals
-    # (evaluate_auto_send -- full confluence + the 25-trade Wilson gate) are
-    # ever sent to Telegram by default. A Low Confidence signal is still
-    # generated and stays visible on the dashboard (paper_decision_log,
-    # Signal Tracker, /telegram/delivery-log's "never sent" bucket) with
-    # its own reason -- it just never reaches the channel. Kept as a
-    # setting (default True) rather than hardcoded, consistent with every
-    # other behavior toggle in this file.
-    "auto_send_high_confidence_only": True,
+    # Confidence filtering: only High Confidence tier signals (evaluate_
+    # auto_send -- full confluence + the 25-trade Wilson gate) were sent to
+    # Telegram while this defaulted to True. Flipped to False, 2026-09-12:
+    # at real trading scale (~150 strategies sharing ~80 trades/day) almost
+    # no single (strategy, coin, condition) pattern reaches 25 trades for
+    # weeks, so High tier essentially never fired and zero messages were
+    # reaching the channel. Low tier (evaluate_auto_send_low_tier) still
+    # requires the full confluence bar and non-negative live PnL -- it only
+    # skips the sample-size/statistical-significance check -- so this does
+    # NOT touch the shared Wilson-gate constant (paper_trading.pattern_stats.
+    # MIN_SAMPLE_SIZE) that Evolution/validation-gate/auto-avoid/lesson-
+    # auto-apply also rely on; it only changes which already-computed tier
+    # gets sent to Telegram. Kept as a setting (not hardcoded) so it can be
+    # flipped back from the Settings page by anyone who wants High-Confidence
+    # -only again.
+    "auto_send_high_confidence_only": False,
     # Grand Feature Expansion, Phase 2 Feature 22: Multi-Channel Support --
     # {strategy_id: channel_id} overrides. A strategy with no entry here
     # keeps going to the one default `channel_id` above, exactly as
@@ -1142,17 +1149,15 @@ def evaluate_auto_send_tier(position_id):
     """Tries the HIGH tier first (evaluate_auto_send -- real confluence +
     the real 25-trade Wilson gate).
 
-    Confidence filtering (this task): with the default
-    auto_send_high_confidence_only=True, a Low-tier-only qualifying signal
-    is deliberately NOT sent to Telegram -- it is still fully generated
-    and stays visible everywhere the dashboard already shows signal
-    activity (paper_decision_log, the Signal Tracker page, and
-    /api/paper-trading/telegram/delivery-log's "never sent" bucket, which
-    surfaces exactly the reason text returned here), it just never reaches
-    the channel. Setting auto_send_high_confidence_only to False restores
-    the previous behavior (falls back to evaluate_auto_send_low_tier) for
-    anyone who deliberately wants that -- off by default, per this task's
-    requirement, not a silent behavior removal.
+    Confidence filtering: with auto_send_high_confidence_only=True, a
+    Low-tier-only qualifying signal is deliberately NOT sent to Telegram --
+    it is still fully generated and stays visible everywhere the dashboard
+    already shows signal activity (paper_decision_log, the Signal Tracker
+    page, and /api/paper-trading/telegram/delivery-log's "never sent"
+    bucket, which surfaces exactly the reason text returned here), it just
+    never reaches the channel. Defaults to False (see _DEFAULTS above) so
+    Low tier sends normally -- flip it back to True from Settings for
+    anyone who deliberately wants High-Confidence-only again.
 
     Returns (tier: "high" | "low" | None, reason: str)."""
     should_send_high, reason_high = evaluate_auto_send(position_id)
@@ -1162,7 +1167,7 @@ def evaluate_auto_send_tier(position_id):
     if not should_send_low:
         _record_near_miss(position_id, reason_low)
         return None, reason_low
-    if load_settings().get("auto_send_high_confidence_only", True):
+    if load_settings().get("auto_send_high_confidence_only", _DEFAULTS["auto_send_high_confidence_only"]):
         _record_near_miss(position_id, reason_low)
         return None, (
             f"qualified for the Low Confidence tier but not sent -- only High Confidence "

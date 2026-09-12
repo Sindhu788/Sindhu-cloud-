@@ -20,16 +20,25 @@ from sindhu_web.jobs import job_manager
 
 
 def compute_strategy_summary():
+    active = [s for s in strategy_library.list_all() if not s.get("archived")]
+    # Fix, 2026-09-12: same incident as paper_trading.signal_tracker's
+    # _latest_batch_ids_by_name -- this used to call
+    # latest_completed_batch_for_strategy_name() once per strategy in the
+    # loop below, and the lightweight cloud runner's curated Postgres schema
+    # deliberately excludes backtest_batches (see data_engine/db_backend.py's
+    # POSTGRES_SCHEMA docstring), so every one of those calls threw
+    # UndefinedTable, uncaught, taking down the whole /api/strategy-lifecycle
+    # response (and the Strategy Lifecycle page along with it) on every
+    # cloud request. Batched into ONE query with the same safe "nothing
+    # exists yet" fallback signal_tracker already uses.
+    try:
+        batch_by_name = storage.latest_completed_batches_for_strategy_names([s["name"] for s in active])
+    except Exception:
+        batch_by_name = {}
+
     rows = []
-    for s in strategy_library.list_all():
-        if s.get("archived"):
-            # Archived entries (duplicate-cleanup, or a draft comparison
-            # variant like the dual-TP strategies) never belong in the
-            # main roster's aggregate totals/profitable-count/leaderboard;
-            # they stay independently queryable via their own tags for
-            # whatever dedicated view needs them.
-            continue
-        batch_id = storage.latest_completed_batch_for_strategy_name(s["name"])
+    for s in active:
+        batch_id = batch_by_name.get(s["name"])
         if not batch_id:
             continue
         results = storage.get_batch_results(batch_id)

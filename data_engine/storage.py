@@ -2199,13 +2199,27 @@ def latest_completed_batch_for_strategy_name(strategy_name):
     relies on), so this is a real but honest best-effort link: it can
     miss a batch if the strategy was renamed since it last ran, and it
     can't tell two different strategies with the same display name
-    apart. Returns None if no completed batch matches."""
-    with get_conn() as conn:
-        row = conn.execute(
-            "SELECT batch_id FROM backtest_batches WHERE strategy_name = ? AND status = 'completed' "
-            "ORDER BY created_at DESC LIMIT 1",
-            (strategy_name,),
-        ).fetchone()
+    apart. Returns None if no completed batch matches.
+
+    Fix, 2026-09-12: the lightweight cloud runner's curated Postgres schema
+    deliberately excludes backtest_batches (see db_backend.py's
+    POSTGRES_SCHEMA docstring) -- every direct caller of this singular
+    lookup (sindhu_web/api/strategy_lifecycle.py's per-strategy fallback,
+    hit for every strategy with no cached aggregate row) was throwing
+    UndefinedTable uncaught there, same incident class as
+    latest_completed_batches_for_strategy_names' own fix. Caught here at
+    the source so every caller gets the same honest "no batch found" miss
+    this function's docstring already promises, regardless of whether that
+    caller remembered its own try/except."""
+    try:
+        with get_conn() as conn:
+            row = conn.execute(
+                "SELECT batch_id FROM backtest_batches WHERE strategy_name = ? AND status = 'completed' "
+                "ORDER BY created_at DESC LIMIT 1",
+                (strategy_name,),
+            ).fetchone()
+    except Exception:
+        return None
     return row[0] if row else None
 
 

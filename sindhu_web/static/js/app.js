@@ -8554,16 +8554,25 @@
              lifecycleRes, configsRes, pausedRes, killSwitch, acctDrawdown, coinBlacklistRes,
              riskPctRecsRes, dupExposureRes, cloudSyncStatusRes, autoStopState, maintenanceState, coinPriorityRes,
              groupsRes] = await Promise.all([
-        apiGet("/api/paper-trading/status"),
-        apiGet("/api/paper-trading/positions"),
-        apiGet("/api/paper-trading/trades?limit=50"),
-        apiGet("/api/paper-trading/decisions?limit=30"),
-        apiGet("/api/paper-trading/strategy-performance"),
-        apiGet("/api/paper-trading/lesson-performance"),
-        apiGet("/api/paper-trading/settings"),
+        // Fix, 2026-09-12: these 8 calls used to have no .catch() like every
+        // other entry in this array -- a single transient failure (cold
+        // start after Render free-tier idle spin-down, a busy DB connection
+        // under real 80+ trades/day load) rejected the whole Promise.all,
+        // which threw out of render() uncaught, leaving the ENTIRE Paper
+        // Trading page (Groups tab included) stuck on its last-rendered
+        // state -- indistinguishable from an infinite loading spinner, and
+        // since the tab/button wiring below never re-runs either, every
+        // button on the page (Reset Balance included) looked dead too.
+        apiGet("/api/paper-trading/status").catch(() => ({})),
+        apiGet("/api/paper-trading/positions").catch(() => ({ positions: [] })),
+        apiGet("/api/paper-trading/trades?limit=50").catch(() => ({ trades: [] })),
+        apiGet("/api/paper-trading/decisions?limit=30").catch(() => ({ decisions: [] })),
+        apiGet("/api/paper-trading/strategy-performance").catch(() => null),
+        apiGet("/api/paper-trading/lesson-performance").catch(() => ({ performance: [] })),
+        apiGet("/api/paper-trading/settings").catch(() => ({})),
         apiGet("/api/backtesting/strategies").catch(() => ({ strategies: [] })),
         apiGet("/api/knowledge/lessons?status=active").catch(() => ({ lessons: [] })),
-        apiGet("/api/paper-trading/analytics?period=all"),
+        apiGet("/api/paper-trading/analytics?period=all").catch(() => ({ summary: { closed_trades: 0, win_rate: 0, total_pnl: 0 }, per_strategy: [] })),
         apiGet("/api/paper-trading/alerts?limit=10").catch(() => ({ alerts: [] })),
         apiGet("/api/paper-trading/session-stats").catch(() => ({ sessions: [] })),
         apiGet("/api/paper-trading/hour-of-day-stats").catch(() => ({ hours: [] })),

@@ -87,14 +87,15 @@ def test_high_tier_still_requires_the_unchanged_25_trade_wilson_gate(test_db):
     assert "statistically confident" in reason
 
 
-def test_low_tier_qualifies_but_is_not_sent_by_default(test_db):
-    """Confidence filtering (a later task): full confluence but not yet
-    enough trade history for the Wilson gate -- HIGH tier correctly
-    refuses, LOW tier ON ITS OWN still qualifies (evaluate_auto_send_low_tier
-    is untouched), but the combined decision evaluate_auto_send_tier()
-    actually makes for a real send now defaults to High-Confidence-only:
-    a Low-tier-only qualifying signal is generated (still visible on the
-    dashboard's decision log/Signal Tracker/delivery-log) but NOT sent."""
+def test_low_tier_qualifies_and_is_sent_by_default(test_db):
+    """Fix, 2026-09-12: auto_send_high_confidence_only now defaults to
+    False (at real trading scale, almost no pattern ever reaches the
+    25-trade Wilson gate, so High-Confidence-only meant near-zero messages
+    ever reached Telegram) -- full confluence but not yet enough trade
+    history for the Wilson gate: HIGH tier correctly refuses, LOW tier
+    still qualifies (evaluate_auto_send_low_tier is untouched), and the
+    combined decision evaluate_auto_send_tier() now sends it at the
+    standard tier by default."""
     _enable_auto_send()
     _open_position(storage)
     with patch.object(telegram_bot.confluence_mod, "score_confluence", return_value=FULL_CONFLUENCE):
@@ -106,20 +107,20 @@ def test_low_tier_qualifies_but_is_not_sent_by_default(test_db):
         assert "not yet statistically confirmed" in low_reason
 
         tier, reason = telegram_bot.evaluate_auto_send_tier("pos1")
-        assert tier is None
-        assert "only High Confidence" in reason
+        assert tier == "low"
 
 
-def test_low_tier_can_still_be_sent_if_explicitly_opted_back_in(test_db):
-    """auto_send_high_confidence_only=False restores the previous
-    fallback-to-low-tier behavior for anyone who deliberately wants it --
-    the filtering is a default, not a hardcoded removal of the tier."""
+def test_low_tier_blocked_if_explicitly_opted_into_high_confidence_only(test_db):
+    """auto_send_high_confidence_only=True restores the stricter
+    High-Confidence-only behavior for anyone who deliberately wants it --
+    the filtering is still a real, working setting, just defaulted off."""
     _enable_auto_send()
-    telegram_bot.save_settings(auto_send_high_confidence_only=False)
+    telegram_bot.save_settings(auto_send_high_confidence_only=True)
     _open_position(storage)
     with patch.object(telegram_bot.confluence_mod, "score_confluence", return_value=FULL_CONFLUENCE):
         tier, reason = telegram_bot.evaluate_auto_send_tier("pos1")
-        assert tier == "low"
+        assert tier is None
+        assert "only High Confidence" in reason
 
 
 def test_high_tier_wins_over_low_tier_when_both_qualify(test_db):
