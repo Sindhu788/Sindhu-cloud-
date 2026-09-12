@@ -19,6 +19,7 @@
     "win_rate": 40.43,
     "profit_factor": null,
     "total_trades": 20253,
+    "net_pnl": 12449.02,
     "batch_id": "s3_ote_liquidity_sweep_reversal",
     "computed_at": "2026-08-28T19:22:52.605427+00:00"
   },

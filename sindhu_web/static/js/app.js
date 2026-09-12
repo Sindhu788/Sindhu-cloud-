@@ -9609,7 +9609,19 @@
         appendLog(`Dry Run mode ${e.target.checked ? "enabled" : "disabled"}.`);
       });
       document.getElementById("ptResetBalance").onclick = async () => {
-        const p = await apiGet("/api/paper-trading/reset-balance/preview");
+        const statusEl = document.getElementById("ptStatusMsg");
+        let p;
+        try {
+          p = await apiGet("/api/paper-trading/reset-balance/preview");
+        } catch (e) {
+          // Fix, 2026-09-12: this whole handler had no try/catch, unlike
+          // every sibling action in this file -- a failed preview fetch
+          // (timeout, transient 401, 500) threw as an unhandled promise
+          // rejection with zero visible feedback: no confirm dialog ever
+          // appeared, and the button looked completely dead.
+          statusEl.textContent = `Failed to load reset preview: ${e.message}`;
+          return;
+        }
         const msg = getLang() === "en"
           ? `Resetting the balance will do this:\n\n` +
             `- Combined balance will go from $${p.current_combined_balance.toFixed(2)} back to $${p.reset_combined_balance.toFixed(2)} ` +
@@ -9628,11 +9640,15 @@
               : `- Abhi koi open trade nahi hai.\n`) +
             `\nConfirm karein?`;
         if (!confirm(msg)) return;
-        document.getElementById("ptStatusMsg").textContent = "Resetting balance...";
-        const res = await apiPost("/api/paper-trading/reset-balance", { confirm: true });
-        appendLog(`Balance reset: ${res.strategies_reset} strategy book(s), combined balance back to starting amount.`);
-        document.getElementById("ptStatusMsg").textContent = "Balance reset done.";
-        render();
+        statusEl.textContent = "Resetting balance...";
+        try {
+          const res = await apiPost("/api/paper-trading/reset-balance", { confirm: true });
+          appendLog(`Balance reset: ${res.strategies_reset} strategy book(s), combined balance back to starting amount.`);
+          statusEl.textContent = "Balance reset done.";
+          render();
+        } catch (e) {
+          statusEl.textContent = `Failed: ${e.message}`;
+        }
       };
 
       const saveEngineSettings = debounce(async () => {

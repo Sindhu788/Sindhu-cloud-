@@ -19,6 +19,7 @@
     "win_rate": 32.82,
     "profit_factor": null,
     "total_trades": 34221,
+    "net_pnl": -41154.65,
     "batch_id": "s5_fractal_sweep_reversal",
     "computed_at": "2026-08-28T06:09:12.739886+00:00"
   },

@@ -115,7 +115,22 @@ def get_strategy_lifecycle():
     # page load (that would mean up to 75 fresh last-100-trades queries).
     downgrade_states = storage.list_paper_downgrade_states()
     comparisons_by_base = defaultdict(list)
-    for c in storage.list_evolution_comparisons(limit=5000):
+    # Fix, 2026-09-12: same incident class as compute_strategy_summary's
+    # backtest_batches fix -- this page is the one place evolution_summary
+    # data is read from a route also mounted on the lightweight cloud
+    # runner (see this module's own docstring), but evolution_comparisons
+    # is excluded from the cloud runner's curated Postgres schema (see
+    # data_engine/db_backend.py's POSTGRES_SCHEMA docstring), so this threw
+    # UndefinedTable uncaught on every single cloud request. Every other
+    # caller of list_evolution_comparisons (Evolution/Risk Department/
+    # Report Builder) is local-machine-only, where the table always
+    # exists, so the safe fallback belongs here at this one cloud-reachable
+    # call site, not inside storage.list_evolution_comparisons itself.
+    try:
+        evolution_comparisons = storage.list_evolution_comparisons(limit=5000)
+    except Exception:
+        evolution_comparisons = []
+    for c in evolution_comparisons:
         if c.get("base_id"):
             comparisons_by_base[c["base_id"]].append(c)
 

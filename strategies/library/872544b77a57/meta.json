@@ -19,6 +19,7 @@
     "win_rate": 58.55,
     "profit_factor": null,
     "total_trades": 14993,
+    "net_pnl": -25666.85,
     "batch_id": "s2_liquidity_sweep_cisd_swing",
     "computed_at": "2026-08-28T19:19:29.140296+00:00"
   },

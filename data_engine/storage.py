@@ -3798,6 +3798,19 @@ def list_paper_strategy_groups():
     return dict(rows)
 
 
+def list_paper_strategy_groups_with_auto_assigned():
+    """{strategy_id: {"group_key":..., "auto_assigned": bool}} -- lets a
+    caller (paper_trading.strategy_groups' reclassification pass) tell a
+    manual override (a CEO deliberately moving a strategy via POST
+    /groups/{id}/move) apart from an automatic ranking result, since only
+    the latter should ever be silently corrected by a later sync."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT strategy_id, group_key, auto_assigned FROM paper_strategy_groups"
+        ).fetchall()
+    return {sid: {"group_key": gk, "auto_assigned": bool(auto)} for sid, gk, auto in rows}
+
+
 def sum_paper_pnl_for_strategies_since(strategy_ids, since_iso):
     """Real closed-trade PnL, summed across `strategy_ids`, for trades
     closed at or after since_iso -- used by Group C's daily $ target check.

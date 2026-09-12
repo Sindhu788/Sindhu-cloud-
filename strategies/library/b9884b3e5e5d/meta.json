@@ -22,6 +22,7 @@
     "win_rate": 33.27,
     "profit_factor": null,
     "total_trades": 98556,
+    "net_pnl": -47318.47,
     "batch_id": "s1_htf_key_level_engulfing",
     "computed_at": "2026-08-27T17:00:10.797578+00:00"
   },

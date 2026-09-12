@@ -158,6 +158,10 @@ def _batch_result_summary(batch, batch_results_cache=None):
     return {
         "batch_id": batch["batch_id"], "status": "completed", "created_at": batch["created_at"],
         "total_trades": total_trades, "symbols_tested": len(completed),
+        # paper_trading.strategy_groups (CEO Task 3's group-ranking fix)
+        # needs this to rank Losing/Profitable/Challenge by real backtest
+        # performance for strategies that haven't closed a live trade yet.
+        "net_pnl": round(sum(r["metrics"].get("net_profit", 0) for r in completed), 2),
         "win_rate": round((wins / total_trades * 100) if total_trades else 0.0, 2),
         "avg_profit_pct": round(sum(r["metrics"]["profit_pct"] for r in completed) / len(completed), 2),
     }
@@ -299,6 +303,7 @@ def _compute_strategies_list(q, include_archived=False):
                     "win_rate": lbr.get("win_rate"),
                     "profit_factor": profit_factor,
                     "total_trades": lbr.get("total_trades"),
+                    "net_pnl": lbr.get("net_pnl"),
                     "batch_id": lbr.get("batch_id"),
                     "computed_at": lbr.get("created_at"),
                 })

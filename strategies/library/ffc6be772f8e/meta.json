@@ -14,5 +14,13 @@
   "safety_reasons": [],
   "validator_status": "ready",
   "validator_errors": [],
-  "fixed_rr": 2.0
+  "fixed_rr": 2.0,
+  "backtest_snapshot": {
+    "win_rate": 26.71,
+    "profit_factor": null,
+    "total_trades": 73443,
+    "net_pnl": -46806.54,
+    "batch_id": "dualtp_d3e441733525_20260825_233440",
+    "computed_at": "2026-08-25T18:34:40.829918+00:00"
+  }
 }

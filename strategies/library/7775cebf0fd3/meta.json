@@ -19,6 +19,7 @@
     "win_rate": 25.5,
     "profit_factor": null,
     "total_trades": 10701,
+    "net_pnl": -19944.3,
     "batch_id": "s3_pdhl_mtf_reversal",
     "computed_at": "2026-08-28T05:54:06.062920+00:00"
   },

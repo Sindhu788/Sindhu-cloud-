@@ -16,5 +16,13 @@
   "safety_reasons": [],
   "validator_status": "ready",
   "validator_errors": [],
-  "fixed_rr": null
+  "fixed_rr": null,
+  "backtest_snapshot": {
+    "win_rate": 22.13,
+    "profit_factor": null,
+    "total_trades": 2445,
+    "net_pnl": -3239.98,
+    "batch_id": "opt_medium_3bbe5c358da0",
+    "computed_at": "2026-08-27T09:00:22.452011+00:00"
+  }
 }

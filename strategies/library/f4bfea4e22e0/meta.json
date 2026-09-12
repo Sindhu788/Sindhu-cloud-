@@ -19,6 +19,7 @@
     "win_rate": 31.0,
     "profit_factor": null,
     "total_trades": 571,
+    "net_pnl": -2090.42,
     "batch_id": "s4_cisd_entry",
     "computed_at": "2026-08-28T06:00:29.947358+00:00"
   },

@@ -91,7 +91,7 @@ def test_a_completed_batch_writes_a_backtest_snapshot_for_the_cloud_page(test_db
 
     snapshot = lib._read_meta(sid)["backtest_snapshot"]
     assert snapshot == {
-        "win_rate": 57.5, "profit_factor": 1.62, "total_trades": 80,
+        "win_rate": 57.5, "profit_factor": 1.62, "total_trades": 80, "net_pnl": None,
         "batch_id": "batchXYZ", "computed_at": "2026-02-01T00:00:00+00:00",
     }
 

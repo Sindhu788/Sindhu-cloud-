@@ -28,8 +28,8 @@ GROUP_KEYS = ("losing", "profitable", "challenge")
 GROUP_LABELS = {"losing": "Losing", "profitable": "Profitable", "challenge": "Challenge"}
 
 # How many of the real top performers make up Group C. A strategy needs at
-# least one real closed trade to be eligible -- an untested strategy has no
-# track record to be a "top performer" on.
+# least one real closed trade OR a completed backtest to be eligible -- an
+# untested strategy has no track record to be a "top performer" on.
 CHALLENGE_SIZE = 4
 
 # Group C's own daily target -- tracking/display only, per the CEO's own
@@ -88,45 +88,88 @@ def sync_group_assignments():
     asked to see after the migration runs.
     """
     universe, stats_by_id = _strategy_universe()
-    already_assigned = storage.list_paper_strategy_groups()
+    already_assigned = storage.list_paper_strategy_groups_with_auto_assigned()
     first_run = len(already_assigned) == 0
     to_assign = sorted(universe - set(already_assigned))
-    if not to_assign:
-        return {"first_run": first_run, "assigned": {k: [] for k in GROUP_KEYS}}
 
     now_iso = _now_iso()
     assigned = {k: [] for k in GROUP_KEYS}
     new_assignments = {}
 
-    if first_run:
-        eligible_for_challenge = sorted(
-            (sid for sid in to_assign if stats_by_id.get(sid, {}).get("closed_trades", 0) > 0),
-            key=lambda sid: stats_by_id[sid]["total_pnl"],
-            reverse=True,
-        )
-        challenge_ids = set(eligible_for_challenge[:CHALLENGE_SIZE])
-        for sid in to_assign:
-            if sid in challenge_ids:
-                group_key = "challenge"
-            else:
-                pnl = stats_by_id.get(sid, {}).get("total_pnl", 0.0)
+    # Fix, 2026-09-12: ranking used to be keyed only on live paper-trading
+    # PnL (stats_by_id), which takes real trades days/weeks to accumulate --
+    # a freshly-enabled strategy with a genuinely strong backtest record
+    # looked identical to one with zero history (both defaulted to
+    # pnl=0.0, "profitable", never Challenge-eligible) until it closed its
+    # first live trade. _effective_pnl() prefers live PnL once it's real,
+    # otherwise falls back to the strategy's own backtest net PnL, so
+    # groups populate immediately from data that already exists. The
+    # one-time Challenge ranking rule itself is unchanged -- only what it
+    # ranks on. Computed for the whole universe (not just to_assign) since
+    # it also feeds the reclassification pass below.
+    backtest_pnl_by_id = _strategy_backtest_net_pnl()
+    pnl_cache = {sid: _effective_pnl(sid, stats_by_id, backtest_pnl_by_id) for sid in universe}
+
+    if to_assign:
+        if first_run:
+            eligible_for_challenge = sorted(
+                (sid for sid in to_assign if pnl_cache[sid][1]),
+                key=lambda sid: pnl_cache[sid][0],
+                reverse=True,
+            )
+            challenge_ids = set(eligible_for_challenge[:CHALLENGE_SIZE])
+            for sid in to_assign:
+                if sid in challenge_ids:
+                    group_key = "challenge"
+                else:
+                    pnl, _ = pnl_cache[sid]
+                    group_key = "losing" if pnl < 0 else "profitable"
+                new_assignments[sid] = group_key
+                assigned[group_key].append(sid)
+        else:
+            for sid in to_assign:
+                pnl, _ = pnl_cache[sid]
                 group_key = "losing" if pnl < 0 else "profitable"
-            new_assignments[sid] = group_key
-            assigned[group_key].append(sid)
-    else:
-        for sid in to_assign:
-            pnl = stats_by_id.get(sid, {}).get("total_pnl", 0.0)
-            group_key = "losing" if pnl < 0 else "profitable"
-            new_assignments[sid] = group_key
+                new_assignments[sid] = group_key
+                assigned[group_key].append(sid)
+
+    # Reclassify EXISTING losing/profitable members using the same
+    # effective-PnL logic -- Challenge is deliberately excluded (that
+    # membership stays the stable set it was ranked into, per this
+    # function's own docstring), and so is any MANUAL override (a CEO
+    # deliberately moving a strategy via POST /groups/{id}/move,
+    # auto_assigned=False) -- test_manual_move_overrides_and_sticks
+    # requires a later sync never undoes a deliberate manual choice. Only
+    # an auto-assigned "profitable" purely because it had zero data (the
+    # old pnl=0.0 default) the moment it was first assigned should move to
+    # "losing" the instant real data (its backtest net PnL, or its first
+    # live loss) says otherwise, instead of freezing there forever.
+    # Idempotent -- a no-op once every auto-assigned member's bucket
+    # already matches its real current data.
+    reclassified = {}
+    for sid, entry in already_assigned.items():
+        group_key = entry["group_key"]
+        if group_key == "challenge" or not entry["auto_assigned"] or sid not in pnl_cache:
+            continue
+        pnl, has_data = pnl_cache[sid]
+        if not has_data:
+            continue
+        correct_key = "losing" if pnl < 0 else "profitable"
+        if correct_key != group_key:
+            reclassified[sid] = correct_key
+
+    # ONE connection per batch -- see upsert_paper_strategy_groups_batch's
+    # docstring for why a per-strategy loop here (on top of the same shape
+    # of loop enable-all's own activation write already had) mattered
+    # enough to fix.
+    if new_assignments:
+        storage.upsert_paper_strategy_groups_batch(new_assignments, now_iso, auto_assigned=True)
+    if reclassified:
+        storage.upsert_paper_strategy_groups_batch(reclassified, now_iso, auto_assigned=True)
+        for sid, group_key in reclassified.items():
             assigned[group_key].append(sid)
 
-    # ONE connection for every new assignment -- see
-    # upsert_paper_strategy_groups_batch's docstring for why a per-strategy
-    # loop here (on top of the same shape of loop enable-all's own
-    # activation write already had) mattered enough to fix.
-    storage.upsert_paper_strategy_groups_batch(new_assignments, now_iso, auto_assigned=True)
-
-    return {"first_run": first_run, "assigned": assigned}
+    return {"first_run": first_run, "assigned": assigned, "reclassified": len(reclassified)}
 
 
 def get_group(strategy_id):
@@ -147,6 +190,48 @@ def _strategy_names():
         return {m["id"]: m["name"] for m in lib.list_all()}
     except Exception:
         return {}
+
+
+def _strategy_backtest_net_pnl():
+    """{strategy_id: net_pnl} from each strategy's git-tracked backtest
+    snapshot (backtest_engine.strategy_library.save_backtest_snapshot,
+    refreshed opportunistically whenever the Strategies/Backtesting page
+    computes these same numbers) -- deliberately NOT a live query against
+    backtest_batches/backtest_results, which the cloud runner's Postgres
+    schema excludes entirely (see data_engine/db_backend.py's
+    POSTGRES_SCHEMA docstring) and which would throw UndefinedTable on
+    every call there. meta.json already travels from the local machine to
+    the cloud deploy via the normal git commit/push, so this is real
+    backtest data without a live DB dependency. A strategy with no
+    completed backtest yet (or an older snapshot saved before net_pnl was
+    added to it) simply has no entry here."""
+    try:
+        from backtest_engine import strategy_library as lib
+        return {
+            m["id"]: m["backtest_snapshot"]["net_pnl"]
+            for m in lib.list_all()
+            if m.get("backtest_snapshot") and m["backtest_snapshot"].get("net_pnl") is not None
+        }
+    except Exception:
+        return {}
+
+
+def _effective_pnl(sid, stats_by_id, backtest_pnl_by_id):
+    """(pnl, has_real_data) for ranking/grouping purposes: real live
+    paper-trading PnL once this strategy has actually closed a trade
+    (the authoritative number once it exists), falling back to its real
+    backtest net PnL so Losing/Profitable/Challenge can populate
+    immediately from data that already exists rather than waiting weeks
+    for enough live paper trades to close. A strategy with neither yet
+    gets a neutral 0.0/no-data reading (not eligible for Challenge, lands
+    in "profitable" by the same not-yet-proven-losing default the
+    live-only version always used)."""
+    live = stats_by_id.get(sid, {})
+    if live.get("closed_trades", 0) > 0:
+        return live["total_pnl"], True
+    if sid in backtest_pnl_by_id:
+        return backtest_pnl_by_id[sid], True
+    return 0.0, False
 
 
 def group_summary(group_key):
