@@ -138,12 +138,28 @@
     return apiToken;
   }
 
-  async function apiGet(path, timeoutMs = 15000) {
+  async function apiGet(path, timeoutMs = 15000, _retried = false) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const res = await fetch(path, { signal: controller.signal });
-      if (!res.ok) throw new Error(`GET ${path} -> ${res.status}`);
+      // Fix, 2026-09-12: the Render free-tier instance restarts often
+      // (idle spin-down, or a redeploy) -- a request landing in that
+      // handful-of-seconds gap gets a 502/503/504 from the platform edge,
+      // not a real application error. Previously every caller's own
+      // .catch() fallback (e.g. status -> {}, analytics -> zeroed summary)
+      // silently absorbed this and rendered confidently wrong numbers
+      // ($NaN balance, "Stopped" while the topbar's own separately-timed
+      // poll correctly said Running) instead of a real retry. One quick
+      // retry after a short pause covers the common case where the
+      // restart finishes half a second later.
+      if (!res.ok) {
+        if (!_retried && [502, 503, 504].includes(res.status)) {
+          await new Promise(r => setTimeout(r, 800));
+          return apiGet(path, timeoutMs, true);
+        }
+        throw new Error(`GET ${path} -> ${res.status}`);
+      }
       return await res.json();
     } catch (e) {
       // A plain fetch() with no abort/timeout can hang forever if the
@@ -151,6 +167,12 @@
       // indefinitely with no way to recover -- this turns that into a
       // real error after timeoutMs so callers can show a retry state.
       if (e.name === "AbortError") throw new Error(`GET ${path} timed out after ${timeoutMs}ms`);
+      if (!_retried && e instanceof TypeError) {
+        // A network-level failure (connection reset mid-restart) throws
+        // TypeError from fetch() itself, before a response even exists.
+        await new Promise(r => setTimeout(r, 800));
+        return apiGet(path, timeoutMs, true);
+      }
       throw e;
     } finally {
       clearTimeout(timer);
@@ -8639,19 +8661,33 @@
       const profitableRows = allStrategyRows.filter(p => backtestPfById[p.strategy_id] != null && backtestPfById[p.strategy_id] > 1.0);
       const evaluationRows = allStrategyRows.filter(p => !(backtestPfById[p.strategy_id] != null && backtestPfById[p.strategy_id] > 1.0));
 
+      // Fix, 2026-09-12: status/allTimeAnalytics can be their .catch()
+      // fallback shapes ({} / zeroed summary) when the platform restarts
+      // mid-request (frequent on the free tier) -- previously that
+      // rendered confidently wrong numbers ($NaN balance, a "Stopped"
+      // pill contradicting the topbar's separately-timed, correctly
+      // successful poll). "running" is only ever absent from a real
+      // status response when the fallback was used, so it's a reliable
+      // signal to show an honest "reconnecting" state instead of guessing.
+      const statusUnavailable = !("running" in status);
+      const analyticsUnavailable = !("closed_trades" in allTimeSummary);
       content.innerHTML = `
         <div class="section-title">${t("Paper Trading")}</div>
         ${ptTabBarHtml(activePtTab)}
         <div class="pt-tab-panel" data-pt-tab="overview">
+        ${statusUnavailable ? `<div class="card" style="border-color:var(--yellow,#c9a227);margin-bottom:10px;">
+          <span class="pill pill-pending">Reconnecting</span>
+          <span class="muted" style="margin-left:8px;">Couldn't reach the engine status just now (the server may be restarting) -- the numbers below are stale. Retrying automatically.</span>
+        </div>` : ""}
         <div class="grid">
-          ${cardClass("Engine Status", status.running ? "<span class=\"pill pill-completed\">Running</span>" : "<span class=\"pill pill-muted\">Stopped</span>", "")}
-          ${cardClass("Mode", status.dry_run ? "<span class=\"pill pill-pending\">Dry Run</span>" : "<span class=\"pill pill-bullish\">Live Paper Trading</span>", "")}
-          ${card("Combined Balance", `$${Number(status.balance).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}`)}
-          ${card("Open Positions", fmtNum(status.open_trades))}
-          ${card("Closed Trades (All-Time)", fmtNum(allTimeSummary.closed_trades))}
-          ${card("Win Rate (All-Time)", `${allTimeSummary.win_rate.toFixed(1)}%`)}
-          ${cardClass("Realized PnL (All-Time)", `${allTimeSummary.total_pnl >= 0 ? "+" : ""}$${allTimeSummary.total_pnl.toFixed(2)}`, allTimeSummary.total_pnl > 0 ? "positive" : allTimeSummary.total_pnl < 0 ? "negative" : "")}
-          ${card("Queue (shortlisted coins)", fmtNum(status.queue))}
+          ${cardClass("Engine Status", statusUnavailable ? "<span class=\"pill pill-pending\">Unknown</span>" : (status.running ? "<span class=\"pill pill-completed\">Running</span>" : "<span class=\"pill pill-muted\">Stopped</span>"), "")}
+          ${cardClass("Mode", statusUnavailable ? "<span class=\"pill pill-pending\">Unknown</span>" : (status.dry_run ? "<span class=\"pill pill-pending\">Dry Run</span>" : "<span class=\"pill pill-bullish\">Live Paper Trading</span>"), "")}
+          ${card("Combined Balance", statusUnavailable ? "--" : `$${Number(status.balance).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}`)}
+          ${card("Open Positions", statusUnavailable ? "--" : fmtNum(status.open_trades))}
+          ${card("Closed Trades (All-Time)", analyticsUnavailable ? "--" : fmtNum(allTimeSummary.closed_trades))}
+          ${card("Win Rate (All-Time)", analyticsUnavailable ? "--" : `${allTimeSummary.win_rate.toFixed(1)}%`)}
+          ${cardClass("Realized PnL (All-Time)", analyticsUnavailable ? "--" : `${allTimeSummary.total_pnl >= 0 ? "+" : ""}$${allTimeSummary.total_pnl.toFixed(2)}`, analyticsUnavailable ? "" : (allTimeSummary.total_pnl > 0 ? "positive" : allTimeSummary.total_pnl < 0 ? "negative" : ""))}
+          ${card("Queue (shortlisted coins)", statusUnavailable ? "--" : fmtNum(status.queue))}
         </div>
         <div class="muted" style="font-size:12px;">Each strategy runs its own independent book -- balance/PnL/open positions are never merged between strategies. See the breakdown below.</div>
 
