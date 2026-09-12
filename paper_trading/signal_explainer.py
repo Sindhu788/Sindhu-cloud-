@@ -50,11 +50,12 @@ def grade_signal(confluence_result, reliability_result):
     return {"grade": "C", "reason": "Confluence factors kam match ho rahe hain ya data abhi kaafi nahi hai."}
 
 
-def explain_signal(confluence_result, reliability_result):
-    """Returns a short Roman Urdu sentence (or two) explaining the signal.
-    Both arguments may be None (confluence scoring or pattern lookup can
-    fail/return nothing) -- degrades gracefully to an honest "not enough
-    data yet" rather than fabricating a reason."""
+def _explanation_parts(confluence_result, reliability_result):
+    """The individual fragments explain_signal()/explain_signal_lines()
+    are both built from -- kept as a list here so a caller that wants
+    clear bullet points (Telegram, per the project's dense-paragraph-vs-
+    scannable-signal roadmap note) can render one bullet per fragment
+    instead of the old run-on joined sentence."""
     parts = []
 
     if confluence_result and confluence_result.get("total"):
@@ -80,4 +81,24 @@ def explain_signal(confluence_result, reliability_result):
             f"({reliability_result['sample_size']}/{reliability_result['min_sample_size']} trades so far)."
         )
 
-    return " ".join(parts)
+    return parts
+
+
+def explain_signal(confluence_result, reliability_result):
+    """Returns a short Roman Urdu sentence (or two) explaining the signal,
+    joined as one string -- used by the dashboard's own preview panel
+    (sindhu_web/api/paper_trading.py), which renders it as plain text.
+    Both arguments may be None (confluence scoring or pattern lookup can
+    fail/return nothing) -- degrades gracefully to an honest "not enough
+    data yet" rather than fabricating a reason."""
+    return " ".join(_explanation_parts(confluence_result, reliability_result))
+
+
+def explain_signal_lines(confluence_result, reliability_result):
+    """Same explanation, as separate fragments -- used by the real
+    Telegram send path (paper_trading.telegram_bot.send_signal_for_position)
+    so "Why This Signal" renders as scannable bullet points instead of one
+    dense run-on sentence, matching the labeled-fields/bullet-point format
+    the rest of the signal message already uses (Entry/Stop-Loss/Take-
+    Profit/Quality Grade)."""
+    return _explanation_parts(confluence_result, reliability_result)

@@ -116,4 +116,12 @@ def test_send_signal_for_position_includes_explanation_in_message_and_log(test_d
     logged = storage.list_telegram_signal_outcomes()
     assert len(logged) == 1
     assert logged[0]["explanation_text"]  # real explanation text was persisted, not left NULL
-    assert logged[0]["explanation_text"] in sent_text
+    # The LOG stores one joined string (list_telegram_signal_outcomes'
+    # plain-text column), but the actual message renders each fragment as
+    # its own bullet line -- so the joined string itself is no longer a
+    # contiguous substring of the sent message. Every individual fragment
+    # must still appear, just as a "• " bullet instead of run together.
+    for fragment in logged[0]["explanation_text"].split(". "):
+        fragment = fragment.strip().rstrip(".")
+        if fragment:
+            assert fragment in sent_text
