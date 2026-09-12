@@ -8579,13 +8579,25 @@
     let activePtTab = "overview";
     let ptStrategySectionFilter = "profitable";
     const render = async () => {
-      const [status, positionsRes, tradesRes, decisionsRes, stratPerfRes, lessonPerfRes,
-             settings, strategiesRes, lessonsRes, allTimeAnalytics, alertsRes, sessionsRes, hourOfDayRes,
-             candidatesRes, portfolioRes, riskScoreRes, exposureRes, corrWarningsRes, strategyCorrMatrixRes, coinHeatmapRes,
-             strategyExposureRes, directionExposureRes, customRulesRes, patternReliabilityRes,
-             lifecycleRes, configsRes, pausedRes, killSwitch, acctDrawdown, coinBlacklistRes,
-             riskPctRecsRes, dupExposureRes, cloudSyncStatusRes, autoStopState, maintenanceState, coinPriorityRes,
-             groupsRes] = await Promise.all([
+      // Fix, 2026-09-13 (Priority 6): this used to be ONE Promise.all firing
+      // all ~34 calls simultaneously. Each apiGet() call's own 15s abort
+      // timer starts the instant it's created, not when the browser/server
+      // actually gets around to it -- with this many at once competing for
+      // a browser's per-origin connection limit and one small cloud
+      // instance's request-handling capacity, calls positioned later in the
+      // array (confirmed live: /api/paper-trading/groups and several
+      // others) could sit queued long enough to hit that timeout BEFORE
+      // ever reaching the server at all -- no error, no log line, just the
+      // .catch() fallback firing as if the endpoint were broken, when it
+      // never even got a chance to respond. Split into two sequential
+      // batches (heavier/more-visible ones first) so each batch's calls
+      // compete with roughly half as many others, and the second batch's
+      // own 15s timers only start once the first batch has already
+      // finished (freeing up connections) rather than ticking down in
+      // parallel with it.
+      const [status, positionsRes, tradesRes, decisionsRes, settings, allTimeAnalytics, alertsRes,
+             killSwitch, acctDrawdown, groupsRes, lifecycleRes, portfolioRes, configsRes, pausedRes,
+             autoStopState, maintenanceState, coinPriorityRes] = await Promise.all([
         // Fix, 2026-09-12: these 8 calls used to have no .catch() like every
         // other entry in this array -- a single transient failure (cold
         // start after Render free-tier idle spin-down, a busy DB connection
@@ -8599,11 +8611,7 @@
         apiGet("/api/paper-trading/positions").catch(() => ({ positions: [] })),
         apiGet("/api/paper-trading/trades?limit=50").catch(() => ({ trades: [] })),
         apiGet("/api/paper-trading/decisions?limit=30").catch(() => ({ decisions: [] })),
-        apiGet("/api/paper-trading/strategy-performance").catch(() => null),
-        apiGet("/api/paper-trading/lesson-performance").catch(() => ({ performance: [] })),
         apiGet("/api/paper-trading/settings").catch(() => ({})),
-        apiGet("/api/backtesting/strategies").catch(() => ({ strategies: [] })),
-        apiGet("/api/knowledge/lessons?status=active").catch(() => ({ lessons: [] })),
         // Fix, 2026-09-12 (Task 6 audit): this used to fall back to a
         // ZEROED summary ({closed_trades:0, win_rate:0, total_pnl:0}) --
         // which, since the real response ALSO always has those same keys,
@@ -8615,22 +8623,6 @@
         // the two apart.
         apiGet("/api/paper-trading/analytics?period=all").catch(() => ({ summary: {}, per_strategy: [] })),
         apiGet("/api/paper-trading/alerts?limit=10").catch(() => ({ alerts: [] })),
-        apiGet("/api/paper-trading/session-stats").catch(() => ({ sessions: [] })),
-        apiGet("/api/paper-trading/hour-of-day-stats").catch(() => ({ hours: [] })),
-        apiGet("/api/paper-trading/lesson-candidates").catch(() => ({ candidates: [] })),
-        apiGet("/api/paper-trading/portfolio").catch(() => null),
-        apiGet("/api/paper-trading/portfolio-risk-score").catch(() => null),
-        apiGet("/api/paper-trading/coin-exposure").catch(() => ({ exposure: [] })),
-        apiGet("/api/paper-trading/correlation-warnings").catch(() => ({ warnings: [] })),
-        apiGet("/api/paper-trading/strategy-correlation-matrix").catch(() => ({ strategies: [], matrix: [] })),
-        apiGet("/api/paper-trading/coin-heatmap").catch(() => ({ coins: [] })),
-        apiGet("/api/paper-trading/strategy-exposure").catch(() => ({ exposure: [] })),
-        apiGet("/api/paper-trading/direction-exposure").catch(() => ({ long: null, short: null })),
-        apiGet("/api/paper-trading/custom-alert-rules").catch(() => ({ rules: [], metric_choices: [], comparison_choices: [] })),
-        apiGet("/api/paper-trading/pattern-reliability").catch(() => ({ min_sample_size: 25, patterns: [] })),
-        apiGet("/api/strategy-lifecycle").catch(() => ({ rows: [] })),
-        apiGet("/api/paper-trading/strategy-configs").catch(() => ({ configs: {} })),
-        apiGet("/api/paper-trading/paused-strategies").catch(() => ({ paused: [] })),
         // Fix, 2026-09-12 (Task 6 audit): these safety-state flags used to
         // fall back to "false" (not active/not paused) on a fetch failure
         // -- silently hiding a genuinely active kill switch or drawdown
@@ -8638,14 +8630,46 @@
         // state. _unavailable is a marker absent from any real response.
         apiGet("/api/paper-trading/kill-switch/status").catch(() => ({ active: false, _unavailable: true })),
         apiGet("/api/paper-trading/account-drawdown-status").catch(() => ({ paused: false, _unavailable: true })),
+        // Priority 6 fix: groups/strategy-lifecycle/portfolio moved into
+        // this first, less-crowded batch (previously last in one 34-call
+        // batch) since these are exactly the heavier calls confirmed to
+        // time out before dispatch under real load -- also given their own
+        // longer 25s timeout (apiGet's 2nd arg) rather than the default 15s.
+        apiGet("/api/paper-trading/groups", 25000).catch(() => null),
+        apiGet("/api/strategy-lifecycle", 25000).catch(() => ({ rows: [] })),
+        apiGet("/api/paper-trading/portfolio", 25000).catch(() => null),
+        apiGet("/api/paper-trading/strategy-configs").catch(() => ({ configs: {} })),
+        apiGet("/api/paper-trading/paused-strategies").catch(() => ({ paused: [] })),
+        apiGet("/api/paper-trading/cloud-aware-auto-stop/state").catch(() => ({ paused_by_cloud: false })),
+        apiGet("/api/paper-trading/maintenance-mode").catch(() => ({ active: false })),
+        apiGet("/api/paper-trading/coin-priority").catch(() => ({ pinned: [], demoted: [] })),
+      ]);
+      if (isStaleRoute(myToken)) return;
+
+      const [stratPerfRes, lessonPerfRes, strategiesRes, lessonsRes, sessionsRes, hourOfDayRes,
+             candidatesRes, riskScoreRes, exposureRes, corrWarningsRes, strategyCorrMatrixRes, coinHeatmapRes,
+             strategyExposureRes, directionExposureRes, customRulesRes, patternReliabilityRes,
+             coinBlacklistRes, riskPctRecsRes, dupExposureRes, cloudSyncStatusRes] = await Promise.all([
+        apiGet("/api/paper-trading/strategy-performance").catch(() => null),
+        apiGet("/api/paper-trading/lesson-performance").catch(() => ({ performance: [] })),
+        apiGet("/api/backtesting/strategies").catch(() => ({ strategies: [] })),
+        apiGet("/api/knowledge/lessons?status=active").catch(() => ({ lessons: [] })),
+        apiGet("/api/paper-trading/session-stats").catch(() => ({ sessions: [] })),
+        apiGet("/api/paper-trading/hour-of-day-stats").catch(() => ({ hours: [] })),
+        apiGet("/api/paper-trading/lesson-candidates").catch(() => ({ candidates: [] })),
+        apiGet("/api/paper-trading/portfolio-risk-score", 25000).catch(() => null),
+        apiGet("/api/paper-trading/coin-exposure").catch(() => ({ exposure: [] })),
+        apiGet("/api/paper-trading/correlation-warnings").catch(() => ({ warnings: [] })),
+        apiGet("/api/paper-trading/strategy-correlation-matrix", 25000).catch(() => ({ strategies: [], matrix: [] })),
+        apiGet("/api/paper-trading/coin-heatmap", 25000).catch(() => ({ coins: [] })),
+        apiGet("/api/paper-trading/strategy-exposure").catch(() => ({ exposure: [] })),
+        apiGet("/api/paper-trading/direction-exposure").catch(() => ({ long: null, short: null })),
+        apiGet("/api/paper-trading/custom-alert-rules").catch(() => ({ rules: [], metric_choices: [], comparison_choices: [] })),
+        apiGet("/api/paper-trading/pattern-reliability", 25000).catch(() => ({ min_sample_size: 25, patterns: [] })),
         apiGet("/api/paper-trading/coin-blacklist").catch(() => ({ blacklist: [] })),
         apiGet("/api/paper-trading/risk-pct-recommendations").catch(() => ({ recommendations: [] })),
         apiGet("/api/paper-trading/duplicate-exposure-warnings").catch(() => ({ warnings: [] })),
         apiGet("/api/paper-trading/cloud-sync/status").catch(() => ({ has_run: false })),
-        apiGet("/api/paper-trading/cloud-aware-auto-stop/state").catch(() => ({ paused_by_cloud: false })),
-        apiGet("/api/paper-trading/maintenance-mode").catch(() => ({ active: false })),
-        apiGet("/api/paper-trading/coin-priority").catch(() => ({ pinned: [], demoted: [] })),
-        apiGet("/api/paper-trading/groups").catch(() => null),
       ]);
       if (isStaleRoute(myToken)) return;
 
