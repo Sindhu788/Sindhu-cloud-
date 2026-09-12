@@ -2706,8 +2706,13 @@
         apiGet("/api/backtesting/strategies").catch(() => ({ strategies: [] })),
         apiGet(`/api/paper-trading/telegram/alert-status?lang=${getLang()}`).catch(() => ({ stale: false })),
         apiGet("/api/strategy-summary").catch(() => null),
-        apiGet("/api/paper-trading/kill-switch/status").catch(() => ({ active: false })),
-        apiGet("/api/paper-trading/account-drawdown-status").catch(() => ({ paused: false })),
+        // Fix, 2026-09-12 (Task 6 audit): these safety-state flags used to
+        // fall back to "false" (not active/not paused) on a fetch failure
+        // -- silently hiding a genuinely active kill switch or drawdown
+        // circuit-breaker instead of showing an honest "couldn't confirm"
+        // state. _unavailable is a marker absent from any real response.
+        apiGet("/api/paper-trading/kill-switch/status").catch(() => ({ active: false, _unavailable: true })),
+        apiGet("/api/paper-trading/account-drawdown-status").catch(() => ({ paused: false, _unavailable: true })),
         apiGet("/api/incidents?status=open&limit=20").catch(() => ({ incidents: [] })),
         apiGet("/api/paper-trading/alerts?limit=20").catch(() => ({ alerts: [] })),
         apiGet("/api/paper-trading/retirement-suggestions").catch(() => ({ suggestions: [] })),
@@ -2730,6 +2735,11 @@
       // same N-calls-per-poll cost this codebase has already fixed elsewhere.
       // Fixed, documented severity order -- most safety-critical first.
       const focusItems = [];
+      if (killSwitch._unavailable || drawdown._unavailable) {
+        focusItems.push({ severity: "critical", text: getLang() === "en"
+          ? "Couldn't confirm kill-switch/drawdown-pause status just now (the server may be restarting) -- can't rule out an active safety halt. Check Paper Trading directly."
+          : "Kill-switch/drawdown-pause status abhi confirm nahi ho saka (server restart ho raha ho sakta hai) -- active safety halt hone ka imkaan rad nahi kiya ja sakta. Paper Trading page par direct check karein." });
+      }
       if (killSwitch.active) {
         focusItems.push({ severity: "critical", text: getLang() === "en"
           ? `Kill switch is ACTIVE${killSwitch.reason ? ` (${killSwitch.reason})` : ""} -- all trading is halted.`
@@ -8594,7 +8604,16 @@
         apiGet("/api/paper-trading/settings").catch(() => ({})),
         apiGet("/api/backtesting/strategies").catch(() => ({ strategies: [] })),
         apiGet("/api/knowledge/lessons?status=active").catch(() => ({ lessons: [] })),
-        apiGet("/api/paper-trading/analytics?period=all").catch(() => ({ summary: { closed_trades: 0, win_rate: 0, total_pnl: 0 }, per_strategy: [] })),
+        // Fix, 2026-09-12 (Task 6 audit): this used to fall back to a
+        // ZEROED summary ({closed_trades:0, win_rate:0, total_pnl:0}) --
+        // which, since the real response ALSO always has those same keys,
+        // made analyticsUnavailable's own "closed_trades in allTimeSummary"
+        // check below always true, so a genuine fetch failure was
+        // completely indistinguishable from "really zero trades" and never
+        // showed the honest reconnecting state. An empty {} summary object
+        // genuinely lacks the key, restoring that check's ability to tell
+        // the two apart.
+        apiGet("/api/paper-trading/analytics?period=all").catch(() => ({ summary: {}, per_strategy: [] })),
         apiGet("/api/paper-trading/alerts?limit=10").catch(() => ({ alerts: [] })),
         apiGet("/api/paper-trading/session-stats").catch(() => ({ sessions: [] })),
         apiGet("/api/paper-trading/hour-of-day-stats").catch(() => ({ hours: [] })),
@@ -8612,8 +8631,13 @@
         apiGet("/api/strategy-lifecycle").catch(() => ({ rows: [] })),
         apiGet("/api/paper-trading/strategy-configs").catch(() => ({ configs: {} })),
         apiGet("/api/paper-trading/paused-strategies").catch(() => ({ paused: [] })),
-        apiGet("/api/paper-trading/kill-switch/status").catch(() => ({ active: false })),
-        apiGet("/api/paper-trading/account-drawdown-status").catch(() => ({ paused: false })),
+        // Fix, 2026-09-12 (Task 6 audit): these safety-state flags used to
+        // fall back to "false" (not active/not paused) on a fetch failure
+        // -- silently hiding a genuinely active kill switch or drawdown
+        // circuit-breaker instead of showing an honest "couldn't confirm"
+        // state. _unavailable is a marker absent from any real response.
+        apiGet("/api/paper-trading/kill-switch/status").catch(() => ({ active: false, _unavailable: true })),
+        apiGet("/api/paper-trading/account-drawdown-status").catch(() => ({ paused: false, _unavailable: true })),
         apiGet("/api/paper-trading/coin-blacklist").catch(() => ({ blacklist: [] })),
         apiGet("/api/paper-trading/risk-pct-recommendations").catch(() => ({ recommendations: [] })),
         apiGet("/api/paper-trading/duplicate-exposure-warnings").catch(() => ({ warnings: [] })),
@@ -9005,6 +9029,10 @@
         </div>
 
         <div class="section-title">${t("Control Center")}</div>
+        ${(killSwitch._unavailable || acctDrawdown._unavailable) ? `<div class="card" style="border-color:var(--yellow,#c9a227);margin-bottom:10px;">
+          <span class="pill pill-pending">Reconnecting</span>
+          <span class="muted" style="margin-left:8px;">Couldn't confirm kill-switch/drawdown-pause status just now (the server may be restarting) -- the banners below may not reflect a real active safety halt. Retrying automatically.</span>
+        </div>` : ""}
         ${acctDrawdown.paused ? `
         <div class="card" style="border:2px solid var(--orange,#d68910);background:rgba(214,137,16,0.08);margin-bottom:10px;">
           <div style="font-weight:700;color:var(--orange,#d68910);">⛔ Account-Wide Drawdown Circuit-Breaker ACTIVE -- new trades paused for every strategy</div>
@@ -9181,6 +9209,16 @@
             <a class="btn-ghost" href="/api/paper-trading/cloud-sync/download" download style="text-decoration:none;display:inline-block;">${getLang() === "en" ? "Download Latest Backup" : "Backup Download Karein"}</a>
           </div>
           <span id="ptCloudSyncActionStatus" class="muted"></span>
+          <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border,#333);">
+            <p class="muted" style="font-size:12px;margin:0 0 6px;">${getLang() === "en"
+              ? "On the LOCAL machine only: upload a backup file downloaded from the cloud to merge its closed-trade history in here (safe -- duplicates are skipped, nothing is overwritten)."
+              : "Sirf LOCAL machine par: cloud se download ki gayi backup file yahan upload karein taakay uski closed-trade history yahan merge ho jaye (safe -- duplicates skip ho jate hain, kuch overwrite nahi hota)."}</p>
+            <div class="btn-row">
+              <input type="file" id="cloudSyncImportFile" accept=".json" style="max-width:260px;">
+              <button class="btn-ghost" id="btnImportCloudSync">${getLang() === "en" ? "Import Backup File" : "Backup File Import Karein"}</button>
+            </div>
+            <span id="ptCloudSyncImportStatus" class="muted"></span>
+          </div>
         </div>
 
         ${(riskPctRecsRes.recommendations || []).length ? `
@@ -9286,7 +9324,7 @@
         </div>
         <div id="signalHistoryBox" class="table-wrap"><p class="muted">Pick a filter above to load signal history.</p></div>
 
-        <div class="section-title">Closed Trades (most recent 30 of ${allTimeSummary.closed_trades})</div>
+        <div class="section-title">Closed Trades (most recent 30 of ${analyticsUnavailable ? "--" : allTimeSummary.closed_trades})</div>
         <div class="btn-row" style="margin-bottom:8px;">
           <button class="btn-ghost" id="btnExportTradeJournal">${getLang() === "en" ? "Export Trade Journal (PDF)" : "Trade Journal Export Karein (PDF)"}</button>
           <a class="btn-ghost" href="/api/paper-trading/export-center/trades.csv" target="_blank">${getLang() === "en" ? "Export Trades (CSV)" : "Trades Export Karein (CSV)"}</a>
@@ -9800,6 +9838,27 @@
             ? `Done -- synced at ${result.generated_at.slice(0, 19).replace("T", " ")} UTC.`
             : `Ho gaya -- ${result.generated_at.slice(0, 19).replace("T", " ")} UTC par sync hua.`;
           appendLog("[cloud-sync] manual backup snapshot generated.");
+        } catch (e) {
+          status.textContent = `${getLang() === "en" ? "Failed" : "Nakaam"}: ${e.message}`;
+        }
+      };
+
+      document.getElementById("btnImportCloudSync").onclick = async () => {
+        const status = document.getElementById("ptCloudSyncImportStatus");
+        const fileInput = document.getElementById("cloudSyncImportFile");
+        if (!fileInput.files.length) {
+          status.textContent = getLang() === "en" ? "Choose a backup file first." : "Pehle ek backup file chunein.";
+          return;
+        }
+        status.textContent = getLang() === "en" ? "Importing..." : "Import ho raha hai...";
+        const fd = new FormData();
+        fd.append("file", fileInput.files[0]);
+        try {
+          const r = await apiUpload("/api/paper-trading/cloud-sync/import", fd);
+          status.textContent = getLang() === "en"
+            ? `Imported ${r.closed_positions_imported} new closed trade(s) (${r.closed_positions_already_present} already present, ${r.open_positions_skipped} still-open on the cloud skipped).`
+            : `${r.closed_positions_imported} nayi closed trade(s) import hui (${r.closed_positions_already_present} pehle se maujood, ${r.open_positions_skipped} cloud par abhi open hain, skip hui).`;
+          appendLog(`[cloud-sync-import] merged ${r.closed_positions_imported} closed trade(s) from an uploaded backup.`);
         } catch (e) {
           status.textContent = `${getLang() === "en" ? "Failed" : "Nakaam"}: ${e.message}`;
         }
@@ -10334,7 +10393,7 @@
         <div class="form-row"><label>Cloud URL</label><input id="syncCloudUrl" value="https://sindhu-cloud-1.onrender.com"></div>
         <div class="form-row"><label>Sync Secret</label><input id="syncSecretInput" type="password" placeholder="Paste the secret from the cloud dashboard"></div>
         <div class="btn-row"><button class="btn" id="btnSaveSyncTarget">Save</button><span id="syncTargetStatus" class="muted"></span></div>
-        <div class="form-row" style="margin-top:10px;"><label>Strategy ID to sync</label><input id="syncStrategyId" placeholder="e.g. 96f7cb9100f0"></div>
+        <div class="form-row" style="margin-top:10px;"><label>Strategy to sync</label><select id="syncStrategyId"><option value="">Loading strategies...</option></select></div>
         <div class="btn-row"><button class="btn-ghost" id="btnTriggerSync">Sync This Strategy to Cloud Now</button><span id="syncTriggerStatus" class="muted"></span></div>
         <div class="section-title" style="margin-top:14px;font-size:13px;">Sync History (this machine)</div>
         <div id="syncLogList" class="table-wrap"><p class="muted">Loading...</p></div>
@@ -10563,6 +10622,15 @@
           document.getElementById("syncSecretInput").placeholder = "•••••• (one is already saved)";
         }
       } catch (e) {}
+      const sidSelect = document.getElementById("syncStrategyId");
+      try {
+        const { strategies } = await apiGet("/api/backtesting/strategies?q=&include_archived=false");
+        sidSelect.innerHTML = strategies.length
+          ? strategies.map(s => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join("")
+          : `<option value="">No strategies in the local library</option>`;
+      } catch (e) {
+        sidSelect.innerHTML = `<option value="">Couldn't load strategy list</option>`;
+      }
       loadSyncLog();
     })();
     document.getElementById("btnSaveSyncTarget").onclick = async () => {
