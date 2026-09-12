@@ -3264,6 +3264,62 @@ def close_paper_position(position_id, exit_price, exit_time, pnl, pnl_pct, exit_
             )
 
 
+def import_closed_paper_position(pos):
+    """Cloud-to-local backup import (paper_trading/cloud_sync_import.py):
+    inserts one ALREADY-CLOSED position exactly as the cloud reported it --
+    a full row written directly with status='closed', not built up via
+    open_paper_position()+close_paper_position(), since the local engine
+    never actually opened this trade itself.
+
+    ON CONFLICT(id) DO NOTHING makes this idempotent against id -- the
+    caller already checks get_paper_position() first and only calls this
+    for genuinely new ids, but this is a second, cheap safety net so a
+    duplicate/concurrent import can never double-insert or (see the
+    rowcount check below) double-count the running PnL total.
+    Returns True if a new row was actually inserted, False if it was
+    already present."""
+    with get_conn() as conn:
+        cur = conn.execute(
+            """INSERT INTO paper_positions
+               (id, exchange, symbol, direction, entry_price, exit_price, stop_loss, take_profit,
+                size, risk_amount, entry_time, exit_time, pnl, pnl_pct, exit_reason, entry_reason,
+                strategy_id, strategy_name, strategy_version, lesson_ids_json, confidence,
+                market_snapshot_json, tags_json, session, timeframe, market_state, lifecycle_json,
+                reflection_json, status, created_at, closed_at, lowest_price_seen, highest_price_seen, user_note)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                       'closed', ?, ?, ?, ?, ?)
+               ON CONFLICT(id) DO NOTHING""",
+            (
+                pos["id"], pos["exchange"], pos["symbol"], pos["direction"], pos["entry_price"],
+                pos.get("exit_price"), pos.get("stop_loss"), pos.get("take_profit"), pos["size"],
+                pos.get("risk_amount"), pos["entry_time"], pos.get("exit_time"), pos.get("pnl"),
+                pos.get("pnl_pct"), pos.get("exit_reason"), pos.get("entry_reason"), pos.get("strategy_id"),
+                pos.get("strategy_name"), pos.get("strategy_version"),
+                json.dumps(pos.get("lesson_ids", [])), pos.get("confidence"),
+                json.dumps(pos.get("market_snapshot", {})), json.dumps(pos.get("tags", [])),
+                pos.get("session"), pos.get("timeframe"), pos.get("market_state"),
+                json.dumps(pos.get("lifecycle", {})),
+                json.dumps(pos["reflection"]) if pos.get("reflection") is not None else None,
+                pos["created_at"], pos.get("closed_at"), pos.get("lowest_price_seen"),
+                pos.get("highest_price_seen"), pos.get("user_note"),
+            ),
+        )
+        newly_inserted = cur.rowcount > 0
+        if newly_inserted and pos.get("pnl") is not None:
+            conn.execute(
+                """INSERT INTO paper_account_state (strategy_id, realized_pnl_total, closed_count, win_count, updated_at)
+                   VALUES (?, ?, 1, ?, ?)
+                   ON CONFLICT(strategy_id) DO UPDATE SET
+                     realized_pnl_total = paper_account_state.realized_pnl_total + excluded.realized_pnl_total,
+                     closed_count = paper_account_state.closed_count + 1,
+                     win_count = paper_account_state.win_count + excluded.win_count,
+                     updated_at = excluded.updated_at""",
+                (_account_state_key(pos.get("strategy_id")), pos["pnl"], 1 if pos["pnl"] > 0 else 0,
+                 pos.get("closed_at") or pos["created_at"]),
+            )
+        return newly_inserted
+
+
 def get_paper_realized_pnl_total(book_key):
     """O(1) running total for one book (a strategy_id, or "__lessons__"),
     kept in sync by close_paper_position() -- see

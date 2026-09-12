@@ -1,9 +1,10 @@
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+import json
 import os
 
-from fastapi import APIRouter, HTTPException, Header
+from fastapi import APIRouter, HTTPException, Header, UploadFile, File
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
@@ -23,6 +24,7 @@ from paper_trading import pattern_stats
 from paper_trading import challenge_mode
 from paper_trading import strategy_groups
 from paper_trading import cloud_sync
+from paper_trading import cloud_sync_import
 from paper_trading import strategy_sync
 from paper_trading import cloud_aware_auto_stop
 from paper_trading import status_ping
@@ -961,6 +963,31 @@ def download_cloud_sync_snapshot():
     filename = f"sindhu_cloud_sync_{snapshot['generated_at'][:10]}.json"
     return JSONResponse(content=jsonable_encoder(snapshot),
                          headers={"Content-Disposition": f"attachment; filename={filename}"})
+
+
+@router.post("/api/paper-trading/cloud-sync/import")
+async def import_cloud_sync_snapshot(file: UploadFile = File(...)):
+    """The other half of the download button above: the CEO downloads a
+    cloud backup (a JSON file), then uploads it here on the LOCAL machine
+    to merge its closed-trade history into the local database. See
+    paper_trading/cloud_sync_import.py's module docstring for exactly what
+    is and isn't merged, and why. Refuses outright (via
+    cloud_sync_import.import_snapshot's own IS_POSTGRES check) if somehow
+    called against a cloud deployment -- this only ever makes sense
+    locally."""
+    raw = await file.read()
+    try:
+        snapshot = json.loads(raw)
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"'{file.filename}' is not valid JSON.")
+    result = cloud_sync_import.import_snapshot(snapshot)
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("error", "import failed"))
+    _log_and_broadcast(
+        f"[cloud-sync-import] merged {result['closed_positions_imported']} closed trade(s) from "
+        f"'{file.filename}' ({result['closed_positions_already_present']} already present)"
+    )
+    return result
 
 
 # ----------------------------------------------------------------------
