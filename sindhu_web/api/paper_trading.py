@@ -1884,6 +1884,17 @@ def telegram_network_check():
     return telegram_bot.check_telegram_reachability()
 
 
+@router.get("/api/paper-trading/_diag/send-real-test")
+def _diag_send_real_test():
+    """TEMPORARY, added 2026-09-13, removed in a follow-up commit. One-time
+    verification for Task 1: bot_token/channel_id/network all check out
+    per network-check, so this sends one REAL Telegram test message (the
+    exact same send_test_message() the dashboard's own "Send Test Message"
+    button calls -- not rate-limited, not logged to the trade audit trail,
+    exists specifically for this) and reports the real ok/error result."""
+    return telegram_bot.send_test_message()
+
+
 @router.get("/api/paper-trading/_diag/one-time-report")
 def _diag_one_time_report():
     """TEMPORARY, added 2026-09-13 -- to be removed in a follow-up commit

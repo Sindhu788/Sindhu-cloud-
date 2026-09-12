@@ -62,7 +62,8 @@ _LOGIN_EXEMPT_PATHS = {"/login", "/api/auth/status", "/api/auth/setup", "/api/au
                         # TEMPORARY, added 2026-09-13 -- see /api/paper-trading/_diag/
                         # one-time-report's own docstring. To be removed, along with
                         # that route, in a follow-up commit once read once via curl.
-                        "/api/paper-trading/_diag/one-time-report"}
+                        "/api/paper-trading/_diag/one-time-report",
+                        "/api/paper-trading/_diag/send-real-test"}
 
 # A valid session cookie is a stronger signal than the X-Sindhu-Token
 # header below (which exists to distinguish a real browser request from a
