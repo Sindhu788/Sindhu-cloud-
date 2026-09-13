@@ -192,6 +192,27 @@ def _feature_defs():
             "enabled": toggles["infra_weekly_digest_enabled"],
             "status": "scheduled" if toggles["infra_weekly_digest_enabled"] else "off -- no new infrastructure digests until re-enabled",
         },
+        # Phase 4 (5-Phase Improvement Batch): these two existed in
+        # data_engine.feature_toggles.DEFAULTS with a real gate check
+        # (paper_trading/strategy_lab.py, self_learning_engine/
+        # discovery_cycle.py) but had no entry here and no UI anywhere --
+        # the only way to flip them was a direct Python call. Added so the
+        # Control Center is genuinely complete rather than silently
+        # missing two real toggles.
+        {
+            "id": "strategy_lab_enabled", "name": "Strategy Lab",
+            "description": "Automatically runs the Strategy Lab's background experiments (variant testing on existing strategies).",
+            "category": "Self-Learning",
+            "enabled": toggles["strategy_lab_enabled"],
+            "status": "active" if toggles["strategy_lab_enabled"] else "off -- no new Strategy Lab experiments will run",
+        },
+        {
+            "id": "self_learning_engine_enabled", "name": "Self-Learning Engine (Discovery)",
+            "description": "Automatically discovers new candidate strategies (concept combinations) and saves any that pass the out-of-sample gate to the strategy library. Never enables live/paper trading by itself.",
+            "category": "Self-Learning",
+            "enabled": toggles["self_learning_engine_enabled"],
+            "status": "active" if toggles["self_learning_engine_enabled"] else "off -- no new candidates will be discovered",
+        },
     ]
 
 
@@ -219,6 +240,8 @@ _UNIFIED_KEYS = {
     # Feature 13, which is what surfaced the gap.
     "slippage_aware_filter_enabled", "ensemble_voting_enabled", "evolution_weekly_review_enabled",
     "infra_weekly_digest_enabled",
+    # Phase 4 (5-Phase Improvement Batch): see the matching _feature_defs() entries above.
+    "strategy_lab_enabled", "self_learning_engine_enabled",
 }
 
 

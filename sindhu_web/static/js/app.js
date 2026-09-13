@@ -11918,15 +11918,128 @@
   // clearest "hard to find" item on the whole dashboard, since it's the
   // one place that controls every automated feature at once. Now a real,
   // first-class sidebar page.
+  // Phase 4 (5-Phase Improvement Batch): brings together every EXISTING
+  // top-level on/off control that was previously scattered one-per-page
+  // (Paper Trading start/stop, Telegram master switch + confidence
+  // threshold, Evolution Engine start/stop, kill switch) plus a read-only
+  // drawdown circuit-breaker display -- every call below hits the exact
+  // same endpoint its own page already uses; nothing new is invented
+  // here. Evolution Engine is local-laptop-only (never imported into the
+  // cloud runner, see cloud_runtime/app.py) -- its section degrades
+  // honestly when /api/evolution/status 404s instead of pretending it's
+  // available.
+  function masterControlsBodyHtml(status, telegramSettings, evoStatus, killSwitch, acctDrawdown) {
+    return `
+      <div class="section-title">Paper Trading Engine</div>
+      <div class="card" style="margin-bottom:16px;">
+        <div class="btn-row" style="align-items:center;">
+          <span class="pill ${status.running ? "pill-completed" : "pill-muted"}">${status.running ? "Running" : "Stopped"}</span>
+          <button class="btn" id="mcPtStart" ${status.running ? "disabled" : ""}>Start Engine</button>
+          <button class="btn-ghost" id="mcPtStop" ${status.running ? "" : "disabled"}>Stop Engine</button>
+        </div>
+      </div>
+
+      <div class="section-title">Telegram</div>
+      <div class="card" style="margin-bottom:16px;">
+        <div class="ceo-task-row">
+          <div class="ceo-task-info">
+            <div class="ceo-task-title">Master Send Switch</div>
+            <div class="ceo-task-sub">Turns all Telegram sending on/off (manual and automatic alike).</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="mcTgMaster" ${telegramSettings.master_send_enabled ? "checked" : ""}>
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div style="margin-top:10px;">
+          <label class="muted" style="font-size:12px;">Minimum confidence % to send (0 = off, no filtering)</label>
+          <div class="btn-row">
+            <input id="mcTgMinConfidence" type="number" min="0" max="100" step="1"
+                   value="${telegramSettings.min_confidence_pct_to_send || 0}" style="width:80px;">
+            <button class="btn-ghost" id="mcTgMinConfidenceSave">Save</button>
+            <span id="mcTgMinConfidenceMsg" class="muted"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-title">Evolution Engine</div>
+      <div class="card" style="margin-bottom:16px;">
+        ${evoStatus._unavailable
+          ? `<p class="muted">Evolution Engine / Governor only runs on the local app, not this cloud deployment.</p>`
+          : `<div class="btn-row" style="align-items:center;">
+              <span class="pill ${evoStatus.running ? "pill-completed" : "pill-muted"}">${evoStatus.running ? "Running" : "Stopped"}</span>
+              <button class="btn" id="mcEvoStart" ${evoStatus.running ? "disabled" : ""}>Start Evolution Engine</button>
+              <button class="btn-ghost" id="mcEvoStop" ${evoStatus.running ? "" : "disabled"}>Stop Evolution Engine</button>
+            </div>`}
+      </div>
+
+      <div class="section-title">Emergency Kill Switch</div>
+      <div class="card" style="margin-bottom:16px;border:${killSwitch.active ? "2px solid var(--red,#c0392b)" : "1px solid var(--border,#333)"};">
+        ${killSwitch.active ? `
+          <div style="font-weight:700;color:var(--red,#c0392b);">🛑 ACTIVE -- all trading is halted</div>
+          <div class="muted" style="font-size:12px;margin-top:4px;">Reason: ${esc(killSwitch.reason || "-")}</div>
+          <div class="btn-row" style="margin-top:8px;"><button class="btn" id="mcKillDeactivate">Deactivate Kill Switch</button></div>
+        ` : `
+          <div class="btn-row"><button class="btn" id="mcKillActivate" style="background:var(--red,#c0392b);border-color:var(--red,#c0392b);color:#fff;">🛑 EMERGENCY STOP</button></div>
+        `}
+      </div>
+
+      <div class="section-title">Account Drawdown Circuit-Breaker <span class="muted" style="font-size:11px;">(read-only here -- resume from the Paper Trading page)</span></div>
+      <div class="card" style="margin-bottom:16px;">
+        ${acctDrawdown.paused
+          ? `<div style="font-weight:700;color:var(--orange,#d68910);">⛔ ACTIVE -- new trades paused for every strategy</div>
+             <div class="muted" style="font-size:12px;margin-top:4px;">${esc(acctDrawdown.paused_reason || "-")}</div>`
+          : `<div class="muted" style="font-size:12px;">Not active -- current drawdown from peak: ${acctDrawdown.drawdown_pct != null ? acctDrawdown.drawdown_pct.toFixed(1) : "0.0"}%</div>`}
+      </div>
+    `;
+  }
+
+  function wireMasterControlHandlers(refresh) {
+    const msg = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
+    const btn = (id) => document.getElementById(id);
+    if (btn("mcPtStart")) btn("mcPtStart").onclick = async () => { await apiPost("/api/paper-trading/start", {}); refresh(); };
+    if (btn("mcPtStop")) btn("mcPtStop").onclick = async () => { await apiPost("/api/paper-trading/stop", {}); refresh(); };
+    if (btn("mcTgMaster")) btn("mcTgMaster").onchange = async (e) => {
+      await apiPost("/api/paper-trading/telegram/settings", { master_send_enabled: e.target.checked });
+      refresh();
+    };
+    if (btn("mcTgMinConfidenceSave")) btn("mcTgMinConfidenceSave").onclick = async () => {
+      const value = Number(document.getElementById("mcTgMinConfidence").value) || 0;
+      await apiPost("/api/paper-trading/telegram/settings", { min_confidence_pct_to_send: value });
+      msg("mcTgMinConfidenceMsg", "Saved.");
+    };
+    if (btn("mcEvoStart")) btn("mcEvoStart").onclick = async () => { await apiPost("/api/evolution/start", {}); refresh(); };
+    if (btn("mcEvoStop")) btn("mcEvoStop").onclick = async () => { await apiPost("/api/evolution/stop", {}); refresh(); };
+    if (btn("mcKillActivate")) btn("mcKillActivate").onclick = async () => {
+      if (!confirm("Activate the emergency kill switch? This halts all trading and Telegram sending.")) return;
+      await apiPost("/api/paper-trading/kill-switch/activate", { reason: "Activated from Control Center" });
+      refresh();
+    };
+    if (btn("mcKillDeactivate")) btn("mcKillDeactivate").onclick = async () => {
+      await apiPost("/api/paper-trading/kill-switch/deactivate", {});
+      refresh();
+    };
+  }
+
   async function renderControlCenter() {
     const myToken = activeRouteToken;
     async function render() {
-      const fc = await apiGet("/api/feature-control/state").catch(() => ({ master_pause_all: false, features: [] }));
+      const [fc, status, telegramSettings, evoStatus, killSwitch, acctDrawdown] = await Promise.all([
+        apiGet("/api/feature-control/state").catch(() => ({ master_pause_all: false, features: [] })),
+        apiGet("/api/paper-trading/status").catch(() => ({ running: false })),
+        apiGet("/api/paper-trading/telegram/settings").catch(() => ({ master_send_enabled: true })),
+        apiGet("/api/evolution/status").catch(() => ({ _unavailable: true })),
+        apiGet("/api/paper-trading/kill-switch/status").catch(() => ({ active: false })),
+        apiGet("/api/paper-trading/account-drawdown-status").catch(() => ({ paused: false })),
+      ]);
       if (isStaleRoute(myToken)) return;
       content.innerHTML = `
         <div class="section-title">Control Center</div>
-        <p class="muted" style="margin-top:-10px;">Every automated background feature, in one place -- turn any one off, or pause all of them at once, without touching Paper Trading itself.</p>
+        <p class="muted" style="margin-top:-10px;">Every top-level on/off control in one place -- each one calls the exact same function its own page already uses.</p>
+        ${masterControlsBodyHtml(status, telegramSettings, evoStatus, killSwitch, acctDrawdown)}
+        <div class="section-title">Automated Background Features</div>
         ${featureControlBodyHtml(fc)}`;
+      wireMasterControlHandlers(render);
       wireFeatureControlHandlers(render);
     }
     await render();
