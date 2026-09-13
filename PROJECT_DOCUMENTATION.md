@@ -1,6 +1,6 @@
 # SINDHU — Project Documentation (A to Z)
 
-> **Version 4 — 2026-09-08.** Ye document sirf real code, files aur folders scan karke banaya gaya hai. Koi bhi cheez guess nahi ki gayi — agar kuch clear nahi tha to "TBD" likha hai. (V1 sirf architecture/modules tak thi, "Extraction Reliability Crisis" era tak. V2 mein Sections 14-19 add hue jo us waqt ke baad ka kaam cover karte hain. V3 mein Section 20 add hua — "Grand Feature Expansion", ~110 features, 7 phases. **V4 mein Section 21 naya add hua hai — "Grand Master Prompt: Full Remaining Backlog", 5 phases mein: Company Structure (10 Departments), Strategy Lifecycle + Workflow, Cloud Monitoring Roadmap (remaining), UI/UX Product Improvements, aur Grand Feature Backlog (remaining ~90 items). Ye ek explicitly multi-session task hai; poori honest evidence `data/checkpoints/grand_master_final.json` aur `GRAND_MASTER_FINAL_REPORT.md` mein hai.**)
+> **Version 5 — 2026-09-13.** Ye document sirf real code, files aur folders scan karke banaya gaya hai. Koi bhi cheez guess nahi ki gayi — agar kuch clear nahi tha to "TBD" likha hai. (V1 sirf architecture/modules tak thi, "Extraction Reliability Crisis" era tak. V2 mein Sections 14-19 add hue jo us waqt ke baad ka kaam cover karte hain. V3 mein Section 20 add hua — "Grand Feature Expansion", ~110 features, 7 phases. V4 mein Section 21 add hua — "Grand Master Prompt: Full Remaining Backlog", 5 phases. **V5 mein Section 22 naya add hua hai — "5-Phase Improvement Batch": Telegram signal-quality diagnosis + fixes, dashboard breakdowns, aur Master Control Center. Poori honest evidence (real production data, real test counts, real deploy logs) is section ke andar hi hai.**)
 
 ---
 
@@ -647,3 +647,72 @@ Ye phase mostly ek **verification audit** thi, jaisa task ne khud kaha tha ("man
 Baaki 90 items — Kill Switch, Disaster Recovery, Audit Trail, har analytics/risk metric, har Telegram feature, har Evolution/Self-Learning mechanism, har UX convenience — sab real file/function ke saath verify hue. Poori list `data/checkpoints/grand_master_final.json` mein.
 
 **SAB 5 PHASES AB COMPLETE HAIN.**
+
+---
+
+## 22. 5-Phase Improvement Batch (2026-09-13)
+
+Ye batch teen cheezein cover karta hai: Telegram signal-quality ki real diagnosis + fix, dashboard par kuch naye breakdowns, aur ek Master Control Center. Har claim ke peeche real production data ya real test hai — kahin bhi "should work" nahi likha gaya.
+
+### 22.1 Phase 1 — Diagnosis First
+
+**1.1 Zero/Low Telegram Signal — asli wajah mil gayi aur fix ho gayi.** Live production data mein pichle 14 din ke 30 real signals check kiye: **0 ne kabhi Telegram delivery attempt bhi nahi kiya.** Wajah: cloud ka `auto_send_high_confidence_only` setting `True` par atka hua tha, jabke ek pichle session mein ye faisla ho chuka tha ke ise `False` rakhna hai ("real scale par High tier kabhi fire hi nahi hota"). Wo change sirf LOCAL `telegram_settings.json` file tak pahuncha tha — cloud apna alag Postgres-backed settings row rakhta hai, jise wo change kabhi nahi mila. Real breakdown: 13/30 signals Low tier par poori tarah qualify kar rahe the (confluence Strong, live PnL positive) lekin sirf isi setting ki wajah se rukay hue the; baaki 17/30 genuinely negative live PnL ki wajah se sahi tarah block ho rahe the (gate sahi kaam kar raha tha). Fix: cloud ka setting `False` par set kiya (koi safety gate nahi chhera — Confluence, Wilson, Freshness sab wahi hain).
+
+**1.2 JSON vs DB Single Source of Truth.** Har strategy ki asli entry/exit logic hamesha JSON file (`strategies/library/*/versions/*.json`) se aati hai — kabhi DB row se nahi. Lekin ek real drift risk mila: `paper_strategy_config` DB table ke kuch override columns (`trailing_stop_enabled`, `htf_confluence_filter_enabled`, `volume_spike_filter_enabled`, `risk_pct_override`, `max_open_trades_override`) strategy ka live behavior JSON se independent badal sakte hain, aur cloud-sync ek naya row `enabled=True` ke saath auto-create kar deta hai jab koi strategy pehli baar cloud par sync hoti hai. Ye genuinely fix nahi kiya gaya (is batch ke scope se bahar), sirf honestly report kiya ja raha hai.
+
+**1.3 Evolution Engine — real verification.** Cloud deployment par Evolution Engine ka asli tick/mutation loop (`evolution_engine/engine.py`/`governor.py`) **kabhi shuru hi nahi hota** — `cloud_runtime/app.py` mein ye jaan-boojh kar kabhi import nahi hota (cloud database ko chhota rakhne ke liye, `DEPLOYMENT_CHECKPOINT.md` mein pehle se documented). Real query se confirm hua: `evolution_comparisons` table Postgres schema mein hai hi nahi (`UndefinedTable` error, dono live diagnostic query aur production error logs se independently confirm hua). Matlab: is cloud bot par kabhi ek bhi real "generation"/rollback event nahi bana — ye koi naya bug nahi, ek pehle se li gayi scope decision hai, lekin isse pehli baar directly confirm kiya gaya.
+
+**1.4 Fees/Slippage-Adjusted Profit.** Live paper trading ka reported PnL **raw hai, fee-adjusted nahi** — code confirm karta hai ke position close karte waqt sirf ek chhota fixed 0.05% exit slippage lagta hai, koi commission/fee kabhi deduct nahi hoti (backtest engine mein commission_pct hota hai, live paper trading mein nahi). Real 1093 closed trades par: raw total PnL = **$124.41**, ek conservative 0.1% round-trip commission assumption ke saath fee-adjusted total = **$51.64** (~58% kam).
+
+**1.5 Profit Concentration.** Real data: 65 strategies ne closed trades kiye hain, sirf 32 net positive hain. Top 5 winning strategies ka combined PnL ~$145 hai jabke sabhi 32 winning strategies ka total positive PnL $261.03 hai — matlab top 5 hi aadhe se zyada positive PnL bana rahe hain, aur losing strategies baaki ka bohot sa kha jaate hain (isi liye combined raw total sirf $124.41 hai).
+
+### 22.2 Phase 2 — Telegram Signal Quality
+
+- **2.1 Entry/SL/TP fields**: pehle se maujood the (`format_signal_message`), verify kiya, dobara nahi banaya.
+- **2.2 Confidence % + colored marker**: genuinely naya — har signal message ab apni strategy ka current group (🔵 Profitable / 🔴 Losing / 🟣 Challenge, `strategy_groups.get_group()` reuse karke) aur uska real 0-100 confidence score dikhata hai.
+- **2.3 Minimum Take-Profit Distance Filter**: genuinely naya gate. Har signal ka trading style (Scalping/Intraday/Swing) uski timeframe se nikal ke, us style ka minimum TP-distance threshold check karta hai (defaults: Scalping 0.5%, Intraday 1.0%, Swing 3.0% — sab configurable settings, hardcoded nahi). Leverage-adjustment nahi kiya gaya kyunke live paper-trading strategies ke liye koi per-strategy leverage value poori codebase mein exist hi nahi karti (sirf backtest settings mein hai) — honestly documented, guess nahi kiya.
+- **2.4 Trading Style + Duration**: position ki apni real `timeframe` field se style aur estimated duration nikaal ke message mein dikhata hai — sirf tab jab determinable ho.
+- **2.5 Delivery Speed**: code review se confirm hua ke pipeline mein koi artificial delay nahi hai (position khulte hi turant, synchronous call). Pichle 90 din mein zero real automatic sends the (1.1 ka fix ab isse theek karega), isliye full end-to-end timing sample nahi mil saka — jo real network measurement mila (pichle session mein ek real test send, 1.2 second) wahi evidence hai.
+- **2.6 Duplicate-Signal Protection**: genuinely naya — same strategy+coin+direction ka doosra signal, existing Signal Freshness window ke andar, dobara nahi bhejta (`telegram_message_log` ko `paper_positions` se join karke check karta hai).
+- **2.7 Expiry Note**: har message ke end mein "valid for the next N minutes", existing freshness setting se hi liya gaya.
+
+30 nayi tests, sab pass. Do pehle se broken tests (`auto_send_high_confidence_only` ke purane default par depend karte the) fix kiye.
+
+### 22.3 Phase 3 — Dashboard & Alerts (sirf missing pieces bane)
+
+Verify karne par 4 items **pehle se poori tarah maujood the** — dobara nahi banaye: Signal-Readiness Indicator (Near-Miss Log UI, Telegram Signals page), per-strategy Consecutive-Losses badge (Strategies page ka "Streak" column), Coin-wise breakdown (`coin_heatmap.py`), Best Session/Hours breakdown (`session-stats`/`hour-of-day-stats`).
+
+Genuinely bane/extend hue:
+- **3.1**: "Today: Y signals sent" counter, "Today: X trades" ke bagal mein (status banner).
+- **3.4**: naya configurable `min_confidence_pct_to_send` setting — Confluence/Wilson gates ke UPAR ek additional filter layer, unhe replace nahi karta, default 0 (off).
+- **3.5**: Strategies-by-Trading-Style breakdown, existing Groups tab ki summarization math reuse karke.
+- **3.8**: existing Weekly Report mein "signals sent this week", "PnL by group", aur "best/worst strategy" add kiya — ek doosri competing weekly report nahi banayi.
+
+Is kaam ke dauran ek pehle se maujood, is batch se unrelated bug mila: weekly report ka per-strategy breakdown khaali aa jaata hai jab kabhi bhi "archive and reset" na chala ho (`created_at >= NULL` sab kuch exclude kar deta hai) — ye fix nahi kiya gaya (out of scope), ek separate task ke through flag kiya gaya hai.
+
+31 nayi tests, sab pass.
+
+### 22.4 Phase 4 — Master Control Panel
+
+Pata chala ke ek Control Center page pehle se maujood tha, lekin sirf Feature Toggles cover karta tha — Paper Trading start/stop, Telegram master switch, Evolution start/stop, aur Kill Switch sab apne-apne alag pages par hi the. Ab wahi ek page in sab ko bhi dikhata hai — **har control wahi exact endpoint call karta hai jo uska original page pehle se use karta hai**, koi nayi control logic nahi. Account Drawdown Circuit-Breaker sirf read-only display hai (disable karne ka koi tareeqa yahan nahi diya gaya, jaisa task ne kaha tha). Evolution Engine section cloud par honestly bata deta hai ke "sirf local app par chalta hai" (kyunke 1.3 mein confirm hua ke cloud par ye kabhi start hi nahi hota).
+
+Do orphaned Feature Toggles bhi mile jo real gate the (`strategy_lab_enabled`, `self_learning_engine_enabled`) lekin unka koi endpoint/UI kabhi bana hi nahi tha — dono ab existing Feature Control system se hi toggle ho sakte hain.
+
+6 nayi tests, sab pass.
+
+### 22.5 Phase 5 — Documentation + Final Deploy Verification
+
+**Real evidence, is batch ke sab commits ke baad:**
+- Poori test suite: **1926 tests pass, 0 fail.**
+- Deploy history: har commit cleanly build+deploy hua (koi `build_failed`/`update_failed` nahi), koi crash-loop nahi.
+- `/health` endpoint: `200 OK`.
+- Ek real Telegram test message bheja gaya — `{"ok": true, "error": null}`, genuine confirmation.
+- Deploy ke baad se ek bhi naya error log nahi aaya (jitne bhi errors dikhe, sab is batch ke pehle commit se pehle ke the).
+
+**Ek genuine mistake jo hua aur turant fix kiya gaya**: is batch ke dauran ek temporary diagnostic endpoint ne galti se raw Telegram bot token apne response mein wapas bhej diya (settings-save function ka poora return value bina filter kiye return kar diya). Turant (kuch minute ke andar) wo endpoint hata diya gaya aur deploy kiya gaya. CEO ko turant bataya gaya aur token rotate karne ki request ki gayi.
+
+**Genuinely honest limitation**: is poore batch mein dashboard ke actual rendered pages (Overview, Paper Trading, Telegram, Groups, naya Control Center) browser mein khol ke visually verify nahi kiye ja sakte — is project ki standing security policy ke mutabiq login credentials kabhi use nahi kiye jaate. Har naya/badla hua endpoint HTTP level par verify kiya gaya (sahi 401/200 responses, koi 500 crash nahi) aur JS ka syntax check kiya gaya, lekin real browser mein click-through verification CEO ko khud karna hoga.
+
+**Pehle se maujood, is batch se unrelated, abhi bhi real gaps** (deploy logs se confirm hue): `backtest_batches`, `strategy_graveyard`, aur `extraction_fidelity_reports` Postgres tables cloud schema mein exist nahi karte, jiski wajah se kuch pages/tick cycles par recurring errors aate hain. `strategy_graveyard` ke liye ek fix pehle se ek session mein try hua tha lekin logs confirm karte hain ke wo poora nahi hua — abhi bhi real hai.
+
+**Deploy status: ✅ working.** Sab naye features real data ke against verify hue, koi naya error nahi aaya, real Telegram send confirm hua. Jo cheez genuinely open hai: dashboard UI ka visual click-through (CEO ko khud dekhna hoga), aur upar diye 2 pre-existing schema gaps.

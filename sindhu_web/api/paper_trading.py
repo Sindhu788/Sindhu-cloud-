@@ -1901,61 +1901,6 @@ def telegram_network_check():
     return telegram_bot.check_telegram_reachability()
 
 
-@router.get("/api/paper-trading/_diag/telegram-timing")
-def _diag_telegram_timing():
-    """TEMPORARY (2026-09-13): Phase 2.5 real delivery-speed verification.
-    Read-only. Manually builds its response from only vetted fields
-    (position id/symbol/trigger_type + two timestamps) -- deliberately
-    does NOT pass through any function's raw return value after the
-    earlier lesson from this same batch (a prior temporary endpoint
-    leaked the bot token by returning save_settings()'s full dict
-    unfiltered). Computes real elapsed seconds between a signal's
-    position-open time and the moment its Telegram send was logged, using
-    only already-existing historical data -- sends nothing new. To be
-    removed once its output has been captured."""
-    since_iso = (datetime.now(timezone.utc) - timedelta(days=90)).isoformat()
-    signals = storage.list_generated_signals_with_delivery(since_iso=since_iso)
-    samples = []
-    for s in signals:
-        created_at = s.get("created_at")
-        if not created_at:
-            continue
-        for att in s.get("attempts", []):
-            if not att.get("success") or not att.get("sent_at"):
-                continue
-            try:
-                t0 = datetime.fromisoformat(created_at)
-                t1 = datetime.fromisoformat(att["sent_at"])
-                elapsed = (t1 - t0).total_seconds()
-            except Exception:
-                continue
-            samples.append({
-                "position_id": s["id"], "symbol": s["symbol"], "trigger_type": att["trigger_type"],
-                "elapsed_seconds": round(elapsed, 2),
-            })
-    elapsed_values = sorted(x["elapsed_seconds"] for x in samples)
-    n = len(elapsed_values)
-    median = elapsed_values[n // 2] if n else None
-    return {
-        "sample_count": n,
-        "median_seconds": median,
-        "max_seconds": elapsed_values[-1] if n else None,
-        "samples": samples[:20],
-    }
-
-
-@router.post("/api/paper-trading/_diag/final-test-send")
-def _diag_final_test_send():
-    """TEMPORARY (2026-09-13): Phase 5.2(e) final deploy verification --
-    one real end-to-end Telegram send after all of today's changes
-    (including Phase 2's format_signal_message edits), confirming the
-    bot token/channel/network still deliver post-deploy. Returns exactly
-    telegram_bot.send_test_message()'s own {ok, error} shape -- no
-    settings, no credentials, nothing else. To be removed once its
-    output has been captured."""
-    return telegram_bot.send_test_message()
-
-
 @router.post("/api/paper-trading/telegram/test-proxy")
 def test_telegram_proxy():
     """Isolates "is my proxy server reachable at all" from "can it reach
