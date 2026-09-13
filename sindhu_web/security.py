@@ -66,7 +66,13 @@ _LOGIN_EXEMPT_PATHS = {"/login", "/api/auth/status", "/api/auth/setup", "/api/au
                         # as the one-time PnL report earlier. To be removed (this line
                         # + the route in sindhu_web/api/paper_trading.py) right after
                         # its output is captured.
-                        "/api/paper-trading/_diag/phase1-report"}
+                        "/api/paper-trading/_diag/phase1-report",
+                        # TEMPORARY (2026-09-13): a single narrow settings write
+                        # (see the route's own docstring) that only re-applies a
+                        # decision the CEO already made in an earlier session to
+                        # the cloud's separate settings store, which never got
+                        # it. Removed right after use.
+                        "/api/paper-trading/_diag/fix-high-confidence-only"}
 
 # A valid session cookie is a stronger signal than the X-Sindhu-Token
 # header below (which exists to distinguish a real browser request from a

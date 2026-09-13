@@ -1975,6 +1975,26 @@ def _diag_phase1_report():
     }
 
 
+@router.post("/api/paper-trading/_diag/fix-high-confidence-only")
+def _diag_fix_high_confidence_only():
+    """TEMPORARY (2026-09-13): Phase 1 diagnosis found the live cloud's
+    auto_send_high_confidence_only is True, even though an earlier session
+    already decided (and thought it had set) this to False -- "at real
+    trading scale, High tier essentially never fired". That earlier change
+    only ever reached the LOCAL telegram_settings.json file; the cloud
+    keeps its own, separate Postgres-backed settings row (see
+    telegram_bot.save_settings's IS_POSTGRES branch), which never got it.
+    Real evidence (this same diagnostic batch): of the last 30 real
+    signals generated in production, 13 were fully qualified at the Low
+    tier (confluence Strong, live PnL positive) but suppressed ONLY by
+    this flag -- and zero strategies anywhere near the 25-trade Wilson
+    gate exist yet, so High tier can structurally never fire. This does
+    not touch or weaken the confluence gate, the Wilson gate, or any other
+    safety gate -- it only re-applies the CEO's own already-made decision
+    to the store it never reached. To be removed once applied."""
+    return telegram_bot.save_settings(auto_send_high_confidence_only=False)
+
+
 @router.post("/api/paper-trading/telegram/test-proxy")
 def test_telegram_proxy():
     """Isolates "is my proxy server reachable at all" from "can it reach
