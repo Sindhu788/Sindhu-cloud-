@@ -1961,6 +1961,13 @@ def _diag_full_system_audit():
         "kill_switch": kill_switch.status(),
         "account_drawdown": account_drawdown_guard.status(),
         "reset_balance_preview": reset_preview,
+        "recent_telegram_sends": [
+            {
+                "strategy_name": m.get("strategy_name"), "trigger_type": m.get("trigger_type"),
+                "success": bool(m.get("success")), "sent_at": m.get("sent_at"),
+            }
+            for m in storage.list_telegram_messages(limit=5)
+        ],
     }
 
 
