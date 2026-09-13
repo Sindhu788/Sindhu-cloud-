@@ -108,11 +108,11 @@ def test_case_1_fresh_signal_sends_normally(test_db):
          patch.object(telegram_bot, "_raw_send", return_value=(True, None)) as mock_send:
         result = telegram_bot.send_signal_for_position("pos1", trigger_type="manual")
 
+    # Grand Master Batch, Phase 2.4: live price/age are no longer rendered
+    # into the message body (reduced to exactly 5 fields) -- the real
+    # thing this test verifies is that a fresh signal actually gets sent.
     assert result["ok"] is True
     mock_send.assert_called_once()
-    sent_text = mock_send.call_args[0][0]
-    assert "Current Price: 100.1" in sent_text or "100.100" in sent_text  # live price shown
-    assert "just now" in sent_text or "m ago" in sent_text  # age shown
 
 
 def test_case_2_stale_signal_is_withheld(test_db):

@@ -104,24 +104,19 @@ def test_combines_both_confluence_and_reliability_in_one_explanation():
 
 # --------------------------------------------------------------- end-to-end wiring
 
-def test_send_signal_for_position_includes_explanation_in_message_and_log(test_db):
+def test_send_signal_for_position_includes_explanation_in_log_only(test_db):
+    # Grand Master Batch, Phase 2.4: the explanation is no longer rendered
+    # into the Telegram message body (reduced to exactly 5 fields) -- it's
+    # still computed and persisted to the dashboard's telegram log exactly
+    # as before, just not sent to Telegram itself.
     telegram_bot.save_settings(bot_token="dummy", channel_id="123")
     _open_position()
     with patch.object(telegram_bot, "_raw_send", return_value=(True, None)) as mock_send:
         telegram_bot.send_signal_for_position("pos1", trigger_type="manual")
 
     sent_text = mock_send.call_args[0][0]
-    assert "Yeh Signal Kyun" in sent_text
+    assert "Yeh Signal Kyun" not in sent_text
 
     logged = storage.list_telegram_signal_outcomes()
     assert len(logged) == 1
     assert logged[0]["explanation_text"]  # real explanation text was persisted, not left NULL
-    # The LOG stores one joined string (list_telegram_signal_outcomes'
-    # plain-text column), but the actual message renders each fragment as
-    # its own bullet line -- so the joined string itself is no longer a
-    # contiguous substring of the sent message. Every individual fragment
-    # must still appear, just as a "• " bullet instead of run together.
-    for fragment in logged[0]["explanation_text"].split(". "):
-        fragment = fragment.strip().rstrip(".")
-        if fragment:
-            assert fragment in sent_text

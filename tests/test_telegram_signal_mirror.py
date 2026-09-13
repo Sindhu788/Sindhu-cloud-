@@ -87,14 +87,22 @@ def test_mirror_shows_a_freshness_gate_withhold_with_no_message_text(test_db):
     assert "too stale" in logged[0]["error"]
 
 
-def test_mirror_includes_high_confidence_marker_when_that_tier_actually_fired(test_db):
+def test_mirror_stores_exactly_what_was_actually_sent(test_db):
+    # Grand Master Batch, Phase 2.4 removed the "HIGH CONFIDENCE SIGNAL"
+    # marker from the message body entirely (reduced to exactly 5 fields)
+    # -- the real thing this test verifies is that the log mirrors
+    # whatever text was actually sent, whatever that is, not a separately
+    # tracked "high confidence" flag (telegram_message_log has no such
+    # column; only message_text is mirrored).
     telegram_bot.save_settings(bot_token="dummy", channel_id="123")
     _open_position()
-    with patch.object(telegram_bot, "_raw_send", return_value=(True, None)):
+    with patch.object(telegram_bot, "_raw_send", return_value=(True, None)) as mock_send:
         telegram_bot.send_signal_for_position("pos1", trigger_type="automatic", high_confidence=True)
 
     logged = storage.list_telegram_messages(limit=10)
-    assert "HIGH CONFIDENCE SIGNAL" in logged[0]["message_text"]
+    sent_text = mock_send.call_args[0][0]
+    assert logged[0]["message_text"] == sent_text
+    assert "HIGH CONFIDENCE SIGNAL" not in logged[0]["message_text"]
 
 
 def test_mirror_orders_newest_first_and_respects_limit(test_db):
