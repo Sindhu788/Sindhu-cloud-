@@ -65,7 +65,12 @@ _LOGIN_EXEMPT_PATHS = {"/login", "/api/auth/status", "/api/auth/setup", "/api/au
                         # see the route's own docstring for why after the earlier
                         # token-leak lesson this same batch). Removed once its
                         # output is captured.
-                        "/api/paper-trading/_diag/telegram-timing"}
+                        "/api/paper-trading/_diag/telegram-timing",
+                        # TEMPORARY (2026-09-13): Phase 5.2(e) final deploy
+                        # verification -- one real Telegram test-send call,
+                        # returns only {ok, error} (see the route's own
+                        # docstring). Removed once its output is captured.
+                        "/api/paper-trading/_diag/final-test-send"}
 
 # A valid session cookie is a stronger signal than the X-Sindhu-Token
 # header below (which exists to distinguish a real browser request from a

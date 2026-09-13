@@ -1944,6 +1944,18 @@ def _diag_telegram_timing():
     }
 
 
+@router.post("/api/paper-trading/_diag/final-test-send")
+def _diag_final_test_send():
+    """TEMPORARY (2026-09-13): Phase 5.2(e) final deploy verification --
+    one real end-to-end Telegram send after all of today's changes
+    (including Phase 2's format_signal_message edits), confirming the
+    bot token/channel/network still deliver post-deploy. Returns exactly
+    telegram_bot.send_test_message()'s own {ok, error} shape -- no
+    settings, no credentials, nothing else. To be removed once its
+    output has been captured."""
+    return telegram_bot.send_test_message()
+
+
 @router.post("/api/paper-trading/telegram/test-proxy")
 def test_telegram_proxy():
     """Isolates "is my proxy server reachable at all" from "can it reach
