@@ -716,3 +716,22 @@ Do orphaned Feature Toggles bhi mile jo real gate the (`strategy_lab_enabled`, `
 **Pehle se maujood, is batch se unrelated, abhi bhi real gaps** (deploy logs se confirm hue): `backtest_batches`, `strategy_graveyard`, aur `extraction_fidelity_reports` Postgres tables cloud schema mein exist nahi karte, jiski wajah se kuch pages/tick cycles par recurring errors aate hain. `strategy_graveyard` ke liye ek fix pehle se ek session mein try hua tha lekin logs confirm karte hain ke wo poora nahi hua — abhi bhi real hai.
 
 **Deploy status: ✅ working.** Sab naye features real data ke against verify hue, koi naya error nahi aaya, real Telegram send confirm hua. Jo cheez genuinely open hai: dashboard UI ka visual click-through (CEO ko khud dekhna hoga), aur upar diye 2 pre-existing schema gaps.
+
+---
+
+## 23. Full System Verification & Configuration Audit (2026-09-13, same day)
+
+**Config audit — live cloud values pulled directly, not assumed:**
+- `initial_balance`: **already $100 live on cloud** — koi drift bug nahi tha is baar, math bhi verify hua (65 strategies × $100 = $6500, reset-balance preview mein exactly yehi number aaya).
+- `risk_pct_default` (cloud 1.0% vs local file 0.5%), `priority_rule` (cloud "confidence" vs local "win_rate"), `tick_interval_seconds` (cloud 20s vs local 30s), `daily_goal_pct` (cloud 2.0 vs local 100.0, purely cosmetic) — **real differences found, NOT fixed** kyunke koi explicit "yeh sahi value hai" instruction nahi mila (initial_balance/auto_send_high_confidence_only jaisa clear case nahi tha) — CEO ka faisla chahiye.
+- Max open trades, coin filter, cooldown, drawdown thresholds — sab match karte hain, koi mismatch nahi.
+- Wilson gate (25 trades, 55%), Evolution gate (100 trades) — code constants, drift ho hi nahi sakte.
+- Reset Balance button: code trace se poori tarah correct mila (preview → confirm dialog → confirm:true POST, dono taraf try/catch), pichla "silent failure" bug (2026-09-12 ko fix hua tha) confirm hua ke abhi bhi fixed hai. Live reset khud nahi chalaya (real production balances change kar deta, sirf preview read-only tha).
+
+**Naya security bug mila aur fix hua**: `telegram_bot._raw_send`/`send_private_document` -- connection-level failure (timeout/DNS error) par error message mein poora request URL (jisme raw bot token hota hai) chala jata tha, jo `telegram_message_log` mein save hoke real dashboard ke Telegram Log page par dikhta. Is module ka apna docstring hamesha se keh raha tha "token never written to log" -- ye claim sach nahi thi is ek path mein. Fix kiya (source par + purane rows ke liye read-time redaction), aur live check kiya ke ye kabhi real production mein trigger hua ya nahi -- **0 historical rows affected**, matlab koi real exposure kabhi hui hi nahi. 4 nayi tests.
+
+**Ek chhota display bug fix hua**: Paper Trading page ka apna `/status` fetch fail hone par `{}` dikhata tha, jisse "Stopped" ghalat dikhta tha jab engine asal mein chal raha ho (khatarnak nahi -- Start button dobara click karne par honest "already running" error aata, lekin display ghalat tha). Same warning-banner pattern use kiya jo kill-switch/drawdown ke liye pehle se tha.
+
+**Ek genuinely unresolved, important finding**: Live check mein pichle 10 automatic Telegram signals mein se 9 **Signal Freshness Gate** (price-drift check) se block ho rahe the -- kuch coins (ARB/USDT, CP/USDT) mein sirf ~60 second ke andar 8%-58% tak ka "drift" dikha, jo extreme hai. Root cause confidently pata nahi chal saka: ya to ye specific OKX pairs genuinely itne thin/illiquid hain (kuch coins jaise ETHFI ka drift zyada plausible tha, ~9%), ya live-price-fetch mein koi asal bug hai. **Is Freshness Gate ko chhera nahi gaya** (protected safety gate hai) -- honestly open chhoda gaya hai, aage monitor karna hoga ke ye pattern jaari rehta hai ya nahi.
+
+**Deploy status: ✅ working, ek open investigation ke saath.** Sab fixes real evidence ke saath verify hue, full test suite pass, koi naya crash nahi. Freshness-gate drift finding CEO ko clearly bataya gaya hai as unresolved, guess-fix nahi kiya gaya.
