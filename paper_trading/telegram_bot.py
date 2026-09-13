@@ -247,6 +247,19 @@ def public_settings():
         "silent_hours_start_utc": s.get("silent_hours_start_utc", _DEFAULTS["silent_hours_start_utc"]),
         "silent_hours_end_utc": s.get("silent_hours_end_utc", _DEFAULTS["silent_hours_end_utc"]),
         "personal_chat_id": s.get("personal_chat_id", ""),
+        # Full System Verification Audit (2026-09-13): these existed in
+        # _DEFAULTS/save_settings already but were never added here, so
+        # the dashboard's own Settings page (GET /api/paper-trading/
+        # telegram/settings -> this function) could never actually show
+        # their real current state -- a real visibility gap, not stale
+        # data, but incomplete either way.
+        "auto_send_high_confidence_only": s.get("auto_send_high_confidence_only", _DEFAULTS["auto_send_high_confidence_only"]),
+        "min_confidence_pct_to_send": s.get("min_confidence_pct_to_send", _DEFAULTS["min_confidence_pct_to_send"]),
+        "min_tp_distance_filter_enabled": s.get("min_tp_distance_filter_enabled", _DEFAULTS["min_tp_distance_filter_enabled"]),
+        "min_tp_distance_pct_scalping": s.get("min_tp_distance_pct_scalping", _DEFAULTS["min_tp_distance_pct_scalping"]),
+        "min_tp_distance_pct_intraday": s.get("min_tp_distance_pct_intraday", _DEFAULTS["min_tp_distance_pct_intraday"]),
+        "min_tp_distance_pct_swing": s.get("min_tp_distance_pct_swing", _DEFAULTS["min_tp_distance_pct_swing"]),
+        "min_tp_distance_pct_default": s.get("min_tp_distance_pct_default", _DEFAULTS["min_tp_distance_pct_default"]),
     }
 
 

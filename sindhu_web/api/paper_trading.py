@@ -1901,6 +1901,69 @@ def telegram_network_check():
     return telegram_bot.check_telegram_reachability()
 
 
+@router.get("/api/paper-trading/_diag/full-system-audit")
+def _diag_full_system_audit():
+    """TEMPORARY (2026-09-13): Full System Verification & Configuration
+    Audit. Read-only, no side effects. Manually constructs its response
+    from only vetted, already-safe fields -- reuses telegram_bot.
+    public_settings() (which already strips the raw bot token and proxy
+    credentials) rather than load_settings(), and never touches
+    pt_config's raw dict values beyond the plain numeric/boolean settings
+    listed below (none of which are secrets). To be removed once its
+    output has been captured -- same temporary-diagnostic pattern used
+    earlier in this project, this time with the bot-token-leak lesson
+    from that earlier attempt applied throughout."""
+    pt_settings = pt_config.load()
+    tg_settings = telegram_bot.public_settings()
+
+    evo_available = True
+    evo_running = None
+    try:
+        from evolution_engine.engine import engine as evo_engine
+        evo_running = evo_engine.is_running()
+    except Exception:
+        evo_available = False
+
+    reset_preview = preview_reset_balance()
+    engine_status = engine.status()
+
+    return {
+        "core_paper_trading_settings": {
+            "initial_balance": pt_settings.get("initial_balance"),
+            "risk_pct_default": pt_settings.get("risk_pct_default"),
+            "max_open_trades_per_strategy": pt_settings.get("max_open_trades"),
+            "coin_filter_top_n": pt_settings.get("coin_filter_top_n"),
+            "cooldown_minutes": pt_settings.get("cooldown_minutes"),
+            "dry_run": pt_settings.get("dry_run"),
+            "engine_enabled": pt_settings.get("engine_enabled"),
+            "priority_rule": pt_settings.get("priority_rule"),
+            "tick_interval_seconds": pt_settings.get("tick_interval_seconds"),
+            "daily_goal_pct": pt_settings.get("daily_goal_pct"),
+            "drawdown_pause_streak_threshold": pt_settings.get("drawdown_pause_streak_threshold"),
+            "drawdown_pause_pct_threshold": pt_settings.get("drawdown_pause_pct_threshold"),
+            "account_drawdown_pause_pct_threshold": pt_settings.get("account_drawdown_pause_pct_threshold"),
+        },
+        "telegram_settings": tg_settings,
+        "hardcoded_gate_constants": {
+            "wilson_min_sample_size": pattern_stats.MIN_SAMPLE_SIZE,
+            "wilson_good_lower_bound_pct": pattern_stats.GOOD_LOWER_BOUND * 100,
+            "evolution_trade_threshold_step": 100,
+            "note": "these are Python constants, not DB/file settings -- they cannot drift between local and cloud since both run the same deployed code.",
+        },
+        "engine_status": {
+            "running": engine_status.get("running"),
+            "dry_run": engine_status.get("dry_run"),
+        },
+        "evolution_status": {
+            "importable_on_this_deployment": evo_available,
+            "running": evo_running,
+        },
+        "kill_switch": kill_switch.status(),
+        "account_drawdown": account_drawdown_guard.status(),
+        "reset_balance_preview": reset_preview,
+    }
+
+
 @router.post("/api/paper-trading/telegram/test-proxy")
 def test_telegram_proxy():
     """Isolates "is my proxy server reachable at all" from "can it reach

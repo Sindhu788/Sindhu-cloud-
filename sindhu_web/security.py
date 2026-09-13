@@ -58,7 +58,15 @@ _LOGIN_EXEMPT_PATHS = {"/login", "/api/auth/status", "/api/auth/setup", "/api/au
                         # session so it can be verified directly (e.g. via curl) from outside
                         # the app, and it reveals nothing sensitive (no token, no channel id,
                         # just reachable yes/no + latency).
-                        "/api/paper-trading/telegram/network-check"}
+                        "/api/paper-trading/telegram/network-check",
+                        # TEMPORARY (2026-09-13): Full System Verification &
+                        # Configuration Audit -- read-only, manually constructed
+                        # response reusing telegram_bot.public_settings() (which
+                        # already strips the bot token/proxy credentials) plus
+                        # plain numeric/boolean paper-trading settings (see the
+                        # route's own docstring). Removed once its output is
+                        # captured.
+                        "/api/paper-trading/_diag/full-system-audit"}
 
 # A valid session cookie is a stronger signal than the X-Sindhu-Token
 # header below (which exists to distinguish a real browser request from a

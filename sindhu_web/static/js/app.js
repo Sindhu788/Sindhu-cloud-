@@ -8624,7 +8624,16 @@
         // state -- indistinguishable from an infinite loading spinner, and
         // since the tab/button wiring below never re-runs either, every
         // button on the page (Reset Balance included) looked dead too.
-        apiGet("/api/paper-trading/status").catch(() => ({})),
+        // Full System Verification Audit (2026-09-13): this used to fall
+        // back to a bare {} on fetch failure -- status.running then reads
+        // as undefined (falsy), so a transient failure showed "Stopped"
+        // and an enabled Start button even when the engine was actually
+        // still running. Not dangerous (the /start endpoint itself
+        // correctly refuses a double-start with an honest error), but
+        // still a wrong displayed state -- same _unavailable marker
+        // pattern as killSwitch/acctDrawdown below, folded into the same
+        // warning banner instead of a second one.
+        apiGet("/api/paper-trading/status").catch(() => ({ running: false, _unavailable: true })),
         apiGet("/api/paper-trading/positions").catch(() => ({ positions: [] })),
         apiGet("/api/paper-trading/trades?limit=50").catch(() => ({ trades: [] })),
         apiGet("/api/paper-trading/decisions?limit=30").catch(() => ({ decisions: [] })),
@@ -9101,9 +9110,9 @@
         </div>
 
         <div class="section-title">${t("Control Center")}</div>
-        ${(killSwitch._unavailable || acctDrawdown._unavailable) ? `<div class="card" style="border-color:var(--yellow,#c9a227);margin-bottom:10px;">
+        ${(killSwitch._unavailable || acctDrawdown._unavailable || status._unavailable) ? `<div class="card" style="border-color:var(--yellow,#c9a227);margin-bottom:10px;">
           <span class="pill pill-pending">Reconnecting</span>
-          <span class="muted" style="margin-left:8px;">Couldn't confirm kill-switch/drawdown-pause status just now (the server may be restarting) -- the banners below may not reflect a real active safety halt. Retrying automatically.</span>
+          <span class="muted" style="margin-left:8px;">Couldn't confirm kill-switch/drawdown-pause/engine-running status just now (the server may be restarting) -- the banners and Start/Stop buttons below may not reflect the real state. Retrying automatically.</span>
         </div>` : ""}
         ${acctDrawdown.paused ? `
         <div class="card" style="border:2px solid var(--orange,#d68910);background:rgba(214,137,16,0.08);margin-bottom:10px;">
