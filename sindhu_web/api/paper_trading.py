@@ -1975,20 +1975,17 @@ def _diag_full_system_audit():
                 # shaped like "/bot<token>" before it ever leaves this
                 # process, same lesson as this batch's earlier mistake.
                 "error": re.sub(r"/bot\d+:[A-Za-z0-9_-]+", "/bot[REDACTED]", m.get("error") or "") or None,
+                # Fetched from the SAME `m` this error came from (not a
+                # second separate list_telegram_messages() call) -- the
+                # engine ticks every ~20s and writes concurrently, so two
+                # non-atomic "last 10" queries could return different
+                # rows/order and silently mismatch message to position.
+                "position": (lambda p: {
+                    "symbol": p.get("symbol"), "exchange": p.get("exchange"), "entry_price": p.get("entry_price"),
+                    "timeframe": p.get("timeframe"), "created_at": p.get("created_at"), "status": p.get("status"),
+                } if p else None)(storage.get_paper_position(m["position_id"]) if m.get("position_id") else None),
             }
             for m in storage.list_telegram_messages(limit=10)
-        ],
-        "recent_send_position_details": [
-            {
-                "id": p.get("id"), "symbol": p.get("symbol"), "exchange": p.get("exchange"),
-                "direction": p.get("direction"), "entry_price": p.get("entry_price"),
-                "timeframe": p.get("timeframe"), "entry_time": p.get("entry_time"),
-                "created_at": p.get("created_at"), "status": p.get("status"),
-            }
-            for p in (
-                storage.get_paper_position(m["position_id"])
-                for m in storage.list_telegram_messages(limit=10) if m.get("position_id")
-            ) if p
         ],
         # Full System Verification Audit (2026-09-13): checks whether the
         # token-in-error-message gap just fixed in _raw_send/
