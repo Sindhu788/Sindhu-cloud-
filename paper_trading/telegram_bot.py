@@ -26,6 +26,7 @@ package, already added to requirements.txt) or "http://[user:pass@]host:port".
 import html
 import math
 import os
+import re
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -403,7 +404,15 @@ def _raw_send(text, channel_id_override=None):
                 return True, None
             return False, data.get("description", f"HTTP {resp.status_code}")
         except requests.RequestException as e:
-            last_err = repr(e)
+            # Full System Verification Audit (2026-09-13): a real,
+            # pre-existing gap -- requests/urllib3 exceptions frequently
+            # embed the full request URL in their own repr(), and that
+            # URL contains the raw bot token (see the f-string above).
+            # This module's own docstring claims the token is "NEVER...
+            # written to the log", which this branch violated. Redacted
+            # before it ever reaches last_err, so it can never land in
+            # telegram_message_log.error or any diagnostic that reads it.
+            last_err = re.sub(r"/bot\d+:[A-Za-z0-9_-]+", "/bot[REDACTED]", repr(e))
             if attempt < _API_MAX_ATTEMPTS:
                 time.sleep(_API_RETRY_BACKOFF_SECONDS)
     return False, f"failed after {_API_MAX_ATTEMPTS} attempts: {last_err}"
@@ -536,7 +545,11 @@ def send_private_document(file_path, caption=None):
                 return {"ok": True, "error": None}
             return {"ok": False, "error": data.get("description", f"HTTP {resp.status_code}")}
         except requests.RequestException as e:
-            last_err = repr(e)
+            # Same token-in-URL redaction as _raw_send above -- this
+            # function builds its own separate sendDocument request with
+            # the token embedded in the URL (line above), so it has the
+            # exact same exposure risk on a connection-level exception.
+            last_err = re.sub(r"/bot\d+:[A-Za-z0-9_-]+", "/bot[REDACTED]", repr(e))
             if attempt < _API_MAX_ATTEMPTS:
                 time.sleep(_API_RETRY_BACKOFF_SECONDS)
     return {"ok": False, "error": f"failed after {_API_MAX_ATTEMPTS} attempts: {last_err}"}

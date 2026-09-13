@@ -4738,6 +4738,23 @@ def count_telegram_messages_between(since_iso, until_iso):
     return row[0] if row else 0
 
 
+def count_telegram_messages_matching_error_pattern(pattern):
+    """Full System Verification Audit (2026-09-13): used once to check
+    whether a since-fixed token-in-error-message gap (telegram_bot.
+    _raw_send/send_private_document, a connection exception's own repr()
+    embedding the bot token from the request URL) was ever actually
+    triggered historically. Matches in Python (re.search), not SQL --
+    Postgres has a native regex operator but SQLite doesn't, and this
+    table is never large enough for that to matter. Returns a COUNT
+    only; callers must never surface the matched text itself, even
+    redacted, since the whole point is to avoid re-exposing it."""
+    import re as _re
+    compiled = _re.compile(pattern)
+    with get_conn() as conn:
+        rows = conn.execute("SELECT error FROM telegram_message_log WHERE error IS NOT NULL").fetchall()
+    return sum(1 for (error_text,) in rows if error_text and compiled.search(error_text))
+
+
 def get_last_daily_report_sent_at():
     """Batch 7, Task 5: most recent successfully-sent Daily Honest Report
     -- reuses telegram_message_log (trigger_type='daily_report') as the

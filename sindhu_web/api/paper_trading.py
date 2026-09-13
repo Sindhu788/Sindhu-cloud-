@@ -3,6 +3,7 @@ from typing import Optional
 
 import json
 import os
+import re
 
 from fastapi import APIRouter, HTTPException, Header, UploadFile, File
 from fastapi.encoders import jsonable_encoder
@@ -1965,9 +1966,24 @@ def _diag_full_system_audit():
             {
                 "strategy_name": m.get("strategy_name"), "trigger_type": m.get("trigger_type"),
                 "success": bool(m.get("success")), "sent_at": m.get("sent_at"),
+                # _raw_send's connection-exception branch embeds repr(the
+                # exception), which for requests/urllib3 errors often
+                # includes the full request URL -- and that URL contains
+                # the raw bot token. Never expose that string verbatim
+                # here, even in a "safe" diagnostic -- strip anything
+                # shaped like "/bot<token>" before it ever leaves this
+                # process, same lesson as this batch's earlier mistake.
+                "error": re.sub(r"/bot\d+:[A-Za-z0-9_-]+", "/bot[REDACTED]", m.get("error") or "") or None,
             }
-            for m in storage.list_telegram_messages(limit=5)
+            for m in storage.list_telegram_messages(limit=10)
         ],
+        # Full System Verification Audit (2026-09-13): checks whether the
+        # token-in-error-message gap just fixed in _raw_send/
+        # send_private_document was ever actually triggered historically
+        # -- count only, never the matched text itself, even redacted.
+        "historical_leaked_token_rows_found": storage.count_telegram_messages_matching_error_pattern(
+            r"/bot\d+:[A-Za-z0-9_-]+"
+        ),
     }
 
 
@@ -1979,9 +1995,23 @@ def test_telegram_proxy():
     return telegram_bot.test_proxy_connectivity()
 
 
+_BOT_TOKEN_IN_URL_RE = re.compile(r"/bot\d+:[A-Za-z0-9_-]+")
+
+
 @router.get("/api/paper-trading/telegram/log")
 def get_telegram_log(limit: int = 50):
-    return {"messages": storage.list_telegram_messages(limit=limit)}
+    """Full System Verification Audit (2026-09-13): defense-in-depth
+    redaction on read, in case any row written before telegram_bot.
+    _raw_send's own fix (same date) already has a token-embedding
+    connection-exception string sitting in its `error` column -- this
+    module's docstring has always claimed the token is "NEVER... written
+    to the log", so any row that violates that gets scrubbed here too,
+    not just prevented going forward."""
+    messages = storage.list_telegram_messages(limit=limit)
+    for m in messages:
+        if m.get("error"):
+            m["error"] = _BOT_TOKEN_IN_URL_RE.sub("/bot[REDACTED]", m["error"])
+    return {"messages": messages}
 
 
 @router.get("/api/paper-trading/telegram/alert-status")
