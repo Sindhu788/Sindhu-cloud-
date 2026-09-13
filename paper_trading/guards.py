@@ -118,18 +118,34 @@ class GuardState:
         return False
 
 
-def rank_candidates(candidates, rule="confidence"):
+def rank_candidates(candidates, rule="confidence_and_win_rate"):
     """Signal Priority: when multiple strategies/lessons trigger on the
     same coin in the same tick, pick one according to the configured
-    rule. Ties fall back to confidence."""
+    rule. Ties fall back to confidence.
+
+    "_win_rate" (real closed-trade win rate, 0-100) and "_total_pnl" are
+    expected to already be populated on each candidate by the caller
+    (see engine.py's _process_coin, right before this is called) using
+    real data from storage.get_paper_account_summary. A candidate with
+    fewer than pattern_stats.MIN_SAMPLE_SIZE real closed trades gets
+    "_win_rate": None rather than 0 -- None means "no real track record
+    yet", which must never be scored as if it were a genuine 0% win
+    rate (that would unfairly bury every brand-new strategy under any
+    strategy with even one real win)."""
     if not candidates:
         return None
     if rule == "win_rate":
-        key = lambda c: (c.get("_win_rate", 0), c.get("confidence", 0))
+        key = lambda c: (c.get("_win_rate") if c.get("_win_rate") is not None else -1, c.get("confidence", 0))
     elif rule == "profit":
         key = lambda c: (c.get("_total_pnl", 0), c.get("confidence", 0))
     elif rule == "manual":
         key = lambda c: (c.get("_manual_priority", 0), c.get("confidence", 0))
+    elif rule == "confidence_and_win_rate":
+        def key(c):
+            conf = c.get("confidence", 0)
+            win_rate = c.get("_win_rate")
+            combined = conf if win_rate is None else (conf * 0.5 + win_rate * 0.5)
+            return (combined, conf)
     else:
         key = lambda c: (c.get("confidence", 0),)
     return max(candidates, key=key)

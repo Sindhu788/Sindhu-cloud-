@@ -28,17 +28,20 @@ def _position(**overrides):
 
 
 # --------------------------------------------------------------- trailing-stop tag on the signal message
+#
+# Grand Master Batch, Phase 2.4 removed the "Trailing Stop Active" tag
+# from the signal message body entirely (message is now exactly 5
+# fields) -- profit_lock_enabled no longer changes format_signal_message's
+# output at all. The feature itself (paper_trading/profit_lock.py) and
+# its break-even notification below are untouched.
 
-def test_signal_message_shows_trailing_stop_tag_when_profit_lock_enabled(test_db):
+def test_signal_message_is_unaffected_by_profit_lock_setting(test_db):
     pt_config.update(profit_lock_enabled=True)
-    text = telegram_bot.format_signal_message(_position())
-    assert "Trailing Stop Active" in text
-
-
-def test_signal_message_omits_trailing_stop_tag_when_disabled(test_db):
+    text_on = telegram_bot.format_signal_message(_position())
     pt_config.update(profit_lock_enabled=False)
-    text = telegram_bot.format_signal_message(_position())
-    assert "Trailing Stop Active" not in text
+    text_off = telegram_bot.format_signal_message(_position())
+    assert text_on == text_off
+    assert "Trailing Stop Active" not in text_on
 
 
 # --------------------------------------------------------------- break-even notification

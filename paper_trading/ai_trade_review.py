@@ -22,11 +22,14 @@ def _now_iso():
 
 
 def is_enabled():
-    return base_config.load_or_seed(_SETTINGS_KEY + ".json", _DEFAULTS).get("enabled", False)
+    # Master Task Grand Batch, Phase 2.2 bug fix: load_persistent instead of
+    # load_or_seed -- on the cloud deployment the plain JSON file was wiped
+    # on every restart/redeploy, silently reverting this toggle to False.
+    return base_config.load_persistent(_SETTINGS_KEY, _SETTINGS_KEY + ".json", _DEFAULTS).get("enabled", False)
 
 
 def set_enabled(enabled):
-    base_config.save_config(_SETTINGS_KEY + ".json", {"enabled": bool(enabled)})
+    base_config.save_persistent(_SETTINGS_KEY, _SETTINGS_KEY + ".json", {"enabled": bool(enabled)})
 
 
 def _build_prompt(closed_position):

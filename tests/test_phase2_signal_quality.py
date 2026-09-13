@@ -190,6 +190,13 @@ def test_duplicate_signal_ignores_failed_sends(test_db):
 
 
 # --------------------------------------------------------------- format_signal_message additions
+#
+# Grand Master Batch, Phase 2.4 reduced the message body to exactly 5
+# fields (coin + status emoji, Entry, Stop-Loss, Take-Profit, Duration) --
+# confidence %, the trading-style name ("Scalping"/etc.), and the
+# per-signal expiry note are no longer rendered in the message at all
+# (still fully computed/available elsewhere, just not sent to Telegram).
+# See test_phase2_4_telegram_simplified_format.py for the full contract.
 
 def test_message_still_has_entry_sl_tp_fields(test_db):
     pos = _position()
@@ -199,11 +206,10 @@ def test_message_still_has_entry_sl_tp_fields(test_db):
     assert "Take-Profit:" in text
 
 
-def test_message_shows_confidence_and_group_marker(test_db):
+def test_message_shows_profitable_group_marker(test_db):
     storage.upsert_paper_strategy_groups_batch({"strat1": "profitable"}, datetime.now(timezone.utc).isoformat())
     pos = _position(confidence=72.5)
     text = telegram_bot.format_signal_message(pos, lang="en")
-    assert "Confidence: 72%" in text
     assert "\U0001F535" in text  # blue circle for Profitable group
 
 
@@ -214,23 +220,16 @@ def test_message_shows_losing_group_marker(test_db):
     assert "\U0001F534" in text  # red circle for Losing group
 
 
-def test_message_shows_trading_style_line(test_db):
+def test_message_shows_duration_for_known_timeframe(test_db):
     pos = _position(timeframe="5m")
     text = telegram_bot.format_signal_message(pos, lang="en")
-    assert "Scalping" in text
+    assert "Duration: minutes to ~1 hour" in text
 
 
-def test_message_omits_style_line_for_unknown_timeframe(test_db):
+def test_message_shows_placeholder_duration_for_unknown_timeframe(test_db):
     pos = _position(timeframe="weird_custom_tf")
     text = telegram_bot.format_signal_message(pos, lang="en")
-    assert "Scalping" not in text and "Intraday" not in text and "Swing" not in text
-
-
-def test_message_shows_expiry_note(test_db):
-    telegram_bot.save_settings(signal_freshness_minutes=15)
-    pos = _position()
-    text = telegram_bot.format_signal_message(pos, lang="en")
-    assert "valid for the next 15 minutes" in text
+    assert "Duration: --" in text
 
 
 # --------------------------------------------------------------- integration: gates wired into send path

@@ -1,7 +1,13 @@
 """CEO Task 3 -- Independent Paper Trading Groups: every Telegram SIGNAL
-sent for a Group C ("Challenge") strategy must end with the exact marker
-",,,teen,,," so it's instantly visually distinguishable from a normal
-Group A/B signal -- and ONLY Group C signals get it.
+for a Group C ("Challenge") strategy must be instantly visually
+distinguishable from a normal Group A/B one.
+
+Grand Master Batch, Phase 2.4 removed the old ",,,teen,,," text marker
+(strategy_groups.CHALLENGE_TELEGRAM_MARKER, previously appended at the
+very end of the message) -- format_signal_message() now puts the same
+🟣 Challenge-group emoji directly in the message header for every group,
+so appending the separate marker too would put the same status on the
+message twice. These tests now cover the emoji-based replacement.
 """
 from datetime import datetime, timezone
 from unittest.mock import patch
@@ -36,22 +42,35 @@ def _open_position(strategy_id, **overrides):
     return pos
 
 
-def test_challenge_group_signal_ends_with_marker(test_db):
+def test_old_text_marker_is_gone_from_every_sent_message(test_db):
     telegram_bot.save_settings(bot_token="x", channel_id="y", master_send_enabled=True)
     _open_position("champ")
     storage.upsert_paper_strategy_group("champ", "challenge", "2026-01-01T00:00:00+00:00")
 
     with patch.object(telegram_bot, "_raw_send", return_value=(True, None)) as mock_send:
-        result = telegram_bot.send_signal_for_position(f"pos-champ", trigger_type="manual")
+        result = telegram_bot.send_signal_for_position("pos-champ", trigger_type="manual")
 
     assert result["ok"] is True
     sent_text = mock_send.call_args[0][0]
-    assert sent_text.endswith(strategy_groups.CHALLENGE_TELEGRAM_MARKER)
-    assert sent_text.endswith(",,,teen,,,")
+    assert strategy_groups.CHALLENGE_TELEGRAM_MARKER not in sent_text
+    assert not sent_text.endswith(",,,teen,,,")
+
+
+def test_challenge_group_signal_shows_challenge_emoji(test_db):
+    telegram_bot.save_settings(bot_token="x", channel_id="y", master_send_enabled=True)
+    _open_position("champ")
+    storage.upsert_paper_strategy_group("champ", "challenge", "2026-01-01T00:00:00+00:00")
+
+    with patch.object(telegram_bot, "_raw_send", return_value=(True, None)) as mock_send:
+        result = telegram_bot.send_signal_for_position("pos-champ", trigger_type="manual")
+
+    assert result["ok"] is True
+    sent_text = mock_send.call_args[0][0]
+    assert sent_text.startswith(telegram_bot._GROUP_MARKER_EMOJI["challenge"])
 
 
 @pytest.mark.parametrize("group_key", ["losing", "profitable"])
-def test_non_challenge_group_signal_has_no_marker(test_db, group_key):
+def test_non_challenge_group_signal_shows_its_own_emoji_not_challenge(test_db, group_key):
     telegram_bot.save_settings(bot_token="x", channel_id="y", master_send_enabled=True)
     _open_position("s1")
     storage.upsert_paper_strategy_group("s1", group_key, "2026-01-01T00:00:00+00:00")
@@ -61,10 +80,11 @@ def test_non_challenge_group_signal_has_no_marker(test_db, group_key):
 
     assert result["ok"] is True
     sent_text = mock_send.call_args[0][0]
-    assert strategy_groups.CHALLENGE_TELEGRAM_MARKER not in sent_text
+    assert sent_text.startswith(telegram_bot._GROUP_MARKER_EMOJI[group_key])
+    assert telegram_bot._GROUP_MARKER_EMOJI["challenge"] not in sent_text
 
 
-def test_ungrouped_strategy_signal_has_no_marker(test_db):
+def test_ungrouped_strategy_signal_shows_neutral_marker_not_challenge(test_db):
     """A strategy that has never been assigned a group (get_group returns
     None) must never accidentally get the Challenge marker."""
     telegram_bot.save_settings(bot_token="x", channel_id="y", master_send_enabled=True)
@@ -75,4 +95,5 @@ def test_ungrouped_strategy_signal_has_no_marker(test_db):
 
     assert result["ok"] is True
     sent_text = mock_send.call_args[0][0]
-    assert strategy_groups.CHALLENGE_TELEGRAM_MARKER not in sent_text
+    assert sent_text.startswith(telegram_bot._UNCLASSIFIED_MARKER_EMOJI)
+    assert telegram_bot._GROUP_MARKER_EMOJI["challenge"] not in sent_text

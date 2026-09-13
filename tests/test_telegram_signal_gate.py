@@ -40,9 +40,12 @@ def _open_position(storage_mod, **overrides):
     return pos
 
 
-def test_signal_message_uses_trade_vision_branding_not_sindhu():
+def test_signal_message_never_leaks_sindhu_branding():
+    # Grand Master Batch, Phase 2.4 removed the "Trade Vision Signal"
+    # branded header entirely (message body is now exactly 5 fields) --
+    # the one thing still worth asserting here is that no internal/real
+    # brand name ever leaks into what gets sent.
     text = telegram_bot.format_signal_message(_position(), lang="en")
-    assert "Trade Vision Signal" in text
     assert "SINDHU" not in text
 
 
@@ -64,18 +67,17 @@ def test_test_message_uses_trade_vision_branding():
     assert "SINDHU" not in sent_text
 
 
-def test_signal_message_includes_real_statistical_confidence_when_reliable():
-    reliability = pattern_stats.classify(wins=20, n=25)
-    text = telegram_bot.format_signal_message(_position(), confluence_result=None, reliability_result=reliability, lang="en")
-    assert "Statistical Confidence" in text
-    assert "80%" in text
-    assert "25 recorded trades" in text
-
-
-def test_signal_message_omits_statistical_confidence_when_insufficient_data():
-    reliability = pattern_stats.classify(wins=2, n=3)
-    text = telegram_bot.format_signal_message(_position(), confluence_result=None, reliability_result=reliability)
-    assert "Statistical Confidence" not in text
+def test_signal_message_never_shows_statistical_confidence_regardless_of_reliability():
+    # Grand Master Batch, Phase 2.4: statistical confidence/win-rate text
+    # is gone from the message body entirely (still fully computed and
+    # used by evaluate_auto_send's own gating -- see
+    # test_pattern_reliability_helper_degrades_gracefully_with_no_history
+    # below -- it's just never rendered into the Telegram text anymore).
+    reliable = pattern_stats.classify(wins=20, n=25)
+    unreliable = pattern_stats.classify(wins=2, n=3)
+    for reliability in (reliable, unreliable):
+        text = telegram_bot.format_signal_message(_position(), confluence_result=None, reliability_result=reliability, lang="en")
+        assert "Statistical Confidence" not in text
 
 
 def test_auto_send_blocked_when_pattern_not_statistically_reliable(test_db):

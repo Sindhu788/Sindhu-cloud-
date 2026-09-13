@@ -1,9 +1,14 @@
-"""Tests for Task A (number-formatting fix) and Task B (message redesign)
-in paper_trading/telegram_bot.py. Task A is a DISPLAY-ONLY rounding fix --
-these tests confirm the message text is cleanly rounded while the
-underlying position dict's raw values stay untouched. Task B tests the
-new message structure: header, direction, LEVELS section, confidence
-section, Why This Trade factors, timestamp/age, footer.
+"""Tests for Task A (number-formatting fix) in paper_trading/telegram_bot.py.
+Task A is a DISPLAY-ONLY rounding fix -- these tests confirm the message
+text is cleanly rounded while the underlying position dict's raw values
+stay untouched.
+
+The old "Task B" section here tested the pre-Phase-2.4 message design
+(header/direction emoji/LEVELS section/confidence/Why This Trade/
+timestamp/footer) -- all removed by the Grand Master Batch, Phase 2.4
+simplification (message body is now exactly 5 fields: coin + status
+emoji, Entry, Stop-Loss, Take-Profit, Duration). See
+test_phase2_4_telegram_simplified_format.py for the current contract.
 
 All calls here pass lang="en" explicitly -- Batch 5, Task 3 made
 format_signal_message() bilingual and changed the default to "ur" (the
@@ -13,9 +18,7 @@ test. See test_telegram_message_format_bilingual.py for the Roman Urdu
 variant and the language-selection behavior itself.
 """
 
-from unittest.mock import patch
-
-from paper_trading import telegram_bot, pattern_stats
+from paper_trading import telegram_bot
 
 
 def _position(**overrides):
@@ -27,17 +30,6 @@ def _position(**overrides):
     }
     base.update(overrides)
     return base
-
-
-def _confluence(passed=3, total=3, factor_names=None):
-    factor_names = factor_names or ["Market condition supports this signal",
-                                     "Strategy not paused for safety",
-                                     "No existing position already crowding this coin"]
-    factors = [{"name": n, "result": True} for n in factor_names[:passed]]
-    factors += [{"name": n, "result": False} for n in factor_names[passed:total]]
-    strength = "Strong" if total and passed / total >= 0.75 else "Moderate" if total and passed / total >= 0.5 else "Weak"
-    label = f"{strength} -- {passed}/{total} factors aligned"
-    return {"label": label, "passed": passed, "total": total, "factors": factors}
 
 
 # --------------------------------------------------------------- Task A: number formatting
@@ -77,88 +69,3 @@ def test_format_price_handles_none_and_zero():
     assert telegram_bot._format_price(0) == "0.000"
 
 
-# --------------------------------------------------------------- Task B: message redesign
-
-def test_message_has_branded_header_and_divider():
-    text = telegram_bot.format_signal_message(_position(), lang="en")
-    assert "Trade Vision Signal" in text
-    assert "─" in text
-
-
-def test_message_shows_direction_emoji_and_symbol():
-    long_text = telegram_bot.format_signal_message(_position(direction="long", symbol="ETHUSDT"), lang="en")
-    short_text = telegram_bot.format_signal_message(_position(direction="short", symbol="ETHUSDT"), lang="en")
-    assert "\U0001F7E2" in long_text and "LONG ETHUSDT" in long_text
-    assert "\U0001F534" in short_text and "SHORT ETHUSDT" in short_text
-
-
-def test_message_has_levels_section_with_warning_and_target_icons():
-    text = telegram_bot.format_signal_message(_position(), lang="en")
-    assert "LEVELS" in text
-    assert "⚠️ Stop-Loss:" in text
-    assert "\U0001F3AF Take-Profit:" in text
-
-
-def test_message_omits_live_price_when_fetch_fails():
-    with patch.object(telegram_bot, "_fetch_live_price", return_value=None):
-        text = telegram_bot.format_signal_message(_position(), lang="en")
-    assert "Current Price" not in text
-
-
-def test_message_includes_live_price_when_available():
-    with patch.object(telegram_bot, "_fetch_live_price", return_value=101.234567):
-        text = telegram_bot.format_signal_message(_position(), lang="en")
-    assert "Current Price: 101.235" in text
-
-
-def test_message_shows_qualitative_confidence_with_icon_when_not_statistically_reliable():
-    conf = _confluence(passed=3, total=3)
-    text = telegram_bot.format_signal_message(_position(), confluence_result=conf, lang="en")
-    assert "\U0001F7E2 Confidence: Strong -- 3/3 factors aligned" in text
-    assert "Statistical Confidence" not in text
-
-
-def test_message_prefers_statistical_confidence_when_reliable():
-    conf = _confluence(passed=3, total=3)
-    reliability = pattern_stats.classify(wins=20, n=25)
-    text = telegram_bot.format_signal_message(_position(), confluence_result=conf, reliability_result=reliability, lang="en")
-    assert "Statistical Confidence: 80% win rate over 25 recorded trades" in text
-    assert "\U0001F7E2 Confidence: Strong" not in text  # qualitative line not duplicated
-
-
-def test_message_lists_why_this_trade_factors_from_real_confluence_data():
-    conf = _confluence(passed=2, total=3, factor_names=["Market condition supports this signal", "Strategy not paused for safety", "No existing position already crowding this coin"])
-    text = telegram_bot.format_signal_message(_position(), confluence_result=conf, lang="en")
-    assert "Why This Trade" in text
-    assert "• Market condition supports this signal" in text
-    assert "• Strategy not paused for safety" in text
-    assert "No existing position already crowding this coin" not in text  # this factor did not align
-
-
-def test_message_omits_why_this_trade_when_no_factors_aligned():
-    conf = _confluence(passed=0, total=3)
-    text = telegram_bot.format_signal_message(_position(), confluence_result=conf, lang="en")
-    assert "Why This Trade" not in text
-
-
-def test_message_shows_timestamp_and_age():
-    import time
-    entry_ms = int(time.time() * 1000) - (5 * 60 * 1000)  # 5 minutes ago
-    text = telegram_bot.format_signal_message(_position(entry_time=entry_ms), lang="en")
-    assert "UTC" in text
-    assert "5m ago" in text
-
-
-def test_message_footer_has_strategy_source_and_disclaimer():
-    text = telegram_bot.format_signal_message(_position(), lang="en")
-    assert "Trade Vision -- Paper Trading" in text
-    assert telegram_bot.DISCLAIMER in text
-
-
-def test_signal_age_text_buckets():
-    now_ms = telegram_bot.datetime.now(telegram_bot.timezone.utc).timestamp() * 1000
-    assert telegram_bot._signal_age_text(now_ms - 30 * 1000) == "just now"
-    assert telegram_bot._signal_age_text(now_ms - 5 * 60 * 1000) == "5m ago"
-    assert telegram_bot._signal_age_text(now_ms - 2 * 3600 * 1000 - 10 * 60 * 1000) == "2h 10m ago"
-    assert telegram_bot._signal_age_text(now_ms - 3 * 86400 * 1000) == "3d ago"
-    assert telegram_bot._signal_age_text(None) is None

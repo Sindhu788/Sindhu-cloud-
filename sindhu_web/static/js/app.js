@@ -6345,7 +6345,7 @@
           ? `<div class="notice notice-warn">This one would be held back right now: it is older than the ${p.freshness_limit_minutes}-minute freshness limit ${helpIcon("signal_freshness")}. The text below is still exactly how it would be formatted.</div>`
           : `<div class="notice notice-ok">This one is fresh enough to go out right now (limit is ${p.freshness_limit_minutes} minutes) ${helpIcon("signal_freshness")}.</div>`}
         <div class="tg-preview">${renderTelegramMessageHtml(p.message_text)}</div>
-        <p class="muted plain-note">This is a preview only &mdash; opening it never sends anything. The live "current price" line is the one field only a real send can fill in.</p>`;
+        <p class="muted plain-note">This is a preview only &mdash; opening it never sends anything. The message text below is exactly what would be sent.</p>`;
     }).catch(e => {
       overlay.querySelector("#tgPrevBody").innerHTML = `<p class="muted">Couldn't build the preview: ${esc(e.message)}</p>`;
     });
@@ -9203,7 +9203,7 @@
             <div class="form-row"><label>Tick Interval (seconds)</label><input id="ptTickInterval" type="number" value="${settings.tick_interval_seconds}"></div>
             <div class="form-row"><label>Signal Priority Rule</label>
               <select id="ptPriorityRule">
-                ${["confidence", "win_rate", "profit", "manual"].map(v => `<option ${v === settings.priority_rule ? "selected" : ""}>${v}</option>`).join("")}
+                ${["confidence_and_win_rate", "confidence", "win_rate", "profit", "manual"].map(v => `<option value="${v}" ${v === settings.priority_rule ? "selected" : ""}>${v === "confidence_and_win_rate" ? "confidence_and_win_rate (recommended)" : v}</option>`).join("")}
               </select>
             </div>
             <div class="form-row"><label>Opposite Signal Policy</label>

@@ -175,26 +175,14 @@ def test_low_tier_blocks_negative_live_pnl_same_as_high_tier(test_db):
         assert "negative" in reason
 
 
-def test_high_confidence_message_has_a_distinct_visible_marker():
+def test_high_confidence_no_longer_changes_the_simplified_message_text():
+    # Grand Master Batch, Phase 2.4: the message body was reduced to
+    # exactly 5 fields (coin + status emoji, Entry, Stop-Loss, Take-Profit,
+    # Duration) -- the "HIGH CONFIDENCE SIGNAL" marker this used to add is
+    # gone. high_confidence is still a real, meaningful tier elsewhere
+    # (evaluate_auto_send_low_tier/high tier gating logic, untouched by
+    # this), it just no longer changes what gets rendered into the text.
     text_high = telegram_bot.format_signal_message(_position(), high_confidence=True)
     text_normal = telegram_bot.format_signal_message(_position(), high_confidence=False)
-    assert "HIGH CONFIDENCE SIGNAL" in text_high
-    assert "HIGH CONFIDENCE SIGNAL" not in text_normal
-
-
-def test_send_signal_for_position_passes_high_confidence_marker_through(test_db):
-    telegram_bot.save_settings(bot_token="dummy", channel_id="123")
-    _open_position(storage)
-    with patch.object(telegram_bot, "_raw_send", return_value=(True, None)) as mock_send:
-        telegram_bot.send_signal_for_position("pos1", trigger_type="automatic", high_confidence=True)
-    sent_text = mock_send.call_args[0][0]
-    assert "HIGH CONFIDENCE SIGNAL" in sent_text
-
-
-def test_send_signal_for_position_manual_never_shows_high_confidence_by_default(test_db):
-    telegram_bot.save_settings(bot_token="dummy", channel_id="123")
-    _open_position(storage)
-    with patch.object(telegram_bot, "_raw_send", return_value=(True, None)) as mock_send:
-        telegram_bot.send_signal_for_position("pos1", trigger_type="manual")
-    sent_text = mock_send.call_args[0][0]
-    assert "HIGH CONFIDENCE SIGNAL" not in sent_text
+    assert text_high == text_normal
+    assert "HIGH CONFIDENCE SIGNAL" not in text_high

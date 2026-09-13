@@ -38,7 +38,14 @@ _DEFAULTS = {
     # an open position at once (see paper_trading.risk_manager.evaluate).
     "max_open_trades": 5,
     "cooldown_minutes": 15,
-    "priority_rule": "confidence",     # confidence | win_rate | profit | manual
+    # Master Task Grand Batch, Phase 2.1: default changed from "confidence"
+    # to "confidence_and_win_rate" -- ranking by confidence alone ignored
+    # each strategy's real track record entirely. "win_rate"/"profit"/
+    # "manual" remain selectable for a CEO who wants pure single-factor
+    # ranking (win_rate and profit are now real -- see guards.rank_candidates
+    # and engine.py's per-candidate population right before ranking; "manual"
+    # has no data source yet -- see guards.py's rank_candidates docstring).
+    "priority_rule": "confidence_and_win_rate",  # confidence | win_rate | profit | manual | confidence_and_win_rate
     "opposite_signal_policy": "block", # block | allow | close_and_reverse
     # The full 50-coin universe (matches data_engine.config's own
     # num_coins default, and the CEO's real already-saved local setting)

@@ -5,14 +5,18 @@ from; turning a flag off just skips that specific future call, it never
 touches an already-open position, already-written history, or the
 Paper Trading engine's own start/stop state.
 
-Follows the exact same load_or_seed/save_config JSON-file pattern already
-used by ai_trade_review_settings.json, telegram_settings.json and
-backup_settings.json (see data_engine.config).
+Master Task Grand Batch, Phase 2.2 bug fix: uses config.load_persistent/
+save_persistent (Postgres-aware on the cloud deployment, see their
+docstrings) instead of the plain JSON-file load_or_seed/save_config this
+module used before -- on Render the local file is wiped every restart/
+redeploy/sleep-wake, so a toggle flipped from the dashboard while running
+on Postgres would silently revert to these defaults on the next restart.
 """
 
 from data_engine import config
 
 _FILE = "feature_toggles.json"
+_CLOUD_KEY = "feature_toggles"
 
 DEFAULTS = {
     "master_pause_all": False,
@@ -64,7 +68,7 @@ DEFAULTS = {
 
 
 def get_toggles():
-    return config.load_or_seed(_FILE, DEFAULTS)
+    return config.load_persistent(_CLOUD_KEY, _FILE, DEFAULTS)
 
 
 def set_toggle(key, value):
@@ -72,7 +76,7 @@ def set_toggle(key, value):
         raise ValueError(f"unknown feature toggle: {key}")
     data = get_toggles()
     data[key] = bool(value)
-    config.save_config(_FILE, data)
+    config.save_persistent(_CLOUD_KEY, _FILE, data)
     return data
 
 

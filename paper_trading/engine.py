@@ -43,6 +43,7 @@ from paper_trading import auto_avoid, drawdown_guard, kill_switch, lesson_auto_a
 from paper_trading import confluence, signal_tracker, insights, custom_alerts, ensemble_voting
 from paper_trading import sanity_check_alert
 from paper_trading import htf_confluence_filter
+from paper_trading import pattern_stats
 
 
 def _now_iso():
@@ -596,7 +597,19 @@ class PaperTradingEngine:
 
         opened = 0
         for book, group in groups.items():
-            pick = guards.rank_candidates(group, settings.get("priority_rule", "confidence"))
+            # Priority ranking must reflect real trade history, not confidence
+            # alone -- populate each candidate's real win rate/PnL from the
+            # same running totals the dashboard shows (get_paper_account_summary),
+            # gated by pattern_stats.MIN_SAMPLE_SIZE (the same 25-trade
+            # threshold the Wilson reliability gate uses elsewhere) so a
+            # brand-new strategy with 1-2 lucky/unlucky trades isn't scored
+            # as if that tiny sample were its real win rate.
+            for c in group:
+                summary = storage.get_paper_account_summary(guards.book_key(c))
+                closed = summary["closed_count"]
+                c["_win_rate"] = round(summary["win_count"] / closed * 100, 1) if closed >= pattern_stats.MIN_SAMPLE_SIZE else None
+                c["_total_pnl"] = summary["realized_pnl_total"]
+            pick = guards.rank_candidates(group, settings.get("priority_rule", "confidence_and_win_rate"))
 
             # Grand Feature Expansion, Phase 5 Feature 10: Ensemble Voting
             # Confirmation -- `approved` already holds every OTHER

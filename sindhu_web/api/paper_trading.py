@@ -2106,11 +2106,11 @@ def get_telegram_message_preview(position_id: str):
     formatting can be verified now, long before delivery ever works.
 
     Builds the text only; it never sends and never writes to the message
-    log. live_price is passed explicitly as None so this makes no live
-    exchange call: a preview that stalls on a network fetch would defeat
-    the purpose on a page built for a blocked network. The message
-    therefore shows every field except the live "current price" line,
-    which only a real send can fill in."""
+    log. live_price is passed explicitly as None (format_signal_message no
+    longer renders it into the message body since Phase 2.4's 5-field
+    simplification, but the param is kept for call-site compatibility) so
+    this makes no live exchange call: a preview that stalls on a network
+    fetch would defeat the purpose on a page built for a blocked network."""
     pos = storage.get_paper_position(position_id)
     if not pos:
         raise HTTPException(404, "signal not found")

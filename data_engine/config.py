@@ -117,6 +117,49 @@ def save_config(filename, data):
         json.dump(data, f, indent=2)
 
 
+def load_persistent(cloud_key, filename, defaults):
+    """Master Task Grand Batch, Phase 2.2 bug fix: like load_or_seed, but
+    survives a cloud redeploy. On Render, data/config/*.json lives on the
+    app's own ephemeral filesystem -- wiped on every restart/redeploy/
+    sleep-wake -- so a setting saved through the dashboard while running
+    on Postgres would silently revert to these hardcoded defaults on the
+    very next restart, presenting to the CEO as "I changed a setting and
+    it later reverted". paper_trading/config.py and paper_trading/
+    telegram_bot.py already solved this for their own settings with this
+    exact IS_POSTGRES branch; this is the same pattern made reusable for
+    every other data_engine.config consumer (feature_toggles.py,
+    ai_trade_review.py, sindhu_web/api/settings.py) instead of each
+    reimplementing it.
+
+    Deliberately NOT a branch inside load_or_seed itself: load_or_seed is
+    also called at MODULE IMPORT TIME below (exchanges.json/coins.json/
+    timeframes.json/app_settings.json's eager `_exchanges_cfg = ...`
+    lines), which can run before storage.init_db() has created the
+    cloud_settings table on a cold Postgres start -- querying Postgres
+    that early would crash startup. Only call this from request-time
+    code (an API handler, a function invoked after the app is already
+    running), never from module-level code."""
+    from data_engine import db_backend, storage
+    if db_backend.IS_POSTGRES:
+        saved = storage.get_cloud_setting(cloud_key)
+        merged = dict(defaults)
+        if saved:
+            merged.update(saved)
+        return merged
+    return load_or_seed(filename, defaults)
+
+
+def save_persistent(cloud_key, filename, data):
+    """Write side of load_persistent -- see its docstring. Request-time
+    only, same reasoning."""
+    from datetime import datetime, timezone
+    from data_engine import db_backend, storage
+    if db_backend.IS_POSTGRES:
+        storage.save_cloud_setting(cloud_key, data, datetime.now(timezone.utc).isoformat())
+        return
+    save_config(filename, data)
+
+
 _exchanges_cfg = load_or_seed("exchanges.json", _DEFAULT_EXCHANGES)
 _coins_cfg = load_or_seed("coins.json", _DEFAULT_COINS)
 _timeframes_cfg = load_or_seed("timeframes.json", _DEFAULT_TIMEFRAMES)

@@ -23,7 +23,6 @@ understands: "socks5://[user:pass@]host:port" (requires the PySocks
 package, already added to requirements.txt) or "http://[user:pass@]host:port".
 """
 
-import html
 import math
 import os
 import re
@@ -33,10 +32,8 @@ from datetime import datetime, timedelta, timezone
 import requests
 
 from data_engine import config as base_config, db_backend, storage, feature_toggles
-from paper_trading import challenge_mode, confluence as confluence_mod, insights, pattern_stats, signal_explainer
+from paper_trading import confluence as confluence_mod, pattern_stats, signal_explainer
 from paper_trading import strategy_groups
-from paper_trading.sparkline import make_sparkline
-from paper_trading import config as pt_config
 
 # Lightweight cloud runner support: on a fresh deploy (or any restart of a
 # container with no persistent volume mounted at data/config/), the local
@@ -148,15 +145,6 @@ _DEFAULTS = {
 
 DISCLAIMER = ("This is an experimental signal from a system still under development. "
               "Not financial advice. Trade at your own risk.")
-
-# Appended, without exception, to every signal from a strategy currently
-# classified "Profitable" (see _profitability_label) -- distinct wording
-# from DISCLAIMER above (which already appears on every message
-# regardless of tier or profitability) because this one specifically
-# exists to stop a real, positive live track record from reading as a
-# promise: a strategy that is profitable so far can still lose money on
-# the very next trade.
-PROFITABLE_RISK_DISCLAIMER = "⚠️ Risky -- no strategy guarantees profit, trade at your own risk"
 
 # Telegram-facing brand name only -- every message sent to the channel
 # says "Trade Vision" instead of "SINDHU". This is purely cosmetic and
@@ -555,15 +543,6 @@ def send_private_document(file_path, caption=None):
     return {"ok": False, "error": f"failed after {_API_MAX_ATTEMPTS} attempts: {last_err}"}
 
 
-def _reason_text(position):
-    """Reuses the existing plain-language reasoning already built for the
-    dashboard (paper_trading.insights.humanize_reason) -- no new NLP."""
-    try:
-        return insights.humanize_reason(position.get("entry_reason"))
-    except Exception:
-        return position.get("entry_reason") or "No reason recorded."
-
-
 def _format_price(value):
     """DISPLAY-ONLY rounding for the Telegram message text -- the
     underlying stored Entry/SL/TP/live-price floats used by the trading
@@ -592,41 +571,6 @@ def _format_price(value):
     return f"{v:.{decimals}f}"
 
 
-def _direction_emoji(direction):
-    return "\U0001F7E2" if direction == "long" else "\U0001F534"  # green / red circle
-
-
-def _confidence_icon(label):
-    if not label:
-        return "⚪"  # white circle -- unrated
-    if label.startswith("Strong"):
-        return "\U0001F7E2"
-    if label.startswith("Moderate"):
-        return "\U0001F7E1"
-    if label.startswith("Weak"):
-        return "\U0001F534"
-    return "⚪"
-
-
-def _signal_age_text(entry_time_ms):
-    """How long ago this signal's position was opened, in the plainest
-    possible form -- entry_time is the same epoch-ms timestamp already
-    stored on every paper position, not a new field."""
-    if not entry_time_ms:
-        return None
-    now_ms = datetime.now(timezone.utc).timestamp() * 1000
-    delta_s = max(0, (now_ms - entry_time_ms) / 1000)
-    if delta_s < 60:
-        return "just now"
-    minutes = int(delta_s // 60)
-    if minutes < 60:
-        return f"{minutes}m ago"
-    hours, rem_minutes = divmod(minutes, 60)
-    if hours < 24:
-        return f"{hours}h {rem_minutes}m ago" if rem_minutes else f"{hours}h ago"
-    return f"{hours // 24}d ago"
-
-
 def _fetch_live_price(exchange, symbol):
     """Best-effort real current price via the same exchange client used
     everywhere else in the app (data_engine.exchanges.registry) -- never
@@ -642,30 +586,6 @@ def _fetch_live_price(exchange, symbol):
         tickers = client.get_tickers(coins_cfg["quote_asset"])
         ticker = tickers.get(symbol)
         return ticker["price"] if ticker else None
-    except Exception:
-        return None
-
-
-_SPARKLINE_BARS = 24  # ~1 day of hourly candles -- enough to show a real recent trend, short enough to stay one line
-
-
-def _recent_price_sparkline(exchange, symbol):
-    """Master 15-Item task, Item 7: a real recent-price shape, using
-    already-downloaded/resampled candle data (data_engine.resample.
-    get_ohlcv, the same source of truth every backtest/chart in this app
-    already uses) -- no new dependency, no chart image. Best-effort: on
-    any failure (brand-new coin with too little history, resample cache
-    miss, etc.) returns None so the line is simply omitted, same
-    philosophy as _fetch_live_price above."""
-    if not exchange or not symbol:
-        return None
-    try:
-        from data_engine.resample import get_ohlcv
-        df = get_ohlcv(exchange, symbol, interval="1h")
-        if df is None or len(df) < 2:
-            return None
-        closes = df["close"].tail(_SPARKLINE_BARS).tolist()
-        return make_sparkline(closes)
     except Exception:
         return None
 
@@ -837,43 +757,26 @@ def duplicate_signal_check(position):
 
 
 _LABELS = {
+    # Grand Master Batch, Phase 2.4 removed the signal message down to 5
+    # fields, which left most of these bilingual labels (confidence,
+    # statistical confidence, Why This Trade, footer brand, profitability/
+    # challenge-mode labels, per-signal expiry note, HIGH CONFIDENCE
+    # marker, group-name-as-text labels) with no remaining reader --
+    # trimmed to just what send_signal_for_position/send_close_followup/
+    # send_breakeven_notification still actually use.
     "ur": {
-        "high_confidence": "⭐ <b>HIGH CONFIDENCE SIGNAL</b> ⭐",
-        "strategy": "Strategy", "levels": "LEVELS", "entry": "Entry",
-        "stop_loss": "Stop-Loss", "take_profit": "Take-Profit", "current_price": "Abhi Ka Price",
-        "recent_trend": "Pichle 24 Ghante:",
-        "statistical_confidence": "Statistical Confidence", "confidence": "Confidence",
-        "win_rate_over": "win rate, pichli {n} trades mein",
-        "why_this_trade": "Yeh Trade Kyun", "reason": "Wajah",
-        "why_this_signal_heading": "Yeh Signal Kyun", "quality_grade": "Signal Grade",
-        "footer_brand": f"{TELEGRAM_BRAND} -- Paper Trading (Nakli Paise)",
+        "strategy": "Strategy", "entry": "Entry",
+        "stop_loss": "Stop-Loss", "take_profit": "Take-Profit",
         "unknown_strategy": "Pata Nahi",
-        "profitable_strategy": "✅ <b>PROFITABLE STRATEGY</b> (live paper-trading record)",
-        "strategy_under_evaluation": "\U0001F9EA <b>STRATEGY ABHI UNDER EVALUATION HAI</b> (kaafi trade history nahi hui abhi)",
-        "challenge_mode_tag": "\U0001F3C6 <b>CHALLENGE MODE SIGNAL</b>",
-        "trailing_stop_active": "\U0001F3AF Trailing Stop Active",
         "breakeven_moved": "✅ Stop-loss break-even par move ho gaya -- ab yeh trade risk-free hai.",
-        "group_profitable": "Profitable Group", "group_losing": "Losing Group", "group_challenge": "Challenge Group",
-        "valid_for": "Yeh signal agle {n} minutes ke liye valid hai",
+        "duration": "Duration",
     },
     "en": {
-        "high_confidence": "⭐ <b>HIGH CONFIDENCE SIGNAL</b> ⭐",
-        "strategy": "Strategy", "levels": "LEVELS", "entry": "Entry",
-        "stop_loss": "Stop-Loss", "take_profit": "Take-Profit", "current_price": "Current Price",
-        "recent_trend": "Last 24h:",
-        "statistical_confidence": "Statistical Confidence", "confidence": "Confidence",
-        "win_rate_over": "win rate over {n} recorded trades",
-        "why_this_trade": "Why This Trade", "reason": "Reason",
-        "why_this_signal_heading": "Yeh Signal Kyun", "quality_grade": "Signal Grade",
-        "footer_brand": f"{TELEGRAM_BRAND} -- Paper Trading",
+        "strategy": "Strategy", "entry": "Entry",
+        "stop_loss": "Stop-Loss", "take_profit": "Take-Profit",
         "unknown_strategy": "Unknown",
-        "profitable_strategy": "✅ <b>PROFITABLE STRATEGY</b> (real live paper-trading record)",
-        "strategy_under_evaluation": "\U0001F9EA <b>STRATEGY STILL UNDER EVALUATION</b> (not enough trade history yet)",
-        "challenge_mode_tag": "\U0001F3C6 <b>CHALLENGE MODE SIGNAL</b>",
-        "trailing_stop_active": "\U0001F3AF Trailing Stop Active",
         "breakeven_moved": "✅ Stop-loss moved to break-even -- this trade is now risk-free.",
-        "group_profitable": "Profitable Group", "group_losing": "Losing Group", "group_challenge": "Challenge Group",
-        "valid_for": "This signal is valid for the next {n} minutes",
+        "duration": "Duration",
     },
 }
 
@@ -882,244 +785,54 @@ _LABELS = {
 # CHALLENGE_TELEGRAM_MARKER already rely on) -- no new classification
 # logic, just a visual marker on top of an already-computed group.
 _GROUP_MARKER_EMOJI = {"profitable": "\U0001F535", "losing": "\U0001F534", "challenge": "\U0001F7E3"}
-_GROUP_LABEL_KEY = {"profitable": "group_profitable", "losing": "group_losing", "challenge": "group_challenge"}
+# A strategy that hasn't traded enough yet to be bucketed into a group
+# (strategy_groups.get_group() returns None) still needs a status emoji --
+# every signal message should be emoji-led, not just the already-classified
+# ones -- so it gets this neutral "not yet classified" marker instead of no
+# emoji at all.
+_UNCLASSIFIED_MARKER_EMOJI = "\U000026AA"
 
 
 def format_signal_message(position, confluence_result=None, reliability_result=None, high_confidence=False,
                            live_price=_UNSET, lang=None, explanation_text=None, grade_result=None):
-    """lang: "ur" (default, the CEO's everyday register) or "en" -- Batch
-    5, Task 3. Deterministic template choice, never an AI translation
-    call. Defaults to the stored Telegram setting when not passed
-    explicitly (see _DEFAULTS["language"])."""
+    """Grand Master Batch, Phase 2.4: deliberately reduced, on the CEO's
+    explicit instruction, to exactly 5 things -- coin + status emoji
+    (which strategy_groups.get_group() bucket the strategy is currently
+    in: profitable/losing/challenge), Entry, Stop-Loss, Take-Profit, and
+    an estimated Duration (from trading_style_for_timeframe). Every other
+    line this function used to build (confidence %, trading-style name,
+    quality grade, statistical confidence/win rate, confluence factors,
+    AI explanation, entry reason, timestamp/age, per-signal expiry note,
+    challenge-mode tags, profit-lock note, HIGH CONFIDENCE marker,
+    footer/disclaimers) is intentionally gone from the message body --
+    none of that data was deleted anywhere, it's all still on the
+    dashboard, this function just no longer renders it into the Telegram
+    text. confluence_result/reliability_result/high_confidence/
+    live_price/explanation_text/grade_result are kept as parameters
+    (every existing call site still passes them) but are no longer used
+    here; lang still selects ur/en for the two labels that remain.
+
+    Direction (LONG/SHORT) is also gone from the body per the same
+    literal instruction ("exactly these fields, nothing more") -- it is
+    still recoverable from the position record itself (position["direction"]),
+    just not printed in the message text."""
     if lang not in ("ur", "en"):
         lang = load_settings().get("language", "ur")
     L = _LABELS[lang]
-    direction_word = "LONG" if position["direction"] == "long" else "SHORT"
     symbol = position["symbol"]
 
-    lines = []
-    if high_confidence:
-        # Task 4 (Priority Batch 1): a distinct, unmissable marker for the
-        # HIGH tier only -- never added for a regular/lower-tier send, so
-        # it always reflects a real tier decision (evaluate_auto_send_tier)
-        # rather than being a cosmetic label anyone could mistake for
-        # inflated confidence.
-        lines.append(L["high_confidence"])
-    challenge_tag = _challenge_mode_tag(position, lang)
-    if challenge_tag:
-        lines.append(challenge_tag)
-    # Master Task 4, Phase 3.7: the newer multi-challenge system
-    # (paper_trading.challenge_multi, up to 3 active at once) can have
-    # several DIFFERENTLY-scoped challenges running simultaneously -- the
-    # single generic tag above (from the original single-challenge system)
-    # can't say which one. One line per matching active challenge, naming
-    # it specifically, so a signal that counts toward 2 of the CEO's 3
-    # challenges at once is unambiguous about both.
-    lines.extend(_multi_challenge_tags(position, lang))
-    # Master Task 3, Phase 2.22: purely informational -- states whether the
-    # Profit-Lock Trailing Stop feature (paper_trading/profit_lock.py) is
-    # currently active system-wide, which is what "a strategy that uses
-    # the Trailing Stop-Loss feature" resolves to today (there is no
-    # PER-STRATEGY trailing-stop toggle, only the one global
-    # profit_lock_enabled setting every open position is equally subject
-    # to). Adds no new trading logic -- just reads the existing setting.
-    if pt_config.load().get("profit_lock_enabled", False):
-        lines.append(L["trailing_stop_active"])
-    profitability_label = _profitability_label(position.get("strategy_id"), lang)
-    if profitability_label:
-        lines.append(profitability_label)
-    lines += [
-        f"\U0001F4CA <b>{TELEGRAM_BRAND} Signal</b>",
-        "─" * 18,
-        f"{_direction_emoji(position['direction'])} <b>{direction_word} {symbol}</b>",
-        f"{L['strategy']}: {position.get('strategy_name') or L['unknown_strategy']}",
-    ]
-    # Phase 2.2: confidence % (paper_trading.confidence.score's own 0-100
-    # ranking value, already computed and stored on every position at
-    # signal time) plus a colored marker for the strategy's CURRENT group
-    # (paper_trading.strategy_groups -- reused as-is, not recomputed).
     group_key = strategy_groups.get_group(position.get("strategy_id")) if position.get("strategy_id") else None
-    group_marker = _GROUP_MARKER_EMOJI.get(group_key)
-    confidence_pct = position.get("confidence")
-    if group_marker or confidence_pct is not None:
-        parts = []
-        if group_marker:
-            parts.append(f"{group_marker} {L[_GROUP_LABEL_KEY[group_key]]}")
-        if confidence_pct is not None:
-            parts.append(f"{L['confidence']}: {confidence_pct:.0f}%")
-        lines.append(" | ".join(parts))
-    # Phase 2.4: trading style + estimated duration, derived from the
-    # position's own recorded timeframe -- only shown when determinable.
-    style_key, style_label, duration_text = trading_style_for_timeframe(position.get("timeframe"))
-    if style_label:
-        style_line = f"\U0001F553 {style_label}"
-        if duration_text:
-            style_line += f" (est. {duration_text})"
-        lines.append(style_line)
-    if grade_result:
-        lines.append(f"\U0001F3C5 {L['quality_grade']}: <b>{grade_result['grade']}</b> -- {grade_result['reason']}")
-    lines += [
-        "",
-        f"<b>{L['levels']}</b>",
+    status_emoji = _GROUP_MARKER_EMOJI.get(group_key, _UNCLASSIFIED_MARKER_EMOJI)
+    _, _, duration_text = trading_style_for_timeframe(position.get("timeframe"))
+
+    lines = [
+        f"{status_emoji} <b>{symbol}</b>",
         f"{L['entry']}: {_format_price(position.get('entry_price'))}",
-        f"⚠️ {L['stop_loss']}: {_format_price(position.get('stop_loss'))}",
-        f"\U0001F3AF {L['take_profit']}: {_format_price(position.get('take_profit'))}",
+        f"{L['stop_loss']}: {_format_price(position.get('stop_loss'))}",
+        f"{L['take_profit']}: {_format_price(position.get('take_profit'))}",
+        f"{L['duration']}: {duration_text}" if duration_text else f"{L['duration']}: --",
     ]
-
-    if live_price is _UNSET:
-        live_price = _fetch_live_price(position.get("exchange"), symbol)
-    if live_price is not None:
-        lines.append(f"{L['current_price']}: {_format_price(live_price)}")
-
-    sparkline = _recent_price_sparkline(position.get("exchange"), symbol)
-    if sparkline:
-        lines.append(f"{L['recent_trend']} {sparkline}")
-
-    lines.append("")
-    # Statistical confidence (Genuine Evolution Engine's Wilson-score gate,
-    # min. 25 trades for this exact strategy+coin+condition) takes
-    # priority when available -- only ever states a real, recorded win
-    # rate pulled from this pattern's own trade history, never a made-up
-    # or implied number. Otherwise falls back to the qualitative
-    # Confluence Score label, which is always safe to show (it's a count
-    # of aligned factors, not a percentage claim).
-    if reliability_result and reliability_result.get("reliable"):
-        icon = _confidence_icon(confluence_result.get("label") if confluence_result else None)
-        lines.append(
-            f"{icon} {L['statistical_confidence']}: {reliability_result['win_rate_pct']:.0f}% "
-            + L["win_rate_over"].format(n=reliability_result["sample_size"])
-            + f" (95% CI {reliability_result['ci_lower_pct']:.0f}%-{reliability_result['ci_upper_pct']:.0f}%)"
-        )
-    elif confluence_result:
-        icon = _confidence_icon(confluence_result.get("label"))
-        lines.append(f"{icon} {L['confidence']}: {confluence_result['label']}")
-
-    if confluence_result:
-        aligned = [f["name"] for f in confluence_result.get("factors", []) if f.get("result") is True]
-        if aligned:
-            lines.append("")
-            lines.append(f"<b>{L['why_this_trade']}</b>")
-            for name in aligned:
-                lines.append(f"• {name}")
-
-    if explanation_text:
-        lines.append("")
-        lines.append(f"<b>{L['why_this_signal_heading']}</b>")
-        # A list/tuple (paper_trading.signal_explainer.explain_signal_lines)
-        # renders one bullet per fragment, matching the rest of the
-        # message's labeled/bulleted style; a plain string (the dashboard
-        # preview's explain_signal()) is left exactly as before.
-        if isinstance(explanation_text, (list, tuple)):
-            lines.extend(f"• {part}" for part in explanation_text)
-        else:
-            lines.append(explanation_text)
-
-    reason = _reason_text(position)
-    if reason:
-        lines.append("")
-        lines.append(f"{L['reason']}: {reason}")
-
-    entry_time_ms = position.get("entry_time")
-    if entry_time_ms:
-        ts = datetime.fromtimestamp(entry_time_ms / 1000, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-        age = _signal_age_text(entry_time_ms)
-        lines.append("")
-        lines.append(f"\U0001F551 {ts}" + (f" ({age})" if age else ""))
-
-    # Phase 2.7: per-signal expiry note -- the same signal_freshness_minutes
-    # window the Signal Freshness Gate itself enforces (freshness_check),
-    # so the CEO knows when a signal goes stale without checking the
-    # dashboard, and this can never disagree with what actually gates re-sends.
-    freshness_minutes = load_settings().get("signal_freshness_minutes", _DEFAULTS["signal_freshness_minutes"])
-    lines.append(f"⏳ {L['valid_for'].format(n=freshness_minutes)}")
-
-    lines.append("")
-    lines.append(L["footer_brand"])
-    lines.append(DISCLAIMER)
-    # Task 4.3: without exception, every message from a currently
-    # "Profitable" strategy ends with this extra, distinct disclaimer --
-    # a real positive live track record must never read as a promise.
-    if _is_profitable_label(profitability_label, lang):
-        lines.append(PROFITABLE_RISK_DISCLAIMER)
     return "\n".join(lines)
-
-
-def _profitability_label(strategy_id, lang):
-    """Task 4.2: every signal message must say plainly whether it comes
-    from a strategy with a real, positive live paper-trading record, or
-    one still building that record. Uses LIVE paper-trading history
-    (storage.get_paper_account_summary -- the same O(1) running total the
-    rest of this file's PnL checks already use), never backtest results:
-    the cloud runner's own curated Postgres schema deliberately excludes
-    the backtest_* tables (see data_engine/db_backend.py), so a
-    backtest-based classification would be unavailable there, and "how
-    has this actually performed live" is the more honest thing to tell
-    someone about a signal they're about to see anyway. "Profitable"
-    requires BOTH a real sample size (the same 25-trade bar
-    pattern_stats.MIN_SAMPLE_SIZE uses elsewhere in this file, so this
-    isn't a second, softer threshold) and a net positive live PnL --
-    anything short of that is "still under evaluation," never a guess."""
-    if not strategy_id:
-        return None
-    summary = storage.get_paper_account_summary(strategy_id)
-    L = _LABELS[lang]
-    if summary["closed_count"] >= pattern_stats.MIN_SAMPLE_SIZE and summary["realized_pnl_total"] > 0:
-        return L["profitable_strategy"]
-    return L["strategy_under_evaluation"]
-
-
-def _is_profitable_label(label, lang):
-    return label == _LABELS[lang]["profitable_strategy"]
-
-
-def _challenge_mode_tag(position, lang):
-    """Task 4.4: labels a signal as a Challenge Mode signal when the CEO
-    has scoped an active Challenge (paper_trading.challenge_mode) to this
-    exact strategy+coin -- Challenge Mode itself never influences trading
-    decisions (see challenge_mode.py's own module docstring), this only
-    threads its existing scope choice through to the message text so a
-    signal counted toward that challenge is visibly distinguishable from
-    a regular one."""
-    challenge = challenge_mode.load()
-    if not challenge.get("enabled"):
-        return None
-    scope_strategy = challenge.get("scope_strategy_id")
-    scope_symbol = challenge.get("scope_symbol")
-    if not scope_strategy:
-        return None  # system-wide challenge, not scoped to any one signal
-    if position.get("strategy_id") != scope_strategy:
-        return None
-    if scope_symbol and position.get("symbol") != scope_symbol:
-        return None
-    return _LABELS[lang]["challenge_mode_tag"]
-
-
-def _multi_challenge_tags(position, lang):
-    """Master Task 4, Phase 3.7: returns one tag string per currently
-    ACTIVE (not archived) multi-challenge (paper_trading.challenge_multi)
-    scoped to this exact strategy+coin -- usually 0 or 1, but a signal can
-    legitimately belong to more than one if the CEO scoped two challenges
-    to the same strategy+coin, so all matches are returned, not just the
-    first. Never touches trading behavior -- purely a message-text lookup
-    against the same real scope fields challenge_multi.create_challenge
-    already stores. label is CEO-typed free text; HTML-escaped since
-    Telegram sends with parse_mode=HTML and an unescaped '<' or '&' in a
-    label would otherwise break message delivery."""
-    try:
-        challenges = storage.list_challenges()
-    except Exception:
-        return []
-    tags = []
-    for ch in challenges:
-        scope_strategy = ch.get("scope_strategy_id")
-        if not scope_strategy or position.get("strategy_id") != scope_strategy:
-            continue
-        scope_symbol = ch.get("scope_symbol")
-        if scope_symbol and position.get("symbol") != scope_symbol:
-            continue
-        label = html.escape(ch.get("label") or ch["id"])
-        tags.append(f"\U0001F3C6 <b>CHALLENGE SIGNAL: {label}</b>")
-    return tags
 
 
 def _pattern_reliability_for(strategy_id, symbol, market_state, session):
@@ -1248,12 +961,14 @@ def send_signal_for_position(position_id, trigger_type="manual", high_confidence
     grade_result = signal_explainer.grade_signal(conf, reliability)
     text = format_signal_message(pos, conf, reliability, high_confidence=high_confidence, live_price=live_price,
                                   explanation_text=explanation_lines, grade_result=grade_result)
-    # CEO Task 3 (Independent Paper Trading Groups): a Group C ("Challenge")
-    # signal must be instantly visually distinguishable from a normal
-    # Group A/B one -- ONLY a Group C strategy's signal gets this marker,
-    # appended at the very end with no extra explanation.
-    if strategy_groups.get_group(pos.get("strategy_id")) == "challenge":
-        text = f"{text}\n\n{strategy_groups.CHALLENGE_TELEGRAM_MARKER}"
+    # Grand Master Batch, Phase 2.4: the old CHALLENGE_TELEGRAM_MARKER
+    # append (a ",,,teen,,," suffix) that used to distinguish a Group C
+    # ("Challenge") signal is removed here -- format_signal_message() now
+    # puts the same 🟣 Challenge-group emoji directly in the message
+    # header for every signal from a Challenge-group strategy, which
+    # already achieves the one thing this append existed for. Appending
+    # both would put the same status on the message twice, which the
+    # explicit "exactly these fields, nothing more" instruction rules out.
     ok, err = _raw_send(text, channel_id_override=channel_for_strategy(pos.get("strategy_id")))
     storage.log_telegram_message(
         position_id, pos.get("strategy_id"), pos.get("strategy_name"), trigger_type, text, ok, err, now,
