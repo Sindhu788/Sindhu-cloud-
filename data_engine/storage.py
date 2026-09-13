@@ -3542,6 +3542,30 @@ def list_closed_paper_positions(limit=100, strategy_id=None, since_iso=None):
     return [_row_to_paper_position(r) for r in rows]
 
 
+def get_primary_timeframe_by_strategy():
+    """Phase 3.5 (5-Phase Improvement Batch): {strategy_id: timeframe} --
+    each strategy's own MOST-TRADED real timeframe (its own actual
+    positions, never the JSON config's separate multi-role `timeframes`
+    dict, which can name several roles at once and would require
+    guessing which one is "the" entry timeframe). One GROUP BY query for
+    every strategy at once, then the mode is picked in Python -- avoids
+    an N+1 query per strategy on the Strategies-by-Trading-Style
+    breakdown. A strategy with no positions yet (open or closed) simply
+    has no entry here -- never guessed."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT strategy_id, timeframe, COUNT(*) FROM paper_positions "
+            "WHERE strategy_id IS NOT NULL AND timeframe IS NOT NULL "
+            "GROUP BY strategy_id, timeframe"
+        ).fetchall()
+    best = {}
+    for sid, timeframe, count in rows:
+        current = best.get(sid)
+        if current is None or count > current[1]:
+            best[sid] = (timeframe, count)
+    return {sid: tf for sid, (tf, _count) in best.items()}
+
+
 def last_closed_paper_position(exchange, symbol, direction=None, strategy_id=None):
     """Most recently closed position for this coin (scoped to one book) --
     used for Cooldown, so one strategy's cooldown never blocks another
@@ -5044,6 +5068,31 @@ def has_telegram_signal_for_position(position_id):
             "SELECT id FROM telegram_message_log WHERE position_id=? AND trigger_type IN ('manual','automatic') "
             "AND success=1 LIMIT 1", (position_id,),
         ).fetchone()
+    return row is not None
+
+
+def has_recent_telegram_signal_for(strategy_id, symbol, direction, since_iso, exclude_position_id=None):
+    """Phase 2.6 (Duplicate-Signal Protection): True if a successful
+    Telegram send already went out for this exact strategy+coin+direction
+    combination at or after since_iso -- joins telegram_message_log (which
+    only carries position_id) against paper_positions (which carries
+    symbol/direction) since the log table itself was never given its own
+    copy of those columns. exclude_position_id lets a caller check "any
+    OTHER position" without a not-yet-sent current position tripping its
+    own check."""
+    query = (
+        "SELECT tl.id FROM telegram_message_log tl "
+        "JOIN paper_positions pp ON pp.id = tl.position_id "
+        "WHERE tl.success = 1 AND tl.sent_at >= ? "
+        "AND pp.strategy_id = ? AND pp.symbol = ? AND pp.direction = ?"
+    )
+    params = [since_iso, strategy_id, symbol, direction]
+    if exclude_position_id:
+        query += " AND pp.id != ?"
+        params.append(exclude_position_id)
+    query += " LIMIT 1"
+    with get_conn() as conn:
+        row = conn.execute(query, params).fetchone()
     return row is not None
 
 

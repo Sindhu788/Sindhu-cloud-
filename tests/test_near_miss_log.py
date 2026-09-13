@@ -112,8 +112,13 @@ def test_nothing_is_logged_while_auto_send_is_turned_off(test_db):
 def test_low_tier_qualifying_but_withheld_by_high_confidence_only_is_still_a_near_miss(test_db):
     """A signal that clears the LOW tier but is withheld because
     auto_send_high_confidence_only is on IS a genuine near-miss (it fell
-    short of HIGH specifically) and must be logged."""
+    short of HIGH specifically) and must be logged. auto_send_high_
+    confidence_only defaults to False project-wide since 2026-09-12 (see
+    telegram_bot._DEFAULTS) -- set explicitly here since this test is
+    specifically about the ON behavior, not relying on a default that
+    could change again."""
     _enable_auto_send()
+    telegram_bot.save_settings(auto_send_high_confidence_only=True)
     _open_position()
     full_confluence = {"passed": 4, "total": 4, "label": "Strong -- 4/4 factors aligned", "factors": []}
     with patch.object(telegram_bot.confluence_mod, "score_confluence", return_value=full_confluence):

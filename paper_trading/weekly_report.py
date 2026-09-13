@@ -11,7 +11,7 @@ from datetime import datetime, timezone, timedelta
 
 from data_engine import storage, feature_toggles
 from backtest_engine import strategy_library as lib
-from paper_trading import insights, telegram_bot
+from paper_trading import insights, telegram_bot, strategy_groups
 
 REPORT_INTERVAL_DAYS = 7
 
@@ -64,6 +64,39 @@ def _now_iso():
     return datetime.now(timezone.utc).isoformat()
 
 
+def _pnl_by_group_this_period(period_start_iso, period_end_iso):
+    """Phase 3.8 (5-Phase Improvement Batch): real PnL/wins/closed-trade
+    counts for the Losing/Profitable/Challenge groups, scoped to THIS
+    reporting period only -- distinct from strategy_groups.all_group_
+    summaries() (all-time totals). Uses each strategy's CURRENT group
+    assignment (storage.list_paper_strategy_groups) against real closed
+    trades in the window -- a strategy that changed group mid-week is
+    counted under whichever group it's in NOW, same convention the rest
+    of the Groups tab already uses (group membership is a live label, not
+    a historical snapshot)."""
+    group_by_strategy = storage.list_paper_strategy_groups()
+    with storage.get_conn() as conn:
+        rows = conn.execute(
+            "SELECT strategy_id, SUM(pnl), COUNT(*), SUM(CASE WHEN pnl>0 THEN 1 ELSE 0 END) "
+            "FROM paper_positions WHERE status='closed' AND pnl IS NOT NULL "
+            "AND closed_at >= ? AND closed_at <= ? AND strategy_id IS NOT NULL "
+            "GROUP BY strategy_id",
+            (period_start_iso, period_end_iso),
+        ).fetchall()
+    totals = {key: {"pnl": 0.0, "closed_trades": 0, "wins": 0} for key in strategy_groups.GROUP_KEYS}
+    for sid, pnl, closed, wins in rows:
+        key = group_by_strategy.get(sid)
+        if key not in totals:
+            continue  # not currently assigned to any of the 3 groups -- excluded, never guessed
+        totals[key]["pnl"] += pnl or 0.0
+        totals[key]["closed_trades"] += closed or 0
+        totals[key]["wins"] += wins or 0
+    for key, t in totals.items():
+        t["pnl"] = round(t["pnl"], 2)
+        t["win_rate_pct"] = round(t["wins"] / t["closed_trades"] * 100, 1) if t["closed_trades"] else 0.0
+    return totals
+
+
 def generate_weekly_report():
     now = datetime.now(timezone.utc)
     period_start = (now - timedelta(days=REPORT_INTERVAL_DAYS)).isoformat()
@@ -88,7 +121,7 @@ def generate_weekly_report():
         pnl = round(pnl or 0, 2)
         paused, pause_reason, _ = storage.is_strategy_paused(sid)
         strategies.append({
-            "id": sid, "name": meta["name"], "closed_trades": closed,
+            "id": sid, "name": meta["name"], "closed_trades": closed, "wins": wins or 0,
             "win_rate": win_rate, "pnl": pnl, "paused": paused, "pause_reason": pause_reason,
         })
 
@@ -107,14 +140,44 @@ def generate_weekly_report():
     retire_candidates = [s for s in doing_poorly if s["closed_trades"] >= 10 and s["paused"]]
     watch_candidates = [s for s in doing_well if s["closed_trades"] < 20]
 
+    # Phase 3.8 (5-Phase Improvement Batch): signals sent, PnL by group,
+    # best/worst strategy -- all for this exact 7-day window
+    # (period_start/period_end), reusing storage.count_telegram_messages_
+    # between and the new _pnl_by_group_this_period helper above, never a
+    # second competing weekly digest (see maybe_generate_weekly_report's
+    # own docstring on why one weekly send is enough).
+    signals_sent_this_week = storage.count_telegram_messages_between(period_start, period_end)
+    total_wins_this_week = sum(s["wins"] for s in strategies)
+    total_closed_this_week = sum(s["closed_trades"] for s in strategies)
+    pnl_by_group = _pnl_by_group_this_period(period_start, period_end)
+    best_strategy = strategies[0] if strategies else None
+    worst_strategy = strategies[-1] if len(strategies) > 1 else None
+
     lines = [
         f"Weekly Report -- {now.strftime('%Y-%m-%d')}",
         "",
         f"This covers {len(strategies)} strategies with at least one completed trade in the last {REPORT_INTERVAL_DAYS} days.",
+        f"Signals sent to Telegram this week: {signals_sent_this_week}.",
+        f"Trades this week: {total_closed_this_week} closed, {total_wins_this_week} won, {total_closed_this_week - total_wins_this_week} lost.",
         "",
         _daily_pnl_sparkline(period_start, period_end),
         "",
+        "PnL by group this week:",
     ]
+    for key in strategy_groups.GROUP_KEYS:
+        g = pnl_by_group[key]
+        lines.append(
+            f"  - {strategy_groups.GROUP_LABELS[key]}: ${g['pnl']:.2f} "
+            f"({g['closed_trades']} trades, {g['win_rate_pct']}% win rate)"
+        )
+    lines.append("")
+
+    if best_strategy:
+        lines.append(f"Best strategy this week: {best_strategy['name']} (${best_strategy['pnl']:.2f}, {best_strategy['win_rate']}% win rate).")
+    if worst_strategy:
+        lines.append(f"Worst strategy this week: {worst_strategy['name']} (${worst_strategy['pnl']:.2f}, {worst_strategy['win_rate']}% win rate).")
+    if best_strategy or worst_strategy:
+        lines.append("")
 
     if doing_well:
         lines.append("Strategies that did WELL this week:")
@@ -164,6 +227,11 @@ def generate_weekly_report():
         "auto_lessons_count": len(auto_lessons), "avoid_rules_count": len(avoid_rules),
         "retire_candidates": [s["id"] for s in retire_candidates],
         "watch_candidates": [s["id"] for s in watch_candidates],
+        "signals_sent_this_week": signals_sent_this_week,
+        "total_wins_this_week": total_wins_this_week, "total_closed_this_week": total_closed_this_week,
+        "pnl_by_group": pnl_by_group,
+        "best_strategy_id": best_strategy["id"] if best_strategy else None,
+        "worst_strategy_id": worst_strategy["id"] if worst_strategy else None,
     }
 
     import json

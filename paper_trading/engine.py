@@ -192,6 +192,12 @@ class PaperTradingEngine:
             hour=0, minute=0, second=0, microsecond=0
         ).isoformat()
         open_positions, states, trades_today = storage.get_paper_status_snapshot(today_start_iso)
+        # Phase 3.1 (5-Phase Improvement Batch): "Today: Y signals sent" next
+        # to "Today: X trades" -- same today-start window, same status dict,
+        # mirroring the trades_today pattern above rather than a second
+        # apiGet from the frontend (see get_paper_status_snapshot's own
+        # single-connection-per-request lesson just above).
+        signals_sent_today = storage.count_telegram_messages_since(today_start_iso)
 
         # paper_account_state only gets a row once a book has CLOSED its
         # first trade. A freshly-activated strategy that already holds OPEN
@@ -257,6 +263,7 @@ class PaperTradingEngine:
             "last_tick_duration_seconds": self._last_tick_duration_seconds,
             "scan_progress": dict(self._scan_progress),
             "trades_today": trades_today,
+            "signals_sent_today": signals_sent_today,
             "tick_count": self._tick_count,
             "open_trades": len(open_positions),
             "queue": len(self._last_summary.get("shortlisted", [])),

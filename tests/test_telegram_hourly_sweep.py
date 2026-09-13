@@ -106,13 +106,16 @@ def test_sweep_does_nothing_when_auto_send_is_off(test_db):
     mock_send.assert_not_called()
 
 
-def test_sweep_does_not_send_low_tier_only_signals_by_default(test_db):
+def test_sweep_does_not_send_low_tier_only_signals_when_high_confidence_only_is_on(test_db):
     """Confidence filtering (a later task): the sweep goes through the
-    exact same evaluate_auto_send_tier() gate as a real-time open, so its
-    default High-Confidence-only behavior applies here too -- a
-    Low-tier-only qualifying position must not be sent by the sweep
-    either."""
+    exact same evaluate_auto_send_tier() gate as a real-time open, so
+    High-Confidence-only behavior applies here too when it's turned on --
+    a Low-tier-only qualifying position must not be sent by the sweep
+    either. auto_send_high_confidence_only defaults to False project-wide
+    since 2026-09-12 (see telegram_bot._DEFAULTS), so it's set explicitly
+    here since this test is specifically about the ON behavior."""
     _enable_auto_send()
+    telegram_bot.save_settings(auto_send_high_confidence_only=True)
     storage.open_paper_position(_position("pos1"))
 
     with patch.object(telegram_bot.confluence_mod, "score_confluence", return_value=FULL_CONFLUENCE), \

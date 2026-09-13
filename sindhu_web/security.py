@@ -58,7 +58,14 @@ _LOGIN_EXEMPT_PATHS = {"/login", "/api/auth/status", "/api/auth/setup", "/api/au
                         # session so it can be verified directly (e.g. via curl) from outside
                         # the app, and it reveals nothing sensitive (no token, no channel id,
                         # just reachable yes/no + latency).
-                        "/api/paper-trading/telegram/network-check"}
+                        "/api/paper-trading/telegram/network-check",
+                        # TEMPORARY (2026-09-13): Phase 2.5 real delivery-speed
+                        # verification -- read-only, manually constructed response
+                        # (position id/symbol/trigger_type + elapsed seconds only,
+                        # see the route's own docstring for why after the earlier
+                        # token-leak lesson this same batch). Removed once its
+                        # output is captured.
+                        "/api/paper-trading/_diag/telegram-timing"}
 
 # A valid session cookie is a stronger signal than the X-Sindhu-Token
 # header below (which exists to distinguish a real browser request from a

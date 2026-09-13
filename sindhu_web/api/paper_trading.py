@@ -804,6 +804,15 @@ def get_paper_trading_groups():
     }
 
 
+@router.get("/api/paper-trading/style-breakdown")
+def get_style_breakdown():
+    """Phase 3.5 (5-Phase Improvement Batch): Scalping/Intraday/Swing
+    breakdown, purely a different way of bucketing the exact same
+    strategies (by each one's own most-traded real timeframe) -- reuses
+    strategy_groups.summarize_strategy_ids's math, not a new calculation."""
+    return {"styles": strategy_groups.style_breakdown()}
+
+
 @router.get("/api/paper-trading/groups/{group_key}")
 def get_one_paper_trading_group(group_key: str):
     if group_key not in strategy_groups.GROUP_KEYS:
@@ -1827,6 +1836,14 @@ class TelegramSettingsUpdate(BaseModel):
     silent_hours_enabled: Optional[bool] = None
     silent_hours_start_utc: Optional[str] = None
     silent_hours_end_utc: Optional[str] = None
+    # Phase 2.3: Minimum Take-Profit Distance Filter (configurable per style).
+    min_tp_distance_filter_enabled: Optional[bool] = None
+    min_tp_distance_pct_scalping: Optional[float] = None
+    min_tp_distance_pct_intraday: Optional[float] = None
+    min_tp_distance_pct_swing: Optional[float] = None
+    min_tp_distance_pct_default: Optional[float] = None
+    # Phase 3.4: Minimum Confidence % Filter (additional layer, off at 0).
+    min_confidence_pct_to_send: Optional[float] = None
     personal_chat_id: Optional[str] = None
 
 
@@ -1882,6 +1899,49 @@ def telegram_network_check():
     configured first. Reveals nothing sensitive -- just reachable yes/no,
     an HTTP status or exception name, and latency."""
     return telegram_bot.check_telegram_reachability()
+
+
+@router.get("/api/paper-trading/_diag/telegram-timing")
+def _diag_telegram_timing():
+    """TEMPORARY (2026-09-13): Phase 2.5 real delivery-speed verification.
+    Read-only. Manually builds its response from only vetted fields
+    (position id/symbol/trigger_type + two timestamps) -- deliberately
+    does NOT pass through any function's raw return value after the
+    earlier lesson from this same batch (a prior temporary endpoint
+    leaked the bot token by returning save_settings()'s full dict
+    unfiltered). Computes real elapsed seconds between a signal's
+    position-open time and the moment its Telegram send was logged, using
+    only already-existing historical data -- sends nothing new. To be
+    removed once its output has been captured."""
+    since_iso = (datetime.now(timezone.utc) - timedelta(days=90)).isoformat()
+    signals = storage.list_generated_signals_with_delivery(since_iso=since_iso)
+    samples = []
+    for s in signals:
+        created_at = s.get("created_at")
+        if not created_at:
+            continue
+        for att in s.get("attempts", []):
+            if not att.get("success") or not att.get("sent_at"):
+                continue
+            try:
+                t0 = datetime.fromisoformat(created_at)
+                t1 = datetime.fromisoformat(att["sent_at"])
+                elapsed = (t1 - t0).total_seconds()
+            except Exception:
+                continue
+            samples.append({
+                "position_id": s["id"], "symbol": s["symbol"], "trigger_type": att["trigger_type"],
+                "elapsed_seconds": round(elapsed, 2),
+            })
+    elapsed_values = sorted(x["elapsed_seconds"] for x in samples)
+    n = len(elapsed_values)
+    median = elapsed_values[n // 2] if n else None
+    return {
+        "sample_count": n,
+        "median_seconds": median,
+        "max_seconds": elapsed_values[-1] if n else None,
+        "samples": samples[:20],
+    }
 
 
 @router.post("/api/paper-trading/telegram/test-proxy")

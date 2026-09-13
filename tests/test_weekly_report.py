@@ -95,3 +95,76 @@ def test_maybe_generate_returns_none_when_feature_toggle_is_off(test_db, monkeyp
         result = weekly_report.maybe_generate_weekly_report()
     assert result is None
     mock_send.assert_not_called()
+
+
+# --------------------------------------------------------------- Phase 3.8: signals sent, PnL by group, best/worst
+
+def test_weekly_report_includes_signals_sent_count(test_db, monkeypatch):
+    monkeypatch.setattr(base_config, "CONFIG_DIR", str(test_db).rsplit("test_sindhu.db", 1)[0])
+    now = datetime.now(timezone.utc).isoformat()
+    storage.log_telegram_message("p1", "strat1", "Test Strategy", "automatic", "msg", True, None, now)
+    storage.log_telegram_message("p2", "strat1", "Test Strategy", "automatic", "msg", True, None, now)
+    _close("p1", pnl=10.0, closed_at=now)
+
+    result = weekly_report.generate_weekly_report()
+
+    assert result["report_data"]["signals_sent_this_week"] == 2
+    assert "Signals sent to Telegram this week: 2" in result["report_text"]
+
+
+def test_weekly_report_pnl_by_group_reflects_current_group_assignment(test_db, monkeypatch):
+    monkeypatch.setattr(base_config, "CONFIG_DIR", str(test_db).rsplit("test_sindhu.db", 1)[0])
+    now = datetime.now(timezone.utc).isoformat()
+    from paper_trading import strategy_groups
+    storage.upsert_paper_strategy_groups_batch({"strat1": "profitable"}, now)
+    _close("p1", pnl=42.0, closed_at=now, strategy_id="strat1")
+
+    result = weekly_report.generate_weekly_report()
+
+    by_group = result["report_data"]["pnl_by_group"]
+    assert by_group["profitable"]["pnl"] == 42.0
+    assert by_group["profitable"]["closed_trades"] == 1
+    assert by_group["losing"]["pnl"] == 0.0
+    assert "Profitable: $42.00" in result["report_text"]
+
+
+def test_weekly_report_names_best_and_worst_strategy(test_db, monkeypatch):
+    monkeypatch.setattr(base_config, "CONFIG_DIR", str(test_db).rsplit("test_sindhu.db", 1)[0])
+    from backtest_engine import strategy_library as lib
+    from paper_trading import insights
+    monkeypatch.setattr(lib, "list_all", lambda: [
+        {"id": "winner_strategy", "name": "winner_strategy"}, {"id": "loser_strategy", "name": "loser_strategy"},
+    ])
+    # generate_weekly_report's per-strategy loop scopes to insights.
+    # fresh_session_start() (None when no archive/reset has ever run) --
+    # "created_at >= NULL" excludes every row, so an old-but-real marker
+    # is needed here for the per-strategy summary to see these trades.
+    monkeypatch.setattr(insights, "fresh_session_start", lambda: "2020-01-01T00:00:00+00:00")
+    now = datetime.now(timezone.utc).isoformat()
+    _close("p1", pnl=100.0, closed_at=now, strategy_id="winner_strategy")
+    _close("p2", pnl=-30.0, closed_at=now, strategy_id="loser_strategy")
+
+    result = weekly_report.generate_weekly_report()
+
+    assert result["report_data"]["best_strategy_id"] == "winner_strategy"
+    assert result["report_data"]["worst_strategy_id"] == "loser_strategy"
+    assert "Best strategy this week: winner_strategy" in result["report_text"]
+    assert "Worst strategy this week: loser_strategy" in result["report_text"]
+
+
+def test_weekly_report_wins_losses_totals(test_db, monkeypatch):
+    monkeypatch.setattr(base_config, "CONFIG_DIR", str(test_db).rsplit("test_sindhu.db", 1)[0])
+    from backtest_engine import strategy_library as lib
+    from paper_trading import insights
+    monkeypatch.setattr(lib, "list_all", lambda: [{"id": "strat1", "name": "Test Strategy"}])
+    monkeypatch.setattr(insights, "fresh_session_start", lambda: "2020-01-01T00:00:00+00:00")
+    now = datetime.now(timezone.utc).isoformat()
+    _close("p1", pnl=10.0, closed_at=now, strategy_id="strat1")
+    _close("p2", pnl=-5.0, closed_at=now, strategy_id="strat1")
+    _close("p3", pnl=5.0, closed_at=now, strategy_id="strat1")
+
+    result = weekly_report.generate_weekly_report()
+
+    assert result["report_data"]["total_closed_this_week"] == 3
+    assert result["report_data"]["total_wins_this_week"] == 2
+    assert "Trades this week: 3 closed, 2 won, 1 lost" in result["report_text"]

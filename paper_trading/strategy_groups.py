@@ -252,14 +252,15 @@ def _effective_pnl(sid, stats_by_id, backtest_pnl_by_id):
     return 0.0, False
 
 
-def group_summary(group_key):
+def summarize_strategy_ids(strategy_ids):
     """Real, independently-computed balance/PnL/win-rate/trade-count for
-    one group -- summed from its members' own already-real per-strategy
-    rows, never averaged or blended with another group's numbers."""
-    if group_key not in GROUP_KEYS:
-        raise ValueError(f"Unknown group {group_key!r} -- must be one of {GROUP_KEYS}")
-
-    members = members_of(group_key)
+    an arbitrary set of strategy ids -- summed from their own already-real
+    per-strategy rows, never averaged or blended together. Extracted from
+    group_summary() (Losing/Profitable/Challenge is just one particular
+    way of choosing `strategy_ids`) so any OTHER grouping -- e.g. Phase
+    3.5's by-trading-style breakdown -- reuses this exact same arithmetic
+    instead of a second, parallel implementation."""
+    members = list(strategy_ids)
     member_set = set(members)
     initial_balance = pt_config.load().get("initial_balance", 10000.0)
     states_by_id = {s["strategy_id"]: s for s in storage.list_paper_account_states()}
@@ -286,8 +287,6 @@ def group_summary(group_key):
     strategies.sort(key=lambda s: s["total_pnl"], reverse=True)
 
     return {
-        "group_key": group_key,
-        "label": GROUP_LABELS[group_key],
         "strategy_count": len(members),
         "balance": round(initial_balance * len(members) + total_pnl, 2),
         "total_pnl": round(total_pnl, 2),
@@ -299,8 +298,59 @@ def group_summary(group_key):
     }
 
 
+def group_summary(group_key):
+    """Real, independently-computed balance/PnL/win-rate/trade-count for
+    one group -- summed from its members' own already-real per-strategy
+    rows, never averaged or blended with another group's numbers."""
+    if group_key not in GROUP_KEYS:
+        raise ValueError(f"Unknown group {group_key!r} -- must be one of {GROUP_KEYS}")
+    members = members_of(group_key)
+    summary = summarize_strategy_ids(members)
+    return {"group_key": group_key, "label": GROUP_LABELS[group_key], **summary}
+
+
 def all_group_summaries():
     return {group_key: group_summary(group_key) for group_key in GROUP_KEYS}
+
+
+# Phase 3.5 (5-Phase Improvement Batch): Strategies-by-Trading-Style
+# breakdown. Reuses summarize_strategy_ids() (the exact same math
+# group_summary uses above) and paper_trading.telegram_bot's own
+# trading_style_for_timeframe classification (Phase 2.4) -- no new
+# analytics, no second style-mapping table.
+STYLE_KEYS = ("scalping", "intraday", "swing")
+STYLE_LABELS = {"scalping": "Scalping", "intraday": "Intraday", "swing": "Swing"}
+
+
+def style_breakdown():
+    """{style_key: summarize_strategy_ids(...) result} for every strategy
+    whose own most-traded timeframe maps to a recognized style, plus an
+    "undetermined" bucket (strategies with no closed/open position yet,
+    or an unrecognized timeframe) so nothing is silently dropped."""
+    from paper_trading.telegram_bot import trading_style_for_timeframe
+
+    universe, _stats = _strategy_universe()
+    timeframe_by_strategy = storage.get_primary_timeframe_by_strategy()
+
+    buckets = {key: [] for key in STYLE_KEYS}
+    undetermined = []
+    for sid in universe:
+        timeframe = timeframe_by_strategy.get(sid)
+        style_key, _label, _duration = trading_style_for_timeframe(timeframe)
+        if style_key:
+            buckets[style_key].append(sid)
+        else:
+            undetermined.append(sid)
+
+    result = {}
+    for style_key in STYLE_KEYS:
+        summary = summarize_strategy_ids(buckets[style_key])
+        result[style_key] = {"style_key": style_key, "label": STYLE_LABELS[style_key], **summary}
+    result["undetermined"] = {
+        "style_key": "undetermined", "label": "Undetermined (no timeframe data yet)",
+        **summarize_strategy_ids(undetermined),
+    }
+    return result
 
 
 def challenge_daily_status(now=None):

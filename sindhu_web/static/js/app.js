@@ -978,6 +978,7 @@
       <span class="esb-item">${runningLabel}</span>
       <span class="esb-item esb-muted">${en ? "Last heartbeat" : "Aakhri Dhadkan"}: ${_fmtClock(s.last_tick_at)}</span>
       <span class="esb-item esb-muted">${en ? "Today" : "Aaj"}: ${s.trades_today || 0} ${en ? "trades" : "trades"}</span>
+      <span class="esb-item esb-muted">${en ? "Today" : "Aaj"}: ${s.signals_sent_today || 0} ${en ? "signals sent" : "signals sent"}</span>
       ${badgesHtml}`;
     banner.style.display = "flex";
     document.documentElement.style.setProperty("--banner-h", "30px");
@@ -8613,7 +8614,7 @@
       // parallel with it.
       const [status, positionsRes, tradesRes, decisionsRes, settings, allTimeAnalytics, alertsRes,
              killSwitch, acctDrawdown, groupsRes, lifecycleRes, portfolioRes, configsRes, pausedRes,
-             autoStopState, maintenanceState, coinPriorityRes] = await Promise.all([
+             autoStopState, maintenanceState, coinPriorityRes, styleBreakdownRes] = await Promise.all([
         // Fix, 2026-09-12: these 8 calls used to have no .catch() like every
         // other entry in this array -- a single transient failure (cold
         // start after Render free-tier idle spin-down, a busy DB connection
@@ -8659,6 +8660,9 @@
         apiGet("/api/paper-trading/cloud-aware-auto-stop/state").catch(() => ({ paused_by_cloud: false })),
         apiGet("/api/paper-trading/maintenance-mode").catch(() => ({ active: false })),
         apiGet("/api/paper-trading/coin-priority").catch(() => ({ pinned: [], demoted: [] })),
+        // Phase 3.5 (5-Phase Improvement Batch): Scalping/Intraday/Swing
+        // breakdown, same tab as the Losing/Profitable/Challenge groups above.
+        apiGet("/api/paper-trading/style-breakdown", 25000).catch(() => null),
       ]);
       if (isStaleRoute(myToken)) return;
 
@@ -8919,6 +8923,34 @@
               </table></div>`;
           };
           return groupCard("challenge") + groupCard("profitable") + groupCard("losing");
+        })()}
+
+        <div class="section-title" style="margin-top:22px;">${getLang() === "en" ? "Strategies by Trading Style" : "Trading Style Ke Hisaab Se Strategies"}</div>
+        <p class="muted plain-note">${getLang() === "en"
+          ? "The same strategies as above, bucketed a different way -- by each one's own most-traded timeframe (Scalping/Intraday/Swing) instead of by Losing/Profitable/Challenge."
+          : "Wohi strategies upar wali, bas alag tareeqe se bandi hui -- har ek ke apne sab se zyada traded timeframe (Scalping/Intraday/Swing) ke hisaab se, Losing/Profitable/Challenge ke bajaye."}</p>
+        ${!styleBreakdownRes ? `<div class="card"><p class="muted">Style breakdown not available yet.</p></div>` : (() => {
+          const STYLE_META = {
+            scalping: { label: "Scalping", color: "var(--red)" },
+            intraday: { label: "Intraday", color: "var(--yellow)" },
+            swing: { label: "Swing", color: "var(--green)" },
+            undetermined: { label: getLang() === "en" ? "Undetermined" : "Namalum", color: "var(--muted, #888)" },
+          };
+          const styleCard = (key) => {
+            const st = styleBreakdownRes.styles[key];
+            if (!st || !st.strategy_count) return "";
+            const meta = STYLE_META[key];
+            return `
+              <div class="section-title" style="margin-top:14px;color:${meta.color};">${meta.label} (${st.strategy_count} ${getLang() === "en" ? "strategies" : "strategies"})</div>
+              <div class="grid" style="border-left:3px solid ${meta.color};padding-left:10px;">
+                ${cardClass("Total PnL", `${st.total_pnl >= 0 ? "+" : ""}$${st.total_pnl.toFixed(2)}`, st.total_pnl > 0 ? "positive" : st.total_pnl < 0 ? "negative" : "")}
+                ${card("Win Rate", `${st.win_rate_pct.toFixed(1)}%`)}
+                ${card("Closed Trades", fmtNum(st.closed_trades))}
+                ${card("Open Positions", fmtNum(st.open_positions))}
+              </div>`;
+          };
+          return ["scalping", "intraday", "swing", "undetermined"].map(styleCard).join("")
+            || `<div class="card"><p class="muted">${getLang() === "en" ? "No strategies with trade history yet." : "Abhi koi strategy ki trade history nahi."}</p></div>`;
         })()}
         </div>
 

@@ -27,12 +27,13 @@ import html
 import math
 import os
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import requests
 
 from data_engine import config as base_config, db_backend, storage, feature_toggles
 from paper_trading import challenge_mode, confluence as confluence_mod, insights, pattern_stats, signal_explainer
+from paper_trading import strategy_groups
 from paper_trading.sparkline import make_sparkline
 from paper_trading import config as pt_config
 
@@ -118,6 +119,30 @@ _DEFAULTS = {
     # manual step -- Telegram gives no API way to discover a user's chat
     # id without them messaging the bot first).
     "personal_chat_id": "",
+    # Phase 2.3 (5-Phase Improvement Batch): Minimum Take-Profit Distance
+    # Filter -- the CEO executes every trade by hand, so a signal whose TP
+    # sits a fraction of a percent from entry leaves no realistic reaction
+    # window. Threshold depends on the signal's own trading style (derived
+    # from its timeframe -- see trading_style_for_timeframe), each
+    # independently configurable rather than one hardcoded number, using
+    # the LOW end of each style's standard TP-distance range as the
+    # minimum acceptable: Scalping ~0.5-1%, Intraday ~1-2%, Swing ~3-5%.
+    # No per-strategy leverage value exists for live paper-trading
+    # strategies anywhere in this codebase (only backtest settings and the
+    # unrelated external_signals ingest path have one), so this is NOT
+    # leverage-adjusted -- documented here rather than silently guessed.
+    "min_tp_distance_filter_enabled": True,
+    "min_tp_distance_pct_scalping": 0.5,
+    "min_tp_distance_pct_intraday": 1.0,
+    "min_tp_distance_pct_swing": 3.0,
+    "min_tp_distance_pct_default": 1.0,  # used when a style can't be determined from the timeframe
+    # Phase 3.4: an ADDITIONAL filter layer on top of (never a replacement
+    # for) the existing Confluence ratio/count and Wilson 25-trade gates --
+    # those still run exactly as before. Uses paper_trading.confidence.
+    # score's own 0-100 ranking value, already computed and stored on
+    # every position. 0 = disabled (no filtering at all) so this changes
+    # nothing until the CEO deliberately raises it from Settings.
+    "min_confidence_pct_to_send": 0,
 }
 
 DISCLAIMER = ("This is an experimental signal from a system still under development. "
@@ -684,6 +709,107 @@ def freshness_check(position, now_ms=None):
     return True, None, live_price
 
 
+# --------------------------------------------------------------- Phase 2.4: Trading Style + Duration
+# Derived purely from the position's own recorded timeframe (already
+# stored on every paper_positions row -- no guessing, no new lookups).
+# Never invents a style for a timeframe it doesn't recognize.
+_STYLE_BY_TIMEFRAME = {
+    "1m": ("scalping", "Scalping", "minutes to ~1 hour"),
+    "3m": ("scalping", "Scalping", "minutes to ~1 hour"),
+    "5m": ("scalping", "Scalping", "minutes to ~1 hour"),
+    "15m": ("intraday", "Intraday", "a few hours to 1 day"),
+    "30m": ("intraday", "Intraday", "a few hours to 1 day"),
+    "1h": ("intraday", "Intraday", "a few hours to 1 day"),
+    "2h": ("intraday", "Intraday", "a few hours to 1 day"),
+    "4h": ("intraday", "Intraday", "a few hours to 1 day"),
+    "6h": ("swing", "Swing", "several days"),
+    "8h": ("swing", "Swing", "several days"),
+    "12h": ("swing", "Swing", "several days"),
+    "1d": ("swing", "Swing", "several days to weeks"),
+    "3d": ("swing", "Swing", "several days to weeks"),
+    "1w": ("swing", "Swing", "several days to weeks"),
+}
+
+
+def trading_style_for_timeframe(timeframe):
+    """Returns (style_key, style_label, duration_text), or (None, None,
+    None) when the timeframe is missing or not one of this project's
+    recognized values -- never guessed."""
+    entry = _STYLE_BY_TIMEFRAME.get((timeframe or "").strip().lower())
+    return entry if entry else (None, None, None)
+
+
+# --------------------------------------------------------------- Phase 2.3: Minimum Take-Profit Distance Filter
+
+def min_tp_distance_check(position):
+    """Rejects a signal whose take-profit sits closer to entry than a safe
+    manual-execution reaction threshold (see _DEFAULTS for the reasoning
+    and per-style values). Never blocks when the filter is off, or when
+    entry/TP price is missing -- nothing meaningful to judge."""
+    settings = load_settings()
+    if not settings.get("min_tp_distance_filter_enabled", _DEFAULTS["min_tp_distance_filter_enabled"]):
+        return True, None
+    entry = position.get("entry_price")
+    tp = position.get("take_profit")
+    if not entry or not tp:
+        return True, None
+    tp_distance_pct = abs(tp - entry) / entry * 100.0
+    style_key, style_label, _ = trading_style_for_timeframe(position.get("timeframe"))
+    threshold_key = f"min_tp_distance_pct_{style_key}" if style_key else "min_tp_distance_pct_default"
+    threshold = settings.get(threshold_key, _DEFAULTS[threshold_key])
+    if tp_distance_pct < threshold:
+        style_note = f" for {style_label}" if style_label else ""
+        return False, (
+            f"take-profit is only {tp_distance_pct:.2f}% away from entry -- below the "
+            f"{threshold:.2f}% minimum reaction-time threshold{style_note}"
+        )
+    return True, None
+
+
+# --------------------------------------------------------------- Phase 3.4: Minimum Confidence % Filter
+
+def min_confidence_check(position):
+    """An ADDITIONAL filter layer on top of (never a replacement for) the
+    existing Confluence ratio/count and Wilson 25-trade gates -- those
+    already ran by the time an automatic send reaches here. Off by
+    default (threshold 0), so this changes nothing until the CEO
+    deliberately raises it from Settings. Never blocks when the
+    position's confidence score wasn't computed (nothing to judge)."""
+    threshold = load_settings().get("min_confidence_pct_to_send", _DEFAULTS["min_confidence_pct_to_send"])
+    if not threshold or threshold <= 0:
+        return True, None
+    confidence_pct = position.get("confidence")
+    if confidence_pct is None:
+        return True, None
+    if confidence_pct < threshold:
+        return False, f"confidence {confidence_pct:.0f}% is below the configured minimum of {threshold:.0f}%"
+    return True, None
+
+
+# --------------------------------------------------------------- Phase 2.6: Duplicate-Signal Protection
+
+def duplicate_signal_check(position):
+    """The same strategy+coin+direction shouldn't reach Telegram twice
+    inside one freshness window -- reuses signal_freshness_minutes (the
+    existing Signal Freshness Gate's own setting) rather than inventing a
+    second, competing duration."""
+    strategy_id = position.get("strategy_id")
+    symbol = position.get("symbol")
+    direction = position.get("direction")
+    if not strategy_id or not symbol or not direction:
+        return True, None
+    minutes = load_settings().get("signal_freshness_minutes", _DEFAULTS["signal_freshness_minutes"])
+    since_iso = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).isoformat()
+    if storage.has_recent_telegram_signal_for(
+        strategy_id, symbol, direction, since_iso, exclude_position_id=position.get("id"),
+    ):
+        return False, (
+            f"a signal for this exact strategy+coin+direction was already sent within "
+            f"the last {minutes} minutes"
+        )
+    return True, None
+
+
 _LABELS = {
     "ur": {
         "high_confidence": "⭐ <b>HIGH CONFIDENCE SIGNAL</b> ⭐",
@@ -701,6 +827,8 @@ _LABELS = {
         "challenge_mode_tag": "\U0001F3C6 <b>CHALLENGE MODE SIGNAL</b>",
         "trailing_stop_active": "\U0001F3AF Trailing Stop Active",
         "breakeven_moved": "✅ Stop-loss break-even par move ho gaya -- ab yeh trade risk-free hai.",
+        "group_profitable": "Profitable Group", "group_losing": "Losing Group", "group_challenge": "Challenge Group",
+        "valid_for": "Yeh signal agle {n} minutes ke liye valid hai",
     },
     "en": {
         "high_confidence": "⭐ <b>HIGH CONFIDENCE SIGNAL</b> ⭐",
@@ -718,8 +846,17 @@ _LABELS = {
         "challenge_mode_tag": "\U0001F3C6 <b>CHALLENGE MODE SIGNAL</b>",
         "trailing_stop_active": "\U0001F3AF Trailing Stop Active",
         "breakeven_moved": "✅ Stop-loss moved to break-even -- this trade is now risk-free.",
+        "group_profitable": "Profitable Group", "group_losing": "Losing Group", "group_challenge": "Challenge Group",
+        "valid_for": "This signal is valid for the next {n} minutes",
     },
 }
+
+# Phase 2.2: reuses paper_trading.strategy_groups' existing 3-way
+# classification (the same one the Groups tab / Group C's own
+# CHALLENGE_TELEGRAM_MARKER already rely on) -- no new classification
+# logic, just a visual marker on top of an already-computed group.
+_GROUP_MARKER_EMOJI = {"profitable": "\U0001F535", "losing": "\U0001F534", "challenge": "\U0001F7E3"}
+_GROUP_LABEL_KEY = {"profitable": "group_profitable", "losing": "group_losing", "challenge": "group_challenge"}
 
 
 def format_signal_message(position, confluence_result=None, reliability_result=None, high_confidence=False,
@@ -771,6 +908,28 @@ def format_signal_message(position, confluence_result=None, reliability_result=N
         f"{_direction_emoji(position['direction'])} <b>{direction_word} {symbol}</b>",
         f"{L['strategy']}: {position.get('strategy_name') or L['unknown_strategy']}",
     ]
+    # Phase 2.2: confidence % (paper_trading.confidence.score's own 0-100
+    # ranking value, already computed and stored on every position at
+    # signal time) plus a colored marker for the strategy's CURRENT group
+    # (paper_trading.strategy_groups -- reused as-is, not recomputed).
+    group_key = strategy_groups.get_group(position.get("strategy_id")) if position.get("strategy_id") else None
+    group_marker = _GROUP_MARKER_EMOJI.get(group_key)
+    confidence_pct = position.get("confidence")
+    if group_marker or confidence_pct is not None:
+        parts = []
+        if group_marker:
+            parts.append(f"{group_marker} {L[_GROUP_LABEL_KEY[group_key]]}")
+        if confidence_pct is not None:
+            parts.append(f"{L['confidence']}: {confidence_pct:.0f}%")
+        lines.append(" | ".join(parts))
+    # Phase 2.4: trading style + estimated duration, derived from the
+    # position's own recorded timeframe -- only shown when determinable.
+    style_key, style_label, duration_text = trading_style_for_timeframe(position.get("timeframe"))
+    if style_label:
+        style_line = f"\U0001F553 {style_label}"
+        if duration_text:
+            style_line += f" (est. {duration_text})"
+        lines.append(style_line)
     if grade_result:
         lines.append(f"\U0001F3C5 {L['quality_grade']}: <b>{grade_result['grade']}</b> -- {grade_result['reason']}")
     lines += [
@@ -840,6 +999,13 @@ def format_signal_message(position, confluence_result=None, reliability_result=N
         age = _signal_age_text(entry_time_ms)
         lines.append("")
         lines.append(f"\U0001F551 {ts}" + (f" ({age})" if age else ""))
+
+    # Phase 2.7: per-signal expiry note -- the same signal_freshness_minutes
+    # window the Signal Freshness Gate itself enforces (freshness_check),
+    # so the CEO knows when a signal goes stale without checking the
+    # dashboard, and this can never disagree with what actually gates re-sends.
+    freshness_minutes = load_settings().get("signal_freshness_minutes", _DEFAULTS["signal_freshness_minutes"])
+    lines.append(f"⏳ {L['valid_for'].format(n=freshness_minutes)}")
 
     lines.append("")
     lines.append(L["footer_brand"])
@@ -1009,6 +1175,33 @@ def send_signal_for_position(position_id, trigger_type="manual", high_confidence
         )
         return {"ok": False, "error": fresh_reason}
 
+    # Phase 2.3: Minimum Take-Profit Distance Filter.
+    tp_ok, tp_reason = min_tp_distance_check(pos)
+    if not tp_ok:
+        storage.log_telegram_message(
+            position_id, pos.get("strategy_id"), pos.get("strategy_name"), trigger_type,
+            "", False, tp_reason, now,
+        )
+        return {"ok": False, "error": tp_reason}
+
+    # Phase 2.6: Duplicate-Signal Protection.
+    dup_ok, dup_reason = duplicate_signal_check(pos)
+    if not dup_ok:
+        storage.log_telegram_message(
+            position_id, pos.get("strategy_id"), pos.get("strategy_name"), trigger_type,
+            "", False, dup_reason, now,
+        )
+        return {"ok": False, "error": dup_reason}
+
+    # Phase 3.4: Minimum Confidence % Filter (additional layer, off by default).
+    conf_ok, conf_reason = min_confidence_check(pos)
+    if not conf_ok:
+        storage.log_telegram_message(
+            position_id, pos.get("strategy_id"), pos.get("strategy_name"), trigger_type,
+            "", False, conf_reason, now,
+        )
+        return {"ok": False, "error": conf_reason}
+
     exchanges_cfg = base_config.load_or_seed("exchanges.json", base_config.DEFAULTS["exchanges.json"])
     exchange = exchanges_cfg["default"]
     try:
@@ -1033,7 +1226,6 @@ def send_signal_for_position(position_id, trigger_type="manual", high_confidence
     # signal must be instantly visually distinguishable from a normal
     # Group A/B one -- ONLY a Group C strategy's signal gets this marker,
     # appended at the very end with no extra explanation.
-    from paper_trading import strategy_groups
     if strategy_groups.get_group(pos.get("strategy_id")) == "challenge":
         text = f"{text}\n\n{strategy_groups.CHALLENGE_TELEGRAM_MARKER}"
     ok, err = _raw_send(text, channel_id_override=channel_for_strategy(pos.get("strategy_id")))
