@@ -20,6 +20,9 @@ owns actual sending -- so the reporting side stays usable, testable, and
 deployable on its own even where sending cannot work.
 """
 
+from datetime import datetime, timezone
+
+from data_engine import storage
 from paper_trading import telegram_bot
 
 
@@ -140,6 +143,75 @@ def delivery_rows(signals, auto_send_enabled=None):
             "pnl": s.get("pnl"),
         })
     return rows
+
+
+def connection_status():
+    """Is Telegram delivery actually working right now, and if not, why.
+
+    Moved here (Grand Master Batch, Phase 3) from sindhu_web/api/paper_
+    trading.py's get_telegram_connection_status() route, which now just
+    calls this and returns its result unchanged -- so the System Health
+    Score can use the exact same real "state" without importing the web
+    layer from paper_trading (that would invert this package's dependency
+    direction and risk a circular import once the web layer imports the
+    health-score module too).
+
+    Deliberately makes NO network call: it reads the configuration plus
+    what the real send attempts already recorded. A live probe on every
+    page load would add a multi-second stall to a page whose whole point is
+    to remain useful while the network is blocked. The Test Connection
+    button (POST /telegram/test) is the deliberate live check."""
+    settings = telegram_bot.public_settings()
+    recent = storage.list_telegram_messages(limit=40)
+    real = [m for m in recent if m["trigger_type"] in ("manual", "automatic", "daily_report")]
+    last_success = next((m for m in real if m["success"]), None)
+    last_failure = next((m for m in real if not m["success"]), None)
+
+    if not settings["token_configured"] or not settings["channel_id"]:
+        state, reason = "not_configured", "No bot token or channel ID has been saved yet."
+    elif not settings["master_send_enabled"]:
+        state, reason = "turned_off", "Sending is switched off, so nothing is being delivered on purpose."
+    elif last_success and (not last_failure or last_success["sent_at"] > last_failure["sent_at"]):
+        state = "working"
+        # Name WHAT last got through. The most recent success is very often
+        # a scheduled daily report rather than a trade signal, and "delivery
+        # is working" sitting directly above "no signals sent in 4 weeks"
+        # reads as a contradiction unless the difference is spelled out.
+        # Both statements are true; this makes them legible together.
+        kind = ("a scheduled daily report" if last_success["trigger_type"] == "daily_report"
+                else "a trade signal")
+        reason = (f"The connection itself is fine -- {kind} was delivered successfully on "
+                  f"{last_success['sent_at'][:16].replace('T', ' ')}. That does not mean any trade "
+                  f"signals have gone out recently; the signal log below is what says that.")
+    elif last_failure:
+        status_id = classify_attempt(last_failure)
+        if status_id == "blocked_network":
+            state = "blocked"
+            reason = ("The request never reached Telegram -- the connection itself failed. "
+                      "api.telegram.org is blocked at network level in this region. "
+                      "A working proxy, or running this on a cloud server, resolves it.")
+        else:
+            state = "failing"
+            reason = last_failure.get("error") or "Last send attempt failed."
+    else:
+        state, reason = "unknown", "No real send has been attempted yet, so there is nothing to judge from."
+
+    today_start_iso = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    messages_sent_today = storage.count_telegram_messages_since(today_start_iso)
+
+    return {
+        "state": state,
+        "reason": reason,
+        "can_deliver": state == "working",
+        "settings": settings,
+        "last_success_at": (last_success or {}).get("sent_at"),
+        "last_failure_at": (last_failure or {}).get("sent_at"),
+        "last_failure_reason": (last_failure or {}).get("error"),
+        "proxy_enabled": settings["proxy_enabled"],
+        "proxy_configured": settings["proxy_configured"],
+        "messages_sent_today": messages_sent_today,
+        "channel_connected": bool(settings["channel_id"]) and state not in ("not_configured",),
+    }
 
 
 def delivery_summary(rows):

@@ -1138,6 +1138,11 @@
 
   async function renderNav() {
     const { pages, groups } = await apiGet("/api/nav");
+    // Grand Master Batch, Phase 2.3: cached so route() can set the browser
+    // tab's title to the current page's real nav label -- previously the
+    // tab always read the static "SINDHU Dashboard" from index.html no
+    // matter which of the app's 30 pages was open.
+    _navPagesById = Object.fromEntries(pages.map(p => [p.id, p]));
     const list = document.getElementById("navList");
     // Navigation Reorganization: pages now render as labeled groups
     // (Overview / Strategies / Backtesting / Paper Trading / Intelligence
@@ -2324,7 +2329,7 @@
       if (isStaleRoute(myToken)) return;
       const incidents = res.incidents || [];
       content.innerHTML = `
-        <div class="section-title">Incident Management</div>
+        <div class="section-title">Incidents</div>
         <p class="muted">Track a problem from the moment it's noticed through root cause, fix, test, and resolution -- nothing here is ever deleted.</p>
 
         <div class="card">
@@ -2634,6 +2639,7 @@
   // showing now. Without this, a slow Home refresh landing after you'd
   // already clicked through to another page would silently overwrite it.
   let activeRouteToken = 0;
+  let _navPagesById = {};
   function isStaleRoute(token) { return token !== activeRouteToken; }
 
   async function route() {
@@ -2649,6 +2655,14 @@
     sidebar.classList.remove("open"); overlay.classList.remove("open");
 
     const renderFn = PAGES[id] || renderHome;
+    // Grand Master Batch, Phase 2.3: the browser tab used to always read
+    // the static "SINDHU Dashboard" from index.html regardless of which
+    // page was open, so someone with several SINDHU tabs open had no way
+    // to tell them apart. Falls back to the static default when the nav
+    // list hasn't loaded yet or this id isn't a real nav page (e.g. a
+    // sub-view reached by another means, not its own sidebar entry).
+    const navPage = _navPagesById[id];
+    document.title = navPage ? `${navPage.label} — SINDHU Dashboard` : "SINDHU Dashboard";
     content.innerHTML = `
       <div class="page-skeleton">
         <div class="skel-bar skel-title"></div>
@@ -2699,7 +2713,7 @@
     const myToken = activeRouteToken;
     const settings = await apiGet("/api/settings").catch(() => ({ refresh_speed_seconds: 10 }));
     const render = async () => {
-      const [h, net, act, bw, strats, tgAlert, stratSummary, killSwitch, drawdown, openIncidents, paperAlerts, retirementSug] = await Promise.all([
+      const [h, net, act, bw, strats, tgAlert, stratSummary, killSwitch, drawdown, openIncidents, paperAlerts, retirementSug, healthScore] = await Promise.all([
         apiGet("/api/home"),
         apiGet("/api/network").catch(() => null),
         apiGet("/api/activity?limit=20").catch(() => ({ activity: [] })),
@@ -2717,6 +2731,7 @@
         apiGet("/api/incidents?status=open&limit=20").catch(() => ({ incidents: [] })),
         apiGet("/api/paper-trading/alerts?limit=20").catch(() => ({ alerts: [] })),
         apiGet("/api/paper-trading/retirement-suggestions").catch(() => ({ suggestions: [] })),
+        apiGet("/api/paper-trading/health-score").catch(() => null),
       ]);
       if (isStaleRoute(myToken)) return;
 
@@ -2829,7 +2844,47 @@
             ? `Latest completed <b>backtest</b>, not a live account`
             : `Latest <b>backtest</b> ke numbers, live account ke nahi`);
 
+      // Grand Master Batch, Phase 3: System Health Score -- one 0-100
+      // number combining % strategies profitable, Telegram delivery
+      // health, whether any safety gate has tripped, and the last 7
+      // days' real PnL trend (see paper_trading/health_score.py for the
+      // full weighted-average math, returned in `components` below so
+      // this can show what the number is made of, not just the number).
+      const HEALTH_COMPONENT_LABELS = {
+        profitable_ratio: getLang() === "en" ? "Strategies Profitable" : "Profitable Strategies",
+        telegram_delivery: getLang() === "en" ? "Telegram Delivery" : "Telegram Delivery",
+        safety_gates: getLang() === "en" ? "Safety Gates" : "Safety Gates",
+        pnl_trend: getLang() === "en" ? "PnL Trend (7d)" : "PnL Trend (7 din)",
+      };
+      const healthScoreHtml = healthScore ? `
+        <div class="card" id="healthScoreCard" style="margin-bottom:14px;border-left:3px solid var(--${healthScore.color});">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+            <div>
+              <div style="font-weight:600;font-size:13px;">${getLang() === "en" ? "System Health Score" : "System Health Score"}</div>
+              <div class="muted" style="font-size:11px;margin-top:2px;">${getLang() === "en" ? "Strategies profitable + Telegram delivery + safety gates + recent PnL trend" : "Profitable strategies + Telegram delivery + safety gates + recent PnL trend"}</div>
+            </div>
+            <div style="font-size:28px;font-weight:700;color:var(--${healthScore.color});">${healthScore.score}<span class="muted" style="font-size:13px;font-weight:400;">/100</span></div>
+          </div>
+          <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;">
+            ${Object.entries(healthScore.components).map(([key, c]) => {
+              const tone = c.score >= 75 ? "green" : c.score >= 50 ? "yellow" : "red";
+              return `<span title="${esc(c.detail)}" style="background:var(--${tone}-dim);color:var(--${tone});padding:2px 9px;border-radius:10px;font-size:10.5px;white-space:nowrap;">${esc(HEALTH_COMPONENT_LABELS[key] || key)}: ${Math.round(c.score)}</span>`;
+            }).join("")}
+          </div>
+        </div>
+      ` : `<div class="card muted" style="margin-bottom:14px;font-size:11.5px;">${getLang() === "en" ? "System Health Score is unavailable right now." : "System Health Score abhi available nahi hai."}</div>`;
+
       content.innerHTML = `
+        <div class="page-head">
+          <div>
+            <div class="page-eyebrow">CEO / Orchestrator</div>
+            <h2 class="page-title">Dashboard</h2>
+            <p class="page-lede">${getLang() === "en"
+              ? "Everything at a glance: system health, today's focus, top strategies, and recent activity."
+              : "Sab kuch ek nazar mein: system health, aaj ka focus, top strategies, aur recent activity."}</p>
+          </div>
+        </div>
+        ${healthScoreHtml}
         <div class="card" style="border-left:3px solid ${todaysFocus ? (todaysFocus.severity === "critical" ? "var(--red, #e5484d)" : todaysFocus.severity === "high" ? "var(--red, #e5484d)" : todaysFocus.severity === "medium" ? "var(--orange, #d68910)" : "var(--muted-fg, #888)") : "var(--green, #2fb344)"}; margin-bottom:14px;">
           <div style="font-weight:600;font-size:13px;">${getLang() === "en" ? "Today's Focus" : "Aaj Ka Focus"}</div>
           <div style="margin-top:6px;">${todaysFocus ? esc(todaysFocus.text) : (getLang() === "en" ? "Nothing urgent -- everything looks fine right now." : "Kuch bhi zaroori nahi -- abhi sab kuch theek lag raha hai.")}</div>
@@ -4498,10 +4553,14 @@
   async function renderClarificationCenter() {
     const en = getLang() === "en";
     content.innerHTML = `
-      <div class="page-header"><h2>${en ? "Clarification Center" : "Clarification Center"}</h2>
-        <div class="muted">${en
-          ? "Resolve every strategy's unclear items here -- one question at a time, or read the whole strategy back before confirming."
-          : "Har strategy ke unclear sawaalon ko yahan resolve karein -- ek-ek karke, ya poori strategy wapas parh kar confirm karein."}</div>
+      <div class="page-head">
+        <div>
+          <div class="page-eyebrow">Strategy</div>
+          <h2 class="page-title">Clarification</h2>
+          <p class="page-lede">${en
+            ? "Resolve every strategy's unclear items here -- one question at a time, or read the whole strategy back before confirming."
+            : "Har strategy ke unclear sawaalon ko yahan resolve karein -- ek-ek karke, ya poori strategy wapas parh kar confirm karein."}</p>
+        </div>
       </div>
       <div id="clarProgressWrap" class="card"></div>
       <div id="clarGroups"></div>`;
@@ -6180,7 +6239,7 @@
     }
 
     content.innerHTML = `
-      <div class="section-title">Automation Pipeline History</div>
+      <div class="section-title">Pipeline History</div>
       <p class="muted">Every automation run (import -&gt; backtest -&gt; optimizer -&gt; paper trading), permanently -- the same data tracked for crash-recovery resume, not a separate log.</p>
 
       <div class="section-title" style="margin-top:24px;">Submission Queue</div>
@@ -6555,8 +6614,8 @@
     content.innerHTML = `
       <div class="page-head">
         <div>
-          <div class="page-eyebrow">Paper Trading</div>
-          <h2 class="page-title">Telegram</h2>
+          <div class="page-eyebrow">Trading / Execution</div>
+          <h2 class="page-title">Telegram Signals</h2>
           <p class="page-lede">Every signal the system produced, and honestly what happened to each one. Nothing here is shown as sent unless it truly reached Telegram.</p>
         </div>
       </div>
@@ -6784,7 +6843,7 @@
       };
 
       content.innerHTML = `
-        <div class="section-title">Evolution Engine</div>
+        <div class="section-title">Evolution</div>
         <p class="muted">Continuously Analyzes, Compares, Mutates, Ranks, and Archives BOT-owned strategies and lessons -- pure deterministic logic, zero AI, never touches user-imported strategies or user-written lessons.</p>
         <div class="grid">
           ${cardClass("Status", status.running ? "<span class=\"pill pill-completed\">Running</span>" : "<span class=\"pill pill-muted\">Stopped</span>", "")}
@@ -8064,10 +8123,14 @@
       if (isStaleRoute(myToken)) return;
 
       content.innerHTML = `
-        <div class="page-header"><h2>${en ? "External Signal Tracker" : "External Signal Tracker"}</h2>
-          <div class="muted">${en
-            ? "Tracks signals from Telegram channels you follow -- completely separate fake-money book from your own Paper Trading. Never mixed, never averaged together."
-            : "Un Telegram channels ke signals track karta hai jinhein aap follow karte hain -- yeh aapki apni Paper Trading se bilkul alag, nakli paise ka hisaab hai. Kabhi mix nahi hota."}</div>
+        <div class="page-head">
+          <div>
+            <div class="page-eyebrow">Trading / Execution</div>
+            <h2 class="page-title">External Signal Tracker</h2>
+            <p class="page-lede">${en
+              ? "Tracks signals from Telegram channels you follow -- completely separate fake-money book from your own Paper Trading. Never mixed, never averaged together."
+              : "Un Telegram channels ke signals track karta hai jinhein aap follow karte hain -- yeh aapki apni Paper Trading se bilkul alag, nakli paise ka hisaab hai. Kabhi mix nahi hota."}</p>
+          </div>
         </div>
 
         <div class="card" style="margin-bottom:16px;">
@@ -11401,7 +11464,7 @@
   async function renderAiCenter() {
     const myToken = activeRouteToken;
     content.innerHTML = `
-      <div class="section-title">AI Integration Center</div>
+      <div class="section-title">AI Center</div>
       <div class="card">
         <div class="muted">AI is NOT part of the trading engine -- it is used ONCE, at import time, to directly understand
         and extract a complete strategy or lesson (entry/exit/stop-loss/take-profit/risk/confirmation rules, indicators,

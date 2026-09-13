@@ -34,7 +34,7 @@ from paper_trading import kill_switch, account_drawdown_guard, coin_heatmap, cus
 from paper_trading import trade_journal_export
 from paper_trading import coin_blacklist
 from paper_trading import position_size_calculator
-from paper_trading import health_check
+from paper_trading import health_check, health_score
 from paper_trading import challenge_ai_advisor
 from paper_trading.engine import engine
 from data_engine import config as base_config
@@ -2037,66 +2037,20 @@ def get_near_misses(limit: int = 200):
 def get_telegram_connection_status():
     """Is Telegram delivery actually working right now, and if not, why.
 
-    Deliberately makes NO network call: it reads the configuration plus
-    what the real send attempts already recorded. A live probe on every
-    page load would add a multi-second stall to a page whose whole point is
-    to remain useful while the network is blocked. The Test Connection
-    button (POST /telegram/test) is the deliberate live check."""
-    settings = telegram_bot.public_settings()
-    recent = storage.list_telegram_messages(limit=40)
-    real = [m for m in recent if m["trigger_type"] in ("manual", "automatic", "daily_report")]
-    last_success = next((m for m in real if m["success"]), None)
-    last_failure = next((m for m in real if not m["success"]), None)
+    Grand Master Batch, Phase 3: logic moved to paper_trading.
+    telegram_delivery.connection_status() so the System Health Score can
+    reuse the exact same real state without the health-score module
+    importing this web layer."""
+    return telegram_delivery.connection_status()
 
-    if not settings["token_configured"] or not settings["channel_id"]:
-        state, reason = "not_configured", "No bot token or channel ID has been saved yet."
-    elif not settings["master_send_enabled"]:
-        state, reason = "turned_off", "Sending is switched off, so nothing is being delivered on purpose."
-    elif last_success and (not last_failure or last_success["sent_at"] > last_failure["sent_at"]):
-        state = "working"
-        # Name WHAT last got through. The most recent success is very often
-        # a scheduled daily report rather than a trade signal, and "delivery
-        # is working" sitting directly above "no signals sent in 4 weeks"
-        # reads as a contradiction unless the difference is spelled out.
-        # Both statements are true; this makes them legible together.
-        kind = ("a scheduled daily report" if last_success["trigger_type"] == "daily_report"
-                else "a trade signal")
-        reason = (f"The connection itself is fine -- {kind} was delivered successfully on "
-                  f"{last_success['sent_at'][:16].replace('T', ' ')}. That does not mean any trade "
-                  f"signals have gone out recently; the signal log below is what says that.")
-    elif last_failure:
-        status_id = telegram_delivery.classify_attempt(last_failure)
-        if status_id == "blocked_network":
-            state = "blocked"
-            reason = ("The request never reached Telegram -- the connection itself failed. "
-                      "api.telegram.org is blocked at network level in this region. "
-                      "A working proxy, or running this on a cloud server, resolves it.")
-        else:
-            state = "failing"
-            reason = last_failure.get("error") or "Last send attempt failed."
-    else:
-        state, reason = "unknown", "No real send has been attempted yet, so there is nothing to judge from."
 
-    # Grand Master Prompt, Phase 3.3 (Telegram Status Monitor): "total
-    # messages today" -- the one real gap the research pass found in this
-    # already-thorough endpoint. "Today" = since UTC midnight, same
-    # convention paper_trading/engine.py's own trades_today already uses.
-    today_start_iso = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
-    messages_sent_today = storage.count_telegram_messages_since(today_start_iso)
-
-    return {
-        "state": state,
-        "reason": reason,
-        "can_deliver": state == "working",
-        "settings": settings,
-        "last_success_at": (last_success or {}).get("sent_at"),
-        "last_failure_at": (last_failure or {}).get("sent_at"),
-        "last_failure_reason": (last_failure or {}).get("error"),
-        "proxy_enabled": settings["proxy_enabled"],
-        "proxy_configured": settings["proxy_configured"],
-        "messages_sent_today": messages_sent_today,
-        "channel_connected": bool(settings["channel_id"]) and state not in ("not_configured",),
-    }
+@router.get("/api/paper-trading/health-score")
+def get_system_health_score():
+    """Grand Master Batch, Phase 3: the single 0-100 System Health Score
+    shown at the top of the dashboard -- see paper_trading.health_score
+    for the full combined-scoring math (returned here in full, not just
+    the final number, so the dashboard can show what it's made of)."""
+    return health_score.compute()
 
 
 @router.get("/api/paper-trading/telegram/preview/{position_id}")
