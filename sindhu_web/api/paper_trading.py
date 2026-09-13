@@ -1964,6 +1964,7 @@ def _diag_full_system_audit():
         "reset_balance_preview": reset_preview,
         "recent_telegram_sends": [
             {
+                "position_id": m.get("position_id"),
                 "strategy_name": m.get("strategy_name"), "trigger_type": m.get("trigger_type"),
                 "success": bool(m.get("success")), "sent_at": m.get("sent_at"),
                 # _raw_send's connection-exception branch embeds repr(the
@@ -1976,6 +1977,18 @@ def _diag_full_system_audit():
                 "error": re.sub(r"/bot\d+:[A-Za-z0-9_-]+", "/bot[REDACTED]", m.get("error") or "") or None,
             }
             for m in storage.list_telegram_messages(limit=10)
+        ],
+        "recent_send_position_details": [
+            {
+                "id": p.get("id"), "symbol": p.get("symbol"), "exchange": p.get("exchange"),
+                "direction": p.get("direction"), "entry_price": p.get("entry_price"),
+                "timeframe": p.get("timeframe"), "entry_time": p.get("entry_time"),
+                "created_at": p.get("created_at"), "status": p.get("status"),
+            }
+            for p in (
+                storage.get_paper_position(m["position_id"])
+                for m in storage.list_telegram_messages(limit=10) if m.get("position_id")
+            ) if p
         ],
         # Full System Verification Audit (2026-09-13): checks whether the
         # token-in-error-message gap just fixed in _raw_send/
