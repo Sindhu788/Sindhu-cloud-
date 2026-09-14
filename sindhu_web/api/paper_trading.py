@@ -33,7 +33,7 @@ from paper_trading import signal_explainer
 from paper_trading import kill_switch, account_drawdown_guard, coin_heatmap, custom_alerts
 from paper_trading import trade_journal_export
 from paper_trading import coin_blacklist
-from paper_trading import position_size_calculator, practice_mode, pattern_sharing
+from paper_trading import position_size_calculator, practice_mode, pattern_sharing, daily_missed_opportunity_report
 from paper_trading import health_check, health_score, best_strategy_highlight, undo_stack, best_check_time
 from paper_trading import challenge_ai_advisor
 from paper_trading.engine import engine
@@ -2044,6 +2044,20 @@ def get_telegram_delivery_log(period: str = "all"):
         "summary": telegram_delivery.delivery_summary(rows),
         "signals": rows,
     }
+
+
+@router.post("/api/paper-trading/telegram/daily-missed-opportunity-report/generate-now")
+def generate_daily_missed_opportunity_report_now():
+    """Grand Master Batch, Phase 6 Item 13. Generates + sends immediately,
+    bypassing the "once per real calendar day" scheduler gate -- an
+    explicit CEO action, not a duplicate of the automatic daily send."""
+    result = daily_missed_opportunity_report.generate_report()
+    ok, err = telegram_bot._raw_send(result["report_text"])
+    storage.log_telegram_message(None, None, None, "daily_missed_opportunity_report", result["report_text"], ok, err,
+                                  datetime.now(timezone.utc).isoformat())
+    result["telegram_sent"] = ok
+    result["telegram_error"] = err
+    return result
 
 
 @router.get("/api/paper-trading/telegram/near-misses")

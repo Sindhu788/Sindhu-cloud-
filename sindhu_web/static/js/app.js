@@ -6633,6 +6633,7 @@
         ${nearMiss ? `
         <div class="section-title">Near-Miss Log &mdash; How Close Signals Came to High Confidence</div>
         <p class="muted plain-note">Master Task 5: every real signal that was generated and checked for auto-send, but did not reach High Confidence, gets logged here once (all-time, not just this period) &mdash; with exactly why, and how far short it fell. This builds up automatically over time so the CEO can judge whether the bar is set right without a one-off manual investigation each time.</p>
+        <div class="btn-row" style="margin-bottom:8px;"><button class="btn-ghost" id="btnGenDailyMissedOpp" title="Grand Master Batch, Phase 6 Item 13: sends a day-boundary digest of yesterday's near-misses to the main channel now, in addition to the automatic once-per-day send.">Send Daily Missed Opportunity Report Now</button><span id="dailyMissedOppStatus" class="muted"></span></div>
         <div class="grid">
           ${card("Total Near-Misses Logged", fmtNum(nearMiss.total))}
           ${card("Blocked by Confluence Alone", fmtNum(nearMiss.near_misses.filter(n => (n.confluence_deficit_pct || 0) > 0).length))}
@@ -6737,6 +6738,17 @@
       box.querySelectorAll(".tg-preview-btn").forEach(btn => {
         btn.onclick = () => openTelegramPreviewModal(btn.dataset.id);
       });
+      const btnGenDailyMissedOpp = document.getElementById("btnGenDailyMissedOpp");
+      if (btnGenDailyMissedOpp) btnGenDailyMissedOpp.onclick = async () => {
+        const status = document.getElementById("dailyMissedOppStatus");
+        status.textContent = "Sending...";
+        try {
+          const r = await apiPost("/api/paper-trading/telegram/daily-missed-opportunity-report/generate-now");
+          status.textContent = r.telegram_sent ? `Sent -- ${r.total_missed} missed opportunit${r.total_missed === 1 ? "y" : "ies"} on ${r.date}.` : `Failed: ${r.telegram_error}`;
+        } catch (e) {
+          status.textContent = "Couldn't generate.";
+        }
+      };
       document.querySelectorAll(".strat-snooze").forEach(btn => {
         btn.onclick = async () => {
           await apiPost(`/api/paper-trading/telegram/snooze/${btn.dataset.id}`, { hours: 24 });
