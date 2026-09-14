@@ -34,7 +34,7 @@ from paper_trading import kill_switch, account_drawdown_guard, coin_heatmap, cus
 from paper_trading import trade_journal_export
 from paper_trading import coin_blacklist
 from paper_trading import position_size_calculator
-from paper_trading import health_check, health_score
+from paper_trading import health_check, health_score, best_strategy_highlight
 from paper_trading import challenge_ai_advisor
 from paper_trading.engine import engine
 from data_engine import config as base_config
@@ -2072,6 +2072,13 @@ def get_system_health_score():
     for the full combined-scoring math (returned here in full, not just
     the final number, so the dashboard can show what it's made of)."""
     return health_score.compute()
+
+
+@router.get("/api/paper-trading/best-strategy-this-month")
+def get_best_strategy_this_month():
+    """Grand Master Batch, Phase 4 Item 13."""
+    result = best_strategy_highlight.best_strategy_this_month()
+    return {"best": result}
 
 
 @router.get("/api/paper-trading/telegram/preview/{position_id}")

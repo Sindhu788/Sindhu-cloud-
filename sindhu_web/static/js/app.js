@@ -2713,7 +2713,7 @@
     const myToken = activeRouteToken;
     const settings = await apiGet("/api/settings").catch(() => ({ refresh_speed_seconds: 10 }));
     const render = async () => {
-      const [h, net, act, bw, strats, tgAlert, stratSummary, killSwitch, drawdown, openIncidents, paperAlerts, retirementSug, healthScore] = await Promise.all([
+      const [h, net, act, bw, strats, tgAlert, stratSummary, killSwitch, drawdown, openIncidents, paperAlerts, retirementSug, healthScore, bestStrategyMonth] = await Promise.all([
         apiGet("/api/home"),
         apiGet("/api/network").catch(() => null),
         apiGet("/api/activity?limit=20").catch(() => ({ activity: [] })),
@@ -2732,6 +2732,7 @@
         apiGet("/api/paper-trading/alerts?limit=20").catch(() => ({ alerts: [] })),
         apiGet("/api/paper-trading/retirement-suggestions").catch(() => ({ suggestions: [] })),
         apiGet("/api/paper-trading/health-score").catch(() => null),
+        apiGet("/api/paper-trading/best-strategy-this-month").catch(() => ({ best: null })),
       ]);
       if (isStaleRoute(myToken)) return;
 
@@ -2874,6 +2875,21 @@
         </div>
       ` : `<div class="card muted" style="margin-bottom:14px;font-size:11.5px;">${getLang() === "en" ? "System Health Score is unavailable right now." : "System Health Score abhi available nahi hai."}</div>`;
 
+      // Grand Master Batch, Phase 4 Item 13: Best Strategy This Month --
+      // auto-computed on every load from ALL real paper-trading trades
+      // closed so far this calendar month, not scoped to Telegram-sent
+      // signals and not something the CEO has to pick a period for
+      // (compare paper_trading/telegram_analytics.py's best_performing_
+      // strategy(), which is both of those things, for a different page).
+      const best = bestStrategyMonth && bestStrategyMonth.best;
+      const bestStrategyHtml = best ? `
+        <div class="card" style="margin-bottom:14px;border-left:3px solid var(--green);">
+          <div style="font-weight:600;font-size:13px;">🏆 ${getLang() === "en" ? "Best Strategy This Month" : "Is Mahine Ki Best Strategy"}</div>
+          <div style="margin-top:6px;"><b>${esc(best.strategy_name)}</b> <span class="muted" style="font-size:12px;">-- ${best.closed_trades} trades closed, ${best.win_rate_pct}% win rate</span></div>
+          <div class="${best.total_pnl >= 0 ? "positive" : "negative"}" style="font-size:16px;font-weight:600;margin-top:2px;">${best.total_pnl >= 0 ? "+" : ""}$${best.total_pnl.toFixed(2)}</div>
+        </div>
+      ` : "";
+
       content.innerHTML = `
         <div class="page-head">
           <div>
@@ -2885,6 +2901,7 @@
           </div>
         </div>
         ${healthScoreHtml}
+        ${bestStrategyHtml}
         <div class="card" style="border-left:3px solid ${todaysFocus ? (todaysFocus.severity === "critical" ? "var(--red, #e5484d)" : todaysFocus.severity === "high" ? "var(--red, #e5484d)" : todaysFocus.severity === "medium" ? "var(--orange, #d68910)" : "var(--muted-fg, #888)") : "var(--green, #2fb344)"}; margin-bottom:14px;">
           <div style="font-weight:600;font-size:13px;">${getLang() === "en" ? "Today's Focus" : "Aaj Ka Focus"}</div>
           <div style="margin-top:6px;">${todaysFocus ? esc(todaysFocus.text) : (getLang() === "en" ? "Nothing urgent -- everything looks fine right now." : "Kuch bhi zaroori nahi -- abhi sab kuch theek lag raha hai.")}</div>
@@ -3835,6 +3852,19 @@
     return "";
   }
 
+  // Grand Master Batch, Phase 4 Item 10: Trial Period badge -- visible
+  // for TRIAL_PERIOD_DAYS days after a strategy's own recorded
+  // created_at (no new backend field needed, every strategy meta already
+  // has this). Purely a visual label; changes no gating/eligibility logic.
+  const TRIAL_PERIOD_DAYS = 14;
+  function trialPeriodBadge(s) {
+    if (!s.created_at) return "";
+    const ageMs = Date.now() - new Date(s.created_at).getTime();
+    const daysRemaining = TRIAL_PERIOD_DAYS - Math.floor(ageMs / 86400000);
+    if (daysRemaining <= 0) return "";
+    return `<br><span class="pill" style="margin-top:4px;background:var(--blue,#3b82f6);" title="Imported ${esc((s.created_at || "").slice(0, 10))}">🧪 Trial (${daysRemaining}d left)</span>`;
+  }
+
   // Strategy Performance Dashboard: a single GREEN/RED read at a glance,
   // combining expectancy/profit-factor/trade-count/Walk-Forward into one
   // verdict (backtest_engine/performance_dashboard.py computes this --
@@ -3937,7 +3967,7 @@
           <td>${(s.concepts_used || []).join(", ") || "-"}</td>
           <td>${Object.entries(s.timeframes || {}).map(([role, tf]) => `${role}:${tf}`).join(", ") || "-"}</td>
           <td>${conditionRolesCell(s.condition_roles)}</td>
-          <td>${strategyStatusPill(s.status)}${extractionLockBadge(s)}</td>
+          <td>${strategyStatusPill(s.status)}${extractionLockBadge(s)}${trialPeriodBadge(s)}</td>
           <td>${lastBacktestCell(s.last_batch_result)}</td>
           <td>${riskCell(s.id)}</td>
           <td>V${s.current_version || 1} <button class="btn-ghost strat-versions" data-id="${s.id}" data-name="${esc(s.name)}">History</button></td>
