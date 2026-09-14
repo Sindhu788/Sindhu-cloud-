@@ -2634,6 +2634,7 @@
     risk_department: renderRiskDepartment,
     memory_core: renderMemoryCore,
     configuration_panel: renderConfigurationPanel,
+    practice_mode: renderPracticeMode,
   };
   let refreshTimer = null;
   let pendingStrategyLoadId = null;
@@ -12379,6 +12380,82 @@
       wireFeatureControlHandlers(render);
     }
     await render();
+  }
+
+  // ------------------------------------------------------------ PRACTICE MODE
+  // Grand Master Batch, Phase 4 Item 3: manually enter a hypothetical
+  // trade and see its real confidence/sizing evaluation, for learning
+  // only -- never opens a real or paper position. Distinct from the
+  // Position Size Calculator (Paper Trading page), which this reuses
+  // for the sizing half but adds the real confidence-scoring half too.
+  async function renderPracticeMode() {
+    const myToken = activeRouteToken;
+    const en = getLang() === "en";
+    const stratsRes = await apiGet("/api/backtesting/strategies").catch(() => ({ strategies: [] }));
+    if (isStaleRoute(myToken)) return;
+    const strategies = (stratsRes.strategies || []).filter(s => !s.archived);
+    content.innerHTML = `
+      <div class="page-head">
+        <div>
+          <div class="page-eyebrow">Trading / Execution</div>
+          <h2 class="page-title">Practice Mode</h2>
+          <p class="page-lede">${en
+            ? "Manually enter a hypothetical trade and see exactly how the system would evaluate its confidence and size it -- for learning only. This never opens a real or paper position."
+            : "Ek hypothetical trade manually likhein aur dekhein system iska confidence aur size kaise evaluate karega -- sirf seekhne ke liye. Yeh kabhi real ya paper position nahi kholta."}</p>
+        </div>
+      </div>
+      <div class="card" style="max-width:480px;">
+        <div class="form-row"><label>${en ? "Strategy" : "Strategy"}</label>
+          <select id="pmStrategy">${strategies.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join("") || `<option value="">${en ? "No strategies yet" : "Abhi koi strategy nahi"}</option>`}</select>
+        </div>
+        <div class="form-row"><label>${en ? "Coin" : "Coin"}</label><input id="pmSymbol" placeholder="e.g. BTCUSDT" value="BTCUSDT"></div>
+        <div class="form-row"><label>${en ? "Direction" : "Direction"}</label>
+          <select id="pmDirection"><option value="bullish">${en ? "Long / Bullish" : "Long / Bullish"}</option><option value="bearish">${en ? "Short / Bearish" : "Short / Bearish"}</option></select>
+        </div>
+        <div class="form-row"><label>${en ? "Market Condition" : "Market Condition"}</label>
+          <select id="pmMarketState"><option value="trending_up">Trending Up</option><option value="trending_down">Trending Down</option><option value="ranging" selected>Ranging</option></select>
+        </div>
+        <div class="form-row"><label>Entry Price</label><input id="pmEntry" type="number" step="any"></div>
+        <div class="form-row"><label>Stop-Loss</label><input id="pmStop" type="number" step="any"></div>
+        <div class="form-row"><label>Take-Profit (optional)</label><input id="pmTarget" type="number" step="any"></div>
+        <div class="btn-row"><button class="btn" id="btnPracticeEvaluate">${en ? "Evaluate (no trade opened)" : "Evaluate (koi trade nahi khulega)"}</button></div>
+      </div>
+      <div id="pmResult"></div>
+    `;
+    document.getElementById("btnPracticeEvaluate").onclick = async () => {
+      const resultBox = document.getElementById("pmResult");
+      const strategy_id = document.getElementById("pmStrategy").value;
+      const entry_price = parseFloat(document.getElementById("pmEntry").value);
+      const stop_loss = parseFloat(document.getElementById("pmStop").value);
+      const takeProfitRaw = document.getElementById("pmTarget").value;
+      if (!strategy_id || isNaN(entry_price) || entry_price <= 0 || isNaN(stop_loss)) {
+        resultBox.innerHTML = `<div class="card muted">${en ? "Pick a strategy and enter a valid entry price and stop-loss." : "Ek strategy chunein aur valid entry price/stop-loss likhein."}</div>`;
+        return;
+      }
+      resultBox.innerHTML = `<div class="card muted">${en ? "Evaluating..." : "Evaluate ho raha hai..."}</div>`;
+      try {
+        const r = await apiPost("/api/paper-trading/practice-mode/evaluate", {
+          strategy_id, symbol: document.getElementById("pmSymbol").value.trim() || "BTCUSDT",
+          direction: document.getElementById("pmDirection").value,
+          entry_price, stop_loss,
+          take_profit: takeProfitRaw ? parseFloat(takeProfitRaw) : null,
+          market_state: document.getElementById("pmMarketState").value,
+        });
+        resultBox.innerHTML = `
+          <div class="card" style="margin-top:14px;border-left:3px solid var(--yellow, #eab308);">
+            <div class="muted" style="font-size:11px;">🧪 ${en ? "PRACTICE ONLY -- nothing was opened" : "SIRF PRACTICE -- kuch nahi khula"}</div>
+            <div class="grid" style="margin-top:8px;">
+              ${card("Confidence", `${r.confidence}%`)}
+              ${card("Position Size", r.sizing.size)}
+              ${card("Risk Amount", r.sizing.risk_amount != null ? `$${r.sizing.risk_amount}` : "-")}
+              ${card("Risk:Reward", r.sizing.risk_reward_ratio != null ? `1:${r.sizing.risk_reward_ratio}` : "-")}
+            </div>
+            <p class="muted" style="font-size:11.5px;margin-top:8px;">${en ? `Sized against ${r.strategy_name}'s configured balance ($${r.balance_used}) and risk (${r.risk_pct_used}%).` : `${r.strategy_name} ke configured balance ($${r.balance_used}) aur risk (${r.risk_pct_used}%) ke against sized.`}</p>
+          </div>`;
+      } catch (e) {
+        resultBox.innerHTML = `<div class="card muted">${en ? "Couldn't evaluate" : "Evaluate nahi ho saka"}: ${esc(e.message)}</div>`;
+      }
+    };
   }
 
   // ------------------------------------------------------------ RISK DEPARTMENT

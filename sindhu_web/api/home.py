@@ -32,7 +32,7 @@ NAV_ICONS = {
     "compare": "mirror", "live_logs": "spark", "project_status": "news",
     "strategy_lifecycle": "layers", "incidents": "flask", "self_learning": "spark",
     "challenge_mode": "target", "risk_department": "gear", "memory_core": "history",
-    "configuration_panel": "gear",
+    "configuration_panel": "gear", "practice_mode": "flask",
 }
 
 # Grand Master Prompt, Phase 1 (10-Department Company Structure): every
@@ -106,6 +106,11 @@ NAV_PAGES = [
     # that separation stays visible in the nav itself, not just in the data.
     {"id": "external_signals", "label": "External Signal Tracker", "enabled": True,
      "icon": NAV_ICONS["external_signals"], "group": "Trading / Execution"},
+    # Grand Master Batch, Phase 4 Item 3: Practice Mode -- manually enter
+    # a hypothetical trade and see its real confidence/sizing evaluation,
+    # for learning only. Never opens a real or paper position.
+    {"id": "practice_mode", "label": "Practice Mode", "enabled": True,
+     "icon": NAV_ICONS["practice_mode"], "group": "Trading / Execution"},
 
     # 1.6 Risk -- every safety-gate/limit's current live state in one
     # place. See sindhu_web/api/risk_department.py (Grand Master Prompt,

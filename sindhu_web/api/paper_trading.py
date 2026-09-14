@@ -33,7 +33,7 @@ from paper_trading import signal_explainer
 from paper_trading import kill_switch, account_drawdown_guard, coin_heatmap, custom_alerts
 from paper_trading import trade_journal_export
 from paper_trading import coin_blacklist
-from paper_trading import position_size_calculator
+from paper_trading import position_size_calculator, practice_mode
 from paper_trading import health_check, health_score, best_strategy_highlight, undo_stack, best_check_time
 from paper_trading import challenge_ai_advisor
 from paper_trading.engine import engine
@@ -2735,6 +2735,35 @@ def calculate_position_size(req: PositionSizeCalculatorRequest):
         raise HTTPException(400, "entry_price must be greater than 0")
     return position_size_calculator.calculate(
         req.balance, req.entry_price, req.stop_loss, req.risk_pct, req.take_profit, req.leverage)
+
+
+class PracticeModeRequest(BaseModel):
+    strategy_id: str
+    symbol: str
+    direction: str
+    entry_price: float
+    stop_loss: float
+    take_profit: Optional[float] = None
+    market_state: str = "ranging"
+    session: str = "unknown"
+
+
+@router.post("/api/paper-trading/practice-mode/evaluate")
+def practice_mode_evaluate(req: PracticeModeRequest):
+    """Grand Master Batch, Phase 4 Item 3: Practice Mode -- never opens a
+    real or paper position, purely a what-if confidence + sizing reveal
+    for learning."""
+    if req.entry_price <= 0:
+        raise HTTPException(400, "entry_price must be greater than 0")
+    if req.direction not in ("bullish", "bearish"):
+        raise HTTPException(400, "direction must be 'bullish' or 'bearish'")
+    try:
+        return practice_mode.evaluate(
+            req.strategy_id, req.symbol, req.direction, req.entry_price, req.stop_loss,
+            req.take_profit, req.market_state, req.session,
+        )
+    except ValueError as e:
+        raise HTTPException(404, str(e))
 
 
 @router.get("/api/paper-trading/weekly-reports")
