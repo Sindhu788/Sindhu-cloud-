@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from data_engine import config, db_backend
 from data_engine.paths import DATABASE_DIR
 from data_engine.exchanges.registry import ALL_EXCHANGE_IDS
-from paper_trading import cost_tracker
+from paper_trading import cost_tracker, coin_event_caution
 from sindhu_web import sync
 
 router = APIRouter()
@@ -127,3 +127,26 @@ def add_cost_tracker_item(req: CostItemCreate):
 def delete_cost_tracker_item(cost_id: str):
     removed = cost_tracker.remove_cost(cost_id)
     return {"ok": removed}
+
+
+# --------------------------------------------------------------- Grand Master Batch, Phase 4 Item 12: coin event caution
+
+class CoinEventCautionSettingsUpdate(BaseModel):
+    cryptopanic_api_key: Optional[str] = None
+
+
+@router.get("/api/settings/coin-event-caution")
+def get_coin_event_caution_settings():
+    settings = coin_event_caution.load_settings()
+    return {"api_key_configured": bool(settings.get("cryptopanic_api_key"))}
+
+
+@router.post("/api/settings/coin-event-caution")
+def save_coin_event_caution_settings(req: CoinEventCautionSettingsUpdate):
+    coin_event_caution.save_settings(cryptopanic_api_key=req.cryptopanic_api_key)
+    return {"ok": True}
+
+
+@router.get("/api/settings/coin-event-caution/{symbol}")
+def check_coin_event_caution(symbol: str):
+    return coin_event_caution.check_coin_caution(symbol)

@@ -10665,6 +10665,14 @@
         <div class="btn-row"><button class="btn-ghost" id="btnAddCostItem">Add Cost</button><span id="costItemStatus" class="muted"></span></div>
       </div>
 
+      <div class="section-title">Coin Event/News Caution Flag</div>
+      <div class="card" style="max-width:520px;">
+        <p class="muted" style="font-size:12px;margin-top:0;">Honest finding: there is no reliable FREE, no-signup crypto news/economic-calendar source. This uses CryptoPanic's free tier instead, which needs your own free account and API key -- without one, this feature stays honestly "not set up" rather than faking a caution reading. Free account: <a href="https://cryptopanic.com/developers/api/" target="_blank" rel="noopener">cryptopanic.com/developers/api</a>.</p>
+        <div id="coinCautionStatus" class="muted" style="margin-bottom:6px;">Loading...</div>
+        <div class="form-row"><label>CryptoPanic API Key</label><input id="cryptopanicApiKey" type="password" placeholder="paste your free auth_token here"></div>
+        <div class="btn-row"><button class="btn-ghost" id="btnSaveCoinCaution">Save</button><span id="coinCautionSaveStatus" class="muted"></span></div>
+      </div>
+
       <div class="section-title">Voice Alerts ${helpIcon("voice_alerts")}</div>
       <div class="card" style="max-width:480px;">
         <p class="muted" style="font-size:12px;margin-top:0;">When the kill switch or the account-wide drawdown circuit-breaker activates, this browser tab speaks it out loud immediately -- useful if the dashboard isn't the thing you're actively looking at.</p>
@@ -10905,6 +10913,32 @@
         document.getElementById("costItemAmount").value = "";
         status.textContent = "";
         loadCostTracker();
+      } catch (e) {
+        status.textContent = "Failed to save.";
+      }
+    };
+
+    async function loadCoinCautionStatus() {
+      const el = document.getElementById("coinCautionStatus");
+      try {
+        const s = await apiGet("/api/settings/coin-event-caution");
+        el.textContent = s.api_key_configured
+          ? "✅ API key configured -- checks will use real CryptoPanic data."
+          : "⚠️ Not set up yet -- no API key configured, so this feature is honestly off rather than faking a result.";
+      } catch (e) {
+        el.textContent = "Couldn't load status.";
+      }
+    }
+    loadCoinCautionStatus();
+    document.getElementById("btnSaveCoinCaution").onclick = async () => {
+      const key = document.getElementById("cryptopanicApiKey").value.trim();
+      const status = document.getElementById("coinCautionSaveStatus");
+      status.textContent = "Saving...";
+      try {
+        await apiPost("/api/settings/coin-event-caution", { cryptopanic_api_key: key });
+        document.getElementById("cryptopanicApiKey").value = "";
+        status.textContent = "Saved.";
+        loadCoinCautionStatus();
       } catch (e) {
         status.textContent = "Failed to save.";
       }
