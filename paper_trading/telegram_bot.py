@@ -107,6 +107,14 @@ _DEFAULTS = {
     "silent_hours_enabled": False,
     "silent_hours_start_utc": "23:00",
     "silent_hours_end_utc": "07:00",
+    # Grand Master Batch, Phase 4 Item 15: Quiet Mode -- a manual, one-off
+    # "mute me for a day" override, distinct from the recurring nightly
+    # schedule above. None/absent means off. An ISO timestamp means muted
+    # until that moment. Unlike Silent Hours (Item 5, below), this is a
+    # deliberate CEO action covering literally every notification with no
+    # high-confidence exception -- see is_quiet_mode_active()/_effective_
+    # silent() for why the two behave differently.
+    "quiet_mode_until": None,
     # Master 15-Item task, Items 6 & 10: the CEO's own personal Telegram
     # chat id (a DIRECT MESSAGE with the bot, never the public/shared
     # `channel_id` above) -- used for anything that must stay private:
@@ -235,6 +243,12 @@ def public_settings():
         "silent_hours_enabled": s.get("silent_hours_enabled", False),
         "silent_hours_start_utc": s.get("silent_hours_start_utc", _DEFAULTS["silent_hours_start_utc"]),
         "silent_hours_end_utc": s.get("silent_hours_end_utc", _DEFAULTS["silent_hours_end_utc"]),
+        # Grand Master Batch, Phase 4 Item 15: exposes both the raw value
+        # (so the dashboard can show exactly when it expires) and the
+        # already-computed boolean (so the dashboard never has to
+        # reimplement the "is it still in the future" check itself).
+        "quiet_mode_until": s.get("quiet_mode_until"),
+        "quiet_mode_active": is_quiet_mode_active(),
         "personal_chat_id": s.get("personal_chat_id", ""),
         # Full System Verification Audit (2026-09-13): these existed in
         # _DEFAULTS/save_settings already but were never added here, so
@@ -303,6 +317,73 @@ def is_within_silent_hours(now=None):
     return current >= start or current < end  # overnight wraparound
 
 
+def is_quiet_mode_active(now=None):
+    """Grand Master Batch, Phase 4 Item 15. True while a manual "mute me
+    for a day" override (set_quiet_mode) is still in effect. Engine
+    behavior is completely untouched by this -- trading keeps running
+    exactly as normal, this only affects whether a notification alerts."""
+    until = load_settings().get("quiet_mode_until")
+    if not until:
+        return False
+    now = now or datetime.now(timezone.utc)
+    try:
+        return now < datetime.fromisoformat(until)
+    except (ValueError, TypeError):
+        return False
+
+
+def set_quiet_mode(hours=24):
+    """Starts (or extends/restarts) Quiet Mode for `hours` hours from now."""
+    if hours <= 0:
+        raise ValueError("hours must be positive")
+    until = (datetime.now(timezone.utc) + timedelta(hours=hours)).isoformat()
+    save_settings(quiet_mode_until=until)
+    return until
+
+
+def clear_quiet_mode():
+    """Manual early "unmute" -- also self-clears naturally once `hours`
+    elapses (is_quiet_mode_active just stops returning True), but a CEO
+    who wants sound back on sooner shouldn't have to wait it out.
+
+    Bug note: save_settings(**fields) treats None as "field not provided"
+    (its update() dict-comprehension filters `if v is not None`, by
+    design -- so a partial save like save_settings(bot_token="x") never
+    wipes out other unrelated fields) -- so save_settings(quiet_mode_
+    until=None) would be silently ignored and leave the old timestamp in
+    place. This writes the settings dict directly instead, the one place
+    that genuinely needs None to mean "cleared", not "omitted"."""
+    settings = load_settings()
+    settings["quiet_mode_until"] = None
+    if db_backend.IS_POSTGRES:
+        storage.save_cloud_setting(_SETTINGS_KEY, settings, _now_iso())
+    else:
+        base_config.save_config("telegram_settings.json", settings)
+
+
+def _effective_silent(force_alert=False):
+    """The single place that decides whether a Telegram send's phone
+    alert is muted, combining both mute mechanisms:
+
+    - Quiet Mode (Item 15): a deliberate, manual "mute literally
+      everything for a day" action -- covers every message with NO
+      exception, including a high-confidence signal, because muting
+      everything is the entire point of a CEO choosing to trigger it.
+    - Silent Hours (Item 5): a recurring nightly schedule meant to hold
+      back only routine/non-urgent notifications -- `force_alert=True`
+      (a genuinely high-confidence signal, see send_signal_for_position)
+      bypasses this one so something worth waking up for still can.
+
+    Either way the message itself is still generated, sent, and fully
+    logged -- muting only ever affects the phone alert/sound, never
+    whether or when something is delivered."""
+    if is_quiet_mode_active():
+        return True
+    if force_alert:
+        return False
+    return is_within_silent_hours()
+
+
 def _master_enabled():
     """Telegram Dashboard's master ON/OFF switch: when OFF, NOTHING gets
     sent -- not a manual override, not the automatic high-confidence rule,
@@ -343,7 +424,7 @@ def _build_proxies(settings):
     return {"http": url, "https": url}
 
 
-def _raw_send(text, channel_id_override=None):
+def _raw_send(text, channel_id_override=None, force_alert=False):
     """Real HTTP call to the Telegram Bot API -- no simulation. Returns
     (success: bool, error: str|None).
 
@@ -365,18 +446,24 @@ def _raw_send(text, channel_id_override=None):
     signal's strategy has a configured routing override -- same bot token,
     a different destination chat/channel. Every other caller (daily/weekly
     reports, test sends, close-followups) omits this and keeps using the
-    one default channel_id, unchanged."""
+    one default channel_id, unchanged.
+
+    force_alert (Grand Master Batch, Phase 4 Item 5): set by
+    send_signal_for_position() for a genuinely high-confidence signal --
+    see _effective_silent()'s docstring for why this bypasses Silent
+    Hours but never Quiet Mode."""
     settings = load_settings()
     token = settings.get("bot_token")
     channel_id = channel_id_override or settings.get("channel_id")
     if not token or not channel_id:
         return False, "Telegram bot token or channel ID not configured yet"
     proxies = _build_proxies(settings)
-    # Grand Feature Expansion, Phase 2 Feature 24: Silent Hours / Do-Not-
-    # Disturb. The message is still sent and fully logged as normal --
-    # Telegram's own disable_notification flag just mutes the phone
-    # alert/sound during the configured window, nothing is withheld.
-    silent = is_within_silent_hours()
+    # Grand Feature Expansion, Phase 2 Feature 24 / Grand Master Batch,
+    # Phase 4 Items 5 & 15: Silent Hours + Quiet Mode. The message is
+    # still sent and fully logged as normal either way -- Telegram's own
+    # disable_notification flag just mutes the phone alert/sound, nothing
+    # is withheld or delayed.
+    silent = _effective_silent(force_alert)
 
     last_err = None
     for attempt in range(1, _API_MAX_ATTEMPTS + 1):
@@ -515,7 +602,7 @@ def send_private_document(file_path, caption=None):
     if not token or not personal_chat_id:
         return {"ok": False, "error": "bot_token or personal_chat_id is not configured yet -- Settings > Telegram"}
     proxies = _build_proxies(settings)
-    silent = is_within_silent_hours()
+    silent = _effective_silent()
 
     last_err = None
     for attempt in range(1, _API_MAX_ATTEMPTS + 1):
@@ -969,7 +1056,7 @@ def send_signal_for_position(position_id, trigger_type="manual", high_confidence
     # already achieves the one thing this append existed for. Appending
     # both would put the same status on the message twice, which the
     # explicit "exactly these fields, nothing more" instruction rules out.
-    ok, err = _raw_send(text, channel_id_override=channel_for_strategy(pos.get("strategy_id")))
+    ok, err = _raw_send(text, channel_id_override=channel_for_strategy(pos.get("strategy_id")), force_alert=high_confidence)
     storage.log_telegram_message(
         position_id, pos.get("strategy_id"), pos.get("strategy_name"), trigger_type, text, ok, err, now,
         # The log column is plain TEXT (also read back by

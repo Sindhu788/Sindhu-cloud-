@@ -10673,13 +10673,23 @@
       </div>
       <div class="section-title">Silent Hours (Do-Not-Disturb)</div>
       <div class="card" style="max-width:480px;">
-        <p class="muted" style="font-size:12px;margin-top:0;">Signals still send and are fully logged during this window -- only the phone notification sound/vibration is muted (Telegram's own silent-message feature). Times are in UTC.</p>
+        <p class="muted" style="font-size:12px;margin-top:0;">Signals still send and are fully logged during this window -- only the phone notification sound/vibration is muted (Telegram's own silent-message feature). A genuinely HIGH CONFIDENCE signal still alerts loudly even during this window -- only routine signals are held quiet. Times are in UTC.</p>
         <div class="form-row"><label><input id="tgSilentEnabled" type="checkbox" style="width:auto;"> Enable Silent Hours</label></div>
         <div class="form-row"><label>Start (UTC, HH:MM)</label><input id="tgSilentStart" placeholder="23:00"></div>
         <div class="form-row"><label>End (UTC, HH:MM)</label><input id="tgSilentEnd" placeholder="07:00"></div>
         <div class="btn-row">
           <button class="btn" id="btnSaveTelegramSilentHours">Save</button>
           <span id="tgSilentStatus" class="muted"></span>
+        </div>
+      </div>
+
+      <div class="section-title">Quiet Mode</div>
+      <div class="card" style="max-width:480px;">
+        <p class="muted" style="font-size:12px;margin-top:0;">A one-off "mute me for a day" override -- unlike Silent Hours above, this mutes literally every notification with no exception, including high-confidence ones. The engine keeps running and every signal is still sent and logged exactly as normal; only the phone alert sound is muted until it expires.</p>
+        <div id="quietModeStatus" class="muted" style="margin-bottom:8px;">Loading...</div>
+        <div class="btn-row">
+          <button class="btn-ghost" id="btnQuietModeToday">Mute for 24 hours</button>
+          <button class="btn-ghost" id="btnQuietModeClear">Turn off now</button>
         </div>
       </div>
 
@@ -10944,6 +10954,7 @@
       document.getElementById("tgSilentEnabled").checked = !!s.silent_hours_enabled;
       document.getElementById("tgSilentStart").value = s.silent_hours_start_utc || "23:00";
       document.getElementById("tgSilentEnd").value = s.silent_hours_end_utc || "07:00";
+      renderQuietModeStatus(s);
     }
     document.getElementById("btnSaveTelegramSilentHours").onclick = async () => {
       const status = document.getElementById("tgSilentStatus");
@@ -10954,6 +10965,23 @@
         silent_hours_end_utc: document.getElementById("tgSilentEnd").value.trim() || "07:00",
       });
       status.textContent = "Saved.";
+    };
+    function renderQuietModeStatus(s) {
+      const el = document.getElementById("quietModeStatus");
+      if (!el) return;
+      el.textContent = s.quiet_mode_active
+        ? `Quiet Mode is ON until ${esc((s.quiet_mode_until || "").replace("T", " ").slice(0, 16))} UTC.`
+        : "Quiet Mode is off.";
+    }
+    document.getElementById("btnQuietModeToday").onclick = async () => {
+      await apiPost("/api/paper-trading/telegram/quiet-mode", { hours: 24 });
+      const s = await apiGet("/api/paper-trading/telegram/settings").catch(() => ({}));
+      renderQuietModeStatus(s);
+    };
+    document.getElementById("btnQuietModeClear").onclick = async () => {
+      await apiDelete("/api/paper-trading/telegram/quiet-mode");
+      const s = await apiGet("/api/paper-trading/telegram/settings").catch(() => ({}));
+      renderQuietModeStatus(s);
     };
     async function loadTelegramChannelOverrides() {
       const [s, stratsRes] = await Promise.all([

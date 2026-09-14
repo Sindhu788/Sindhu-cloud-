@@ -1910,6 +1910,27 @@ def test_telegram_proxy():
     return telegram_bot.test_proxy_connectivity()
 
 
+class QuietModeRequest(BaseModel):
+    hours: float = 24
+
+
+@router.post("/api/paper-trading/telegram/quiet-mode")
+def start_quiet_mode(req: QuietModeRequest):
+    """Grand Master Batch, Phase 4 Item 15: mute every Telegram
+    notification's phone alert for `hours` hours (default 24) -- the
+    engine, signal generation, and message logging are completely
+    unaffected, this only silences the phone alert/sound (same mechanism
+    Silent Hours uses, see telegram_bot._effective_silent)."""
+    until = telegram_bot.set_quiet_mode(req.hours)
+    return {"ok": True, "quiet_mode_until": until}
+
+
+@router.delete("/api/paper-trading/telegram/quiet-mode")
+def stop_quiet_mode():
+    telegram_bot.clear_quiet_mode()
+    return {"ok": True}
+
+
 _BOT_TOKEN_IN_URL_RE = re.compile(r"/bot\d+:[A-Za-z0-9_-]+")
 
 
