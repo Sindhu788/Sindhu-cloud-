@@ -4663,6 +4663,21 @@ def list_telegram_messages(limit=100):
     return [dict(zip(cols, r)) for r in rows]
 
 
+def list_successful_telegram_send_timestamps(since_iso=None):
+    """Grand Master Batch, Phase 4 Item 9 ("Best time to check dashboard"):
+    just the sent_at timestamps of real, successfully-delivered signals --
+    deliberately lean (no message_text/error columns) since this can scan
+    a large history purely to build an hour-of-day activity histogram."""
+    query = "SELECT sent_at FROM telegram_message_log WHERE success = 1"
+    params = []
+    if since_iso:
+        query += " AND sent_at >= ?"
+        params.append(since_iso)
+    with get_conn() as conn:
+        rows = conn.execute(query, params).fetchall()
+    return [r[0] for r in rows]
+
+
 _RETRY_QUEUE_COLUMNS = ["id", "position_id", "trigger_type", "high_confidence", "status",
                         "attempts", "last_error", "created_at", "last_attempt_at"]
 

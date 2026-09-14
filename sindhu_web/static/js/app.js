@@ -2724,7 +2724,7 @@
     const myToken = activeRouteToken;
     const settings = await apiGet("/api/settings").catch(() => ({ refresh_speed_seconds: 10 }));
     const render = async () => {
-      const [h, net, act, bw, strats, tgAlert, stratSummary, killSwitch, drawdown, openIncidents, paperAlerts, retirementSug, healthScore, bestStrategyMonth] = await Promise.all([
+      const [h, net, act, bw, strats, tgAlert, stratSummary, killSwitch, drawdown, openIncidents, paperAlerts, retirementSug, healthScore, bestStrategyMonth, bestCheckTime] = await Promise.all([
         apiGet("/api/home"),
         apiGet("/api/network").catch(() => null),
         apiGet("/api/activity?limit=20").catch(() => ({ activity: [] })),
@@ -2744,6 +2744,7 @@
         apiGet("/api/paper-trading/retirement-suggestions").catch(() => ({ suggestions: [] })),
         apiGet("/api/paper-trading/health-score").catch(() => null),
         apiGet("/api/paper-trading/best-strategy-this-month").catch(() => ({ best: null })),
+        apiGet("/api/paper-trading/best-check-time").catch(() => ({ has_enough_data: false })),
       ]);
       if (isStaleRoute(myToken)) return;
 
@@ -2901,6 +2902,18 @@
         </div>
       ` : "";
 
+      // Grand Master Batch, Phase 4 Item 9: "Best time to check dashboard"
+      // -- based on real historical signal-delivery timing (hour-of-day,
+      // UTC), never a guess. Silent below best_check_time.py's own
+      // MIN_SIGNALS_FOR_A_SUGGESTION floor rather than suggesting
+      // something from a handful of data points.
+      const bestCheckTimeHtml = (bestCheckTime && bestCheckTime.has_enough_data && bestCheckTime.best_hours_utc.length) ? `
+        <div class="card muted" style="margin-bottom:14px;font-size:12px;">
+          ⏰ ${getLang() === "en" ? "Best time to check" : "Check karne ka best time"}: <b>${bestCheckTime.best_hours_utc.map(h => `${String(h).padStart(2, "0")}:00 UTC`).join(", ")}</b>
+          <span class="muted">(${getLang() === "en" ? "busiest hour(s) for real signals, from" : "sabse zyada signals wale ghante, in"} ${bestCheckTime.total_signals} ${getLang() === "en" ? "delivered signals" : "delivered signals"})</span>
+        </div>
+      ` : "";
+
       content.innerHTML = `
         <div class="page-head">
           <div>
@@ -2913,6 +2926,7 @@
         </div>
         ${healthScoreHtml}
         ${bestStrategyHtml}
+        ${bestCheckTimeHtml}
         <div class="card" style="border-left:3px solid ${todaysFocus ? (todaysFocus.severity === "critical" ? "var(--red, #e5484d)" : todaysFocus.severity === "high" ? "var(--red, #e5484d)" : todaysFocus.severity === "medium" ? "var(--orange, #d68910)" : "var(--muted-fg, #888)") : "var(--green, #2fb344)"}; margin-bottom:14px;">
           <div style="font-weight:600;font-size:13px;">${getLang() === "en" ? "Today's Focus" : "Aaj Ka Focus"}</div>
           <div style="margin-top:6px;">${todaysFocus ? esc(todaysFocus.text) : (getLang() === "en" ? "Nothing urgent -- everything looks fine right now." : "Kuch bhi zaroori nahi -- abhi sab kuch theek lag raha hai.")}</div>

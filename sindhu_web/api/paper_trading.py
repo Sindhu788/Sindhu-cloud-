@@ -34,7 +34,7 @@ from paper_trading import kill_switch, account_drawdown_guard, coin_heatmap, cus
 from paper_trading import trade_journal_export
 from paper_trading import coin_blacklist
 from paper_trading import position_size_calculator
-from paper_trading import health_check, health_score, best_strategy_highlight, undo_stack
+from paper_trading import health_check, health_score, best_strategy_highlight, undo_stack, best_check_time
 from paper_trading import challenge_ai_advisor
 from paper_trading.engine import engine
 from data_engine import config as base_config
@@ -2086,6 +2086,12 @@ def get_best_strategy_this_month():
     """Grand Master Batch, Phase 4 Item 13."""
     result = best_strategy_highlight.best_strategy_this_month()
     return {"best": result}
+
+
+@router.get("/api/paper-trading/best-check-time")
+def get_best_check_time():
+    """Grand Master Batch, Phase 4 Item 9."""
+    return best_check_time.best_check_times()
 
 
 @router.get("/api/paper-trading/telegram/preview/{position_id}")
