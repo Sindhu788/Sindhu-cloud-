@@ -10720,6 +10720,7 @@
         <p class="muted" style="font-size:12px;margin-top:0;">A separate, PRIVATE Telegram destination (a direct message with the same bot, never the public channel above) for the Emergency Downtime Alert and the Weekly/Monthly PDF Performance Report. To find your own personal chat id: message your bot directly on Telegram once, then check https://api.telegram.org/bot&lt;your token&gt;/getUpdates in a browser -- the "chat":{"id": ...} number there is it.</p>
         <div class="form-row"><label>Your Personal Telegram Chat ID</label><input id="tgPersonalChatId" placeholder="e.g. 123456789"></div>
         <div class="form-row"><label>ntfy.sh Topic (mobile push, optional)</label><input id="ntfyTopic" placeholder="e.g. sindhu-alerts-yourname"></div>
+        <p class="muted" style="font-size:11.5px;margin:-6px 0 0;">Grand Master Batch, Phase 4 Item 8: this is now also the BACKUP alert channel for whenever Telegram itself is genuinely unreachable (network-blocked, not just a withheld/gated signal) -- you'll still get a push here even when nothing can reach Telegram. What you need to provide: nothing to sign up for -- just pick any topic name above (an arbitrary string only you know) and install the free ntfy app (Android/iOS) subscribed to that same name.</p>
         <div class="btn-row">
           <button class="btn" id="btnSavePrivateAlerts">Save</button>
           <span id="tgPersonalStatus" class="muted"></span>

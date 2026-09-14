@@ -490,6 +490,26 @@ def _raw_send(text, channel_id_override=None, force_alert=False):
             last_err = re.sub(r"/bot\d+:[A-Za-z0-9_-]+", "/bot[REDACTED]", repr(e))
             if attempt < _API_MAX_ATTEMPTS:
                 time.sleep(_API_RETRY_BACKOFF_SECONDS)
+    # Grand Master Batch, Phase 4 Item 8: this branch is reached ONLY after
+    # every retry hit a genuine connection-level failure -- Telegram never
+    # actually answered at all (as opposed to answering with a real
+    # rejection, e.g. bad chat_id, which returns immediately above without
+    # reaching here) -- i.e. exactly "Telegram itself is down" from here.
+    # Best-effort backup alert via the existing ntfy.sh hook (paper_trading/
+    # push_notifications.py, previously built but never wired to anything)
+    # so the CEO's phone still gets SOMETHING. Never lets a push failure
+    # (including "no ntfy_topic configured yet") change this function's
+    # own return value -- the real Telegram failure is still what's
+    # reported/logged.
+    try:
+        from paper_trading import push_notifications
+        push_notifications.send_push(
+            "SINDHU: Telegram is unreachable",
+            f"Telegram delivery failed after {_API_MAX_ATTEMPTS} attempts -- the message below could not be sent:\n\n{text[:300]}",
+            priority="high",
+        )
+    except Exception:
+        pass
     return False, f"failed after {_API_MAX_ATTEMPTS} attempts: {last_err}"
 
 
