@@ -1853,6 +1853,7 @@ class TelegramSettingsUpdate(BaseModel):
     # Phase 3.4: Minimum Confidence % Filter (additional layer, off at 0).
     min_confidence_pct_to_send: Optional[float] = None
     personal_chat_id: Optional[str] = None
+    channel_group_filter: Optional[str] = None
 
 
 @router.get("/api/paper-trading/telegram/settings")

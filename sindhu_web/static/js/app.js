@@ -10918,6 +10918,15 @@
           <input id="tgToken" type="password" placeholder="Enter to set/replace"></div>
         <div class="form-row"><label>Channel ID</label><input id="tgChannelId" placeholder="e.g. -1001234567890"></div>
         <div class="form-row"><label>Rate Limit (messages per hour)</label><input id="tgRateLimit" type="number"></div>
+        <div class="form-row"><label>Default Channel Group Filter</label>
+          <select id="tgGroupFilter">
+            <option value="all">All groups</option>
+            <option value="profitable">Profitable group only</option>
+            <option value="losing">Losing group only</option>
+            <option value="challenge">Challenge group only</option>
+          </select>
+        </div>
+        <p class="muted" style="font-size:11px;margin:-4px 0 4px;">Which strategy groups get sent to the default channel above. A strategy with its own channel override (Multi-Channel Routing below) always sends everything to its override, regardless of this filter.</p>
         <div class="form-row"><label><input id="tgAutoSend" type="checkbox" style="width:auto;"> Enable automatic high-confidence sending (OFF by default -- a deliberate safety choice)</label></div>
         <div class="btn-row">
           <button class="btn" id="btnSaveTelegram">Save Settings</button>
@@ -11263,6 +11272,7 @@
       document.getElementById("tgPersonalChatId").value = s.personal_chat_id || "";
       document.getElementById("tgChannelId").value = s.channel_id || "";
       document.getElementById("tgRateLimit").value = s.rate_limit_per_hour;
+      document.getElementById("tgGroupFilter").value = s.channel_group_filter || "all";
       document.getElementById("tgAutoSend").checked = s.auto_send_enabled;
       document.getElementById("tgToken").placeholder = s.token_configured ? "Token already set -- enter to replace" : "Enter to set/replace";
       document.getElementById("tgProxyEnabled").checked = !!s.proxy_enabled;
@@ -11341,6 +11351,7 @@
       const body = {
         channel_id: document.getElementById("tgChannelId").value.trim(),
         rate_limit_per_hour: parseInt(document.getElementById("tgRateLimit").value, 10) || 10,
+        channel_group_filter: document.getElementById("tgGroupFilter").value,
         auto_send_enabled: document.getElementById("tgAutoSend").checked,
       };
       const token = document.getElementById("tgToken").value.trim();

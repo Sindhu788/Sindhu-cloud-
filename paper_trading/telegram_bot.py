@@ -51,6 +51,15 @@ _DEFAULTS = {
     "bot_token": os.environ.get("TELEGRAM_BOT_TOKEN", ""),
     "channel_id": os.environ.get("TELEGRAM_CHANNEL_ID", ""),
     "master_send_enabled": True,  # Telegram Dashboard's master switch -- see _master_enabled() below
+    # Grand Master Batch, Phase 6 Item 16: Group-Selection Mode -- which of
+    # paper_trading.strategy_groups' Profitable/Losing/Challenge groups get
+    # sent to the DEFAULT channel. "all" (default) changes nothing for
+    # anyone who never touches this. A per-strategy channel override
+    # (channel_for_strategy) always bypasses this filter -- a strategy the
+    # CEO has deliberately routed elsewhere is assumed to want everything
+    # on that specific channel, group filtering only applies to the shared
+    # default channel.
+    "channel_group_filter": "all",  # "all" | "profitable" | "losing" | "challenge"
     "auto_send_enabled": False,   # non-negotiable: OFF by default
     "auto_send_min_confluence_ratio": 1.0,  # require ALL counted factors aligned (e.g. 4/4) by default -- conservative
     # Batch 6, Task 3: the ratio alone can be satisfied by as few as 1/1
@@ -257,6 +266,7 @@ def public_settings():
         "quiet_mode_until": s.get("quiet_mode_until"),
         "quiet_mode_active": is_quiet_mode_active(),
         "snoozed_strategies": s.get("snoozed_strategies") or {},
+        "channel_group_filter": s.get("channel_group_filter", "all"),
         "personal_chat_id": s.get("personal_chat_id", ""),
         # Full System Verification Audit (2026-09-13): these existed in
         # _DEFAULTS/save_settings already but were never added here, so
@@ -367,6 +377,31 @@ def clear_quiet_mode():
         storage.save_cloud_setting(_SETTINGS_KEY, settings, _now_iso())
     else:
         base_config.save_config("telegram_settings.json", settings)
+
+
+# --------------------------------------------------------------- Grand Master Batch, Phase 6 Item 16: Group-Selection Mode
+
+def group_filter_check(position):
+    """True (never blocks) when this signal is going to a per-strategy
+    OVERRIDE channel (channel_for_strategy) -- a strategy the CEO
+    deliberately routed elsewhere is assumed to want everything sent
+    there, the group filter only ever applies to the shared default
+    channel. Otherwise compares the strategy's current
+    strategy_groups classification against the configured filter."""
+    strategy_id = position.get("strategy_id")
+    if channel_for_strategy(strategy_id):
+        return True, None
+    group_filter = load_settings().get("channel_group_filter", "all")
+    if group_filter == "all":
+        return True, None
+    from paper_trading import strategy_groups
+    group = strategy_groups.get_group(strategy_id) if strategy_id else None
+    if group == group_filter:
+        return True, None
+    return False, (
+        f"default channel is filtered to \"{group_filter}\" group signals only "
+        f"(this strategy is {'in the ' + group + ' group' if group else 'not yet classified into any group'})"
+    )
 
 
 # --------------------------------------------------------------- Grand Master Batch, Phase 6 Item 12: per-strategy snooze
@@ -1125,6 +1160,15 @@ def send_signal_for_position(position_id, trigger_type="manual", high_confidence
             "", False, snooze_reason, now,
         )
         return {"ok": False, "error": snooze_reason}
+
+    # Grand Master Batch, Phase 6 Item 16: Group-Selection Mode.
+    group_ok, group_reason = group_filter_check(pos)
+    if not group_ok:
+        storage.log_telegram_message(
+            position_id, pos.get("strategy_id"), pos.get("strategy_name"), trigger_type,
+            "", False, group_reason, now,
+        )
+        return {"ok": False, "error": group_reason}
 
     exchanges_cfg = base_config.load_or_seed("exchanges.json", base_config.DEFAULTS["exchanges.json"])
     exchange = exchanges_cfg["default"]
