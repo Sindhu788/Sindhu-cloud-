@@ -12247,7 +12247,10 @@
   // live only on their own existing pages (Paper Trading, Control Center).
   async function renderRiskDepartment() {
     const myToken = activeRouteToken;
-    const d = await apiGet("/api/risk-department").catch(() => null);
+    const [d, tripHistory] = await Promise.all([
+      apiGet("/api/risk-department").catch(() => null),
+      apiGet("/api/safety-gate-trip-history?limit=20").catch(() => ({ events: [] })),
+    ]);
     if (isStaleRoute(myToken)) return;
     if (!d) { content.innerHTML = `<div class="card"><b>Failed to load Risk data.</b></div>`; return; }
 
@@ -12276,6 +12279,20 @@
         ${d.paused_strategies.length === 0 ? `<p class="muted">No strategy is currently paused.</p>` : `
           <table><thead><tr><th>Strategy</th><th>Reason</th><th>Paused At</th></tr></thead><tbody>
             ${d.paused_strategies.map(p => `<tr><td>${esc(p.strategy_id)}</td><td>${esc(p.reason || "-")}</td><td>${esc(p.paused_at || "-")}</td></tr>`).join("")}
+          </tbody></table>`}
+      </div>
+
+      <div class="card" style="margin-bottom:14px;">
+        <b>Safety Gate Trip History</b>
+        <p class="muted" style="margin:4px 0 8px;">Grand Master Batch, Phase 4 Item 18: every real time the Kill Switch, account-wide Drawdown Protection, or a per-strategy Drawdown Protection pause has tripped or been resumed, permanent and in one place -- with the real plain-language reason recorded at the time.</p>
+        ${tripHistory.events.length === 0 ? `<p class="muted">No safety gate has ever tripped.</p>` : `
+          <table><thead><tr><th>When</th><th>Gate</th><th>Event</th><th>Reason</th></tr></thead><tbody>
+            ${tripHistory.events.map(e => `<tr>
+              <td>${esc((e.created_at || "").slice(0, 16).replace("T", " "))}</td>
+              <td>${esc({ kill_switch: "Kill Switch", account_drawdown: "Account-Wide Drawdown", strategy_drawdown_pause: "Per-Strategy Drawdown" }[e.entity] || e.entity)}</td>
+              <td><span class="pill ${e.action === "activated" || e.action === "paused" ? "pill-down" : "pill-up"}">${esc(e.action)}</span></td>
+              <td>${esc(e.message)}</td>
+            </tr>`).join("")}
           </tbody></table>`}
       </div>
 

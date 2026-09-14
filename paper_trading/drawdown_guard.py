@@ -53,6 +53,7 @@ def evaluate_strategy(strategy_id, strategy_name):
         reason = (f"{streak['count']} consecutive losses (threshold: {streak_threshold}). "
                    f"New trades paused for this strategy; existing open positions are unaffected.")
         storage.set_strategy_paused(strategy_id, True, reason, _now_iso())
+        _log_trip(strategy_id, strategy_name, reason)
         return reason
 
     metrics = insights.compute_risk_metrics(strategy_id, since=insights.fresh_session_start())
@@ -62,12 +63,28 @@ def evaluate_strategy(strategy_id, strategy_name):
                    f"(threshold: {pct_threshold:.0f}%). New trades paused; existing open "
                    f"positions are unaffected.")
         storage.set_strategy_paused(strategy_id, True, reason, _now_iso())
+        _log_trip(strategy_id, strategy_name, reason)
         return reason
 
     return None
+
+
+def _log_trip(strategy_id, strategy_name, reason):
+    """Grand Master Batch, Phase 4 Item 18: a per-strategy pause used to
+    update storage's CURRENT-state pause flag only, with no permanent
+    record of the trip -- unlike the kill switch and account-wide
+    drawdown pause, both of which already log to the permanent
+    audit_trail_log via sindhu_web.sync.notify(). This closes that gap so
+    a per-strategy trip shows up in the same "Safety Gate Trip History"
+    place as the other two (see /api/audit-trail?entity=strategy_
+    drawdown_pause)."""
+    from sindhu_web import sync
+    sync.notify("strategy_drawdown_pause", "paused", f"{strategy_name or strategy_id}: {reason}")
 
 
 def resume_strategy(strategy_id):
     """Reverses a pause -- called from the dashboard's "Resume Strategy"
     button. Always safe to call even if the strategy wasn't paused."""
     storage.set_strategy_paused(strategy_id, False, None, _now_iso())
+    from sindhu_web import sync
+    sync.notify("strategy_drawdown_pause", "resumed", f"Drawdown pause cleared for strategy {strategy_id}")
