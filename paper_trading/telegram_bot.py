@@ -131,6 +131,12 @@ _DEFAULTS = {
     # channel simply hears nothing from that one strategy for a while.
     # Every other strategy is completely unaffected.
     "snoozed_strategies": {},
+    # Grand Master Batch, Phase 6 Item 20: Multi-Recipient Support -- extra
+    # channel/group ids that get a COPY of every signal in addition to
+    # wherever it was already going (default channel, or a per-strategy
+    # override) -- true fan-out, distinct from strategy_channel_overrides
+    # (which REPLACES a strategy's destination, one channel at a time).
+    "additional_channel_ids": [],
     # Master 15-Item task, Items 6 & 10: the CEO's own personal Telegram
     # chat id (a DIRECT MESSAGE with the bot, never the public/shared
     # `channel_id` above) -- used for anything that must stay private:
@@ -267,6 +273,7 @@ def public_settings():
         "quiet_mode_active": is_quiet_mode_active(),
         "snoozed_strategies": s.get("snoozed_strategies") or {},
         "channel_group_filter": s.get("channel_group_filter", "all"),
+        "additional_channel_ids": s.get("additional_channel_ids") or [],
         "personal_chat_id": s.get("personal_chat_id", ""),
         # Full System Verification Audit (2026-09-13): these existed in
         # _DEFAULTS/save_settings already but were never added here, so
@@ -292,6 +299,25 @@ def channel_for_strategy(strategy_id):
     if not strategy_id:
         return None
     return load_settings().get("strategy_channel_overrides", {}).get(strategy_id)
+
+
+def add_additional_channel(channel_id):
+    """Grand Master Batch, Phase 6 Item 20. Idempotent -- adding an
+    already-present channel_id is a safe no-op."""
+    channel_id = (channel_id or "").strip()
+    if not channel_id:
+        raise ValueError("channel_id must not be empty")
+    channels = load_settings().get("additional_channel_ids") or []
+    if channel_id not in channels:
+        channels = channels + [channel_id]
+        save_settings(additional_channel_ids=channels)
+    return channels
+
+
+def remove_additional_channel(channel_id):
+    channels = [c for c in (load_settings().get("additional_channel_ids") or []) if c != channel_id]
+    save_settings(additional_channel_ids=channels)
+    return channels
 
 
 def set_strategy_channel_override(strategy_id, channel_id):
@@ -1199,6 +1225,19 @@ def send_signal_for_position(position_id, trigger_type="manual", high_confidence
     # both would put the same status on the message twice, which the
     # explicit "exactly these fields, nothing more" instruction rules out.
     ok, err = _raw_send(text, channel_id_override=channel_for_strategy(pos.get("strategy_id")), force_alert=high_confidence)
+    # Grand Master Batch, Phase 6 Item 20: Multi-Recipient Support -- every
+    # configured additional channel gets its own copy of this exact same
+    # signal, fanned out on top of whatever the primary destination above
+    # already was (default channel or a per-strategy override). Best-
+    # effort: a secondary channel failing never changes the primary send's
+    # own ok/err result, and is not separately logged to telegram_message_
+    # log (that log's UNIQUE-per-position shape is for the ONE primary
+    # send; fan-out failures would otherwise silently overwrite it).
+    for extra_channel_id in load_settings().get("additional_channel_ids") or []:
+        try:
+            _raw_send(text, channel_id_override=extra_channel_id, force_alert=high_confidence)
+        except Exception:
+            pass
     storage.log_telegram_message(
         position_id, pos.get("strategy_id"), pos.get("strategy_name"), trigger_type, text, ok, err, now,
         # The log column is plain TEXT (also read back by

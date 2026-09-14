@@ -1947,6 +1947,26 @@ def stop_quiet_mode():
     return {"ok": True}
 
 
+class AdditionalChannelRequest(BaseModel):
+    channel_id: str
+
+
+@router.post("/api/paper-trading/telegram/additional-channels")
+def add_additional_telegram_channel(req: AdditionalChannelRequest):
+    """Grand Master Batch, Phase 6 Item 20."""
+    try:
+        channels = telegram_bot.add_additional_channel(req.channel_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, "additional_channel_ids": channels}
+
+
+@router.delete("/api/paper-trading/telegram/additional-channels/{channel_id}")
+def remove_additional_telegram_channel(channel_id: str):
+    channels = telegram_bot.remove_additional_channel(channel_id)
+    return {"ok": True, "additional_channel_ids": channels}
+
+
 @router.post("/api/paper-trading/telegram/snooze/{strategy_id}")
 def snooze_strategy_signals(strategy_id: str, req: QuietModeRequest):
     """Grand Master Batch, Phase 6 Item 12."""

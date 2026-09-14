@@ -11010,6 +11010,14 @@
         <div id="tgChannelOverridesBox" class="table-wrap"></div>
       </div>
 
+      <div class="section-title">Multi-Recipient Support (Fan-Out) ${helpIcon("multi_recipient")}</div>
+      <div class="card" style="max-width:520px;">
+        <p class="muted" style="font-size:12px;margin-top:0;">Grand Master Batch, Phase 6 Item 20: unlike Multi-Channel Routing above (which REPLACES one strategy's destination), every channel added here gets a COPY of every real signal, in ADDITION to wherever it was already going.</p>
+        <div id="additionalChannelsBox" class="table-wrap"></div>
+        <div class="form-row" style="margin-top:8px;"><label>Add Channel ID</label><input id="newAdditionalChannel" placeholder="e.g. -1009876543210"></div>
+        <div class="btn-row"><button class="btn-ghost" id="btnAddAdditionalChannel">Add</button></div>
+      </div>
+
       <div class="section-title">Telegram Message Log</div>
       <div class="table-wrap"><table>
         <thead><tr><th>Time</th><th>Trigger</th><th>Strategy</th><th>Result</th></tr></thead>
@@ -11347,6 +11355,30 @@
         appendLog(`Telegram routing updated for ${sid}.`);
       });
     }
+    async function loadAdditionalChannels() {
+      const s = await apiGet("/api/paper-trading/telegram/settings").catch(() => ({ additional_channel_ids: [] }));
+      const channels = s.additional_channel_ids || [];
+      const box = document.getElementById("additionalChannelsBox");
+      box.innerHTML = `<table>
+        <thead><tr><th>Channel ID</th><th></th></tr></thead>
+        <tbody>${channels.map(c => `
+          <tr><td>${esc(c)}</td><td><button class="btn-ghost additional-channel-remove" data-id="${esc(c)}" style="font-size:12px;">Remove</button></td></tr>
+        `).join("") || `<tr><td colspan="2">No additional recipients -- every signal only goes to its one primary destination.</td></tr>`}</tbody>
+      </table>`;
+      box.querySelectorAll(".additional-channel-remove").forEach(btn => btn.onclick = async () => {
+        await apiSend("DELETE", `/api/paper-trading/telegram/additional-channels/${encodeURIComponent(btn.dataset.id)}`);
+        loadAdditionalChannels();
+      });
+    }
+    document.getElementById("btnAddAdditionalChannel").onclick = async () => {
+      const input = document.getElementById("newAdditionalChannel");
+      const channelId = input.value.trim();
+      if (!channelId) return;
+      await apiPost("/api/paper-trading/telegram/additional-channels", { channel_id: channelId });
+      input.value = "";
+      loadAdditionalChannels();
+    };
+    loadAdditionalChannels();
     async function loadTelegramLog() {
       const r = await apiGet("/api/paper-trading/telegram/log").catch(() => ({ messages: [] }));
       document.getElementById("tgLogBody").innerHTML = r.messages.map(m => `
