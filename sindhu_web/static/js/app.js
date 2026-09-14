@@ -8934,7 +8934,7 @@
       const [stratPerfRes, lessonPerfRes, strategiesRes, lessonsRes, sessionsRes, hourOfDayRes,
              candidatesRes, riskScoreRes, exposureRes, corrWarningsRes, strategyCorrMatrixRes, coinHeatmapRes,
              strategyExposureRes, directionExposureRes, customRulesRes, patternReliabilityRes,
-             coinBlacklistRes, riskPctRecsRes, dupExposureRes, cloudSyncStatusRes] = await Promise.all([
+             coinBlacklistRes, riskPctRecsRes, dupExposureRes, cloudSyncStatusRes, patternSharingRes] = await Promise.all([
         apiGet("/api/paper-trading/strategy-performance").catch(() => null),
         apiGet("/api/paper-trading/lesson-performance").catch(() => ({ performance: [] })),
         apiGet("/api/backtesting/strategies").catch(() => ({ strategies: [] })),
@@ -8955,6 +8955,7 @@
         apiGet("/api/paper-trading/risk-pct-recommendations").catch(() => ({ recommendations: [] })),
         apiGet("/api/paper-trading/duplicate-exposure-warnings").catch(() => ({ warnings: [] })),
         apiGet("/api/paper-trading/cloud-sync/status").catch(() => ({ has_run: false })),
+        apiGet("/api/paper-trading/pattern-sharing/suggestions?status=pending").catch(() => ({ suggestions: [] })),
       ]);
       if (isStaleRoute(myToken)) return;
 
@@ -9799,6 +9800,26 @@
           })()}</tbody>
         </table></div>
 
+        <div class="section-title">Cross-Strategy Pattern Sharing ${helpIcon("pattern_sharing")}</div>
+        <p class="muted plain-note">Grand Master Batch, Phase 5 Item 7: a proven pattern from one strategy suggested for another that trades the same coin -- NEVER applied automatically, only ever on your explicit approval below.</p>
+        <div class="btn-row" style="margin-bottom:8px;"><button class="btn-ghost" id="btnGeneratePatternSharing">Scan for New Suggestions</button><span id="patternSharingScanStatus" class="muted"></span></div>
+        <div class="table-wrap" id="patternSharingBox"><table>
+          <thead><tr><th>Pattern</th><th>From</th><th>Suggested For</th><th>Evidence</th><th></th></tr></thead>
+          <tbody id="patternSharingBody">
+            ${(patternSharingRes.suggestions || []).map(s => `
+              <tr data-id="${esc(s.id)}">
+                <td>${esc(s.symbol)} / ${esc(s.market_state)} / ${esc(s.session)} (${s.influence})</td>
+                <td>${esc(s.source_strategy_name)}</td>
+                <td>${esc(s.target_strategy_name)}</td>
+                <td>${s.win_rate.toFixed(0)}% over ${s.sample_size} trades</td>
+                <td>
+                  <button class="btn-ghost pattern-share-approve" data-id="${esc(s.id)}">Approve</button>
+                  <button class="btn-ghost pattern-share-reject" data-id="${esc(s.id)}">Reject</button>
+                </td>
+              </tr>`).join("") || '<tr><td colspan="5">No pending suggestions -- click "Scan for New Suggestions" to check.</td></tr>'}
+          </tbody>
+        </table></div>
+
         <div class="section-title">Pattern Reliability -- Statistical Gate ${helpIcon("pattern_reliability")}</div>
         <p class="muted" style="margin-top:-8px;">This is exactly what Pattern Auto-Avoid and Lesson Auto-Apply act on -- every strategy + coin + market condition combination needs at least ${patternReliabilityRes.min_sample_size} trades before any conclusion is trusted.</p>
         <div class="table-wrap"><table>
@@ -9963,6 +9984,27 @@
       };
       document.querySelectorAll(".cbl-remove").forEach(btn => btn.onclick = async () => {
         await apiSend("DELETE", `/api/paper-trading/coin-blacklist/${btn.dataset.symbol}`);
+        render();
+      });
+      const btnGeneratePatternSharing = document.getElementById("btnGeneratePatternSharing");
+      if (btnGeneratePatternSharing) btnGeneratePatternSharing.onclick = async () => {
+        const status = document.getElementById("patternSharingScanStatus");
+        status.textContent = "Scanning...";
+        try {
+          const r = await apiPost("/api/paper-trading/pattern-sharing/generate");
+          status.textContent = `Found ${r.new_suggestions.length} new suggestion(s).`;
+          render();
+        } catch (e) {
+          status.textContent = "Couldn't scan.";
+        }
+      };
+      document.querySelectorAll(".pattern-share-approve").forEach(btn => btn.onclick = async () => {
+        if (!confirm("Apply this shared pattern to the target strategy now?")) return;
+        await apiPost(`/api/paper-trading/pattern-sharing/suggestions/${btn.dataset.id}/approve`);
+        render();
+      });
+      document.querySelectorAll(".pattern-share-reject").forEach(btn => btn.onclick = async () => {
+        await apiPost(`/api/paper-trading/pattern-sharing/suggestions/${btn.dataset.id}/reject`);
         render();
       });
       const btnPinCoin = document.getElementById("btnPinCoin");

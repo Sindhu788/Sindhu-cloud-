@@ -33,7 +33,7 @@ from paper_trading import signal_explainer
 from paper_trading import kill_switch, account_drawdown_guard, coin_heatmap, custom_alerts
 from paper_trading import trade_journal_export
 from paper_trading import coin_blacklist
-from paper_trading import position_size_calculator, practice_mode
+from paper_trading import position_size_calculator, practice_mode, pattern_sharing
 from paper_trading import health_check, health_score, best_strategy_highlight, undo_stack, best_check_time
 from paper_trading import challenge_ai_advisor
 from paper_trading.engine import engine
@@ -2744,6 +2744,37 @@ def calculate_position_size(req: PositionSizeCalculatorRequest):
         raise HTTPException(400, "entry_price must be greater than 0")
     return position_size_calculator.calculate(
         req.balance, req.entry_price, req.stop_loss, req.risk_pct, req.take_profit, req.leverage)
+
+
+@router.post("/api/paper-trading/pattern-sharing/generate")
+def generate_pattern_sharing_suggestions():
+    """Grand Master Batch, Phase 5 Item 7: scans for new cross-strategy
+    pattern-sharing candidates -- never applies anything by itself."""
+    new_suggestions = pattern_sharing.generate_suggestions()
+    return {"new_suggestions": new_suggestions}
+
+
+@router.get("/api/paper-trading/pattern-sharing/suggestions")
+def list_pattern_sharing_suggestions(status: str = None):
+    return {"suggestions": pattern_sharing.list_suggestions(status=status)}
+
+
+@router.post("/api/paper-trading/pattern-sharing/suggestions/{suggestion_id}/approve")
+def approve_pattern_sharing_suggestion(suggestion_id: str):
+    """The ONLY path that actually applies a shared pattern to another
+    strategy -- always an explicit, one-at-a-time CEO action."""
+    try:
+        return pattern_sharing.approve_suggestion(suggestion_id)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
+
+@router.post("/api/paper-trading/pattern-sharing/suggestions/{suggestion_id}/reject")
+def reject_pattern_sharing_suggestion(suggestion_id: str):
+    try:
+        return pattern_sharing.reject_suggestion(suggestion_id)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
 
 
 class PracticeModeRequest(BaseModel):
