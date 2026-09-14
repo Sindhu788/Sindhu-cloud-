@@ -21,7 +21,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from data_engine import storage, feature_toggles
-from paper_trading import ai_trade_review, telegram_bot
+from paper_trading import ai_trade_review, telegram_bot, undo_stack
 from sindhu_web import sync
 
 router = APIRouter()
@@ -248,7 +248,17 @@ _UNIFIED_KEYS = {
 @router.post("/api/feature-control/toggle")
 def toggle_feature(req: ToggleRequest):
     if req.feature_id in _UNIFIED_KEYS:
+        # Grand Master Batch, Phase 4 Item 11: capture the previous value
+        # BEFORE changing it so "Undo Last Action" can flip it straight
+        # back -- only meaningful for a real change, not a no-op re-save
+        # of the same value.
+        previous_value = feature_toggles.get_toggles().get(req.feature_id)
         feature_toggles.set_toggle(req.feature_id, req.enabled)
+        if previous_value != req.enabled:
+            undo_stack.record(
+                "feature_toggle", f"{req.feature_id} changed to {req.enabled}",
+                {"key": req.feature_id, "previous_value": previous_value},
+            )
     elif req.feature_id == "ai_trade_review_enabled":
         ai_trade_review.set_enabled(req.enabled)
     elif req.feature_id == "telegram_auto_send_enabled":
@@ -271,6 +281,12 @@ def set_master_pause(req: MasterPauseRequest):
     silenced. Nothing already written (paused strategies, avoid rules,
     lessons, allocations) is deleted or reset; they simply stop being
     re-evaluated/acted on until unpaused."""
+    previous_value = feature_toggles.get_toggles().get("master_pause_all")
     feature_toggles.set_master_pause(req.enabled)
+    if previous_value != req.enabled:
+        undo_stack.record(
+            "feature_toggle", f"Master Pause All changed to {req.enabled}",
+            {"key": "master_pause_all", "previous_value": previous_value},
+        )
     sync.notify("feature_control", "master_pause", f"Master Pause All set to {req.enabled}")
     return {"ok": True, "master_pause_all": req.enabled}

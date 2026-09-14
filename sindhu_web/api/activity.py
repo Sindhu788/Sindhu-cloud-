@@ -3,6 +3,7 @@ from typing import Optional
 from fastapi import APIRouter
 
 from data_engine import storage
+from paper_trading import undo_stack
 
 router = APIRouter()
 
@@ -41,3 +42,15 @@ def get_safety_gate_trip_history(limit: int = 30):
         rows.extend(storage.list_audit_trail(limit=limit, entity=entity))
     rows.sort(key=lambda r: r["created_at"], reverse=True)
     return {"events": rows[:limit]}
+
+
+@router.get("/api/undo-last-action")
+def get_last_undoable_action():
+    """Grand Master Batch, Phase 4 Item 11. None if there is nothing
+    recorded (or it was already undone/superseded by a later action)."""
+    return {"action": undo_stack.get_last_action()}
+
+
+@router.post("/api/undo-last-action")
+def undo_last_action():
+    return undo_stack.undo_last_action()

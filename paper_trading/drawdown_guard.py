@@ -80,6 +80,11 @@ def _log_trip(strategy_id, strategy_name, reason):
     drawdown_pause)."""
     from sindhu_web import sync
     sync.notify("strategy_drawdown_pause", "paused", f"{strategy_name or strategy_id}: {reason}")
+    from paper_trading import undo_stack
+    undo_stack.record(
+        "strategy_drawdown_pause", f"{strategy_name or strategy_id} paused: {reason}",
+        {"strategy_id": strategy_id},
+    )
 
 
 def resume_strategy(strategy_id):

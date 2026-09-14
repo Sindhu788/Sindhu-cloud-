@@ -12264,21 +12264,43 @@
   async function renderControlCenter() {
     const myToken = activeRouteToken;
     async function render() {
-      const [fc, status, telegramSettings, evoStatus, killSwitch, acctDrawdown] = await Promise.all([
+      const [fc, status, telegramSettings, evoStatus, killSwitch, acctDrawdown, undoState] = await Promise.all([
         apiGet("/api/feature-control/state").catch(() => ({ master_pause_all: false, features: [] })),
         apiGet("/api/paper-trading/status").catch(() => ({ running: false })),
         apiGet("/api/paper-trading/telegram/settings").catch(() => ({ master_send_enabled: true })),
         apiGet("/api/evolution/status").catch(() => ({ _unavailable: true })),
         apiGet("/api/paper-trading/kill-switch/status").catch(() => ({ active: false })),
         apiGet("/api/paper-trading/account-drawdown-status").catch(() => ({ paused: false })),
+        apiGet("/api/undo-last-action").catch(() => ({ action: null })),
       ]);
       if (isStaleRoute(myToken)) return;
+      const undoAction = undoState.action;
       content.innerHTML = `
         <div class="section-title">Control Center</div>
         <p class="muted" style="margin-top:-10px;">Every top-level on/off control in one place -- each one calls the exact same function its own page already uses.</p>
+        <div class="card" style="margin-bottom:14px;">
+          <b>↩ Undo Last Action</b>
+          <div class="muted" style="margin-top:6px;font-size:12.5px;">${undoAction
+            ? `Last: ${esc(undoAction.description)} <span class="muted">(${esc((undoAction.at || "").slice(0, 16).replace("T", " "))})</span>`
+            : "Nothing to undo right now."}</div>
+          ${undoAction ? `<div class="btn-row" style="margin-top:8px;"><button class="btn-ghost" id="btnUndoLastAction">Undo This</button><span id="undoStatus" class="muted"></span></div>` : ""}
+        </div>
         ${masterControlsBodyHtml(status, telegramSettings, evoStatus, killSwitch, acctDrawdown)}
         <div class="section-title">Automated Background Features</div>
         ${featureControlBodyHtml(fc)}`;
+      if (undoAction) {
+        document.getElementById("btnUndoLastAction").onclick = async () => {
+          const s = document.getElementById("undoStatus");
+          s.textContent = "Undoing...";
+          try {
+            const result = await apiPost("/api/undo-last-action");
+            s.textContent = result.ok ? "Done." : (result.error || "Couldn't undo.");
+            if (result.ok) render();
+          } catch (e) {
+            s.textContent = "Couldn't undo.";
+          }
+        };
+      }
       wireMasterControlHandlers(render);
       wireFeatureControlHandlers(render);
     }

@@ -34,7 +34,7 @@ from paper_trading import kill_switch, account_drawdown_guard, coin_heatmap, cus
 from paper_trading import trade_journal_export
 from paper_trading import coin_blacklist
 from paper_trading import position_size_calculator
-from paper_trading import health_check, health_score, best_strategy_highlight
+from paper_trading import health_check, health_score, best_strategy_highlight, undo_stack
 from paper_trading import challenge_ai_advisor
 from paper_trading.engine import engine
 from data_engine import config as base_config
@@ -101,7 +101,14 @@ def kill_switch_status():
 
 @router.post("/api/paper-trading/kill-switch/activate")
 def kill_switch_activate(req: KillSwitchActivateRequest):
-    return kill_switch.activate(reason=req.reason, actor=req.actor, close_positions=req.close_positions)
+    result = kill_switch.activate(reason=req.reason, actor=req.actor, close_positions=req.close_positions)
+    # Grand Master Batch, Phase 4 Item 11: "Undo" here only ever turns the
+    # kill switch back off -- if close_positions was True, any position it
+    # force-closed stays closed (a real, already-recorded trade can't be
+    # un-closed). Recorded even then, since turning the switch back off is
+    # still a real, meaningful, safe partial undo.
+    undo_stack.record("kill_switch", f"Kill switch activated: {req.reason}", {})
+    return result
 
 
 class KillSwitchDeactivateRequest(BaseModel):
