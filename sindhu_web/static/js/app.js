@@ -1758,8 +1758,14 @@
         <div class="section-title" style="margin-top:14px;color:${meta.color};">${meta.dot} ${meta.label} (${g.strategy_count} ${en ? "strategies" : "strategies"})</div>
         <div class="grid" style="border-left:3px solid ${meta.color};padding-left:10px;">
           ${card("Balance", `$${Number(g.balance).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}`)}
-          ${cardClass("Total PnL", `${g.total_pnl >= 0 ? "+" : ""}$${g.total_pnl.toFixed(2)}`, g.total_pnl > 0 ? "positive" : g.total_pnl < 0 ? "negative" : "")}
-          ${card("Win Rate", `${g.win_rate_pct.toFixed(1)}%`)}
+          ${cardClass("Total PnL", `${g.total_pnl >= 0 ? "+" : ""}$${g.total_pnl.toFixed(2)}${mathButton(`${meta.label} Group -- Total PnL`, [
+            `Sum of realized PnL across every closed trade in this group's ${g.strategy_count} strategy(ies):`,
+            `${g.total_pnl >= 0 ? "+" : ""}$${g.total_pnl.toFixed(2)} across ${g.closed_trades} closed trades.`,
+          ])}`, g.total_pnl > 0 ? "positive" : g.total_pnl < 0 ? "negative" : "")}
+          ${card("Win Rate", `${g.win_rate_pct.toFixed(1)}%${mathButton(`${meta.label} Group -- Win Rate`, [
+            `${g.win_count} winning trades ÷ ${g.closed_trades} total closed trades × 100`,
+            `= ${g.win_count} / ${g.closed_trades} × 100 = ${g.win_rate_pct.toFixed(1)}%`,
+          ])}`)}
           ${card("Closed Trades", fmtNum(g.closed_trades))}
           ${card("Open Positions", fmtNum(g.open_positions))}
         </div>
@@ -2931,7 +2937,10 @@
                 isLiveSource
                   ? (getLang() === "en" ? "Realized, live account" : "Realized, live account")
                   : (getLang() === "en" ? "Return over the backtest" : "Backtest ka return"))}
-          ${kpi("Win Rate", lb ? `${lb.win_rate}%` : "--", "",
+          ${kpi("Win Rate", lb ? `${lb.win_rate}%${lb.wins != null ? mathButton("Win Rate", [
+                  `${lb.wins} winning trades ÷ ${lb.total_trades} total closed trades × 100`,
+                  `= ${lb.wins} / ${lb.total_trades} × 100 = ${lb.win_rate}%`,
+                ]) : ""}` : "--", "",
                 lb ? (getLang() === "en" ? `across ${fmtNum(lb.total_trades)} closed trades` : `${fmtNum(lb.total_trades)} band trades par`) : "")}
           ${kpi("Total Trades", lb ? fmtNum(lb.total_trades) : "--", "",
                 getLang() === "en" ? "Simulated fills" : "Simulated trades")}
@@ -6404,6 +6413,39 @@
   // Shows the exact text that WOULD go out for one signal, built by the
   // same formatter a real send uses -- so formatting can be checked long
   // before delivery ever works.
+  // Grand Master Batch, Phase 4 Item 17: "Show Me the Math" -- a generic,
+  // reusable reveal for a key number, showing the REAL underlying
+  // calculation (real counts already fetched for the page, not a
+  // generic conceptual glossary entry like helpIcon()/HELP_TEXT above,
+  // which explains what a metric MEANS but never plugs in this
+  // specific instance's real numbers).
+  function showMathModal(title, lines) {
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.innerHTML = `
+      <div class="modal-panel">
+        <div class="modal-head">
+          <div>
+            <div class="modal-eyebrow">🧮 ${getLang() === "en" ? "Show Me the Math" : "Show Me the Math"}</div>
+            <h3 class="modal-title">${esc(title)}</h3>
+          </div>
+          <button class="btn-ghost" data-modal-close>Close</button>
+        </div>
+        <div style="font-size:13px;line-height:1.8;">${lines.map(esc).join("<br>")}</div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.onclick = (e) => { if (e.target === overlay) close(); };
+    overlay.querySelector("[data-modal-close]").onclick = close;
+  }
+  function mathButton(title, lines) {
+    return ` <button class="btn-ghost math-btn" style="padding:0 5px;font-size:10px;" data-title="${esc(title)}" data-lines="${esc(JSON.stringify(lines))}" title="Show me the math">🧮</button>`;
+  }
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest(".math-btn");
+    if (btn) showMathModal(btn.dataset.title, JSON.parse(btn.dataset.lines));
+  });
+
   function openTelegramPreviewModal(positionId) {
     const overlay = document.createElement("div");
     overlay.className = "modal-overlay";

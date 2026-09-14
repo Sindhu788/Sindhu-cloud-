@@ -41,7 +41,7 @@ def quick_batch_summary(batch_id):
         "batch_id": batch_id, "strategy": batch["strategy_name"],
         "display_name": batch.get("display_name") or batch["strategy_name"],
         "symbol_count": len(results), "combos_completed": len(completed), "combos_total": len(results),
-        "total_trades": total_trades, "win_rate": round(win_rate, 2), "total_pnl": total_pnl,
+        "total_trades": total_trades, "win_rate": round(win_rate, 2), "wins": wins, "total_pnl": total_pnl,
         "avg_profit_pct": round(avg_profit_pct, 2), "avg_final_balance": round(avg_final_balance, 2),
         "max_drawdown_pct": round(max_drawdown, 2),
     }

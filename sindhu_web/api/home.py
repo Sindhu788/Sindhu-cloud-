@@ -287,6 +287,11 @@ def _account_snapshot():
         return {
             "strategy": "Paper Trading (live account)", "final_balance": round(balance, 2),
             "profit_pct": round(profit_pct, 2), "win_rate": round(win_rate, 2),
+            # Grand Master Batch, Phase 4 Item 17 ("Show Me the Math"): the
+            # raw win count alongside the already-present total_trades, so
+            # the Dashboard can show the real division instead of just the
+            # rounded percentage.
+            "wins": win_count,
             "total_trades": closed_count, "max_drawdown_pct": None,
         }
     return _latest_batch_snapshot()
@@ -310,7 +315,7 @@ def _latest_batch_snapshot():
             continue
         return {
             "strategy": r["strategy"], "final_balance": r["avg_final_balance"],
-            "profit_pct": r["avg_profit_pct"], "win_rate": r["win_rate"],
+            "profit_pct": r["avg_profit_pct"], "win_rate": r["win_rate"], "wins": r.get("wins"),
             "total_trades": r["total_trades"], "max_drawdown_pct": r["max_drawdown_pct"],
         }
     return None

@@ -163,6 +163,11 @@ def _batch_result_summary(batch, batch_results_cache=None):
         # performance for strategies that haven't closed a live trade yet.
         "net_pnl": round(sum(r["metrics"].get("net_profit", 0) for r in completed), 2),
         "win_rate": round((wins / total_trades * 100) if total_trades else 0.0, 2),
+        # Grand Master Batch, Phase 4 Item 17 ("Show Me the Math"): the raw
+        # win count, alongside the already-present total_trades, so a
+        # caller can display the real wins/total division instead of just
+        # the rounded percentage.
+        "wins": wins,
         "avg_profit_pct": round(sum(r["metrics"]["profit_pct"] for r in completed) / len(completed), 2),
     }
 
