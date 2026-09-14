@@ -150,7 +150,7 @@ def regime_context_for(base_id):
     return batch["exchange"], symbols[0], timeframe
 
 
-def mutate_strategy(base_id, governor, now_iso, exchange=None, symbol=None, timeframe=None):
+def mutate_strategy(base_id, governor, now_iso, exchange=None, symbol=None, timeframe=None, force=False):
     """A.2's "Improve/Mutate/Generate new generations" for ONE existing BOT
     strategy lineage. Branches the newest generation's config by nudging a
     small set of numeric fields according to (a) which score component was
@@ -161,14 +161,26 @@ def mutate_strategy(base_id, governor, now_iso, exchange=None, symbol=None, time
     evolution gate yet (see evolution_engine.rollback -- independent from
     and never touches the 25-trade Wilson score gate used elsewhere for
     signal confidence), or the Governor's max_generations_per_strategy cap
-    for this lineage has already been reached."""
+    for this lineage has already been reached.
+
+    force (Grand Master Batch, Phase 5 Item 4): bypasses ONLY
+    should_evolve's "has this lineage earned its NEXT generation yet"
+    trade-count throttle, for a CEO-triggered manual "create one now for
+    review" -- the natural tick path never passes this (default False,
+    unchanged behavior). Does NOT touch the SEPARATE, still-fully-enforced
+    gate that judges whether a new generation gets kept: rollback.
+    try_finalize_comparison still requires MIN_TRADES_FOR_COMPARISON (100)
+    real trades on the CHILD itself before it can be judged/promoted or
+    rolled back -- forcing early creation never shortcuts that."""
     latest = rollback.effective_generation(base_id)
     if latest is None:
         return None
 
     can_evolve, threshold = rollback.should_evolve(base_id, latest)
     if not can_evolve:
-        return None
+        if not force:
+            return None
+        threshold = rollback._trades_of(latest)
 
     config = dict(latest["config"])
     reasons = []

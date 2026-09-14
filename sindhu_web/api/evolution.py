@@ -50,6 +50,23 @@ def run_tick_now():
     return engine.status()
 
 
+@router.post("/api/evolution/strategies/{base_id}/force-generation")
+def force_new_generation(base_id: str):
+    """Grand Master Batch, Phase 5 Item 4: manually creates one new
+    generation right now for review, bypassing ONLY the "has this
+    lineage earned its next generation yet" trade-count throttle
+    (evolution_engine.rollback.should_evolve) -- see mutator.
+    mutate_strategy's own docstring for exactly what this does and does
+    NOT bypass. The new generation still needs 100 real trades of its
+    own before it can be judged/kept/rolled back, identical to a
+    naturally-triggered one."""
+    new_id = mutator.mutate_strategy(base_id, engine.governor, _now_iso(), force=True)
+    if new_id is None:
+        raise HTTPException(400, "Couldn't create a new generation -- no prior generation exists for this lineage, "
+                                  "or its generation cap has already been reached.")
+    return {"new_generation_id": new_id}
+
+
 @router.get("/api/evolution/strategies")
 def list_strategies(base_id: str = None, status: str = "active", limit: int = 500):
     return {"strategies": storage.list_bot_strategies(base_id=base_id, status=status, limit=limit)}

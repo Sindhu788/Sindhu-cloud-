@@ -3571,6 +3571,29 @@
       </div>`;
   }
 
+  // Grand Master Batch, Phase 5 Item 3: plain-language "why" a rollback
+  // happened -- names which real metrics got worse, mirroring
+  // evolution_engine/rollback.py's own _is_regression majority-of-3
+  // logic (rollback only triggers when at least 3 of 4 core metrics are
+  // comparable AND a majority of those got worse).
+  function rollbackReasonText(before, after) {
+    const metrics = [
+      { key: "win_rate", label: "win rate", higherIsBetter: true, suffix: "%" },
+      { key: "total_pnl", label: "net PnL", higherIsBetter: true, suffix: "" },
+      { key: "avg_profit_factor", label: "profit factor", higherIsBetter: true, suffix: "" },
+      { key: "max_drawdown_pct", label: "max drawdown", higherIsBetter: false, suffix: "%" },
+    ];
+    const worsened = [];
+    metrics.forEach(m => {
+      const b = before[m.key], a = after[m.key];
+      if (b == null || a == null) return;
+      const isWorse = m.higherIsBetter ? (a < b) : (a > b);
+      if (isWorse) worsened.push(`${m.label} went from ${Number(b).toFixed(2)}${m.suffix} to ${Number(a).toFixed(2)}${m.suffix}`);
+    });
+    if (!worsened.length) return "";
+    return `Rolled back because ${worsened.join("; ")} -- kept the parent generation running instead of a new one performing worse live.`;
+  }
+
   function sparklineSvg(series) {
     if (series.length < 2) return `<div class="muted">Not enough trades for a chart.</div>`;
     return `<svg viewBox="0 0 400 160" preserveAspectRatio="none">${sparklineInner(series, 400, 160, 6)}</svg>`;
@@ -7040,7 +7063,10 @@
                 <td><span class="pill ${s.made_with_ai ? "pill-bullish" : "pill-muted"}">${s.origin}</span></td>
                 <td>${s.evolution_score != null ? Number(s.evolution_score).toFixed(2) : "not backtested"}</td>
                 <td>${esc((s.created_at || "").slice(0, 19))}</td>
-                <td><button class="btn-ghost evo-explain-btn" data-base-id="${esc(s.base_id)}">Explain ${helpIcon("strategy_lineage_explainer")}</button></td>
+                <td>
+                  <button class="btn-ghost evo-explain-btn" data-base-id="${esc(s.base_id)}">Explain ${helpIcon("strategy_lineage_explainer")}</button>
+                  <button class="btn-ghost evo-force-gen-btn" data-base-id="${esc(s.base_id)}" title="Creates one new generation now for review -- still needs 100 real trades before it can be kept or rolled back, same as a naturally-triggered one.">Force New Generation</button>
+                </td>
               </tr>`).join("") || '<tr><td colspan="6">No BOT strategies yet -- the Evolution Engine mutates existing lineages, and SINDHU Strategy creates new ones.</td></tr>'}
           </tbody>
         </table></div>
@@ -7073,6 +7099,12 @@
               const conf = c.confidence && c.confidence.confidence_score != null
                 ? `<span class="${c.confidence.confidence_score >= 70 ? "positive" : c.confidence.confidence_score >= 40 ? "" : "negative"}">${c.confidence.confidence_score}/100</span>`
                 : `<span class="muted">-</span>`;
+              // Grand Master Batch, Phase 5 Item 3: a stated "why", not
+              // just raw before/after numbers -- computed client-side
+              // from the same before/after data already fetched, no new
+              // backend/schema change needed. Mirrors evolution_engine/
+              // rollback.py's own _is_regression majority-of-3 logic.
+              const whyRolledBack = c.rolled_back && c.after ? rollbackReasonText(c.before, c.after) : "";
               return `
               <tr>
                 <td>${esc(c.base_id)} <span class="muted">(${esc(c.parent_id)} -&gt; ${esc(c.child_id)})</span></td>
@@ -7081,7 +7113,7 @@
                 <td>${pair("total_pnl")}</td>
                 <td>${pair("avg_profit_factor")}</td>
                 <td>${pair("max_drawdown_pct", "%")}</td>
-                <td>${resultPill}</td>
+                <td>${resultPill}${whyRolledBack ? `<div class="muted" style="font-size:11px;margin-top:3px;">${esc(whyRolledBack)}</div>` : ""}</td>
                 <td>${conf}</td>
               </tr>`;
             }).join("") || '<tr><td colspan="8">No evolution events yet -- a lineage needs 100 completed backtest trades before it evolves.</td></tr>'}
@@ -7089,12 +7121,13 @@
         </table></div>
 
         <div class="section-title">Self-Generated Lessons (${lessons.length})</div>
+        <p class="muted plain-note">Grand Master Batch, Phase 5 Item 2: "Why This Lesson" -- the real plain-language reasoning already computed for every lesson, just not previously shown here.</p>
         <div class="table-wrap"><table>
-          <thead><tr><th>ID</th><th>Title</th><th>Confidence</th></tr></thead>
+          <thead><tr><th>ID</th><th>Title</th><th>Confidence</th><th>Why This Lesson Was Learned</th></tr></thead>
           <tbody>
             ${lessons.slice(0, 50).map(l => `
-              <tr><td>${esc(l.id)}</td><td>${esc(l.title)}</td><td>${l.confidence != null ? Number(l.confidence).toFixed(0) + "%" : "-"}</td></tr>
-            `).join("") || '<tr><td colspan="3">No self-generated lessons yet -- these appear automatically as paper-trading positions close.</td></tr>'}
+              <tr><td>${esc(l.id)}</td><td>${esc(l.title)}</td><td>${l.confidence != null ? Number(l.confidence).toFixed(0) + "%" : "-"}</td><td style="font-size:12px;">${esc(l.description || "-")}</td></tr>
+            `).join("") || '<tr><td colspan="4">No self-generated lessons yet -- these appear automatically as paper-trading positions close.</td></tr>'}
           </tbody>
         </table></div>
 
@@ -7181,6 +7214,20 @@
               ${compareTable}`;
           } catch (e) {
             box.innerHTML = `<p class="muted">${esc(e.message)}</p>`;
+          }
+        };
+      });
+      document.querySelectorAll(".evo-force-gen-btn").forEach(btn => {
+        btn.onclick = async () => {
+          if (!confirm("Create one new generation now for review? It still needs 100 real trades of its own before it can be kept or rolled back -- this only skips the wait for enough NEW trades to accumulate.")) return;
+          btn.disabled = true;
+          try {
+            await apiPost(`/api/evolution/strategies/${btn.dataset.baseId}/force-generation`);
+            appendLog(`Forced a new generation for review: ${btn.dataset.baseId}`);
+            render();
+          } catch (e) {
+            alert(`Couldn't create a new generation: ${e.message}`);
+            btn.disabled = false;
           }
         };
       });
