@@ -168,3 +168,40 @@ def test_weekly_report_wins_losses_totals(test_db, monkeypatch):
     assert result["report_data"]["total_closed_this_week"] == 3
     assert result["report_data"]["total_wins_this_week"] == 2
     assert "Trades this week: 3 closed, 2 won, 1 lost" in result["report_text"]
+
+
+def test_weekly_report_names_best_and_worst_individual_signal(test_db, monkeypatch):
+    # Grand Master Batch, Phase 6 Item 19: distinct from best/worst
+    # STRATEGY above -- this is the single best/worst individual trade.
+    monkeypatch.setattr(base_config, "CONFIG_DIR", str(test_db).rsplit("test_sindhu.db", 1)[0])
+    from backtest_engine import strategy_library as lib
+    from paper_trading import insights
+    monkeypatch.setattr(lib, "list_all", lambda: [{"id": "strat1", "name": "Test Strategy"}])
+    monkeypatch.setattr(insights, "fresh_session_start", lambda: "2020-01-01T00:00:00+00:00")
+    now = datetime.now(timezone.utc).isoformat()
+    _close("p1", pnl=200.0, closed_at=now, strategy_id="strat1")
+    _close("p2", pnl=-50.0, closed_at=now, strategy_id="strat1")
+    _close("p3", pnl=10.0, closed_at=now, strategy_id="strat1")
+
+    result = weekly_report.generate_weekly_report()
+
+    assert result["report_data"]["best_signal"]["pnl"] == 200.0
+    assert result["report_data"]["worst_signal"]["pnl"] == -50.0
+    assert "Best individual signal this week" in result["report_text"]
+    assert "Worst individual signal this week" in result["report_text"]
+
+
+def test_weekly_report_omits_individual_signal_lines_with_fewer_than_2_trades(test_db, monkeypatch):
+    monkeypatch.setattr(base_config, "CONFIG_DIR", str(test_db).rsplit("test_sindhu.db", 1)[0])
+    from backtest_engine import strategy_library as lib
+    from paper_trading import insights
+    monkeypatch.setattr(lib, "list_all", lambda: [{"id": "strat1", "name": "Test Strategy"}])
+    monkeypatch.setattr(insights, "fresh_session_start", lambda: "2020-01-01T00:00:00+00:00")
+    now = datetime.now(timezone.utc).isoformat()
+    _close("p1", pnl=10.0, closed_at=now, strategy_id="strat1")
+
+    result = weekly_report.generate_weekly_report()
+
+    assert result["report_data"]["best_signal"] is None
+    assert result["report_data"]["worst_signal"] is None
+    assert "individual signal" not in result["report_text"]

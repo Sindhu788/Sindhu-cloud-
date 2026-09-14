@@ -97,6 +97,20 @@ def _pnl_by_group_this_period(period_start_iso, period_end_iso):
     return totals
 
 
+def _best_worst_individual_signal_this_period(period_start_iso, period_end_iso):
+    """Grand Master Batch, Phase 6 Item 19: the single best/worst
+    INDIVIDUAL closed trade this week, by real PnL -- distinct from
+    best_strategy/worst_strategy above (a strategy-level aggregate). None
+    for either side if fewer than 2 trades closed (best/worst would be
+    the same lone trade)."""
+    rows = storage.list_closed_paper_positions(limit=100000, since_iso=period_start_iso)
+    rows = [r for r in rows if r.get("pnl") is not None and (r.get("closed_at") or "") <= period_end_iso]
+    if len(rows) < 2:
+        return None, None
+    ranked = sorted(rows, key=lambda r: r["pnl"])
+    return ranked[-1], ranked[0]
+
+
 def generate_weekly_report():
     now = datetime.now(timezone.utc)
     period_start = (now - timedelta(days=REPORT_INTERVAL_DAYS)).isoformat()
@@ -152,6 +166,7 @@ def generate_weekly_report():
     pnl_by_group = _pnl_by_group_this_period(period_start, period_end)
     best_strategy = strategies[0] if strategies else None
     worst_strategy = strategies[-1] if len(strategies) > 1 else None
+    best_signal, worst_signal = _best_worst_individual_signal_this_period(period_start, period_end)
 
     lines = [
         f"Weekly Report -- {now.strftime('%Y-%m-%d')}",
@@ -176,7 +191,11 @@ def generate_weekly_report():
         lines.append(f"Best strategy this week: {best_strategy['name']} (${best_strategy['pnl']:.2f}, {best_strategy['win_rate']}% win rate).")
     if worst_strategy:
         lines.append(f"Worst strategy this week: {worst_strategy['name']} (${worst_strategy['pnl']:.2f}, {worst_strategy['win_rate']}% win rate).")
-    if best_strategy or worst_strategy:
+    if best_signal:
+        lines.append(f"Best individual signal this week: {best_signal.get('strategy_name') or 'Unknown'} on {best_signal['symbol']} (+${best_signal['pnl']:.2f}).")
+    if worst_signal:
+        lines.append(f"Worst individual signal this week: {worst_signal.get('strategy_name') or 'Unknown'} on {worst_signal['symbol']} (${worst_signal['pnl']:.2f}).")
+    if best_strategy or worst_strategy or best_signal or worst_signal:
         lines.append("")
 
     if doing_well:
@@ -232,6 +251,10 @@ def generate_weekly_report():
         "pnl_by_group": pnl_by_group,
         "best_strategy_id": best_strategy["id"] if best_strategy else None,
         "worst_strategy_id": worst_strategy["id"] if worst_strategy else None,
+        "best_signal": {"position_id": best_signal["id"], "symbol": best_signal["symbol"], "pnl": best_signal["pnl"],
+                         "strategy_name": best_signal.get("strategy_name")} if best_signal else None,
+        "worst_signal": {"position_id": worst_signal["id"], "symbol": worst_signal["symbol"], "pnl": worst_signal["pnl"],
+                          "strategy_name": worst_signal.get("strategy_name")} if worst_signal else None,
     }
 
     import json
