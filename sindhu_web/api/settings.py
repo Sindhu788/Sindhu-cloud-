@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from data_engine import config, db_backend
 from data_engine.paths import DATABASE_DIR
 from data_engine.exchanges.registry import ALL_EXCHANGE_IDS
+from paper_trading import cost_tracker
 from sindhu_web import sync
 
 router = APIRouter()
@@ -100,3 +101,29 @@ def update_settings(req: SettingsUpdate):
 
     sync.notify("settings", "updated", "Settings changed")
     return {"ok": True}
+
+
+# --------------------------------------------------------------- Grand Master Batch, Phase 4 Item 6: cost tracker
+
+class CostItemCreate(BaseModel):
+    label: str
+    amount_usd: float
+    period: str = "monthly"
+    note: Optional[str] = None
+
+
+@router.get("/api/settings/costs")
+def get_cost_tracker():
+    return cost_tracker.summary()
+
+
+@router.post("/api/settings/costs")
+def add_cost_tracker_item(req: CostItemCreate):
+    item = cost_tracker.add_cost(req.label, req.amount_usd, req.period, req.note)
+    return {"ok": True, "item": item}
+
+
+@router.delete("/api/settings/costs/{cost_id}")
+def delete_cost_tracker_item(cost_id: str):
+    removed = cost_tracker.remove_cost(cost_id)
+    return {"ok": removed}

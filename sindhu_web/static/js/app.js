@@ -10559,6 +10559,21 @@
         <div id="healthErrors" class="activity-feed muted">Loading...</div>
       </div>
 
+      <div class="section-title">${getLang() === "en" ? "Cost of Running This System" : "Cost of Running This System"}</div>
+      <div class="card" style="max-width:520px;">
+        <p class="muted" style="font-size:12px;margin-top:0;">${getLang() === "en"
+          ? "There's no real billing API to read this from automatically -- enter your known recurring costs (hosting plan, an AI API subscription, anything else) here once, and this keeps a running total for you."
+          : "Ismein koi asli billing API se automatic padhne wala kuch nahi hai -- apni known recurring costs (hosting plan, AI API subscription, kuch aur) yahan ek baar likh dein, yeh inka total rakhega."}</p>
+        <div id="costTrackerTotal" class="muted" style="font-size:13px;margin-bottom:8px;">Loading...</div>
+        <div id="costTrackerList" class="table-wrap"></div>
+        <div class="form-row" style="margin-top:10px;"><label>Label</label><input id="costItemLabel" placeholder="e.g. Render hosting"></div>
+        <div class="form-row"><label>Amount (USD)</label><input id="costItemAmount" type="number" step="0.01" min="0"></div>
+        <div class="form-row"><label>Period</label>
+          <select id="costItemPeriod"><option value="monthly">Monthly</option><option value="yearly">Yearly</option><option value="one_time">One-time</option></select>
+        </div>
+        <div class="btn-row"><button class="btn-ghost" id="btnAddCostItem">Add Cost</button><span id="costItemStatus" class="muted"></span></div>
+      </div>
+
       <div class="section-title">Voice Alerts ${helpIcon("voice_alerts")}</div>
       <div class="card" style="max-width:480px;">
         <p class="muted" style="font-size:12px;margin-top:0;">When the kill switch or the account-wide drawdown circuit-breaker activates, this browser tab speaks it out loud immediately -- useful if the dashboard isn't the thing you're actively looking at.</p>
@@ -10744,6 +10759,54 @@
       el.addEventListener("change", debouncedSaveSettings);
     });
     document.getElementById("btnSaveSettings").onclick = saveSettings;
+
+    async function loadCostTracker() {
+      const totalEl = document.getElementById("costTrackerTotal");
+      const listEl = document.getElementById("costTrackerList");
+      try {
+        const data = await apiGet("/api/settings/costs");
+        totalEl.textContent = `Monthly total: $${data.monthly_total_usd.toFixed(2)} -- Yearly: $${data.yearly_total_usd.toFixed(2)}${data.one_time_total_usd ? ` -- One-time spent: $${data.one_time_total_usd.toFixed(2)}` : ""}`;
+        listEl.innerHTML = data.items.length
+          ? `<table><thead><tr><th>Label</th><th>Amount</th><th>Period</th><th></th></tr></thead><tbody>
+              ${data.items.map(i => `<tr>
+                <td>${esc(i.label)}</td>
+                <td>$${i.amount_usd.toFixed(2)}</td>
+                <td>${esc(i.period)}</td>
+                <td><button class="btn-ghost btn-cost-remove" data-id="${i.id}" style="padding:2px 8px;font-size:11px;">Remove</button></td>
+              </tr>`).join("")}
+            </tbody></table>`
+          : `<p class="muted">No costs entered yet.</p>`;
+        listEl.querySelectorAll(".btn-cost-remove").forEach(btn => {
+          btn.onclick = async () => {
+            await apiSend("DELETE", `/api/settings/costs/${btn.dataset.id}`);
+            loadCostTracker();
+          };
+        });
+      } catch (e) {
+        totalEl.textContent = "Couldn't load cost tracker.";
+      }
+    }
+    loadCostTracker();
+    document.getElementById("btnAddCostItem").onclick = async () => {
+      const label = document.getElementById("costItemLabel").value.trim();
+      const amount = parseFloat(document.getElementById("costItemAmount").value);
+      const period = document.getElementById("costItemPeriod").value;
+      const status = document.getElementById("costItemStatus");
+      if (!label || isNaN(amount) || amount < 0) {
+        status.textContent = "Enter a label and a valid amount.";
+        return;
+      }
+      status.textContent = "Saving...";
+      try {
+        await apiSend("POST", "/api/settings/costs", { label, amount_usd: amount, period });
+        document.getElementById("costItemLabel").value = "";
+        document.getElementById("costItemAmount").value = "";
+        status.textContent = "";
+        loadCostTracker();
+      } catch (e) {
+        status.textContent = "Failed to save.";
+      }
+    };
 
     async function loadSyncLog() {
       const listEl = document.getElementById("syncLogList");

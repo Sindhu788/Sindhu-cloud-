@@ -8,6 +8,7 @@ codebase (same constant names as before) while making settings persistent
 and editable from the dashboard.
 """
 
+import copy
 import json
 import os
 
@@ -96,16 +97,29 @@ _DEFAULT_APP_SETTINGS = {
 def load_or_seed(filename, defaults):
     """Read data/config/<filename>, creating it from `defaults` if missing.
     Used both at import time here and by the dashboard's Settings dialog to
-    read/write live values without needing a process restart."""
+    read/write live values without needing a process restart.
+
+    Grand Master Batch, Phase 4 bug fix: returns a deep copy of `defaults`,
+    not a shallow one. `dict(defaults)` only copies the outer dict -- for
+    any caller whose defaults contain a nested list/dict (e.g. paper_
+    trading/cost_tracker.py's {"items": []}), every "file doesn't exist
+    yet" call used to hand back a reference to that SAME nested object
+    every time. A caller that then mutated it in place (data["items"].
+    append(...)) was actually mutating the shared module-level `defaults`
+    dict itself -- so every entry ever added, across every unrelated
+    CONFIG_DIR (including different tests' isolated tmp_path dirs),
+    silently accumulated into one process-lifetime list instead of being
+    scoped to its own saved file. Existing callers whose defaults are
+    flat scalars (the overwhelming majority) are unaffected either way."""
     ensure_folders()
     path = os.path.join(CONFIG_DIR, filename)
     if not os.path.exists(path):
         with open(path, "w", encoding="utf-8") as f:
             json.dump(defaults, f, indent=2)
-        return dict(defaults)
+        return copy.deepcopy(defaults)
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
-    merged = dict(defaults)
+    merged = copy.deepcopy(defaults)
     merged.update(data)
     return merged
 
@@ -142,7 +156,10 @@ def load_persistent(cloud_key, filename, defaults):
     from data_engine import db_backend, storage
     if db_backend.IS_POSTGRES:
         saved = storage.get_cloud_setting(cloud_key)
-        merged = dict(defaults)
+        # Same deep-copy reasoning as load_or_seed above -- `saved` being
+        # falsy (no row saved yet) must never hand back a live reference
+        # into the shared module-level `defaults` object.
+        merged = copy.deepcopy(defaults)
         if saved:
             merged.update(saved)
         return merged
