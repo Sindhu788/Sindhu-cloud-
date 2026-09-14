@@ -625,7 +625,7 @@ def _build_proxies(settings):
     return {"http": url, "https": url}
 
 
-def _raw_send(text, channel_id_override=None, force_alert=False):
+def _raw_send(text, channel_id_override=None, force_alert=False, reply_markup=None):
     """Real HTTP call to the Telegram Bot API -- no simulation. Returns
     (success: bool, error: str|None).
 
@@ -652,7 +652,12 @@ def _raw_send(text, channel_id_override=None, force_alert=False):
     force_alert (Grand Master Batch, Phase 4 Item 5): set by
     send_signal_for_position() for a genuinely high-confidence signal --
     see _effective_silent()'s docstring for why this bypasses Silent
-    Hours but never Quiet Mode."""
+    Hours but never Quiet Mode.
+
+    reply_markup (Grand Master Batch, Phase 6 Item 15): an inline keyboard
+    dict (Telegram Bot API shape) -- set by send_signal_for_position() to
+    attach the 👍/👎 reaction buttons to a real trade signal. Every other
+    caller omits this and gets a plain message with no buttons, unchanged."""
     settings = load_settings()
     token = settings.get("bot_token")
     channel_id = channel_id_override or settings.get("channel_id")
@@ -666,12 +671,16 @@ def _raw_send(text, channel_id_override=None, force_alert=False):
     # is withheld or delayed.
     silent = _effective_silent(force_alert)
 
+    payload = {"chat_id": channel_id, "text": text, "parse_mode": "HTML", "disable_notification": silent}
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+
     last_err = None
     for attempt in range(1, _API_MAX_ATTEMPTS + 1):
         try:
             resp = requests.post(
                 f"https://api.telegram.org/bot{token}/sendMessage",
-                json={"chat_id": channel_id, "text": text, "parse_mode": "HTML", "disable_notification": silent},
+                json=payload,
                 timeout=(_API_CONNECT_TIMEOUT, _API_READ_TIMEOUT),
                 proxies=proxies,
             )
@@ -1318,7 +1327,14 @@ def send_signal_for_position(position_id, trigger_type="manual", high_confidence
     # already achieves the one thing this append existed for. Appending
     # both would put the same status on the message twice, which the
     # explicit "exactly these fields, nothing more" instruction rules out.
-    ok, err = _raw_send(text, channel_id_override=channel_for_strategy(pos.get("strategy_id")), force_alert=high_confidence)
+    # Grand Master Batch, Phase 6 Item 15: Signal Reaction Tracking -- a
+    # real 👍/👎 inline keyboard on every trade signal (never on close-
+    # followups, reports, or test messages -- those callers don't pass
+    # reply_markup, so _raw_send behaves exactly as before for them).
+    from paper_trading import signal_reactions
+    reaction_keyboard = signal_reactions.build_reaction_keyboard(position_id)
+    ok, err = _raw_send(text, channel_id_override=channel_for_strategy(pos.get("strategy_id")),
+                         force_alert=high_confidence, reply_markup=reaction_keyboard)
     # Grand Master Batch, Phase 6 Item 20: Multi-Recipient Support -- every
     # configured additional channel gets its own copy of this exact same
     # signal, fanned out on top of whatever the primary destination above
@@ -1329,7 +1345,8 @@ def send_signal_for_position(position_id, trigger_type="manual", high_confidence
     # send; fan-out failures would otherwise silently overwrite it).
     for extra_channel_id in load_settings().get("additional_channel_ids") or []:
         try:
-            _raw_send(text, channel_id_override=extra_channel_id, force_alert=high_confidence)
+            _raw_send(text, channel_id_override=extra_channel_id, force_alert=high_confidence,
+                      reply_markup=reaction_keyboard)
         except Exception:
             pass
     storage.log_telegram_message(

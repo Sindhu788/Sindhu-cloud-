@@ -6547,13 +6547,14 @@
       const box = document.getElementById("tgDashBox");
       if (!box) return;
       box.innerHTML = `<p class="muted">Loading...</p>`;
-      let delivery, analytics, mirrorRes, nearMiss;
+      let delivery, analytics, mirrorRes, nearMiss, reactionsRes;
       try {
-        [delivery, analytics, mirrorRes, nearMiss] = await Promise.all([
+        [delivery, analytics, mirrorRes, nearMiss, reactionsRes] = await Promise.all([
           apiGet(`/api/paper-trading/telegram/delivery-log?period=${period}`),
           apiGet(`/api/paper-trading/telegram/analytics?period=${period}`).catch(() => null),
           apiGet(`/api/paper-trading/telegram/log?limit=30`).catch(() => ({ messages: [] })),
           apiGet(`/api/paper-trading/telegram/near-misses?limit=200`).catch(() => null),
+          apiGet(`/api/paper-trading/telegram/reactions?limit=30`).catch(() => ({ reactions: [] })),
         ]);
       } catch (e) {
         if (isStaleRoute(myToken)) return;
@@ -6712,6 +6713,19 @@
           ${card("Hypothetical Balance", `$${analytics.hypothetical_pnl.hypothetical_balance.toFixed(2)}`)}
           ${card("Trades Counted", fmtNum(analytics.hypothetical_pnl.counted_trades))}
         </div>` : ""}
+
+        <div class="section-title">Signal Reactions ${helpIcon("signal_reactions")}</div>
+        <p class="muted plain-note">Grand Master Batch, Phase 6 Item 15: every 👍/👎 tap on a signal's inline buttons, logged here for review -- a real signal message now includes these buttons.</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>When</th><th>Position</th><th>Reaction</th><th>From</th></tr></thead>
+          <tbody>${(reactionsRes.reactions || []).map(r => `
+            <tr>
+              <td>${esc((r.at || "").slice(0, 16).replace("T", " "))}</td>
+              <td>${esc(r.position_id)}</td>
+              <td>${r.reaction === "up" ? "👍" : "👎"}</td>
+              <td>${esc(String(r.from_user || "-"))}</td>
+            </tr>`).join("") || '<tr><td colspan="4">No reactions logged yet.</td></tr>'}</tbody>
+        </table></div>
 
         <div class="section-title">Signal Mirror &mdash; Exactly What Was Sent</div>
         <p class="muted plain-note">The real message text stored at the moment each send was attempted &mdash; not a re-generated guess, so this always matches what Telegram actually received.</p>

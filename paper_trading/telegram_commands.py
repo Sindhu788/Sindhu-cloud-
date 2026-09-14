@@ -141,10 +141,53 @@ _COMMANDS = {"/status": _status_reply, "/pause": _pause_reply, "/resume": _resum
              "/test": _test_signal_reply, "/help": _help_reply}
 
 
+def _answer_callback_query(callback_query_id, text=None):
+    if not _bot_token():
+        return
+    try:
+        body = {"callback_query_id": callback_query_id}
+        if text:
+            body["text"] = text
+        requests.post(_api_url("answerCallbackQuery"), json=body, timeout=15)
+    except requests.RequestException:
+        pass
+
+
+def _handle_callback_query(callback_query):
+    """Grand Master Batch, Phase 6 Item 15: the first callback_query
+    (inline-button tap) handling anywhere in this codebase -- every
+    previous incoming update was a plain /command message. Always
+    answers the callback (stops the tapper's client showing an infinite
+    loading spinner) even when the sender isn't authorized or the
+    callback_data isn't recognized."""
+    from paper_trading import signal_reactions
+
+    callback_query_id = callback_query.get("id")
+    chat_id = ((callback_query.get("message") or {}).get("chat") or {}).get("id")
+    if not chat_id or not _is_authorized(chat_id):
+        _answer_callback_query(callback_query_id)
+        return None
+
+    parsed = signal_reactions.parse_reaction_callback(callback_query.get("data"))
+    if not parsed:
+        _answer_callback_query(callback_query_id)
+        return None
+
+    reaction, position_id = parsed
+    from_user = (callback_query.get("from") or {}).get("username") or (callback_query.get("from") or {}).get("id")
+    signal_reactions.record_reaction(position_id, reaction, from_user=from_user)
+    _answer_callback_query(callback_query_id, text="👍 Noted" if reaction == signal_reactions.REACTION_UP else "👎 Noted")
+    return f"reaction:{reaction}:{position_id}"
+
+
 def handle_update(update):
-    """Returns the reply text if a recognized, authorized command was
-    handled, else None. Nothing is sent back for an unauthorized sender OR
-    an unrecognized command -- this never behaves like a public echo bot."""
+    """Returns the reply text if a recognized, authorized command (or
+    button tap) was handled, else None. Nothing is sent back for an
+    unauthorized sender OR an unrecognized command -- this never behaves
+    like a public echo bot."""
+    if update.get("callback_query"):
+        return _handle_callback_query(update["callback_query"])
+
     message = update.get("message") or {}
     chat = message.get("chat") or {}
     chat_id = chat.get("id")

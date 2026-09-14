@@ -1947,6 +1947,23 @@ def stop_quiet_mode():
     return {"ok": True}
 
 
+@router.get("/api/paper-trading/telegram/reactions/{position_id}")
+def get_signal_reactions(position_id: str):
+    """Grand Master Batch, Phase 6 Item 15."""
+    from paper_trading import signal_reactions
+    return {"counts": signal_reactions.reaction_counts(position_id),
+            "reactions": signal_reactions.list_reactions(position_id)}
+
+
+@router.get("/api/paper-trading/telegram/reactions")
+def list_all_signal_reactions(limit: int = 50):
+    """All reactions logged so far, newest first -- for the dashboard's
+    review list (distinct from the per-position endpoint above)."""
+    from paper_trading import signal_reactions
+    reactions = sorted(signal_reactions.list_reactions(), key=lambda r: r["at"], reverse=True)
+    return {"reactions": reactions[:limit]}
+
+
 @router.post("/api/paper-trading/telegram/live-stats/update-now")
 def update_live_stats_now():
     """Grand Master Batch, Phase 6 Item 14."""
