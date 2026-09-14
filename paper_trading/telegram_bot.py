@@ -115,6 +115,13 @@ _DEFAULTS = {
     # high-confidence exception -- see is_quiet_mode_active()/_effective_
     # silent() for why the two behave differently.
     "quiet_mode_until": None,
+    # Grand Master Batch, Phase 6 Item 12: Snooze This Strategy's Signals --
+    # {strategy_id: iso_expiry}. Unlike Quiet Mode (mutes the phone alert
+    # for EVERY signal), a snoozed strategy's signals are withheld
+    # entirely (not sent, not just silenced) until it expires -- the
+    # channel simply hears nothing from that one strategy for a while.
+    # Every other strategy is completely unaffected.
+    "snoozed_strategies": {},
     # Master 15-Item task, Items 6 & 10: the CEO's own personal Telegram
     # chat id (a DIRECT MESSAGE with the bot, never the public/shared
     # `channel_id` above) -- used for anything that must stay private:
@@ -249,6 +256,7 @@ def public_settings():
         # reimplement the "is it still in the future" check itself).
         "quiet_mode_until": s.get("quiet_mode_until"),
         "quiet_mode_active": is_quiet_mode_active(),
+        "snoozed_strategies": s.get("snoozed_strategies") or {},
         "personal_chat_id": s.get("personal_chat_id", ""),
         # Full System Verification Audit (2026-09-13): these existed in
         # _DEFAULTS/save_settings already but were never added here, so
@@ -359,6 +367,44 @@ def clear_quiet_mode():
         storage.save_cloud_setting(_SETTINGS_KEY, settings, _now_iso())
     else:
         base_config.save_config("telegram_settings.json", settings)
+
+
+# --------------------------------------------------------------- Grand Master Batch, Phase 6 Item 12: per-strategy snooze
+
+def snooze_strategy(strategy_id, hours=24):
+    """Withholds this ONE strategy's Telegram signals entirely (not just
+    muted -- not sent at all) for `hours` hours. Every other strategy
+    keeps sending exactly as normal."""
+    if hours <= 0:
+        raise ValueError("hours must be positive")
+    settings = load_settings()
+    snoozed = dict(settings.get("snoozed_strategies") or {})
+    snoozed[strategy_id] = (datetime.now(timezone.utc) + timedelta(hours=hours)).isoformat()
+    save_settings(snoozed_strategies=snoozed)
+    return snoozed[strategy_id]
+
+
+def unsnooze_strategy(strategy_id):
+    settings = load_settings()
+    snoozed = dict(settings.get("snoozed_strategies") or {})
+    snoozed.pop(strategy_id, None)
+    # Same None-vs-omitted reasoning as clear_quiet_mode() above -- a
+    # dict value is fine through save_settings (it's never None itself),
+    # so no direct-write workaround is needed here.
+    save_settings(snoozed_strategies=snoozed)
+
+
+def is_strategy_snoozed(strategy_id, now=None):
+    if not strategy_id:
+        return False
+    until = (load_settings().get("snoozed_strategies") or {}).get(strategy_id)
+    if not until:
+        return False
+    now = now or datetime.now(timezone.utc)
+    try:
+        return now < datetime.fromisoformat(until)
+    except (ValueError, TypeError):
+        return False
 
 
 def _effective_silent(force_alert=False):
@@ -1047,6 +1093,18 @@ def send_signal_for_position(position_id, trigger_type="manual", high_confidence
             "", False, conf_reason, now,
         )
         return {"ok": False, "error": conf_reason}
+
+    # Grand Master Batch, Phase 6 Item 12: a snoozed strategy's signals are
+    # withheld entirely, same treatment as every other real gate here --
+    # still generated and logged (so nothing is silently lost from the
+    # dashboard's own record), just never actually sent to Telegram.
+    if is_strategy_snoozed(pos.get("strategy_id")):
+        snooze_reason = f"strategy is snoozed until {(load_settings().get('snoozed_strategies') or {}).get(pos.get('strategy_id'))}"
+        storage.log_telegram_message(
+            position_id, pos.get("strategy_id"), pos.get("strategy_name"), trigger_type,
+            "", False, snooze_reason, now,
+        )
+        return {"ok": False, "error": snooze_reason}
 
     exchanges_cfg = base_config.load_or_seed("exchanges.json", base_config.DEFAULTS["exchanges.json"])
     exchange = exchanges_cfg["default"]

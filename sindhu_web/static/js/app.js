@@ -6682,8 +6682,11 @@
         <div class="section-title">Per-Strategy &mdash; Delivered Signals Only</div>
         <p class="muted plain-note">This table counts only signals that genuinely reached Telegram, so it will read lower than the log above whenever delivery is blocked.</p>
         <div class="table-wrap"><table>
-          <thead><tr><th>Strategy</th><th>Delivered</th><th>Wins</th><th>Losses</th><th>Still Open</th><th>Win Ratio</th></tr></thead>
-          <tbody>${(analytics.strategy_breakdown || []).map(b => `
+          <thead><tr><th>Strategy</th><th>Delivered</th><th>Wins</th><th>Losses</th><th>Still Open</th><th>Win Ratio</th><th>Signals</th></tr></thead>
+          <tbody>${(analytics.strategy_breakdown || []).map(b => {
+            const snoozedUntil = b.strategy_id && (cs.settings.snoozed_strategies || {})[b.strategy_id];
+            const isSnoozed = snoozedUntil && new Date(snoozedUntil) > new Date();
+            return `
             <tr>
               <td>${esc(b.strategy_name)}</td>
               <td>${fmtNum(b.total_signals)}</td>
@@ -6691,7 +6694,11 @@
               <td>${fmtNum(b.losses)}</td>
               <td>${fmtNum(b.pending)}</td>
               <td>${b.win_rate_pct != null ? b.win_rate_pct.toFixed(1) + "%" : `Needs ${analytics.summary.min_sample_size}+ finished`}</td>
-            </tr>`).join("") || `<tr><td colspan="6">Nothing was delivered in this period.</td></tr>`}</tbody>
+              <td>${b.strategy_id ? (isSnoozed
+                ? `<button class="btn-ghost strat-unsnooze" data-id="${esc(b.strategy_id)}" title="Snoozed until ${esc(snoozedUntil)}">😴 Un-snooze</button>`
+                : `<button class="btn-ghost strat-snooze" data-id="${esc(b.strategy_id)}">Snooze 24h</button>`) : "-"}</td>
+            </tr>`;
+          }).join("") || `<tr><td colspan="7">Nothing was delivered in this period.</td></tr>`}</tbody>
         </table></div>
 
         <div class="section-title">${getLang() === "en" ? "Simulate Real Money" : "Simulate Real Money"}</div>
@@ -6729,6 +6736,18 @@
       `;
       box.querySelectorAll(".tg-preview-btn").forEach(btn => {
         btn.onclick = () => openTelegramPreviewModal(btn.dataset.id);
+      });
+      document.querySelectorAll(".strat-snooze").forEach(btn => {
+        btn.onclick = async () => {
+          await apiPost(`/api/paper-trading/telegram/snooze/${btn.dataset.id}`, { hours: 24 });
+          loadPeriod(activePeriod);
+        };
+      });
+      document.querySelectorAll(".strat-unsnooze").forEach(btn => {
+        btn.onclick = async () => {
+          await apiDelete(`/api/paper-trading/telegram/snooze/${btn.dataset.id}`);
+          loadPeriod(activePeriod);
+        };
       });
       const capitalInput = document.getElementById("simulateCapitalInput");
       if (capitalInput) {

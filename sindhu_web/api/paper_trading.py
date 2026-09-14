@@ -1938,6 +1938,19 @@ def stop_quiet_mode():
     return {"ok": True}
 
 
+@router.post("/api/paper-trading/telegram/snooze/{strategy_id}")
+def snooze_strategy_signals(strategy_id: str, req: QuietModeRequest):
+    """Grand Master Batch, Phase 6 Item 12."""
+    until = telegram_bot.snooze_strategy(strategy_id, req.hours)
+    return {"ok": True, "snoozed_until": until}
+
+
+@router.delete("/api/paper-trading/telegram/snooze/{strategy_id}")
+def unsnooze_strategy_signals(strategy_id: str):
+    telegram_bot.unsnooze_strategy(strategy_id)
+    return {"ok": True}
+
+
 _BOT_TOKEN_IN_URL_RE = re.compile(r"/bot\d+:[A-Za-z0-9_-]+")
 
 
