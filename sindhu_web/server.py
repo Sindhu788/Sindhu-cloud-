@@ -175,6 +175,8 @@ async def _lifespan(app: FastAPI):
     start_daily_report_scheduler_thread()
     from paper_trading.telegram_commands import start_command_polling_thread
     start_command_polling_thread()
+    from paper_trading.strategy_sync import start_offline_queue_scheduler_thread
+    start_offline_queue_scheduler_thread()
     from backtest_engine.result_plausibility import start_plausibility_sweep_thread
     start_plausibility_sweep_thread()
     # Batch 9, Task 3: restore Paper Trading + report Telegram's current

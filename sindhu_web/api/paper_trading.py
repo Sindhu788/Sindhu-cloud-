@@ -1049,13 +1049,14 @@ def update_strategy_sync_target(req: SyncTargetUpdate):
 
 
 @router.post("/api/paper-trading/strategy-sync/trigger/{strategy_id}")
-def trigger_strategy_sync(strategy_id: str):
+def trigger_strategy_sync(strategy_id: str, include_settings: bool = False):
     """LOCAL side: the "one-click manual trigger" this task's own
     instructions explicitly allowed building first (safer than a fully
     automatic background push). Behind the normal login+token gate --
     this is a state-changing local action, not the cloud's receive
-    endpoint below."""
-    result = strategy_sync.push_strategy_to_cloud(strategy_id)
+    endpoint below. `include_settings` is Phase 7 Item 24's selective
+    sync -- off by default."""
+    result = strategy_sync.push_strategy_to_cloud(strategy_id, include_settings=include_settings)
     _log_and_broadcast(f"[strategy-sync] {strategy_id}: "
                         + ("synced to cloud" if result.get("ok") else f"FAILED -- {result.get('error')}"))
     return result
@@ -1087,6 +1088,9 @@ class StrategySyncPush(BaseModel):
     name: Optional[str] = None
     tags: Optional[list] = None
     config_json: dict
+    local_version: Optional[int] = None
+    local_updated_at: Optional[str] = None
+    settings: Optional[dict] = None
 
 
 @router.post("/api/paper-trading/strategy-sync/push")
@@ -1101,11 +1105,88 @@ def receive_strategy_sync(req: StrategySyncPush, x_sindhu_sync_secret: Optional[
     ever looking at the payload."""
     result, status_code = strategy_sync.receive_synced_strategy(
         req.strategy_id, req.name, req.tags, req.config_json, x_sindhu_sync_secret,
+        local_version=req.local_version, local_updated_at=req.local_updated_at, settings=req.settings,
     )
     if status_code != 200:
         return JSONResponse(content=result, status_code=status_code)
-    _log_and_broadcast(f"[strategy-sync] received {req.strategy_id} ({req.name}) from a local sync push")
+    if result.get("conflict"):
+        _log_and_broadcast(f"[strategy-sync] CONFLICT for {req.strategy_id}: incoming push was not newer than "
+                            f"the stored cloud record -- kept the existing cloud record")
+    else:
+        _log_and_broadcast(f"[strategy-sync] received {req.strategy_id} ({req.name}) from a local sync push")
     return result
+
+
+@router.get("/api/paper-trading/strategy-sync/conflicts")
+def get_strategy_sync_conflicts(limit: int = 50):
+    """Phase 7 Item 23: the conflict-resolution subset of the sync log --
+    see strategy_sync.receive_synced_strategy()'s module-level explanation
+    of Items 23+28 for what counts as a conflict and how it's resolved."""
+    return {"conflicts": strategy_sync.list_sync_conflicts(limit=limit)}
+
+
+@router.get("/api/paper-trading/strategy-sync/timeline")
+def get_strategy_sync_timeline(days: int = 7):
+    """Phase 7 Item 27: the sync log grouped into calendar days for the
+    last `days` days, most recent first."""
+    return {"timeline": strategy_sync.get_sync_timeline(days=days)}
+
+
+@router.get("/api/paper-trading/strategy-sync/bandwidth")
+def get_strategy_sync_bandwidth():
+    """Phase 7 Item 29: a running total of how much data this machine has
+    ever actually sent over the wire syncing strategies."""
+    return strategy_sync.get_sync_bandwidth_stats()
+
+
+@router.get("/api/paper-trading/strategy-sync/offline-queue")
+def get_strategy_sync_offline_queue():
+    """Phase 7 Item 26: every push still waiting for a working connection
+    to the cloud."""
+    return {"queued": strategy_sync.list_offline_queue()}
+
+
+@router.post("/api/paper-trading/strategy-sync/offline-queue/flush")
+def flush_strategy_sync_offline_queue():
+    """Phase 7 Item 26: manually re-attempt every queued push right now
+    (also run periodically by the background scheduler -- see
+    sindhu_web/server.py)."""
+    result = strategy_sync.flush_offline_queue()
+    if result["flushed"]:
+        _log_and_broadcast(f"[strategy-sync] offline queue flush: delivered {', '.join(result['flushed'])}")
+    return result
+
+
+@router.delete("/api/paper-trading/strategy-sync/offline-queue/{strategy_id}")
+def discard_strategy_sync_offline_queue_item(strategy_id: str):
+    """Phase 7 Item 30: the emergency "cloud is source of truth" override
+    -- stop retrying this strategy's queued local push and leave whatever
+    the cloud already has as-is. See strategy_sync.discard_from_offline_queue()."""
+    removed = strategy_sync.discard_from_offline_queue(strategy_id)
+    if removed:
+        _log_and_broadcast(f"[strategy-sync] {strategy_id}: local push abandoned by CEO override -- "
+                            f"cloud's existing copy is left untouched")
+    return {"ok": True, "removed": removed}
+
+
+@router.get("/api/paper-trading/strategy-sync/health-check")
+def strategy_sync_health_check():
+    """Phase 7 Item 25: LOCAL side, meant to be called once on dashboard
+    load -- flags any local/cloud mismatch instead of the CEO only finding
+    out the next time paper trading behaves unexpectedly."""
+    return strategy_sync.check_sync_health()
+
+
+@router.get("/api/paper-trading/strategy-sync/cloud-state")
+def get_strategy_sync_cloud_state(x_sindhu_sync_secret: Optional[str] = Header(None)):
+    """CLOUD side: minimal version-only state for check_sync_health() above
+    to diff against. Gated by the same X-Sindhu-Sync-Secret as /push and
+    /cloud-status-for-auto-stop -- a local dashboard-load check has no
+    browser session either."""
+    expected = strategy_sync.get_or_create_sync_secret()
+    if not x_sindhu_sync_secret or x_sindhu_sync_secret != expected:
+        return JSONResponse(content={"ok": False, "error": "invalid or missing sync secret"}, status_code=401)
+    return {"synced": strategy_sync.get_cloud_sync_state()}
 
 
 # ----------------------------------------------------------------------

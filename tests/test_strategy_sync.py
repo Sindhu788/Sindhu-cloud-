@@ -232,8 +232,11 @@ def test_push_sends_the_small_config_only_and_reports_success():
     assert body["strategy_id"] == sid
     assert body["config_json"]["name"] == "Test Sync Strategy"
     # never the backtest engine, evolution engine, or historical data -- just
-    # the small config-shaped dict the payload actually is
-    assert set(body.keys()) == {"strategy_id", "name", "tags", "config_json"}
+    # the small config-shaped dict, plus the version markers used for
+    # Phase 7 Items 23+28's conflict detection (see strategy_sync.py)
+    assert set(body.keys()) == {"strategy_id", "name", "tags", "config_json",
+                                 "local_version", "local_updated_at"}
+    assert body["local_version"] == 1
 
     log = strategy_sync.get_sync_log()
     assert log[0]["action"] == "success"

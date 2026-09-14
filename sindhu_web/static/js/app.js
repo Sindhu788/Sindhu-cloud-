@@ -6891,6 +6891,8 @@
             </div>
           </div>
           <div id="syncedStrategiesList" class="table-wrap"><p class="muted">Loading...</p></div>
+          <p class="muted plain-note" style="margin-top:10px;">Sync Conflicts &mdash; when an incoming push isn't newer than what's already stored here, it's discarded and logged below instead of silently overwriting the current cloud copy.</p>
+          <div id="syncConflictsList" class="table-wrap"><p class="muted">Loading...</p></div>
         </div>
       </div>
     `;
@@ -6985,6 +6987,13 @@
               ${synced_strategies.map(s => `<tr><td>${esc(s.name || s.strategy_id)}</td><td>${esc(s.synced_at || "-")}</td></tr>`).join("")}
              </tbody></table>`
           : `<p class="muted">No strategies have been synced from a local machine yet.</p>`;
+        const { conflicts } = await apiGet("/api/paper-trading/strategy-sync/conflicts?limit=20");
+        const conflictsEl = document.getElementById("syncConflictsList");
+        conflictsEl.innerHTML = conflicts.length
+          ? `<table><thead><tr><th>When</th><th>What happened</th></tr></thead><tbody>
+              ${conflicts.map(c => `<tr><td>${esc(c.created_at || "-")}</td><td>${esc(c.message || "-")}</td></tr>`).join("")}
+             </tbody></table>`
+          : `<p class="muted">No sync conflicts so far.</p>`;
       } catch (e) {
         // Local-mode dashboards (no Postgres) don't need this card to work --
         // fail silently rather than showing an alarming error for a feature
@@ -10844,9 +10853,26 @@
         <div class="form-row"><label>Sync Secret</label><input id="syncSecretInput" type="password" placeholder="Paste the secret from the cloud dashboard"></div>
         <div class="btn-row"><button class="btn" id="btnSaveSyncTarget">Save</button><span id="syncTargetStatus" class="muted"></span></div>
         <div class="form-row" style="margin-top:10px;"><label>Strategy to sync</label><select id="syncStrategyId"><option value="">Loading strategies...</option></select></div>
+        <label style="display:flex;align-items:center;gap:6px;width:auto;margin-top:4px;">
+          <input type="checkbox" id="syncIncludeSettings" style="width:auto;"> Also sync this strategy's local trading settings (enabled/priority/coins) -- only applied on the cloud the very first time this strategy is ever synced
+        </label>
         <div class="btn-row"><button class="btn-ghost" id="btnTriggerSync">Sync This Strategy to Cloud Now</button><span id="syncTriggerStatus" class="muted"></span></div>
+
+        <div id="syncHealthBanner" class="muted" style="margin-top:10px;font-size:12px;">Checking local/cloud sync health...</div>
+
+        <div class="section-title" style="margin-top:14px;font-size:13px;">Offline Queue (pending pushes)</div>
+        <p class="muted plain-note">A push that fails because the cloud can't be reached is queued here and retried automatically every 10 minutes -- or click Retry Now. "Abandon" is the emergency override: stop retrying and leave the cloud's existing copy of that strategy untouched.</p>
+        <div id="syncOfflineQueueList" class="table-wrap"><p class="muted">Loading...</p></div>
+        <div class="btn-row"><button class="btn-ghost" id="btnFlushOfflineQueue">Retry Now</button><span id="syncOfflineQueueStatus" class="muted"></span></div>
+
+        <div class="section-title" style="margin-top:14px;font-size:13px;">Bandwidth Used</div>
+        <div id="syncBandwidthStats" class="muted" style="font-size:12px;">Loading...</div>
+
         <div class="section-title" style="margin-top:14px;font-size:13px;">Sync History (this machine)</div>
         <div id="syncLogList" class="table-wrap"><p class="muted">Loading...</p></div>
+
+        <div class="section-title" style="margin-top:14px;font-size:13px;">Sync Timeline (last 7 days)</div>
+        <div id="syncTimelineList" class="table-wrap"><p class="muted">Loading...</p></div>
       </div>
 
       <div class="section-title">System Health</div>
@@ -11197,6 +11223,59 @@
           : `<p class="muted">No sync attempts yet.</p>`;
       } catch (e) { listEl.innerHTML = `<p class="muted">Couldn't load: ${esc(e.message)}</p>`; }
     }
+    async function loadSyncHealth() {
+      const el = document.getElementById("syncHealthBanner");
+      try {
+        const h = await apiGet("/api/paper-trading/strategy-sync/health-check", 15000);
+        if (!h.reachable) { el.textContent = `Sync health check: cloud not reachable right now (${h.error || "unknown reason"}).`; return; }
+        if (h.out_of_sync.length) {
+          el.innerHTML = `⚠️ ${h.out_of_sync.length} strategy(ies) are out of sync with the cloud: ` +
+            h.out_of_sync.map(o => esc(o.strategy_id)).join(", ") + ". Push them again above to update the cloud.";
+          el.style.color = "var(--orange,#d68910)";
+        } else {
+          el.textContent = `Sync health: ${h.in_sync.length} strategy(ies) match the cloud. No mismatches found.`;
+          el.style.color = "";
+        }
+      } catch (e) { el.textContent = "Sync health check unavailable."; }
+    }
+    async function loadOfflineQueue() {
+      const listEl = document.getElementById("syncOfflineQueueList");
+      try {
+        const { queued } = await apiGet("/api/paper-trading/strategy-sync/offline-queue");
+        listEl.innerHTML = queued.length
+          ? `<table><thead><tr><th>Strategy</th><th>Queued At</th><th></th></tr></thead><tbody>
+              ${queued.map(q => `<tr><td>${esc(q.strategy_id)}</td><td>${esc(q.queued_at)}</td>
+                <td><button class="btn-ghost" data-discard-queue="${esc(q.strategy_id)}" style="font-size:11px;">Abandon</button></td></tr>`).join("")}
+             </tbody></table>`
+          : `<p class="muted">Nothing queued -- every push has gone through.</p>`;
+        listEl.querySelectorAll("[data-discard-queue]").forEach(btn => {
+          btn.onclick = async () => {
+            try {
+              await apiDelete(`/api/paper-trading/strategy-sync/offline-queue/${encodeURIComponent(btn.dataset.discardQueue)}`);
+              loadOfflineQueue();
+            } catch (e) {}
+          };
+        });
+      } catch (e) { listEl.innerHTML = `<p class="muted">Couldn't load: ${esc(e.message)}</p>`; }
+    }
+    async function loadSyncBandwidth() {
+      const el = document.getElementById("syncBandwidthStats");
+      try {
+        const b = await apiGet("/api/paper-trading/strategy-sync/bandwidth");
+        el.textContent = `${b.push_count} successful push(es), ${b.total_bytes_sent.toLocaleString()} bytes sent in total (avg ${b.average_bytes_per_push} bytes/push).`;
+      } catch (e) { el.textContent = "Couldn't load bandwidth stats."; }
+    }
+    async function loadSyncTimeline() {
+      const listEl = document.getElementById("syncTimelineList");
+      try {
+        const { timeline } = await apiGet("/api/paper-trading/strategy-sync/timeline?days=7");
+        listEl.innerHTML = timeline.length
+          ? `<table><thead><tr><th>Day</th><th>Events</th></tr></thead><tbody>
+              ${timeline.map(b => `<tr><td>${esc(b.day)}</td><td>${b.events.length} event(s) -- ${b.events.map(e => esc(e.action)).join(", ")}</td></tr>`).join("")}
+             </tbody></table>`
+          : `<p class="muted">No sync activity in the last 7 days.</p>`;
+      } catch (e) { listEl.innerHTML = `<p class="muted">Couldn't load: ${esc(e.message)}</p>`; }
+    }
     (async () => {
       try {
         const target = await apiGet("/api/paper-trading/strategy-sync/target");
@@ -11215,6 +11294,10 @@
         sidSelect.innerHTML = `<option value="">Couldn't load strategy list</option>`;
       }
       loadSyncLog();
+      loadSyncHealth();
+      loadOfflineQueue();
+      loadSyncBandwidth();
+      loadSyncTimeline();
     })();
     document.getElementById("btnSaveSyncTarget").onclick = async () => {
       const status = document.getElementById("syncTargetStatus");
@@ -11232,12 +11315,32 @@
       const status = document.getElementById("syncTriggerStatus");
       const sid = document.getElementById("syncStrategyId").value.trim();
       if (!sid) { status.textContent = "Enter a strategy id first."; return; }
+      const includeSettings = document.getElementById("syncIncludeSettings").checked;
       status.textContent = "Syncing...";
       try {
-        const r = await apiPost(`/api/paper-trading/strategy-sync/trigger/${encodeURIComponent(sid)}`, {}, 30000);
-        status.textContent = r.ok ? "Synced to the cloud successfully." : `Failed: ${r.error}`;
+        const r = await apiPost(`/api/paper-trading/strategy-sync/trigger/${encodeURIComponent(sid)}?include_settings=${includeSettings}`, {}, 30000);
+        status.textContent = r.ok
+          ? (r.response && r.response.conflict
+              ? `Not applied -- the cloud already has a newer version (v${r.response.cloud_version}).`
+              : "Synced to the cloud successfully.")
+          : `Failed: ${r.error}`;
       } catch (e) { status.textContent = `Failed: ${e.message}`; }
       loadSyncLog();
+      loadSyncBandwidth();
+      loadOfflineQueue();
+      loadSyncHealth();
+      loadSyncTimeline();
+    };
+    document.getElementById("btnFlushOfflineQueue").onclick = async () => {
+      const status = document.getElementById("syncOfflineQueueStatus");
+      status.textContent = "Retrying...";
+      try {
+        const r = await apiPost("/api/paper-trading/strategy-sync/offline-queue/flush", {}, 30000);
+        status.textContent = r.flushed.length ? `Delivered: ${r.flushed.join(", ")}.` : "Nothing delivered yet.";
+      } catch (e) { status.textContent = `Failed: ${e.message}`; }
+      loadOfflineQueue();
+      loadSyncLog();
+      loadSyncBandwidth();
     };
 
     const voiceAlertsMutedEl = document.getElementById("voiceAlertsMuted");
