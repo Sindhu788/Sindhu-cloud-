@@ -66,13 +66,33 @@ def _default_exchange():
     return default
 
 
-# Task 4 (Batch 2): the hourly Telegram fresh-signal sweep (see
+# Task 4 (Batch 2): the Telegram fresh-signal sweep (see
 # telegram_bot.sweep_unsent_qualifying_signals) is throttled to run at
 # most this often, piggy-backing on this engine's own tick loop (already
 # ticking every tick_interval_seconds, typically 60s) rather than a
 # second background thread -- same pattern evolution_engine and the
 # SINDHU Strategy scheduler already use for their own time-gated work.
-TELEGRAM_SWEEP_INTERVAL_SECONDS = 3600
+#
+# Diagnostic finding, 2026-09-14: this was 3600 (hourly). The Signal
+# Freshness Gate (telegram_bot.freshness_check) only tolerates a signal
+# up to signal_freshness_minutes old (default 15 min = 900s) and a live
+# price within signal_price_drift_pct of entry (default 0.5%). A sweep
+# interval 4x longer than that freshness window meant any position that
+# didn't qualify for High/Low tier in the very same tick it opened was,
+# by construction, almost never re-checked before it had already gone
+# stale or drifted -- confirmed as the dominant cause of the freshness
+# gate withholding the large majority of signals on 2026-09-14. Lowered
+# to 60s (one tick at the default cadence) so a position that starts
+# qualifying gets picked up within roughly a minute, not up to an hour --
+# comfortably inside the 900s freshness window with room to spare. This
+# does not touch the freshness gate's own thresholds at all; it only
+# changes how often the same, unchanged gate gets a chance to see a
+# signal while it is still fresh. The per-sweep cost stays cheap (no
+# network calls unless a position actually qualifies -- see
+# sweep_unsent_qualifying_signals' own docstring), the same reasoning
+# already used to run capital_allocation.recompute_all_allocations()
+# and lesson_auto_apply.promote_candidates() on every tick above.
+TELEGRAM_SWEEP_INTERVAL_SECONDS = 60
 
 # Grand Feature Expansion, Phase 1 Feature 8: same throttle-on-the-tick-
 # loop pattern as the Telegram sweep above -- a real backtest-vs-paper
@@ -443,10 +463,10 @@ class PaperTradingEngine:
         except Exception as e:
             self._log(f"[paper-trading] capital allocation error: {e!r}")
 
-        # Task 4 (Batch 2): hourly Telegram fresh-signal sweep -- throttled
-        # here rather than every tick (tick_interval_seconds is typically
-        # 60s; this must not re-check all open positions' gating that
-        # often). Never bypasses or weakens gating -- see
+        # Task 4 (Batch 2): Telegram fresh-signal sweep -- throttled to
+        # TELEGRAM_SWEEP_INTERVAL_SECONDS (see that constant's own comment
+        # for why this now runs roughly once per tick rather than hourly).
+        # Never bypasses or weakens gating -- see
         # telegram_bot.sweep_unsent_qualifying_signals's own docstring.
         now = time.monotonic()
         if self._last_telegram_sweep_at is None or (now - self._last_telegram_sweep_at) >= TELEGRAM_SWEEP_INTERVAL_SECONDS:

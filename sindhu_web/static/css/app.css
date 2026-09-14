@@ -864,9 +864,29 @@ textarea { font-family: Consolas, monospace; min-height: 160px; }
 }
 
 @media (max-width: 768px) {
+  /* Bug fix, 2026-09-14: this used to override grid-template-areas to a
+     2-row "topbar" "content" layout without also overriding grid-template-
+     rows, which the base .app-shell rule still sets to 3 explicit tracks
+     (60px var(--banner-h) 1fr). With only 2 named rows but 3 explicit row
+     tracks, "content" was silently placed into the grid's SECOND track --
+     the banner's own var(--banner-h) track (0px when the banner is hidden,
+     30px when shown) -- instead of the third (1fr, the real remaining
+     screen height). #content was then clamped to a sliver just tall
+     enough for its own padding (~86px measured on a 812px-tall viewport),
+     with everything below it rendered but never visible or reachable by
+     scrolling -- the real cause of the "only half the page shows on
+     mobile" report, reproduced and confirmed via computed-style
+     measurement before this fix, on every page (Overview, Paper Trading,
+     Telegram Signals, Groups, Control Center all render into this same
+     #content element). Fix: keep the SAME 3-row structure as desktop
+     (topbar / banner / content), just collapsed to a single column, so
+     "content" lands in the real 1fr track and the banner keeps its own
+     dedicated (dynamically 0px/30px) row exactly as before. Desktop
+     (>=769px) layout is untouched -- this only changes the mobile
+     grid-template-areas string. */
   .app-shell, .app-shell.rail-collapsed {
     grid-template-columns: 1fr;
-    grid-template-areas: "topbar" "content";
+    grid-template-areas: "topbar" "banner" "content";
   }
   .nav-toggle { display: inline-flex; }
   .rail-toggle { display: none; }

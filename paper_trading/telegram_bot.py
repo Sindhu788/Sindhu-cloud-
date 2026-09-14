@@ -1107,6 +1107,7 @@ _LABELS = {
         "unknown_strategy": "Pata Nahi",
         "breakeven_moved": "✅ Stop-loss break-even par move ho gaya -- ab yeh trade risk-free hai.",
         "duration": "Duration",
+        "direction": "Direction", "confidence": "Confidence",
     },
     "en": {
         "strategy": "Strategy", "entry": "Entry",
@@ -1114,6 +1115,7 @@ _LABELS = {
         "unknown_strategy": "Unknown",
         "breakeven_moved": "✅ Stop-loss moved to break-even -- this trade is now risk-free.",
         "duration": "Duration",
+        "direction": "Direction", "confidence": "Confidence",
     },
 }
 
@@ -1132,27 +1134,33 @@ _UNCLASSIFIED_MARKER_EMOJI = "\U000026AA"
 
 def format_signal_message(position, confluence_result=None, reliability_result=None, high_confidence=False,
                            live_price=_UNSET, lang=None, explanation_text=None, grade_result=None):
-    """Grand Master Batch, Phase 2.4: deliberately reduced, on the CEO's
-    explicit instruction, to exactly 5 things -- coin + status emoji
-    (which strategy_groups.get_group() bucket the strategy is currently
-    in: profitable/losing/challenge), Entry, Stop-Loss, Take-Profit, and
-    an estimated Duration (from trading_style_for_timeframe). Every other
-    line this function used to build (confidence %, trading-style name,
-    quality grade, statistical confidence/win rate, confluence factors,
-    AI explanation, entry reason, timestamp/age, per-signal expiry note,
-    challenge-mode tags, profit-lock note, HIGH CONFIDENCE marker,
-    footer/disclaimers) is intentionally gone from the message body --
-    none of that data was deleted anywhere, it's all still on the
-    dashboard, this function just no longer renders it into the Telegram
-    text. confluence_result/reliability_result/high_confidence/
-    live_price/explanation_text/grade_result are kept as parameters
-    (every existing call site still passes them) but are no longer used
-    here; lang still selects ur/en for the two labels that remain.
+    """Grand Master Batch, Phase 2.4 reduced this to exactly 5 things --
+    coin + status emoji (which strategy_groups.get_group() bucket the
+    strategy is currently in: profitable/losing/challenge), Entry,
+    Stop-Loss, Take-Profit, and an estimated Duration (from
+    trading_style_for_timeframe). Every other line this function used to
+    build (trading-style name, quality grade, statistical confidence/win
+    rate, confluence factors, AI explanation, entry reason, timestamp/
+    age, per-signal expiry note, challenge-mode tags, profit-lock note,
+    HIGH CONFIDENCE marker, footer/disclaimers) is intentionally still
+    gone from the message body -- none of that data was deleted
+    anywhere, it's all still on the dashboard, this function just
+    doesn't render it into the Telegram text. confluence_result/
+    reliability_result/high_confidence/live_price/explanation_text/
+    grade_result are kept as parameters (every existing call site still
+    passes them) but are still not used here; lang still selects ur/en.
 
-    Direction (LONG/SHORT) is also gone from the body per the same
-    literal instruction ("exactly these fields, nothing more") -- it is
-    still recoverable from the position record itself (position["direction"]),
-    just not printed in the message text."""
+    2026-09-14 fix (2 fields restored, on the CEO's explicit request):
+    Direction and Confidence are back. Direction is position["direction"]
+    itself ("long"/"short", set at open by position_manager.open_position),
+    printed upper-cased -- no new classification, just displaying the
+    field that was always there. Confidence is position["confidence"] --
+    the exact value paper_trading.confidence.score() computed for this
+    signal at open time (0-100, already rounded to 2 decimals there);
+    printed verbatim, never re-rounded or adjusted here, so what the
+    channel sees always matches what the dashboard shows for this exact
+    signal. A position from before this field existed (confidence is
+    None) simply omits the line rather than showing a fake number."""
     if lang not in ("ur", "en"):
         lang = load_settings().get("language", "ur")
     L = _LABELS[lang]
@@ -1161,14 +1169,19 @@ def format_signal_message(position, confluence_result=None, reliability_result=N
     group_key = strategy_groups.get_group(position.get("strategy_id")) if position.get("strategy_id") else None
     status_emoji = _GROUP_MARKER_EMOJI.get(group_key, _UNCLASSIFIED_MARKER_EMOJI)
     _, _, duration_text = trading_style_for_timeframe(position.get("timeframe"))
+    direction = (position.get("direction") or "").upper()
+    confidence = position.get("confidence")
 
     lines = [
         f"{status_emoji} <b>{symbol}</b>",
+        f"{L['direction']}: {direction}" if direction else f"{L['direction']}: --",
         f"{L['entry']}: {_format_price(position.get('entry_price'))}",
         f"{L['stop_loss']}: {_format_price(position.get('stop_loss'))}",
         f"{L['take_profit']}: {_format_price(position.get('take_profit'))}",
         f"{L['duration']}: {duration_text}" if duration_text else f"{L['duration']}: --",
     ]
+    if confidence is not None:
+        lines.append(f"{L['confidence']}: {confidence:g}%")
     return "\n".join(lines)
 
 
@@ -1673,11 +1686,12 @@ def send_breakeven_notification(position):
     return {"ok": ok, "error": err}
 
 
-# --------------------------------------------------------------- Task 4 (Batch 2): hourly fresh-signal sweep
+# --------------------------------------------------------------- Task 4 (Batch 2): fresh-signal sweep
 
 def sweep_unsent_qualifying_signals():
-    """A recurring (>=hourly, called from paper_trading.engine's own tick
-    loop -- see SWEEP_INTERVAL_SECONDS there) safety-net check: any
+    """A recurring (roughly once per tick by default -- called from
+    paper_trading.engine's own tick loop, see TELEGRAM_SWEEP_INTERVAL_SECONDS
+    there) safety-net check: any
     currently OPEN position that never had a Telegram signal sent for it
     is re-evaluated through the EXACT SAME dual-tier gating
     (evaluate_auto_send_tier -- full confluence + the real 25-trade Wilson
