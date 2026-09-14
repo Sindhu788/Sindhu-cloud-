@@ -67,6 +67,27 @@ def force_new_generation(base_id: str):
     return {"new_generation_id": new_id}
 
 
+class LearningFreezeRequest(BaseModel):
+    frozen: bool
+
+
+@router.get("/api/evolution/learning-freeze")
+def get_learning_freeze():
+    """Grand Master Batch, Phase 5 Item 8."""
+    from paper_trading import learning_freeze
+    return {"frozen_strategy_ids": learning_freeze.list_frozen()}
+
+
+@router.post("/api/evolution/learning-freeze/{strategy_id}")
+def set_learning_freeze(strategy_id: str, req: LearningFreezeRequest):
+    """Stops (or resumes) ONLY Evolution mutation + Self-Learning lesson
+    auto-apply for this one strategy -- paper trading itself, and every
+    other strategy, is completely unaffected."""
+    from paper_trading import learning_freeze
+    ids = learning_freeze.set_frozen(strategy_id, req.frozen)
+    return {"frozen_strategy_ids": ids}
+
+
 @router.get("/api/evolution/strategies")
 def list_strategies(base_id: str = None, status: str = "active", limit: int = 500):
     return {"strategies": storage.list_bot_strategies(base_id=base_id, status=status, limit=limit)}

@@ -171,7 +171,16 @@ def mutate_strategy(base_id, governor, now_iso, exchange=None, symbol=None, time
     gate that judges whether a new generation gets kept: rollback.
     try_finalize_comparison still requires MIN_TRADES_FOR_COMPARISON (100)
     real trades on the CHILD itself before it can be judged/promoted or
-    rolled back -- forcing early creation never shortcuts that."""
+    rolled back -- forcing early creation never shortcuts that.
+
+    Grand Master Batch, Phase 5 Item 8: a "Frozen" strategy is never
+    mutated, even by an explicit force=True -- freezing a strategy means
+    stop touching it, full stop, not "stop touching it unless a human
+    insists"."""
+    from paper_trading import learning_freeze
+    if learning_freeze.is_frozen(base_id):
+        return None
+
     latest = rollback.effective_generation(base_id)
     if latest is None:
         return None

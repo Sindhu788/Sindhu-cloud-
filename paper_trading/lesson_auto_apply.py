@@ -44,7 +44,15 @@ def promote_candidates():
     promoted = []
     still_reliable = set()
 
+    # Grand Master Batch, Phase 5 Item 8: a "Frozen" strategy is never
+    # newly promoted or refreshed -- checked once up front (cheap, a
+    # small in-memory set) rather than per pattern.
+    from paper_trading import learning_freeze
+    frozen_ids = set(learning_freeze.list_frozen())
+
     for p in patterns:
+        if p["strategy_id"] in frozen_ids:
+            continue
         result = pattern_stats.classify(p["wins"], p["trades"])
         key = (p["strategy_id"], p["symbol"], p["market_state"], p["session"])
         if result["status"] not in ("reliable_good", "reliable_bad"):
@@ -71,7 +79,11 @@ def promote_candidates():
     # A pattern that WAS reliable and promoted, but has since drifted back
     # to inconclusive (more mixed results came in), should stop influencing
     # confidence -- deactivate rather than leave a stale conclusion active.
+    # A frozen strategy's existing rows are left exactly as they are either
+    # way -- "frozen" means no changes at all, not "actively deactivate".
     for row in storage.list_paper_auto_lessons(active_only=True):
+        if row["strategy_id"] in frozen_ids:
+            continue
         key = (row["strategy_id"], row["symbol"], row["market_state"], row["session"])
         if key not in still_reliable:
             storage.deactivate_paper_auto_lesson(row["id"], now)

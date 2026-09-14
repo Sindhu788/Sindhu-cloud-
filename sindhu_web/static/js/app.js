@@ -6968,7 +6968,7 @@
     const myToken = activeRouteToken;
 
     async function render() {
-      const [status, championsRes, strategiesRes, lessonsRes, versionsRes, correlationsRes, comparisonsRes, weeklyReviewsRes, evoSettings] = await Promise.all([
+      const [status, championsRes, strategiesRes, lessonsRes, versionsRes, correlationsRes, comparisonsRes, weeklyReviewsRes, evoSettings, freezeRes] = await Promise.all([
         apiGet("/api/evolution/status"),
         apiGet("/api/evolution/champions"),
         apiGet("/api/evolution/strategies"),
@@ -6978,12 +6978,14 @@
         apiGet("/api/evolution/comparisons?limit=50"),
         apiGet("/api/evolution/weekly-reviews?limit=1").catch(() => ({ reports: [] })),
         apiGet("/api/evolution/settings").catch(() => ({ evolution_mode: "conservative", mode_params: {} })),
+        apiGet("/api/evolution/learning-freeze").catch(() => ({ frozen_strategy_ids: [] })),
       ]);
       if (isStaleRoute(myToken)) return;
 
       const gov = status.governor;
       const champions = championsRes.champions || [];
       const strategies = strategiesRes.strategies || [];
+      const frozenIds = new Set(freezeRes.frozen_strategy_ids || []);
       const lessons = lessonsRes.lessons || [];
       const latestVersion = (versionsRes.versions || [])[0];
       const correlations = correlationsRes.correlations || [];
@@ -7066,6 +7068,9 @@
                 <td>
                   <button class="btn-ghost evo-explain-btn" data-base-id="${esc(s.base_id)}">Explain ${helpIcon("strategy_lineage_explainer")}</button>
                   <button class="btn-ghost evo-force-gen-btn" data-base-id="${esc(s.base_id)}" title="Creates one new generation now for review -- still needs 100 real trades before it can be kept or rolled back, same as a naturally-triggered one.">Force New Generation</button>
+                  <label style="display:inline-flex;align-items:center;gap:4px;font-size:11px;margin-left:6px;" title="Frozen: Evolution and Self-Learning never touch this strategy -- paper trading itself keeps running normally either way.">
+                    <input type="checkbox" class="evo-freeze-toggle" data-base-id="${esc(s.base_id)}" ${frozenIds.has(s.base_id) ? "checked" : ""} style="width:auto;"> ${frozenIds.has(s.base_id) ? "🧊 Frozen" : "Active"}
+                  </label>
                 </td>
               </tr>`).join("") || '<tr><td colspan="6">No BOT strategies yet -- the Evolution Engine mutates existing lineages, and SINDHU Strategy creates new ones.</td></tr>'}
           </tbody>
@@ -7214,6 +7219,18 @@
               ${compareTable}`;
           } catch (e) {
             box.innerHTML = `<p class="muted">${esc(e.message)}</p>`;
+          }
+        };
+      });
+      document.querySelectorAll(".evo-freeze-toggle").forEach(cb => {
+        cb.onchange = async () => {
+          cb.disabled = true;
+          try {
+            await apiPost(`/api/evolution/learning-freeze/${cb.dataset.baseId}`, { frozen: cb.checked });
+            render();
+          } catch (e) {
+            alert(`Couldn't change freeze state: ${e.message}`);
+            cb.disabled = false;
           }
         };
       });
@@ -9754,6 +9771,32 @@
           <tbody>${(candidatesRes.candidates || []).slice(0, 15).map(c => `
             <tr><td>${esc(c.pattern_description)}</td><td>${c.sample_size}</td><td>${Number(c.win_rate).toFixed(0)}%</td></tr>`).join("")
             || '<tr><td colspan="3">No repeated patterns flagged yet -- needs more closed trades.</td></tr>'}</tbody>
+        </table></div>
+
+        <div class="section-title">${en ? "Self-Learning Progress by Strategy" : "Self-Learning Progress by Strategy"} ${helpIcon("pattern_reliability")}</div>
+        <p class="muted" style="margin-top:-8px;">${en
+          ? "Grand Master Batch, Phase 5 Item 5: each strategy's CLOSEST pattern to becoming statistically reliable -- a strategy can have many strategy+coin+condition patterns tracked below; this shows its best progress toward the 25-trade gate."
+          : "Har strategy ka apna sabse qareeb pattern jo statistically reliable banne wala hai -- neeche har strategy ke kayi patterns track hote hain; yeh uska best progress 25-trade gate ki taraf dikhata hai."}</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Strategy</th><th>Progress Toward Reliable (25 trades)</th></tr></thead>
+          <tbody>${(() => {
+            const bySid = {};
+            (patternReliabilityRes.patterns || []).forEach(r => {
+              const key = r.strategy_id || r.strategy_name;
+              if (!bySid[key] || r.sample_size > bySid[key].sample_size) bySid[key] = r;
+            });
+            const rows = Object.values(bySid).sort((a, b) => b.sample_size - a.sample_size);
+            return rows.map(r => {
+              const pct = Math.min(100, r.sample_size / patternReliabilityRes.min_sample_size * 100);
+              return `<tr>
+                <td>${esc(r.strategy_name || r.strategy_id)}</td>
+                <td>
+                  <div class="progress-bar" style="margin:2px 0;"><div class="progress-bar-fill" style="width:${pct}%;${pct >= 100 ? "background:var(--green);" : ""}"></div></div>
+                  <span class="muted" style="font-size:11px;">${r.sample_size} / ${patternReliabilityRes.min_sample_size} trades${pct >= 100 ? " -- reliable" : ""}</span>
+                </td>
+              </tr>`;
+            }).join("") || '<tr><td colspan="2">No pattern data yet -- needs closed trades.</td></tr>';
+          })()}</tbody>
         </table></div>
 
         <div class="section-title">Pattern Reliability -- Statistical Gate ${helpIcon("pattern_reliability")}</div>
