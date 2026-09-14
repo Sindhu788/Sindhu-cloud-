@@ -4205,17 +4205,24 @@
         box.style.display = "block";
         box.scrollIntoView({ behavior: "smooth", block: "start" });
         try {
-          const [p, balHistRes, coinStatsRes, confHistRes, verification] = await Promise.all([
+          const [p, balHistRes, coinStatsRes, confHistRes, confidenceTrendRes, verification] = await Promise.all([
             apiGet(`/api/paper-trading/strategy-profile/${btn.dataset.id}`),
             apiGet(`/api/paper-trading/balance-history/${btn.dataset.id}`).catch(() => ({ points: [] })),
             apiGet(`/api/paper-trading/coin-stats/${btn.dataset.id}`).catch(() => ({ coins: [] })),
             apiGet(`/api/paper-trading/confluence-history/${btn.dataset.id}`).catch(() => ({ history: [] })),
+            apiGet(`/api/paper-trading/strategy-config/${btn.dataset.id}/confidence-trend`).catch(() => ({ history: [] })),
             apiGet(`/api/backtesting/strategies/${btn.dataset.id}/extraction-verification?lang=${getLang()}`).catch(() => null),
           ]);
           const readiness = p.real_trading_readiness;
           const balSeries = (balHistRes.points || []).map(pt => pt.balance);
           const coinRows = coinStatsRes.coins || [];
           const confSeries = (confHistRes.history || []).map(h => h.confluence_ratio * 100);
+          // Grand Master Batch, Phase 4 Item 4: distinct from the Confluence
+          // Score Trend above (a per-SIGNAL confluence ratio) -- this is
+          // paper_trading.confidence.score's own 0-100 value, one per
+          // position actually opened, already stored on every
+          // paper_positions row since it was first added.
+          const confidenceTrendSeries = (confidenceTrendRes.history || []).map(h => h.confidence);
           body.innerHTML = `
             ${renderExtractionVerificationSection(btn.dataset.id, verification)}
             ${renderSupersessionWarning(p.supersession)}
@@ -4283,6 +4290,11 @@
             <div class="section-title">Confluence Score Trend ${helpIcon("confluence_score")}</div>
             <div class="card">${sparklineSvg(confSeries)}
               <div class="muted" style="font-size:11px;margin-top:4px;">${confSeries.length} signal(s) logged${confSeries.length ? ` -- most recent: ${confSeries[confSeries.length - 1].toFixed(0)}%` : ""}</div>
+            </div>
+
+            <div class="section-title">Confidence Trend ${helpIcon("confidence_score")}</div>
+            <div class="card">${sparklineSvg(confidenceTrendSeries)}
+              <div class="muted" style="font-size:11px;margin-top:4px;">${confidenceTrendSeries.length} position(s) opened${confidenceTrendSeries.length ? ` -- most recent: ${confidenceTrendSeries[confidenceTrendSeries.length - 1].toFixed(0)}%` : ""}</div>
             </div>
 
             <div class="section-title">Coins Currently Traded &amp; Their Market Condition ${helpIcon("market_regime")}</div>

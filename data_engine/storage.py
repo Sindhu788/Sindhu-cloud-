@@ -4663,6 +4663,24 @@ def list_telegram_messages(limit=100):
     return [dict(zip(cols, r)) for r in rows]
 
 
+def list_confidence_history(strategy_id, limit=200):
+    """Grand Master Batch, Phase 4 Item 4 (Confidence Trend graph): every
+    real confidence score this strategy's own positions were opened
+    with, oldest first, so a line chart reads left-to-right as it
+    happened. paper_positions.confidence has stored this on every
+    position since it was first added -- no new column, no backfill,
+    this is a real historical record that already existed, just never
+    queried as a time series before."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT entry_time, confidence FROM paper_positions "
+            "WHERE strategy_id = ? AND confidence IS NOT NULL "
+            "ORDER BY entry_time DESC LIMIT ?",
+            (strategy_id, limit),
+        ).fetchall()
+    return [{"entry_time": r[0], "confidence": r[1]} for r in reversed(rows)]
+
+
 def list_successful_telegram_send_timestamps(since_iso=None):
     """Grand Master Batch, Phase 4 Item 9 ("Best time to check dashboard"):
     just the sent_at timestamps of real, successfully-delivered signals --

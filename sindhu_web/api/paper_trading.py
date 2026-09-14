@@ -2098,6 +2098,15 @@ def get_best_check_time():
     return best_check_time.best_check_times()
 
 
+@router.get("/api/paper-trading/strategy-config/{strategy_id}/confidence-trend")
+def get_confidence_trend(strategy_id: str, limit: int = 200):
+    """Grand Master Batch, Phase 4 Item 4: every real confidence score
+    this strategy's positions were opened with, oldest first -- the data
+    already existed on every paper_positions row, this just surfaces it
+    as a time series for a line chart."""
+    return {"history": storage.list_confidence_history(strategy_id, limit=limit)}
+
+
 @router.get("/api/paper-trading/telegram/preview/{position_id}")
 def get_telegram_message_preview(position_id: str):
     """The exact message text that WOULD be sent for this signal, built by
