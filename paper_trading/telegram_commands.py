@@ -116,17 +116,29 @@ def _resume_reply():
     return "Engine started."
 
 
+def _test_signal_reply():
+    """Grand Master Batch, Phase 6 Item 18: sends a clearly-labeled fake
+    signal (telegram_bot.send_test_signal) to the main channel in the
+    exact real message format, for visual/format checking on demand --
+    never a real trade, never logged to the trade audit trail."""
+    from paper_trading import telegram_bot
+    result = telegram_bot.send_test_signal()
+    return "Test signal sent to the main channel." if result["ok"] else f"Couldn't send test signal: {result['error']}"
+
+
 def _help_reply():
     return (
         "Available commands:\n"
         "/status -- engine state, open trades, balance, kill switch / drawdown pause status\n"
         "/pause -- stop the engine (same as the dashboard's Stop Engine button)\n"
         "/resume -- start the engine (same as the dashboard's Start Engine button)\n"
+        "/test -- sends a clearly-labeled fake signal to the main channel, for format checking only\n"
         "/help -- this message"
     )
 
 
-_COMMANDS = {"/status": _status_reply, "/pause": _pause_reply, "/resume": _resume_reply, "/help": _help_reply}
+_COMMANDS = {"/status": _status_reply, "/pause": _pause_reply, "/resume": _resume_reply,
+             "/test": _test_signal_reply, "/help": _help_reply}
 
 
 def handle_update(update):

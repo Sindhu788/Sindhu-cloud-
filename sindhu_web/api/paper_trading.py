@@ -1896,6 +1896,14 @@ def send_telegram_test():
     return telegram_bot.send_test_message()
 
 
+@router.post("/api/paper-trading/telegram/test-signal")
+def send_telegram_test_signal():
+    """Grand Master Batch, Phase 6 Item 18: distinct from the plain
+    connectivity test above -- sends a clearly-labeled fake signal in the
+    real message format, for visual/format checking. Never a real trade."""
+    return telegram_bot.send_test_signal()
+
+
 @router.get("/api/paper-trading/telegram/network-check")
 def telegram_network_check():
     """Deliberately login-exempt (see sindhu_web/security.py's

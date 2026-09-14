@@ -10922,6 +10922,7 @@
         <div class="btn-row">
           <button class="btn" id="btnSaveTelegram">Save Settings</button>
           <button class="btn-ghost" id="btnTestTelegram">Send Test Message</button>
+          <button class="btn-ghost" id="btnTestSignal" title="Sends a clearly-labeled fake signal in the real 5-field format, to the main channel -- never a real trade, for visual/format checking only.">Send Test Signal</button>
           <span id="tgStatus" class="muted"></span>
         </div>
       </div>
@@ -11354,6 +11355,13 @@
       status.textContent = "Sending test message...";
       const r = await apiPost("/api/paper-trading/telegram/test", {}, 120000);
       status.textContent = r.ok ? "Test message sent successfully -- check your channel." : `Failed: ${r.error}`;
+      loadTelegramLog();
+    };
+    document.getElementById("btnTestSignal").onclick = async () => {
+      const status = document.getElementById("tgStatus");
+      status.textContent = "Sending test signal...";
+      const r = await apiPost("/api/paper-trading/telegram/test-signal", {}, 120000);
+      status.textContent = r.ok ? "Test signal sent successfully -- check your channel." : `Failed: ${r.error}`;
       loadTelegramLog();
     };
     document.getElementById("btnSavePrivateAlerts").onclick = async () => {

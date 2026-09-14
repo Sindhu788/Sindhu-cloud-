@@ -634,6 +634,26 @@ def send_test_message():
     return {"ok": ok, "error": err}
 
 
+def send_test_signal():
+    """Grand Master Batch, Phase 6 Item 18: distinct from send_test_message
+    above (a bare connectivity check) -- this builds a REAL signal message
+    through the exact real format_signal_message() every genuine signal
+    uses, so the CEO can visually check the format itself, with clearly-
+    fake values (a coin that can never exist) and an unmissable "TEST
+    SIGNAL" marker so it can never be mistaken for a real trade. Never
+    opens a position, never touches paper_positions, and is not logged
+    to the trade audit trail -- purely a format/visual check on demand."""
+    fake_position = {
+        "id": "test-signal", "strategy_id": None, "strategy_name": "Test Signal",
+        "symbol": "TESTCOIN", "direction": "long",
+        "entry_price": 100.0, "stop_loss": 95.0, "take_profit": 110.0,
+        "timeframe": "1h",
+    }
+    text = f"🧪 <b>TEST SIGNAL -- NOT REAL, FORMAT CHECK ONLY</b> 🧪\n\n{format_signal_message(fake_position)}"
+    ok, err = _raw_send(text)
+    return {"ok": ok, "error": err}
+
+
 def send_private_message(text):
     """Master 15-Item task, Items 6 & 10: sends to the CEO's own private
     `personal_chat_id` (a DM with the bot) instead of the shared/public
