@@ -1947,6 +1947,12 @@ def stop_quiet_mode():
     return {"ok": True}
 
 
+@router.post("/api/paper-trading/telegram/live-stats/update-now")
+def update_live_stats_now():
+    """Grand Master Batch, Phase 6 Item 14."""
+    return telegram_bot.update_live_stats_message()
+
+
 class AdditionalChannelRequest(BaseModel):
     channel_id: str
 

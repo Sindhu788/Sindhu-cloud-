@@ -11010,6 +11010,13 @@
         <div id="tgChannelOverridesBox" class="table-wrap"></div>
       </div>
 
+      <div class="section-title">Pinned Live Stats Message</div>
+      <div class="card" style="max-width:520px;">
+        <p class="muted" style="font-size:12px;margin-top:0;">Grand Master Batch, Phase 6 Item 14: one pinned message in the main channel that updates itself every 15 minutes (engine state, open trades, balance, signals sent today) instead of sending a new message every time.</p>
+        <div id="liveStatsStatus" class="muted" style="margin-bottom:8px;">${s.live_stats_message ? `Pinned message active (id ${s.live_stats_message.message_id}).` : "No pinned message yet -- the next scheduled update (or the button below) will create one."}</div>
+        <div class="btn-row"><button class="btn-ghost" id="btnUpdateLiveStats">Update Now</button></div>
+      </div>
+
       <div class="section-title">Multi-Recipient Support (Fan-Out) ${helpIcon("multi_recipient")}</div>
       <div class="card" style="max-width:520px;">
         <p class="muted" style="font-size:12px;margin-top:0;">Grand Master Batch, Phase 6 Item 20: unlike Multi-Channel Routing above (which REPLACES one strategy's destination), every channel added here gets a COPY of every real signal, in ADDITION to wherever it was already going.</p>
@@ -11379,6 +11386,16 @@
       loadAdditionalChannels();
     };
     loadAdditionalChannels();
+    document.getElementById("btnUpdateLiveStats").onclick = async () => {
+      const status = document.getElementById("liveStatsStatus");
+      status.textContent = "Updating...";
+      try {
+        const r = await apiPost("/api/paper-trading/telegram/live-stats/update-now");
+        status.textContent = r.ok ? `Updated (id ${r.message_id}).` : `Failed: ${r.error}`;
+      } catch (e) {
+        status.textContent = "Couldn't update.";
+      }
+    };
     async function loadTelegramLog() {
       const r = await apiGet("/api/paper-trading/telegram/log").catch(() => ({ messages: [] }));
       document.getElementById("tgLogBody").innerHTML = r.messages.map(m => `

@@ -159,6 +159,8 @@ async def _lifespan(app: FastAPI):
     start_weekly_report_scheduler_thread()
     from paper_trading.daily_missed_opportunity_report import start_daily_report_scheduler_thread
     start_daily_report_scheduler_thread()
+    from paper_trading.telegram_bot import start_live_stats_scheduler_thread
+    start_live_stats_scheduler_thread()
     from paper_trading.monthly_report import start_monthly_report_scheduler_thread
     start_monthly_report_scheduler_thread()
     from paper_trading.private_performance_report import start_private_report_scheduler_thread

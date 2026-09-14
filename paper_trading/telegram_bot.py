@@ -137,6 +137,11 @@ _DEFAULTS = {
     # override) -- true fan-out, distinct from strategy_channel_overrides
     # (which REPLACES a strategy's destination, one channel at a time).
     "additional_channel_ids": [],
+    # Grand Master Batch, Phase 6 Item 14: the pinned "live stats" message
+    # -- {message_id, chat_id} of the currently-pinned message so later
+    # updates can editMessageText it in place instead of sending a new
+    # message every time. None means no pinned message exists yet.
+    "live_stats_message": None,
     # Master 15-Item task, Items 6 & 10: the CEO's own personal Telegram
     # chat id (a DIRECT MESSAGE with the bot, never the public/shared
     # `channel_id` above) -- used for anything that must stay private:
@@ -274,6 +279,7 @@ def public_settings():
         "snoozed_strategies": s.get("snoozed_strategies") or {},
         "channel_group_filter": s.get("channel_group_filter", "all"),
         "additional_channel_ids": s.get("additional_channel_ids") or [],
+        "live_stats_message": s.get("live_stats_message"),
         "personal_chat_id": s.get("personal_chat_id", ""),
         # Full System Verification Audit (2026-09-13): these existed in
         # _DEFAULTS/save_settings already but were never added here, so
@@ -318,6 +324,94 @@ def remove_additional_channel(channel_id):
     channels = [c for c in (load_settings().get("additional_channel_ids") or []) if c != channel_id]
     save_settings(additional_channel_ids=channels)
     return channels
+
+
+# --------------------------------------------------------------- Grand Master Batch, Phase 6 Item 14: pinned live stats message
+
+def _live_stats_text():
+    """Real numbers only -- engine state, open trades, combined balance
+    (the same engine.status() the dashboard's own topbar and /status
+    Telegram command already read from), plus today's real signal count."""
+    from paper_trading.engine import engine
+    status = engine.status()
+    today_start_iso = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    signals_today = storage.count_telegram_messages_since(today_start_iso)
+    lines = [
+        "\U0001F4CC <b>Live Stats</b> (auto-updating)",
+        f"Engine: {'RUNNING' if status['running'] else 'STOPPED'}",
+        f"Open trades: {status['open_trades']}",
+        f"Combined balance: ${status['balance']:.2f}",
+        f"Signals sent today: {signals_today}",
+        f"Last updated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}",
+    ]
+    return "\n".join(lines)
+
+
+def update_live_stats_message():
+    """Edits the existing pinned message in place if one exists and the
+    edit succeeds (e.g. it wasn't deleted out from under us); otherwise
+    sends a fresh message, pins it, and remembers its id for next time.
+    Called periodically by a scheduler thread, or on demand from the
+    dashboard -- either way this is the ONLY code path that ever touches
+    live_stats_message, so there is exactly one place this can drift."""
+    if not _master_enabled():
+        return {"ok": False, "error": "Telegram sending is switched off"}
+    settings = load_settings()
+    token = settings.get("bot_token")
+    channel_id = settings.get("channel_id")
+    if not token or not channel_id:
+        return {"ok": False, "error": "Telegram bot token or channel ID not configured yet"}
+
+    text = _live_stats_text()
+    existing = settings.get("live_stats_message")
+    if existing and existing.get("chat_id") == channel_id:
+        try:
+            resp = requests.post(
+                f"https://api.telegram.org/bot{token}/editMessageText",
+                json={"chat_id": channel_id, "message_id": existing["message_id"], "text": text, "parse_mode": "HTML"},
+                timeout=(_API_CONNECT_TIMEOUT, _API_READ_TIMEOUT),
+            )
+            data = resp.json()
+            if resp.status_code == 200 and data.get("ok"):
+                return {"ok": True, "message_id": existing["message_id"], "created_new": False}
+        except requests.RequestException:
+            pass  # falls through to sending + pinning a fresh one below
+
+    try:
+        resp = requests.post(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            json={"chat_id": channel_id, "text": text, "parse_mode": "HTML"},
+            timeout=(_API_CONNECT_TIMEOUT, _API_READ_TIMEOUT),
+        )
+        data = resp.json()
+        if resp.status_code != 200 or not data.get("ok"):
+            return {"ok": False, "error": data.get("description", f"HTTP {resp.status_code}")}
+        message_id = data["result"]["message_id"]
+        requests.post(
+            f"https://api.telegram.org/bot{token}/pinChatMessage",
+            json={"chat_id": channel_id, "message_id": message_id, "disable_notification": True},
+            timeout=(_API_CONNECT_TIMEOUT, _API_READ_TIMEOUT),
+        )
+        save_settings(live_stats_message={"chat_id": channel_id, "message_id": message_id})
+        return {"ok": True, "message_id": message_id, "created_new": True}
+    except requests.RequestException as e:
+        return {"ok": False, "error": re.sub(r"/bot\d+:[A-Za-z0-9_-]+", "/bot[REDACTED]", repr(e))}
+
+
+def start_live_stats_scheduler_thread():
+    """Runs once at server startup; refreshes the pinned message every 15
+    minutes -- same shape as weekly_report.start_weekly_report_scheduler_thread."""
+    import threading
+
+    def _loop():
+        while True:
+            try:
+                update_live_stats_message()
+            except Exception:
+                pass
+            time.sleep(900)
+
+    threading.Thread(target=_loop, daemon=True).start()
 
 
 def set_strategy_channel_override(strategy_id, channel_id):
