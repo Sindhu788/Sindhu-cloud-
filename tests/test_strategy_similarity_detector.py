@@ -43,9 +43,21 @@ def test_identical_concept_sets_are_100_percent_similar(test_db):
 
 def test_below_threshold_is_not_flagged(test_db):
     lib.create(_config("Existing", ["fvg", "order_block", "choch", "pdh"]))
-    # Only 1 of 4 concepts shared -- well below the 80% default threshold.
+    # Only 1 of 4 concepts shared -- well below the 90% default threshold.
     warnings = lib.find_similarity_warnings(["fvg"])
     assert warnings == []
+
+
+def test_default_threshold_is_90_percent_per_ceo_spec(test_db):
+    # Grand Master Batch, Phase 4 Item 16: "flag if new strategy is 90%+
+    # similar to an existing one" -- 80% Jaccard must NOT be flagged at
+    # the current default (it used to be, before the threshold was
+    # raised from 80.0 to 90.0), but 100% must still be.
+    lib.create(_config("Existing", ["a", "b", "c", "d", "e"]))
+    assert lib.find_similarity_warnings(["a", "b", "c", "d"]) == []  # 4/5 = 80%
+    warnings = lib.find_similarity_warnings(["a", "b", "c", "d", "e"])  # 100%
+    assert len(warnings) == 1
+    assert warnings[0]["similarity_pct"] == 100.0
 
 
 def test_exact_boundary_at_threshold_is_flagged(test_db):

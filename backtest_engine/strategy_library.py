@@ -294,7 +294,9 @@ def search(query="", tag=None):
     return results
 
 
-SIMILARITY_WARNING_THRESHOLD_PCT = 80.0
+# Grand Master Batch, Phase 4 Item 16: raised from 80.0 to 90.0 to match
+# the CEO's explicit "flag if new strategy is 90%+ similar" spec.
+SIMILARITY_WARNING_THRESHOLD_PCT = 90.0
 
 
 def find_similarity_warnings(concepts_used, exclude_strategy_id=None, threshold_pct=SIMILARITY_WARNING_THRESHOLD_PCT):
@@ -306,7 +308,7 @@ def find_similarity_warnings(concepts_used, exclude_strategy_id=None, threshold_
     similarity) and paper_trading/graveyard.py's check_similarity_warnings
     (a raw concept-overlap COUNT, not a %, and only ever compared against
     BURIED/retired strategies, never the live library). This is the
-    "before you build something 80%+ identical" check neither of those
+    "before you build something 90%+ identical" check neither of those
     covers."""
     target = set(concepts_used or [])
     if not target:
