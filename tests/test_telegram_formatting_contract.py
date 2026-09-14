@@ -63,7 +63,10 @@ def test_high_confidence_signal_message_is_compliant():
     _assert_emoji_led_and_scannable(text)
 
 
-def test_close_followup_message_is_compliant(test_db):
+def test_close_followup_is_disabled_and_never_sends(test_db):
+    # 2026-09-14: send_close_followup() was disabled entirely (trade-close
+    # WIN/LOSS results were flooding the channel) -- nothing left to check
+    # for format compliance since it never sends. See its own docstring.
     telegram_bot.save_settings(bot_token="x", channel_id="y", master_send_enabled=True)
     storage.open_paper_position({
         "id": "pos1", "exchange": "binance", "symbol": "BTCUSDT", "direction": "long",
@@ -75,8 +78,9 @@ def test_close_followup_message_is_compliant(test_db):
     closed = {"id": "pos1", "symbol": "BTCUSDT", "strategy_id": "strat1", "strategy_name": "Test Strategy",
               "exit_price": 110.0, "exit_reason": "take_profit", "pnl": 10.0, "pnl_pct": 10.0}
     with patch.object(telegram_bot, "_raw_send", return_value=(True, None)) as mock_send:
-        telegram_bot.send_close_followup(closed)
-    _assert_emoji_led_and_scannable(mock_send.call_args[0][0])
+        result = telegram_bot.send_close_followup(closed)
+    mock_send.assert_not_called()
+    assert result is None
 
 
 def test_daily_report_message_is_compliant(test_db):

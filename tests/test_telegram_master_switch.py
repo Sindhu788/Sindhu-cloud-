@@ -110,7 +110,10 @@ def test_close_followup_blocked_when_master_off(test_db):
     assert result is None
 
 
-def test_close_followup_works_when_master_on(test_db):
+def test_close_followup_never_sends_even_when_master_on(test_db):
+    """2026-09-14: send_close_followup() was disabled entirely (trade-close
+    WIN/LOSS results were flooding the channel) -- it must never send
+    regardless of the master switch. See its own docstring."""
     telegram_bot.save_settings(bot_token="x", channel_id="y", master_send_enabled=True)
     _open_position()
     storage.log_telegram_message("pos1", "strat1", "Test Strategy", "manual", "text", True, None, "2026-01-01T00:00:00+00:00")
@@ -118,8 +121,8 @@ def test_close_followup_works_when_master_on(test_db):
               "exit_price": 110.0, "exit_reason": "take_profit", "pnl": 10.0, "pnl_pct": 10.0}
     with patch.object(telegram_bot, "_raw_send", return_value=(True, None)) as mock_send:
         result = telegram_bot.send_close_followup(closed)
-    mock_send.assert_called_once()
-    assert result["ok"] is True
+    mock_send.assert_not_called()
+    assert result is None
 
 
 def test_test_message_is_not_gated_by_master_switch():

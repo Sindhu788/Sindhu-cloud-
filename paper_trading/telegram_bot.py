@@ -73,7 +73,14 @@ _DEFAULTS = {
     # untouched).
     "auto_send_min_confluence_count": 3,
     "rate_limit_per_hour": 10,
-    "send_close_followups": True,
+    # 2026-09-14: send_close_followup() itself now unconditionally skips
+    # sending regardless of this value (see its own docstring) -- trade
+    # close WIN/LOSS results were flooding the Telegram channel, crowding
+    # out entry signals, and the CEO asked for them off entirely rather
+    # than tunable. This default is kept (rather than removed) only so an
+    # existing persisted settings row that already has this key doesn't
+    # need a data migration; it no longer has any effect.
+    "send_close_followups": False,
     "proxy_enabled": False,
     "proxy_url": "",  # e.g. "socks5://user:pass@host:1080" or "http://user:pass@host:8080"
     # Batch 3, Task 4 (Part B) -- Signal Freshness Gate: a signal is
@@ -1611,46 +1618,26 @@ def _record_near_miss(position_id, reason):
 # --------------------------------------------------------------- A5: two-way awareness (close follow-up)
 
 def send_close_followup(closed_position):
-    """Called after a trade closes (see position_manager._close()) -- only
-    sends a follow-up if a signal was actually sent for this exact position
-    earlier (storage.has_telegram_signal_for_position), so the channel
-    never gets a "result" message for a trade nobody was told about."""
-    settings = load_settings()
-    if not settings.get("master_send_enabled", True):
-        return None
-    if not settings.get("send_close_followups", True) or feature_toggles.is_master_paused():
-        return None
-    position_id = closed_position["id"]
-    if not storage.has_telegram_signal_for_position(position_id):
-        return None
+    """2026-09-14: disabled entirely by explicit CEO instruction -- the
+    per-trade WIN/LOSS result notification this used to send was flooding
+    the Telegram channel and crowding out actual entry signals. This is a
+    hard, unconditional stop (not gated by the send_close_followups
+    setting, which may already be True on an existing persisted settings
+    row) so it takes effect immediately regardless of what's currently
+    saved.
 
-    lang = settings.get("language", "ur")
-    en = lang == "en"
-    L = _LABELS[lang if lang in _LABELS else "ur"]
-    pnl = closed_position.get("pnl") or 0.0
-    outcome = "WIN" if pnl > 0 else "LOSS" if pnl < 0 else "BREAK-EVEN"
-    outcome_icon = "\U0001F7E2" if pnl > 0 else "\U0001F534" if pnl < 0 else "⚪"
-    strategy_label = "Strategy" if en else L["strategy"]
-    coin_label = "Coin" if en else "Coin"
-    exit_label = "Exit" if en else "Exit (Bahar)"
-    result_label = "Result" if en else "Result (Nateeja)"
-    lines = [
-        f"{outcome_icon} <b>{TELEGRAM_BRAND} Result -- {outcome}</b>",
-        "─" * 18,
-        f"• {strategy_label}: {closed_position.get('strategy_name') or L['unknown_strategy']}",
-        f"• {coin_label}: {closed_position['symbol']}",
-        f"• {exit_label}: {_format_price(closed_position.get('exit_price'))} ({closed_position.get('exit_reason', '-')})",
-        f"• {result_label}: {'+' if pnl >= 0 else ''}{pnl:.2f} ({closed_position.get('pnl_pct', 0):.2f}%)",
-        "",
-        DISCLAIMER,
-    ]
-    text = "\n".join(lines)
-    ok, err = _raw_send(text, channel_id_override=channel_for_strategy(closed_position.get("strategy_id")))
-    storage.log_telegram_message(
-        position_id, closed_position.get("strategy_id"), closed_position.get("strategy_name"),
-        "close_followup", text, ok, err, _now_iso(),
-    )
-    return {"ok": ok, "error": err}
+    Called after every trade closes (see position_manager._close(), which
+    never used this function's return value) -- the trade itself is still
+    closed and recorded exactly as before; only this Telegram notification
+    is suppressed. Daily/weekly summary reports (paper_trading/
+    daily_report.py) are a separate, unaffected code path -- that's still
+    where trade results are visible on Telegram, alongside the full detail
+    already on the dashboard's own trade history.
+
+    The previous implementation (built the WIN/LOSS message, resolved the
+    per-strategy channel override, sent it, logged it) is preserved in git
+    history if per-trade result visibility is ever wanted again."""
+    return None
 
 
 def send_breakeven_notification(position):

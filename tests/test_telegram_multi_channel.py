@@ -100,7 +100,10 @@ def test_raw_send_actually_targets_the_overridden_channel(test_db, monkeypatch):
     assert captured["chat_id"] == "channel_A"
 
 
-def test_close_followup_also_routes_to_the_strategy_override(test_db):
+def test_close_followup_never_sends_even_with_a_strategy_override(test_db):
+    # 2026-09-14: send_close_followup() was disabled entirely (trade-close
+    # WIN/LOSS results were flooding the channel) -- channel routing is
+    # moot since it never sends. See its own docstring.
     _configure()
     telegram_bot.set_strategy_channel_override("strat1", "channel_A")
     pos = _open_position(strategy_id="strat1")
@@ -109,9 +112,9 @@ def test_close_followup_also_routes_to_the_strategy_override(test_db):
     closed_position = {**pos, "pnl": 10.0, "pnl_pct": 10.0, "exit_price": 110.0, "exit_reason": "take_profit"}
 
     with patch.object(telegram_bot, "_raw_send", return_value=(True, None)) as mock_send:
-        telegram_bot.send_close_followup(closed_position)
-    mock_send.assert_called_once()
-    assert mock_send.call_args.kwargs["channel_id_override"] == "channel_A"
+        result = telegram_bot.send_close_followup(closed_position)
+    mock_send.assert_not_called()
+    assert result is None
 
 
 def test_omitting_the_override_kwarg_still_uses_the_default_channel(test_db, monkeypatch):

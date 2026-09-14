@@ -8905,6 +8905,20 @@
     const myToken = activeRouteToken;
     let activePtTab = "overview";
     let ptStrategySectionFilter = "profitable";
+    // Note, 2026-09-14: unlike most other render functions in this file,
+    // this closure does NOT declare a `const en = getLang() === "en";`
+    // shortcut anywhere -- it calls getLang() === "en" inline every time.
+    // A later addition (the "Self-Learning Progress by Strategy" section
+    // below, ~line 9847) had copy-pasted the bare `en` shortcut from
+    // another page's code without noticing this closure never declares
+    // it. That left `en` genuinely undeclared here, throwing "en is not
+    // defined" the instant that section rendered -- shown to the user as
+    // "Failed to load page" on the Paper Trading tab. If you add a new
+    // section here, either keep using getLang() === "en" inline (this
+    // closure's existing convention) or declare `const en = ...` at the
+    // very top of this arrow function -- never assume it already exists.
+    // Regression guard: tests/frontend_harness/check_pages_render.mjs
+    // (real execution of every page, run via tests/test_frontend_pages_render.py).
     const render = async () => {
       // Fix, 2026-09-13 (Priority 6): this used to be ONE Promise.all firing
       // all ~34 calls simultaneously. Each apiGet() call's own 15s abort
@@ -9828,8 +9842,8 @@
             || '<tr><td colspan="3">No repeated patterns flagged yet -- needs more closed trades.</td></tr>'}</tbody>
         </table></div>
 
-        <div class="section-title">${en ? "Self-Learning Progress by Strategy" : "Self-Learning Progress by Strategy"} ${helpIcon("pattern_reliability")}</div>
-        <p class="muted" style="margin-top:-8px;">${en
+        <div class="section-title">${getLang() === "en" ? "Self-Learning Progress by Strategy" : "Self-Learning Progress by Strategy"} ${helpIcon("pattern_reliability")}</div>
+        <p class="muted" style="margin-top:-8px;">${getLang() === "en"
           ? "Grand Master Batch, Phase 5 Item 5: each strategy's CLOSEST pattern to becoming statistically reliable -- a strategy can have many strategy+coin+condition patterns tracked below; this shows its best progress toward the 25-trade gate."
           : "Har strategy ka apna sabse qareeb pattern jo statistically reliable banne wala hai -- neeche har strategy ke kayi patterns track hote hain; yeh uska best progress 25-trade gate ki taraf dikhata hai."}</p>
         <div class="table-wrap"><table>

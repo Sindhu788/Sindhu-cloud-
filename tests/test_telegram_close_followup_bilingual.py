@@ -1,6 +1,11 @@
-"""Batch 5, Task 3 -- the Telegram close-result follow-up message is
-bilingual too, following the stored "language" setting (default Roman
-Urdu), same deterministic template pattern as format_signal_message.
+"""Batch 5, Task 3 originally covered the Telegram close-result follow-up
+message's bilingual formatting. 2026-09-14: send_close_followup() was
+disabled entirely by explicit CEO instruction -- these WIN/LOSS result
+notifications were flooding the Telegram channel and crowding out actual
+entry signals (see its own docstring in paper_trading/telegram_bot.py).
+There is no message left to format, so this file now just guards that the
+function stays a true no-op regardless of language/settings, replacing the
+old formatting-content assertions.
 """
 
 from unittest.mock import patch
@@ -32,33 +37,11 @@ def _closed(pos_id="pos1"):
             "exit_price": 110.0, "exit_reason": "take_profit", "pnl": 10.0, "pnl_pct": 10.0}
 
 
-def test_default_language_is_roman_urdu(test_db):
-    telegram_bot.save_settings(bot_token="x", channel_id="y", master_send_enabled=True)
+@pytest.mark.parametrize("language", ["ur", "en"])
+def test_close_followup_never_sends_regardless_of_language(test_db, language):
+    telegram_bot.save_settings(bot_token="x", channel_id="y", master_send_enabled=True, language=language)
     _open_and_log()
     with patch.object(telegram_bot, "_raw_send", return_value=(True, None)) as mock_send:
-        telegram_bot.send_close_followup(_closed())
-    sent_text = mock_send.call_args[0][0]
-    assert "Result (Nateeja)" in sent_text
-    assert "Exit (Bahar)" in sent_text
-
-
-def test_english_setting_switches_the_labels(test_db):
-    telegram_bot.save_settings(bot_token="x", channel_id="y", master_send_enabled=True, language="en")
-    _open_and_log()
-    with patch.object(telegram_bot, "_raw_send", return_value=(True, None)) as mock_send:
-        telegram_bot.send_close_followup(_closed())
-    sent_text = mock_send.call_args[0][0]
-    assert "Result:" in sent_text
-    assert "Exit:" in sent_text
-    assert "Nateeja" not in sent_text
-
-
-def test_strategy_name_and_numbers_interpolate_cleanly_in_both_languages(test_db):
-    telegram_bot.save_settings(bot_token="x", channel_id="y", master_send_enabled=True)
-    _open_and_log()
-    with patch.object(telegram_bot, "_raw_send", return_value=(True, None)) as mock_send:
-        telegram_bot.send_close_followup(_closed())
-    sent_text = mock_send.call_args[0][0]
-    assert "Test Strategy" in sent_text
-    assert "+10.00" in sent_text
-    assert "10.00%" in sent_text
+        result = telegram_bot.send_close_followup(_closed())
+    mock_send.assert_not_called()
+    assert result is None
