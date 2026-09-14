@@ -223,6 +223,20 @@ def test_hypothetical_pnl_scales_real_r_multiple_onto_hypothetical_capital(test_
     assert result["hypothetical_balance"] == 102.0
 
 
+def test_hypothetical_pnl_accepts_a_custom_capital(test_db):
+    # Grand Master Batch, Phase 4 Item 2: the CEO can plug in any
+    # hypothetical stake, not just the fixed $100 default.
+    _open_position(id="posW")
+    _close("posW", 110.0, 10.0, 10.0, "take_profit")
+    _log_signal("posW")
+
+    result = telegram_analytics.hypothetical_pnl(capital=1000.0)
+    assert result["hypothetical_capital"] == 1000.0
+    # Same 2.0 R-multiple, now scaled onto $1000 * 1% = $10 risked per trade.
+    assert result["hypothetical_pnl"] == 20.0
+    assert result["hypothetical_balance"] == 1020.0
+
+
 def test_hypothetical_pnl_only_counts_closed_trades(test_db):
     _open_position(id="posOpen")
     _log_signal("posOpen")  # still open -- must not contribute

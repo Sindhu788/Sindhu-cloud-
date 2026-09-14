@@ -1985,16 +1985,20 @@ def list_telegram_signals(period: str = "all"):
 
 
 @router.get("/api/paper-trading/telegram/analytics")
-def get_telegram_analytics(period: str = "all"):
+def get_telegram_analytics(period: str = "all", simulate_capital: float = None):
     """Period summary + per-strategy breakdown for the Telegram Dashboard
     page -- reuses the same closed-trade outcome data Paper Trading
     Analytics already tracks (paper_positions.status/pnl), just filtered
-    to positions that actually had a signal sent to Telegram."""
+    to positions that actually had a signal sent to Telegram.
+
+    simulate_capital (Grand Master Batch, Phase 4 Item 2): lets the CEO
+    plug in any hypothetical real-money stake for the "Simulate Real
+    Money" calculator instead of the fixed $100 default."""
     since_iso, until_iso = _period_bounds(period)
     return {
         "summary": telegram_analytics.signal_period_summary(since_iso, until_iso),
         "strategy_breakdown": telegram_analytics.strategy_breakdown(since_iso, until_iso),
-        "hypothetical_pnl": telegram_analytics.hypothetical_pnl(since_iso, until_iso),
+        "hypothetical_pnl": telegram_analytics.hypothetical_pnl(since_iso, until_iso, capital=simulate_capital),
         "best_strategy": telegram_analytics.best_performing_strategy(since_iso, until_iso),
     }
 

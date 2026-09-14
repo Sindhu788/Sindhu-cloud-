@@ -6656,7 +6656,18 @@
               <td>${fmtNum(b.pending)}</td>
               <td>${b.win_rate_pct != null ? b.win_rate_pct.toFixed(1) + "%" : `Needs ${analytics.summary.min_sample_size}+ finished`}</td>
             </tr>`).join("") || `<tr><td colspan="6">Nothing was delivered in this period.</td></tr>`}</tbody>
-        </table></div>` : ""}
+        </table></div>
+
+        <div class="section-title">${getLang() === "en" ? "Simulate Real Money" : "Simulate Real Money"}</div>
+        <p class="muted plain-note">${getLang() === "en"
+          ? "What-if only -- no real trading is enabled anywhere by this. Replays the REAL R-multiple of every closed, delivered signal in this period onto a hypothetical stake you choose, using your real configured risk %."
+          : "Sirf what-if -- ismein kahin bhi real trading enable nahi hoti. Is period ke har real, delivered, closed signal ka REAL R-multiple ek hypothetical stake par replay karta hai, aapke real configured risk % ke sath."}</p>
+        <div class="form-row" style="max-width:300px;"><label>${getLang() === "en" ? "Hypothetical Stake ($)" : "Hypothetical Stake ($)"}</label><input id="simulateCapitalInput" type="number" min="1" step="1" value="${analytics.hypothetical_pnl.hypothetical_capital}"></div>
+        <div class="grid" id="simulateMoneyGrid">
+          ${card("Hypothetical PnL", pnlSpan(analytics.hypothetical_pnl.hypothetical_pnl))}
+          ${card("Hypothetical Balance", `$${analytics.hypothetical_pnl.hypothetical_balance.toFixed(2)}`)}
+          ${card("Trades Counted", fmtNum(analytics.hypothetical_pnl.counted_trades))}
+        </div>` : ""}
 
         <div class="section-title">Signal Mirror &mdash; Exactly What Was Sent</div>
         <p class="muted plain-note">The real message text stored at the moment each send was attempted &mdash; not a re-generated guess, so this always matches what Telegram actually received.</p>
@@ -6683,6 +6694,20 @@
       box.querySelectorAll(".tg-preview-btn").forEach(btn => {
         btn.onclick = () => openTelegramPreviewModal(btn.dataset.id);
       });
+      const capitalInput = document.getElementById("simulateCapitalInput");
+      if (capitalInput) {
+        capitalInput.addEventListener("change", async () => {
+          const capital = parseFloat(capitalInput.value);
+          if (isNaN(capital) || capital <= 0) return;
+          const fresh = await apiGet(`/api/paper-trading/telegram/analytics?period=${activePeriod}&simulate_capital=${capital}`).catch(() => null);
+          if (!fresh) return;
+          document.getElementById("simulateMoneyGrid").innerHTML = `
+            ${card("Hypothetical PnL", pnlSpan(fresh.hypothetical_pnl.hypothetical_pnl))}
+            ${card("Hypothetical Balance", `$${fresh.hypothetical_pnl.hypothetical_balance.toFixed(2)}`)}
+            ${card("Trades Counted", fmtNum(fresh.hypothetical_pnl.counted_trades))}
+          `;
+        });
+      }
     }
 
     const [cs, tgAlert, netCheck] = await Promise.all([

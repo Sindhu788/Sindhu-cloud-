@@ -44,20 +44,24 @@ def signal_period_summary(since_iso=None, until_iso=None):
     }
 
 
-def hypothetical_pnl(since_iso=None, until_iso=None):
-    """A clearly-hypothetical "$100 account" tracker for the Telegram
-    Dashboard: takes the REAL R-multiple (pnl / risk_amount) of every
-    closed, telegram-signaled trade in this period -- the exact same
-    ratio storage.get_paper_period_summary's avg_rr already computes from
-    -- and rescales it onto a hypothetical HYPOTHETICAL_CAPITAL account
-    using the actual configured risk-per-trade percentage
-    (paper_trading.config's risk_pct_default, the same number the real
-    position sizer uses). Never invents a win, loss, or R-multiple -- only
-    real recorded outcomes are used; open/pending trades contribute
-    nothing until they actually close."""
+def hypothetical_pnl(since_iso=None, until_iso=None, capital=None):
+    """Grand Master Batch, Phase 4 Item 2 ("Simulate Real Money"): a
+    clearly-hypothetical account tracker for the Telegram Dashboard --
+    takes the REAL R-multiple (pnl / risk_amount) of every closed,
+    telegram-signaled trade in this period -- the exact same ratio
+    storage.get_paper_period_summary's avg_rr already computes from --
+    and rescales it onto a hypothetical account of `capital` (defaults to
+    HYPOTHETICAL_CAPITAL, but the CEO can plug in any real-money figure
+    they're actually considering) using the actual configured
+    risk-per-trade percentage (paper_trading.config's risk_pct_default,
+    the same number the real position sizer uses). Never invents a win,
+    loss, or R-multiple, and never enables real trading -- only real
+    recorded outcomes are replayed against a hypothetical stake; open/
+    pending trades contribute nothing until they actually close."""
+    capital = HYPOTHETICAL_CAPITAL if capital is None else float(capital)
     rows = storage.list_telegram_signal_outcomes(since_iso, until_iso)
     risk_pct_default = pt_config.load().get("risk_pct_default", 1.0)
-    hypothetical_risk_per_trade = HYPOTHETICAL_CAPITAL * (risk_pct_default / 100.0)
+    hypothetical_risk_per_trade = capital * (risk_pct_default / 100.0)
 
     total_pnl = 0.0
     counted_trades = 0
@@ -72,11 +76,11 @@ def hypothetical_pnl(since_iso=None, until_iso=None):
         counted_trades += 1
 
     return {
-        "hypothetical_capital": HYPOTHETICAL_CAPITAL,
+        "hypothetical_capital": capital,
         "risk_pct_used": risk_pct_default,
         "counted_trades": counted_trades,
         "hypothetical_pnl": round(total_pnl, 2),
-        "hypothetical_balance": round(HYPOTHETICAL_CAPITAL + total_pnl, 2),
+        "hypothetical_balance": round(capital + total_pnl, 2),
     }
 
 
