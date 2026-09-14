@@ -89,6 +89,40 @@ def test_archived_strategies_are_excluded(test_db):
     assert "Archived One" not in result["ungrouped_strategies"]
 
 
+# --------------------------------------------------------------- Grand Master Batch, Phase 4 Item 7: performance stats
+
+def _close_trade(storage, sid, pnl, when):
+    storage.open_paper_position({
+        "id": f"pos-{sid}-{when}", "exchange": "binance", "symbol": "BTCUSDT", "direction": "long",
+        "entry_price": 100.0, "size": 1.0, "risk_amount": 5.0,
+        "entry_time": 1700000000000, "created_at": when, "strategy_id": sid, "strategy_name": sid,
+    })
+    storage.close_paper_position(f"pos-{sid}-{when}", 100.0 + pnl, when, pnl, pnl, "take_profit", {}, {}, when, book_key=sid)
+
+
+def test_family_aggregates_real_pnl_across_its_members(test_db):
+    from data_engine import storage
+    sid_a = lib.create(_config("Strat A", ["order_block"]))
+    sid_b = lib.create(_config("Strat B", ["order_block"]))
+    _close_trade(storage, sid_a, 30.0, "2026-01-01T00:00:00+00:00")
+    _close_trade(storage, sid_b, -10.0, "2026-01-01T00:00:00+00:00")
+    result = get_strategy_family_tree()
+    family = next(f for f in result["families"] if f["concept"] == "Order Block (OB)")
+    assert family["total_pnl"] == 20.0
+    assert family["closed_trades"] == 2
+    assert family["win_rate_pct"] == 50.0
+
+
+def test_family_with_no_closed_trades_has_null_win_rate(test_db):
+    lib.create(_config("Strat A", ["order_block"]))
+    lib.create(_config("Strat B", ["order_block"]))
+    result = get_strategy_family_tree()
+    family = next(f for f in result["families"] if f["concept"] == "Order Block (OB)")
+    assert family["closed_trades"] == 0
+    assert family["win_rate_pct"] is None
+    assert family["total_pnl"] == 0.0
+
+
 def test_empty_library_has_no_families_or_ungrouped(test_db):
     result = get_strategy_family_tree()
     assert result["families"] == []

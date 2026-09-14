@@ -17,6 +17,7 @@ instruction is to read the strategy's actual stored data, not its name."""
 from fastapi import APIRouter
 
 from backtest_engine import strategy_library
+from data_engine import storage
 
 router = APIRouter()
 
@@ -87,6 +88,31 @@ def get_strategy_family_tree():
         for name, data in usage.items() if data["count"] >= 2
     ]
     families.sort(key=lambda f: f["member_count"], reverse=True)
+
+    # Grand Master Batch, Phase 4 Item 7: aggregated real PAPER-TRADING
+    # performance per family -- usage/families above only ever carry
+    # strategy NAMES (concepts.py matches by name-keyed StrategyConfig,
+    # not by strategy_id), so this maps name -> id once here to join
+    # against storage.list_paper_account_states()'s real, already-running
+    # PnL/trade-count totals (the same source of truth every other real
+    # performance figure in the app reads from -- never re-derived).
+    name_to_id = {s["name"]: s["id"] for s in strategy_library.list_all()}
+    states_by_id = {s["strategy_id"]: s for s in storage.list_paper_account_states()}
+    for family in families:
+        total_pnl = 0.0
+        closed = 0
+        wins = 0
+        for name in family["strategies"]:
+            sid = name_to_id.get(name)
+            state = states_by_id.get(sid) if sid else None
+            if not state:
+                continue
+            total_pnl += state.get("realized_pnl_total", 0.0)
+            closed += state.get("closed_count", 0)
+            wins += state.get("win_count", 0)
+        family["total_pnl"] = round(total_pnl, 2)
+        family["closed_trades"] = closed
+        family["win_rate_pct"] = round(wins / closed * 100, 1) if closed else None
 
     all_active_names = {s["name"] for s in strategy_library.list_all() if not s.get("archived")}
     grouped_names = {name for f in families for name in f["strategies"]}

@@ -2159,6 +2159,11 @@
           <div class="card" style="margin-bottom:8px;">
             <div class="label">${esc(f.concept)} <span class="pill pill-muted">${f.member_count}</span></div>
             <div style="font-size:12px;margin-top:4px;">${f.strategies.map(esc).join(", ")}</div>
+            <div style="font-size:11.5px;margin-top:6px;" class="${f.total_pnl > 0 ? "positive" : f.total_pnl < 0 ? "negative" : "muted"}">
+              ${f.closed_trades > 0
+                ? `${f.total_pnl >= 0 ? "+" : ""}$${f.total_pnl.toFixed(2)} real PnL across ${f.closed_trades} closed trades (${f.win_rate_pct}% win rate)`
+                : `<span class="muted">No closed paper-trading trades yet for this family.</span>`}
+            </div>
           </div>`).join("")}
         ${familyTree.ungrouped_strategies.length ? `
         <div class="muted" style="font-size:12px;margin-top:8px;">${en ? "Not yet part of any family" : "Abhi tak kisi family ka hissa nahi"} (${familyTree.ungrouped_strategies.length}): ${familyTree.ungrouped_strategies.map(esc).join(", ")}</div>` : ""}
