@@ -1076,6 +1076,64 @@ def min_confidence_check(position):
     return True, None
 
 
+# --------------------------------------------------------------- Grand Master Batch #2, Phase 1.4: Expected-Value Gate
+
+# Same "enough real evidence to trust a number" bar pattern_stats already
+# uses elsewhere (e.g. challenge_analysis.suggest_best_portfolio) -- below
+# this many closed trades for the exact strategy, there simply isn't enough
+# real history to judge expectancy either way.
+EV_GATE_MIN_TRADES = pattern_stats.MIN_SAMPLE_SIZE
+
+
+def expected_value_check(position):
+    """An ADDITIONAL filter, always on, same additive pattern as
+    min_confidence_check above -- never a replacement for the Confluence/
+    Wilson/Freshness/TP-distance/Duplicate gates that already ran by the
+    time an automatic send reaches here. Blocks a signal only when this
+    exact strategy's own REAL, already-closed paper trades show a negative
+    average dollar result per trade.
+
+    This is genuinely out-of-sample: these are real paper trades the
+    strategy placed live, after its config was already fixed by
+    backtesting/tuning -- not a backtest metric computed over the same data
+    a strategy was optimized against. It is also already "after costs":
+    every closed paper trade's pnl already has real simulated slippage
+    applied at both entry and exit (see position_manager._open/_close's use
+    of backtest_engine.engine._apply_slippage) -- no separate cost
+    adjustment is needed here.
+
+    Deliberately does NOT read backtest_engine.strategy_library's
+    walk-forward result (the CEO's other obvious candidate source): that
+    lives only in strategies/library/<id>/meta.json on the local
+    filesystem, which is not part of db_backend.POSTGRES_SCHEMA (see that
+    module's own docstring for why) -- an evolution-generated strategy
+    trading live on the Render cloud service would never have that file at
+    all, which would make a gate built on it either silently always-open
+    (unsafe -- exactly the "confidence alone" problem this is meant to
+    fix) or always-blocking every cloud-generated strategy (useless). A
+    strategy's own closed paper_positions rows are fully part of the
+    curated cloud schema, so this gate behaves identically and reliably on
+    both the local laptop and the live cloud service.
+
+    Below EV_GATE_MIN_TRADES closed trades for this strategy, passes open
+    -- same "nothing to judge yet" convention as min_confidence_check just
+    above, never a fabricated verdict from too little evidence."""
+    strategy_id = position.get("strategy_id")
+    if not strategy_id:
+        return True, None
+    closed = storage.list_closed_paper_positions(limit=1_000_000, strategy_id=strategy_id)
+    closed = [r for r in closed if r.get("pnl") is not None]
+    if len(closed) < EV_GATE_MIN_TRADES:
+        return True, None
+    avg_pnl = sum(r["pnl"] for r in closed) / len(closed)
+    if avg_pnl <= 0:
+        return False, (
+            f"real paper-trading expectancy for this strategy is ${avg_pnl:.2f}/trade over its last "
+            f"{len(closed)} closed trades (not positive) -- signal withheld until real performance improves"
+        )
+    return True, None
+
+
 # --------------------------------------------------------------- Phase 2.6: Duplicate-Signal Protection
 
 def duplicate_signal_check(position):
@@ -1297,6 +1355,17 @@ def send_signal_for_position(position_id, trigger_type="manual", high_confidence
             "", False, conf_reason, now,
         )
         return {"ok": False, "error": conf_reason}
+
+    # Grand Master Batch #2, Phase 1.4: Expected-Value Gate (always on --
+    # see expected_value_check's own docstring for why this is separate
+    # from, and does not touch, the confidence-based gate just above).
+    ev_ok, ev_reason = expected_value_check(pos)
+    if not ev_ok:
+        storage.log_telegram_message(
+            position_id, pos.get("strategy_id"), pos.get("strategy_name"), trigger_type,
+            "", False, ev_reason, now,
+        )
+        return {"ok": False, "error": ev_reason}
 
     # Grand Master Batch, Phase 6 Item 12: a snoozed strategy's signals are
     # withheld entirely, same treatment as every other real gate here --
