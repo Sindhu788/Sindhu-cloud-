@@ -16,10 +16,11 @@ from datetime import datetime, timezone, timedelta
 
 from fastapi import APIRouter
 
-from data_engine.paths import DATABASE_DIR
+from data_engine import db_backend
+from data_engine.paths import DATABASE_DIR, DB_PATH
 from data_engine.logging_setup import log
 from sindhu_web import sync
-from sindhu_web.api.backup import _hot_copy, _now_stamp
+from sindhu_web.api.backup import _create_postgres_backup, _hot_copy, _now_stamp
 
 router = APIRouter()
 
@@ -29,10 +30,18 @@ KEEP_LAST = 8
 
 
 def create_weekly_snapshot():
+    # 2026-09-15: same fix as backup.create_backup() -- this used to always
+    # sqlite3-copy DB_PATH regardless of backend, which is not the real
+    # database on the Postgres cloud runner. See backup.py's own note.
     os.makedirs(_SNAPSHOT_DIR, exist_ok=True)
-    snapshot_name = f"sindhu_weekly_{_now_stamp()}.db"
-    snapshot_path = os.path.join(_SNAPSHOT_DIR, snapshot_name)
-    _hot_copy(snapshot_path)
+    if db_backend.IS_POSTGRES:
+        snapshot_name = f"sindhu_weekly_pg_{_now_stamp()}.json.gz"
+        snapshot_path = os.path.join(_SNAPSHOT_DIR, snapshot_name)
+        _create_postgres_backup(snapshot_path)
+    else:
+        snapshot_name = f"sindhu_weekly_{_now_stamp()}.db"
+        snapshot_path = os.path.join(_SNAPSHOT_DIR, snapshot_name)
+        _hot_copy(DB_PATH, snapshot_path)
     log(f"Weekly snapshot created: {snapshot_name}")
     sync.notify("weekly_snapshot", "created", f"Weekly database snapshot created: {snapshot_name}")
     _prune_old_snapshots()
@@ -43,7 +52,8 @@ def _prune_old_snapshots():
     if not os.path.isdir(_SNAPSHOT_DIR):
         return
     files = sorted(
-        (f for f in os.listdir(_SNAPSHOT_DIR) if f.startswith("sindhu_weekly_") and f.endswith(".db")),
+        (f for f in os.listdir(_SNAPSHOT_DIR)
+         if f.startswith("sindhu_weekly_") and (f.endswith(".db") or f.endswith(".json.gz"))),
         reverse=True,  # newest first (filenames are timestamp-sortable)
     )
     for stale in files[KEEP_LAST:]:

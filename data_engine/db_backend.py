@@ -55,6 +55,14 @@ class _PGCursorResult:
         return self._cursor.fetchall()
 
     @property
+    def description(self):
+        # 2026-09-15: needed by sindhu_web/api/backup.py's Postgres logical
+        # backup (reads column names off SELECT * FROM <table> to write a
+        # portable, restorable dump) -- psycopg2 cursors already expose this
+        # natively, just forwarding it through the wrapper like fetchall.
+        return self._cursor.description
+
+    @property
     def lastrowid(self):
         # psycopg2 has no sqlite3-style lastrowid. Nothing in the curated
         # table set's storage.py call sites relies on it (every INSERT
