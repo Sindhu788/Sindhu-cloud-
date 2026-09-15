@@ -69,7 +69,7 @@ def test_challenge_group_signal_shows_challenge_emoji(test_db):
     assert sent_text.startswith(telegram_bot._GROUP_MARKER_EMOJI["challenge"])
 
 
-@pytest.mark.parametrize("group_key", ["losing", "profitable"])
+@pytest.mark.parametrize("group_key", ["profitable"])
 def test_non_challenge_group_signal_shows_its_own_emoji_not_challenge(test_db, group_key):
     telegram_bot.save_settings(bot_token="x", channel_id="y", master_send_enabled=True)
     _open_position("s1")
@@ -82,6 +82,24 @@ def test_non_challenge_group_signal_shows_its_own_emoji_not_challenge(test_db, g
     sent_text = mock_send.call_args[0][0]
     assert sent_text.startswith(telegram_bot._GROUP_MARKER_EMOJI[group_key])
     assert telegram_bot._GROUP_MARKER_EMOJI["challenge"] not in sent_text
+
+
+def test_losing_group_signal_is_withheld_not_sent(test_db):
+    """2026-09-15, urgent CEO directive: Telegram sending is now withheld
+    for the Losing group specifically (see
+    tests/test_telegram_profitable_challenge_only.py for the full
+    coverage of this gate) -- a "losing" group strategy used to send with
+    its own emoji like every other group before this directive; it no
+    longer sends at all."""
+    telegram_bot.save_settings(bot_token="x", channel_id="y", master_send_enabled=True)
+    _open_position("s1")
+    storage.upsert_paper_strategy_group("s1", "losing", "2026-01-01T00:00:00+00:00")
+
+    with patch.object(telegram_bot, "_raw_send", return_value=(True, None)) as mock_send:
+        result = telegram_bot.send_signal_for_position("pos-s1", trigger_type="manual")
+
+    assert result["ok"] is False
+    mock_send.assert_not_called()
 
 
 def test_ungrouped_strategy_signal_shows_neutral_marker_not_challenge(test_db):

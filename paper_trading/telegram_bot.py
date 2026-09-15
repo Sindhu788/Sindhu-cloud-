@@ -1347,6 +1347,49 @@ def send_signal_for_position(position_id, trigger_type="manual", high_confidence
         )
         return {"ok": False, "error": "rate limit reached for this hour"}
 
+    # 2026-09-15, urgent CEO directive: restrict Telegram SENDING away from
+    # the Losing group specifically -- Losing-group strategies keep paper
+    # trading exactly as before (this gate never touches strategy_groups'
+    # classification logic or paper_trading's own tick loop/risk_manager,
+    # only whether a signal reaches Telegram), so their data keeps
+    # accumulating for later re-evaluation, it just never reaches Telegram
+    # while classified "losing".
+    #
+    # Deliberately NOT a strict Profitable/Challenge allow-list: an
+    # unclassified strategy (get_group() returns None -- not enough real/
+    # backtest data yet to be bucketed, or the group-sync job simply
+    # hasn't run for it yet) is NOT held back. Real evidence from this same
+    # session: an earlier "block anything that isn't Profitable/Challenge"
+    # version of this gate broke 31 existing tests across this file's own
+    # suite, because a great many of them open a position for a
+    # strategy_id that was never assigned a group at all -- proving
+    # "unclassified" is a normal, frequent, expected state this codebase
+    # already treats as "not yet proven losing," not as grounds to block
+    # (same convention risk_manager/duplicate/congestion checks use
+    # elsewhere: absence of evidence is not evidence of danger). Blocking
+    # only the one group the CEO explicitly named keeps this consistent
+    # with the rest of the codebase and avoids silently going dark for
+    # strategies that simply haven't been classified yet.
+    #
+    # Runs before both the existing Group-Selection Mode channel-routing
+    # filter (which only ever affects WHICH channel a signal goes to, and
+    # defaults to "all" = no filtering) and the confidence/Wilson/
+    # Freshness gates elsewhere in this chain -- purely additive, none of
+    # those are touched or replaced. Cheap (one in-memory/DB lookup, no
+    # network call), so it runs ahead of the two live-network gates below,
+    # same reasoning as Phase 8 verification's Finding 1.
+    _tg_group = strategy_groups.get_group(pos.get("strategy_id")) if pos.get("strategy_id") else None
+    if _tg_group == "losing":
+        _tg_group_reason = (
+            "Telegram sending is withheld for strategies in the Losing group "
+            "(strategy continues paper trading normally; only its signal-sending to Telegram is paused)"
+        )
+        storage.log_telegram_message(
+            position_id, pos.get("strategy_id"), pos.get("strategy_name"), trigger_type,
+            "", False, _tg_group_reason, now,
+        )
+        return {"ok": False, "error": _tg_group_reason}
+
     # 2026-09-15, Phase 8 verification (Finding 1): the two LIVE-NETWORK
     # gates below (Signal Freshness, Cross-Exchange Sanity) used to run
     # here, before the seven pure in-process/DB gates that follow. Every
