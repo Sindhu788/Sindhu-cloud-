@@ -1158,6 +1158,39 @@ def duplicate_signal_check(position):
     return True, None
 
 
+# --------------------------------------------------------------- Grand Master Batch #2, Phase 2.5: Signal Congestion Filter
+
+def congestion_check(position):
+    """Distinct from duplicate_signal_check above (same STRATEGY sending
+    the exact same coin+direction twice): this catches DIFFERENT
+    strategies independently signaling the SAME coin in the SAME direction
+    within the same short window -- often several strategies reacting to
+    one real underlying market move, which would otherwise reach Telegram
+    as what looks like several independent confirmations rather than one
+    real opportunity. Only ever blocks the SAME-direction case; two
+    strategies signaling OPPOSITE directions on the same coin is a
+    genuinely different, informational "conflicting setup" situation (see
+    paper_trading.correlation's own "informational only, never blocks a
+    trade" boundary for the same reasoning) that this deliberately does
+    NOT auto-resolve by picking a side."""
+    strategy_id = position.get("strategy_id")
+    symbol = position.get("symbol")
+    direction = position.get("direction")
+    if not symbol or not direction:
+        return True, None
+    minutes = load_settings().get("signal_freshness_minutes", _DEFAULTS["signal_freshness_minutes"])
+    since_iso = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).isoformat()
+    other_strategy_name = storage.find_recent_telegram_signal_for_symbol(
+        symbol, direction, since_iso, exclude_strategy_id=strategy_id,
+    )
+    if other_strategy_name:
+        return False, (
+            f"{other_strategy_name} already sent a {direction} signal for {symbol} within the last "
+            f"{minutes} minutes -- withheld as a redundant confirmation rather than a separate signal"
+        )
+    return True, None
+
+
 _LABELS = {
     # Grand Master Batch, Phase 2.4 removed the signal message down to 5
     # fields, which left most of these bilingual labels (confidence,
@@ -1346,6 +1379,15 @@ def send_signal_for_position(position_id, trigger_type="manual", high_confidence
             "", False, dup_reason, now,
         )
         return {"ok": False, "error": dup_reason}
+
+    # Grand Master Batch #2, Phase 2.5: Signal Congestion Filter.
+    cong_ok, cong_reason = congestion_check(pos)
+    if not cong_ok:
+        storage.log_telegram_message(
+            position_id, pos.get("strategy_id"), pos.get("strategy_name"), trigger_type,
+            "", False, cong_reason, now,
+        )
+        return {"ok": False, "error": cong_reason}
 
     # Phase 3.4: Minimum Confidence % Filter (additional layer, off by default).
     conf_ok, conf_reason = min_confidence_check(pos)

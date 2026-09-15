@@ -5146,6 +5146,30 @@ def has_recent_telegram_signal_for(strategy_id, symbol, direction, since_iso, ex
     return row is not None
 
 
+def find_recent_telegram_signal_for_symbol(symbol, direction, since_iso, exclude_strategy_id=None):
+    """Grand Master Batch #2, Phase 2.5 (Signal Congestion Filter): unlike
+    has_recent_telegram_signal_for above (exact strategy+coin+direction
+    match, for same-strategy duplicate protection), this checks ANY OTHER
+    strategy for the same coin+direction -- catches several different
+    strategies each independently signaling the same real market move as
+    if they were separate confirmations. Returns the other position's
+    strategy_name (for a clear "already signaled by X" reason), or None if
+    no other strategy has signaled this coin+direction recently."""
+    query = (
+        "SELECT pp.strategy_name FROM telegram_message_log tl "
+        "JOIN paper_positions pp ON pp.id = tl.position_id "
+        "WHERE tl.success = 1 AND tl.sent_at >= ? AND pp.symbol = ? AND pp.direction = ?"
+    )
+    params = [since_iso, symbol, direction]
+    if exclude_strategy_id:
+        query += " AND (pp.strategy_id IS NULL OR pp.strategy_id != ?)"
+        params.append(exclude_strategy_id)
+    query += " LIMIT 1"
+    with get_conn() as conn:
+        row = conn.execute(query, params).fetchone()
+    return row[0] if row else None
+
+
 # --------------------------------------------------------------- Weekly Auto-Report
 
 def save_weekly_report(period_start, period_end, report_json, report_text, now_iso):
