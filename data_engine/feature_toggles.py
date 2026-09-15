@@ -83,6 +83,18 @@ DEFAULTS = {
     # live, not something this session can fully verify -- so it waits for
     # the CEO's review before it can ever delay or fail a real send.
     "cross_exchange_sanity_check_enabled": False,
+    # Phase 5 -- News Monitoring, wired into trading
+    # (paper_trading.coin_event_caution.evaluate_for_risk_gate): rejects a
+    # NEW entry when CryptoPanic flags a real "important"/"hot" headline
+    # for that coin. Off by default, same reasoning as
+    # cross_exchange_sanity_check_enabled above -- a brand-new gate making
+    # REAL live network calls whose reliability from wherever this
+    # actually runs can't be fully verified from this session, so it waits
+    # for the CEO's review. Also requires a CryptoPanic API key to be
+    # configured (Settings > Coin Event Caution) -- with no key, or on any
+    # API error, this always passes open regardless of the toggle (see
+    # that module's own "never fabricate a caution flag" principle).
+    "coin_event_caution_gate_enabled": False,
 }
 
 

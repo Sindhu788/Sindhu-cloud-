@@ -105,4 +105,17 @@ def evaluate(book_key, symbol, candidate, settings, exchange=None):
                 f"({max_pct:.0f}% of initial balance)"
             ), None, None
 
+    # Phase 5 -- News Monitoring, wired into trading. Off by default (see
+    # feature_toggles.coin_event_caution_gate_enabled's own comment). Runs
+    # last, after every other gate: it makes a real live network call
+    # (cached 5 min, see coin_event_caution._cached_check), so a signal
+    # that would have been rejected anyway by a free, deterministic check
+    # above never pays for it -- same reasoning as Phase 8 verification's
+    # Finding 1 for telegram_bot.send_signal_for_position.
+    if exchange and feature_toggles.is_enabled("coin_event_caution_gate_enabled"):
+        from paper_trading import coin_event_caution
+        news_ok, news_reason = coin_event_caution.evaluate_for_risk_gate(symbol)
+        if not news_ok:
+            return False, news_reason, None, None
+
     return True, None, size, risk_amount

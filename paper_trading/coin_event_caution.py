@@ -21,6 +21,8 @@ What the CEO needs to provide, if they want this feature live:
    Settings > Coin Event Caution.
 """
 
+import time
+
 import requests
 
 from data_engine import config as base_config
@@ -30,6 +32,45 @@ _FILE = "coin_event_caution.json"
 _DEFAULTS = {"cryptopanic_api_key": ""}
 _REQUEST_TIMEOUT_SECONDS = 10
 _CRYPTOPANIC_URL = "https://cryptopanic.com/api/v1/posts/"
+
+# Phase 5 -- News Monitoring, wired into trading: risk_manager.evaluate()
+# calls this on every candidate, for every coin, every tick -- calling
+# check_coin_caution() directly there would burn through CryptoPanic's free-
+# tier rate limit almost immediately. This per-symbol, 5-minute cache (same
+# cadence as cloud_aware_auto_stop's own live network check) sits in front
+# of it. Deliberately a SEPARATE cache layer rather than added inside
+# check_coin_caution() itself, so that function's existing behavior/tests
+# (each call always hits the network) are completely unaffected -- this is
+# purely additive, only used by the new gate below.
+_GATE_CACHE_TTL_SECONDS = 300
+_gate_cache = {}
+
+
+def _cached_check(symbol):
+    now = time.time()
+    cached = _gate_cache.get(symbol)
+    if cached and now - cached[0] < _GATE_CACHE_TTL_SECONDS:
+        return cached[1]
+    result = check_coin_caution(symbol)
+    _gate_cache[symbol] = (now, result)
+    return result
+
+
+def evaluate_for_risk_gate(symbol):
+    """Returns (ok: bool, reason: str|None) for wiring into
+    risk_manager.evaluate() (feature_toggles.coin_event_caution_gate_enabled,
+    off by default -- see that flag's own comment). Never fabricates a
+    block: no API key configured, an API error, or a genuinely clear
+    result (no "important"/"hot" headlines) all pass open -- only a real,
+    already-fetched caution result blocks a new entry. Matches this
+    module's own "never fabricate a caution flag" principle: absence of
+    data is not evidence of safety, but it is not evidence of danger
+    either, so it can't be grounds to block a trade."""
+    result = _cached_check(symbol)
+    if not result.get("available") or not result.get("caution"):
+        return True, None
+    headline = (result.get("headlines") or [{}])[0].get("title", "an important headline")
+    return False, f"CryptoPanic flags an important/hot real headline for this coin: \"{headline}\""
 
 
 def load_settings():
