@@ -33,6 +33,13 @@ _DEFAULTS = {
     "engine_enabled": False,
     "initial_balance": 10000.0,
     "risk_pct_default": 1.0,
+    # Phase 8 verification, Finding 3: real exchange commission (0.1% =
+    # Binance spot's standard taker fee), deducted at close on top of the
+    # already-modeled slippage+spread -- see
+    # position_manager._DEFAULT_COMMISSION_PCT's own comment for the exact
+    # formula (matches backtest_engine.engine's existing commission_pct
+    # computation). Set to 0 to simulate a fee-free/maker-rebate account.
+    "commission_pct": 0.001,
     # Per STRATEGY, not a total shared across every strategy running --
     # each strategy independently caps out at this many distinct coins with
     # an open position at once (see paper_trading.risk_manager.evaluate).

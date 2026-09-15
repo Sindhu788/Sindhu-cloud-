@@ -37,6 +37,20 @@ def _now_iso():
 # not one folded into the other.
 _SPREAD_PCT = 0.0003
 
+# Phase 8 verification, Finding 3: paper trading modeled slippage and
+# spread but no commission, unlike backtest_engine.engine (see its own
+# "commission_pct" settings key and commission_cost computation) --
+# meaning paper PnL ran somewhat better than a real funded account would,
+# since every live exchange also charges a taker/maker fee on top of
+# spread. 0.1% is Binance spot's standard taker fee (the CEO can override
+# via paper_trading_settings.json's commission_pct, same override pattern
+# as every other paper-trading setting) -- deducted the same way
+# backtest_engine already does: (entry_price + exit_price) * size *
+# commission_pct, split evenly across entry and exit, not folded into the
+# slippage/spread price adjustments above since it's a genuinely different
+# real-world cost (an exchange fee, not a fill-price effect).
+_DEFAULT_COMMISSION_PCT = 0.001
+
 
 def auto_tags(market_snapshot, timeframe):
     tags = []
@@ -241,6 +255,14 @@ def _close(pos, exit_price, exit_reason):
         pnl = (exit_price - pos["entry_price"]) * pos["size"]
     else:
         pnl = (pos["entry_price"] - exit_price) * pos["size"]
+
+    # Phase 8 verification, Finding 3: real exchange commission, deducted
+    # the same way backtest_engine.engine already does for backtests --
+    # see _DEFAULT_COMMISSION_PCT's own comment above.
+    commission_pct = pt_config.load().get("commission_pct", _DEFAULT_COMMISSION_PCT)
+    commission_cost = (pos["entry_price"] + exit_price) * pos["size"] * commission_pct
+    pnl -= commission_cost
+
     notional = pos["entry_price"] * pos["size"]
     pnl_pct = (pnl / notional * 100) if notional else 0.0
     now_ms = int(time.time() * 1000)
