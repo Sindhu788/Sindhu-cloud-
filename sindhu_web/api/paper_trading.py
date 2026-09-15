@@ -2446,6 +2446,16 @@ def get_challenge_breakdown():
     return challenge_analysis.granular_breakdown()
 
 
+@router.get("/api/paper-trading/attribution-breakdown")
+def get_full_attribution_breakdown():
+    """Grand Master Batch #2, Phase 1.1: real per-exit-reason, per-market-
+    condition, per-timeframe, and per-setup(entry-reason) breakdown --
+    read-only, same source data as the Challenge breakdown above, just
+    grouped by different real, already-recorded dimensions."""
+    from paper_trading import challenge_analysis
+    return challenge_analysis.full_attribution_breakdown()
+
+
 @router.get("/api/paper-trading/challenge/best-portfolio")
 def get_best_portfolio_suggestion(top_n: int = 3):
     """Grand Feature Expansion, Phase 5 Feature 11: Best Combination

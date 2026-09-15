@@ -133,6 +133,57 @@ def granular_breakdown():
     }
 
 
+# --------------------------------------------------------------- Grand Master Batch #2, Phase 1.1: full trade attribution
+# Separate function rather than extending granular_breakdown() above -- that
+# function's exact return shape is already depended on by the dashboard's
+# Challenge Mode page and its own tests; this adds the dimensions Phase 1.1
+# asked for that weren't covered anywhere yet (exit reason, market
+# condition) plus two more real, already-recorded dimensions (timeframe,
+# and entry_reason as the real "which rule/setup fired" field -- there is
+# no separate "setup_type" column anywhere in paper_positions, so rather
+# than inventing one, this uses the field that already IS the real record
+# of what qualified the trade).
+
+def full_attribution_breakdown():
+    """Real per-exit-reason, per-market-condition, per-timeframe, and
+    per-entry-reason (setup) performance, computed the exact same way as
+    granular_breakdown() above (same _metrics_for, same real closed rows,
+    never estimated). A row with no value recorded for a given dimension
+    (older trades before a field existed, or a lesson-based trade with no
+    strategy_id) is grouped under "unknown" rather than silently dropped,
+    so total_closed_trades across every bucket always sums to the same
+    total as granular_breakdown()'s own by_strategy total.
+
+    Returns {"by_exit_reason", "by_market_condition", "by_timeframe",
+    "by_setup"} -- each a list of {<dimension>: value, **metrics}, sorted
+    by total_pnl desc, exactly like granular_breakdown()'s lists."""
+    rows = _closed_rows()
+
+    def _group_by(field):
+        grouped = defaultdict(list)
+        for r in rows:
+            grouped[r.get(field) or "unknown"].append(r)
+        out = []
+        for key, group_rows in grouped.items():
+            m = _metrics_for(group_rows)
+            if m:
+                out.append({field: key, **m})
+        out.sort(key=lambda x: x["total_pnl"], reverse=True)
+        return out
+
+    by_exit_reason = _group_by("exit_reason")
+    by_market_condition = [{"market_condition": r.pop("market_state"), **r} for r in _group_by("market_state")]
+    by_timeframe = _group_by("timeframe")
+    by_setup = [{"setup": r.pop("entry_reason"), **r} for r in _group_by("entry_reason")]
+
+    return {
+        "by_exit_reason": by_exit_reason,
+        "by_market_condition": by_market_condition,
+        "by_timeframe": by_timeframe,
+        "by_setup": by_setup,
+    }
+
+
 # --------------------------------------------------------------- Best Combination Auto-Suggest (multi-strategy)
 # Grand Feature Expansion, Phase 5 Feature 11: the existing
 # granular_breakdown() above already auto-suggests the single best
