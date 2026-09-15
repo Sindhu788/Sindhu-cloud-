@@ -82,4 +82,27 @@ def evaluate(book_key, symbol, candidate, settings, exchange=None):
         return False, "computed position size is zero", None, None
 
     risk_amount = abs(candidate["entry_price"] - candidate["stop_loss"]) * size
+
+    # Grand Master Batch #2, Phase 3.3: Portfolio-Level Exposure Control.
+    # An ADDITIONAL check on top of (never a replacement for) the per-book
+    # max-coins cap above -- that cap is scoped to one strategy's own book,
+    # so it can never see several DIFFERENT strategies all piling risk onto
+    # the SAME coin at once. Reuses portfolio.compute_coin_exposure()'s
+    # already-correct cross-strategy total (previously informational only,
+    # see that module's own docstring) rather than recomputing exposure a
+    # second way.
+    max_pct = settings.get("max_portfolio_risk_pct_per_coin", 10.0)
+    if exchange and max_pct and max_pct > 0:
+        from paper_trading import portfolio
+        existing_risk = next(
+            (row["total_risk"] for row in portfolio.compute_coin_exposure(exchange) if row["symbol"] == symbol), 0.0,
+        )
+        cap = settings.get("initial_balance", 10000.0) * (max_pct / 100.0)
+        if existing_risk + risk_amount > cap:
+            return False, (
+                f"portfolio-wide risk cap for {symbol} would be exceeded: ${existing_risk:.2f} already at risk "
+                f"across other strategies + ${risk_amount:.2f} for this trade > ${cap:.2f} cap "
+                f"({max_pct:.0f}% of initial balance)"
+            ), None, None
+
     return True, None, size, risk_amount

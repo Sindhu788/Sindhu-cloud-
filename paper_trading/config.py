@@ -37,6 +37,18 @@ _DEFAULTS = {
     # each strategy independently caps out at this many distinct coins with
     # an open position at once (see paper_trading.risk_manager.evaluate).
     "max_open_trades": 5,
+    # Grand Master Batch #2, Phase 3.3: Portfolio-Level Exposure Control.
+    # paper_trading.portfolio.compute_coin_exposure() already computed this
+    # number for the dashboard's own warnings but never enforced it (see
+    # that module's own "purely informational... never blocks a trade"
+    # boundary) -- risk_manager.evaluate() now rejects a NEW entry once a
+    # single coin's combined risk across EVERY strategy would exceed this
+    # % of initial_balance. 10% is a deliberately generous default (this
+    # is a brand-new enforced cap, not something any existing strategy mix
+    # was ever tuned against) -- it only bites when several strategies
+    # genuinely pile risk onto the same coin at once, not ordinary single-
+    # strategy trading. Set to 0 to disable.
+    "max_portfolio_risk_pct_per_coin": 10.0,
     "cooldown_minutes": 15,
     # Master Task Grand Batch, Phase 2.1: default changed from "confidence"
     # to "confidence_and_win_rate" -- ranking by confidence alone ignored
