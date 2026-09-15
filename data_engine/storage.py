@@ -5146,6 +5146,20 @@ def has_recent_telegram_signal_for(strategy_id, symbol, direction, since_iso, ex
     return row is not None
 
 
+def get_last_activity_by_strategy():
+    """Grand Master Batch #2, Phase 4.6 (Silent Strategy Detector): the most
+    recent position (open OR closed) ever recorded per strategy_id, however
+    long ago -- {strategy_id: last_activity_iso}. Uses created_at (every
+    position has one, set the instant it opens) rather than closed_at,
+    since a still-open position is itself real recent activity."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT strategy_id, MAX(created_at) FROM paper_positions "
+            "WHERE strategy_id IS NOT NULL GROUP BY strategy_id"
+        ).fetchall()
+    return {r[0]: r[1] for r in rows}
+
+
 def find_recent_telegram_signal_for_symbol(symbol, direction, since_iso, exclude_strategy_id=None):
     """Grand Master Batch #2, Phase 2.5 (Signal Congestion Filter): unlike
     has_recent_telegram_signal_for above (exact strategy+coin+direction

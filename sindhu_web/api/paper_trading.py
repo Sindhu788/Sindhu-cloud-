@@ -2464,6 +2464,15 @@ def get_confidence_calibration():
     return {"buckets": confidence_calibration.compute_calibration_map()}
 
 
+@router.get("/api/paper-trading/silent-strategies")
+def get_silent_strategies(min_days_silent: int = None):
+    """Grand Master Batch #2, Phase 4.6: enabled strategies that haven't
+    opened a position in a long time -- may be technically broken."""
+    from paper_trading import silent_strategy_detector
+    kwargs = {} if min_days_silent is None else {"min_days_silent": min_days_silent}
+    return {"flagged": silent_strategy_detector.detect_silent_strategies(**kwargs)}
+
+
 @router.get("/api/paper-trading/challenge/best-portfolio")
 def get_best_portfolio_suggestion(top_n: int = 3):
     """Grand Feature Expansion, Phase 5 Feature 11: Best Combination
