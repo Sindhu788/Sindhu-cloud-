@@ -71,6 +71,18 @@ DEFAULTS = {
     # always required after, same safety gate every strategy goes
     # through) -- so it defaults True like that existing generator does.
     "self_learning_engine_enabled": True,
+    # Grand Master Batch #2, Phase 4.7: Cross-Exchange Price Sanity Check --
+    # a brand NEW gate that makes a REAL live network call to a SECOND
+    # exchange on every Telegram signal send (see paper_trading.
+    # price_sanity_check). Off by default, unlike this batch's other new
+    # gates: those only ever read already-fetched candle data or already-
+    # stored trade history, so their behavior is fully verifiable from
+    # this session alone. This one's safety depends on the second
+    # exchange responding quickly and reliably from wherever this actually
+    # runs (the live Render service) -- something only visible once it's
+    # live, not something this session can fully verify -- so it waits for
+    # the CEO's review before it can ever delay or fail a real send.
+    "cross_exchange_sanity_check_enabled": False,
 }
 
 

@@ -1362,6 +1362,26 @@ def send_signal_for_position(position_id, trigger_type="manual", high_confidence
         )
         return {"ok": False, "error": fresh_reason}
 
+    # Grand Master Batch #2, Phase 4.7: Cross-Exchange Price Sanity Check.
+    # Off by default (feature_toggles.cross_exchange_sanity_check_enabled)
+    # -- see that flag's own comment for why this brand-new REAL network
+    # call is opt-in pending review, unlike this batch's other new gates.
+    # Uses the same live_price freshness_check just fetched (never a
+    # second fetch of the primary exchange) -- only queries the SECOND
+    # exchange, and only for a signal that has already survived every
+    # earlier gate.
+    if feature_toggles.is_enabled("cross_exchange_sanity_check_enabled"):
+        from paper_trading import price_sanity_check
+        sanity_ok, sanity_reason, _ = price_sanity_check.cross_exchange_check(
+            pos.get("exchange"), pos["symbol"], live_price if live_price is not None else pos.get("entry_price"),
+        )
+        if not sanity_ok:
+            storage.log_telegram_message(
+                position_id, pos.get("strategy_id"), pos.get("strategy_name"), trigger_type,
+                "", False, sanity_reason, now,
+            )
+            return {"ok": False, "error": sanity_reason}
+
     # Phase 2.3: Minimum Take-Profit Distance Filter.
     tp_ok, tp_reason = min_tp_distance_check(pos)
     if not tp_ok:
