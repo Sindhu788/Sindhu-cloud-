@@ -8,7 +8,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 
-from backtest_engine.engine import _apply_slippage, EMERGENCY_STOP_PCT
+from backtest_engine.engine import _apply_slippage, _apply_spread, EMERGENCY_STOP_PCT
 from data_engine import storage, feature_toggles
 from paper_trading import reflection, evolution, auto_avoid, drawdown_guard, telegram_bot, ai_trade_review
 from paper_trading import account_drawdown_guard, profit_lock
@@ -23,6 +23,19 @@ from evolution_engine import lesson_generator
 
 def _now_iso():
     return datetime.now(timezone.utc).isoformat()
+
+
+# Grand Master Batch #2, Phase 1.2: Realistic Execution Simulator. Slippage
+# (execution drift, applied just below) and spread (the exchange's own
+# bid/ask gap) are two DIFFERENT real-world costs -- backtest_engine.engine
+# already models both separately for backtests (see its own
+# _apply_slippage/_apply_spread docstrings), but paper trading only ever
+# applied slippage, silently assuming a spread-free fill on every trade.
+# 0.03% is a realistic half-spread for the liquid pairs this bot trades
+# (BTC/ETH-class majors on Binance/Bybit) -- deliberately smaller than the
+# 0.05% slippage constant below since they are genuinely different costs,
+# not one folded into the other.
+_SPREAD_PCT = 0.0003
 
 
 def auto_tags(market_snapshot, timeframe):
@@ -52,6 +65,7 @@ def open_position(exchange, symbol, candidate, size, risk_amount, confidence, ma
     position_id = uuid.uuid4().hex[:16]
     side = "long" if candidate["direction"] == "bullish" else "short"
     entry_price = _apply_slippage(candidate["entry_price"], side, False, 0.0005)
+    entry_price = _apply_spread(entry_price, side, False, _SPREAD_PCT)
     now_ms = int(time.time() * 1000)
     now = _now_iso()
 
@@ -222,6 +236,7 @@ def force_close(position_id, latest_price, reason="closed_manually"):
 
 def _close(pos, exit_price, exit_reason):
     exit_price = _apply_slippage(exit_price, pos["direction"], True, 0.0005)
+    exit_price = _apply_spread(exit_price, pos["direction"], True, _SPREAD_PCT)
     if pos["direction"] == "long":
         pnl = (exit_price - pos["entry_price"]) * pos["size"]
     else:

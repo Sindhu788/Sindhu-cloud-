@@ -31,12 +31,19 @@ DEFAULTS = {
     "strategy_lab_enabled": True,
     "sindhu_strategy_autogen_enabled": True,
     # Grand Feature Expansion, Phase 5 Feature 8: Slippage-Aware Entry
-    # Filter -- a brand NEW execution-affecting gate (rejects a real entry
-    # whose estimated slippage would eat too much of its own stop
-    # distance), so it defaults OFF (opt-in) rather than joining the
-    # already-approved toggles above at True, until the CEO has reviewed
-    # it and chooses to turn it on.
-    "slippage_aware_filter_enabled": False,
+    # Filter -- rejects a real entry whose estimated slippage would eat too
+    # much of its own stop distance (a realistic missed/adverse-fill risk
+    # protection). Was off by default pending CEO review; Grand Master
+    # Batch #2, Phase 1.2 explicitly asked for paper trading to stop
+    # assuming a perfect fill and account for missed-fill scenarios, so
+    # this is now on by default -- always risk-REDUCING (only ever rejects
+    # a trade that would otherwise open, never opens one that wouldn't
+    # have). NOTE: this only changes the DEFAULT for an install that never
+    # explicitly saved this key -- if it was ever explicitly toggled off
+    # from the dashboard, that persisted value still wins (same
+    # load_persistent "saved value wins" rule every other setting in this
+    # app follows) and needs flipping back on from the Control Center.
+    "slippage_aware_filter_enabled": True,
     # Grand Feature Expansion, Phase 5 Feature 10: Ensemble Voting
     # Confirmation -- requires agreement from a minimum number of
     # INDEPENDENT strategies on the same symbol+direction within the same
