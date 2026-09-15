@@ -2456,6 +2456,14 @@ def get_full_attribution_breakdown():
     return challenge_analysis.full_attribution_breakdown()
 
 
+@router.get("/api/paper-trading/confidence-calibration")
+def get_confidence_calibration():
+    """Grand Master Batch #2, Phase 2.3: real stated-confidence vs actual
+    win-rate calibration map, computed from closed paper trades only."""
+    from paper_trading import confidence_calibration
+    return {"buckets": confidence_calibration.compute_calibration_map()}
+
+
 @router.get("/api/paper-trading/challenge/best-portfolio")
 def get_best_portfolio_suggestion(top_n: int = 3):
     """Grand Feature Expansion, Phase 5 Feature 11: Best Combination
