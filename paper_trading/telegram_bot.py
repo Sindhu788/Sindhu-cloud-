@@ -1347,40 +1347,15 @@ def send_signal_for_position(position_id, trigger_type="manual", high_confidence
         )
         return {"ok": False, "error": "rate limit reached for this hour"}
 
-    # Task 4 (Batch 3, Part B): Signal Freshness Gate -- applies to every
-    # send through this one shared entry point (manual AND automatic,
-    # including the hourly sweep from Batch 2, which calls this same
-    # function and therefore automatically respects this gate too -- see
-    # sweep_unsent_qualifying_signals's docstring). A stale signal, or one
-    # whose live price has already moved away from the entry, is never
-    # sent as a normal signal.
-    fresh_ok, fresh_reason, live_price = freshness_check(pos)
-    if not fresh_ok:
-        storage.log_telegram_message(
-            position_id, pos.get("strategy_id"), pos.get("strategy_name"), trigger_type,
-            "", False, fresh_reason, now,
-        )
-        return {"ok": False, "error": fresh_reason}
-
-    # Grand Master Batch #2, Phase 4.7: Cross-Exchange Price Sanity Check.
-    # Off by default (feature_toggles.cross_exchange_sanity_check_enabled)
-    # -- see that flag's own comment for why this brand-new REAL network
-    # call is opt-in pending review, unlike this batch's other new gates.
-    # Uses the same live_price freshness_check just fetched (never a
-    # second fetch of the primary exchange) -- only queries the SECOND
-    # exchange, and only for a signal that has already survived every
-    # earlier gate.
-    if feature_toggles.is_enabled("cross_exchange_sanity_check_enabled"):
-        from paper_trading import price_sanity_check
-        sanity_ok, sanity_reason, _ = price_sanity_check.cross_exchange_check(
-            pos.get("exchange"), pos["symbol"], live_price if live_price is not None else pos.get("entry_price"),
-        )
-        if not sanity_ok:
-            storage.log_telegram_message(
-                position_id, pos.get("strategy_id"), pos.get("strategy_name"), trigger_type,
-                "", False, sanity_reason, now,
-            )
-            return {"ok": False, "error": sanity_reason}
+    # 2026-09-15, Phase 8 verification (Finding 1): the two LIVE-NETWORK
+    # gates below (Signal Freshness, Cross-Exchange Sanity) used to run
+    # here, before the seven pure in-process/DB gates that follow. Every
+    # gate in this chain is independent (first-rejection-wins, none reads
+    # another's side effect), so that ordering paid for a live network
+    # round-trip even when a free, deterministic check (duplicate,
+    # congestion, snooze, etc.) would have rejected the signal anyway.
+    # Reordered so the free checks run first; behavior is unchanged for
+    # every signal that survives them all the way through.
 
     # Phase 2.3: Minimum Take-Profit Distance Filter.
     tp_ok, tp_reason = min_tp_distance_check(pos)
@@ -1449,6 +1424,42 @@ def send_signal_for_position(position_id, trigger_type="manual", high_confidence
             "", False, group_reason, now,
         )
         return {"ok": False, "error": group_reason}
+
+    # Task 4 (Batch 3, Part B): Signal Freshness Gate -- applies to every
+    # send through this one shared entry point (manual AND automatic,
+    # including the hourly sweep from Batch 2, which calls this same
+    # function and therefore automatically respects this gate too -- see
+    # sweep_unsent_qualifying_signals's docstring). A stale signal, or one
+    # whose live price has already moved away from the entry, is never
+    # sent as a normal signal. Moved after the free in-process gates above
+    # (Phase 8 verification, Finding 1) -- see this function's earlier note.
+    fresh_ok, fresh_reason, live_price = freshness_check(pos)
+    if not fresh_ok:
+        storage.log_telegram_message(
+            position_id, pos.get("strategy_id"), pos.get("strategy_name"), trigger_type,
+            "", False, fresh_reason, now,
+        )
+        return {"ok": False, "error": fresh_reason}
+
+    # Grand Master Batch #2, Phase 4.7: Cross-Exchange Price Sanity Check.
+    # Off by default (feature_toggles.cross_exchange_sanity_check_enabled)
+    # -- see that flag's own comment for why this brand-new REAL network
+    # call is opt-in pending review, unlike this batch's other new gates.
+    # Uses the same live_price freshness_check just fetched (never a
+    # second fetch of the primary exchange) -- only queries the SECOND
+    # exchange, and only for a signal that has already survived every
+    # earlier gate.
+    if feature_toggles.is_enabled("cross_exchange_sanity_check_enabled"):
+        from paper_trading import price_sanity_check
+        sanity_ok, sanity_reason, _ = price_sanity_check.cross_exchange_check(
+            pos.get("exchange"), pos["symbol"], live_price if live_price is not None else pos.get("entry_price"),
+        )
+        if not sanity_ok:
+            storage.log_telegram_message(
+                position_id, pos.get("strategy_id"), pos.get("strategy_name"), trigger_type,
+                "", False, sanity_reason, now,
+            )
+            return {"ok": False, "error": sanity_reason}
 
     exchanges_cfg = base_config.load_or_seed("exchanges.json", base_config.DEFAULTS["exchanges.json"])
     exchange = exchanges_cfg["default"]
