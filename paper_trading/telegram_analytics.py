@@ -125,3 +125,43 @@ def best_performing_strategy(since_iso=None, until_iso=None):
     if not candidates:
         return None
     return max(candidates, key=lambda s: s["total_pnl"])
+
+
+def worst_performing_strategy(since_iso=None, until_iso=None):
+    """2026-09-15: the mirror of best_performing_strategy above, for the
+    new Telegram Signal Performance Report -- same candidate pool (at
+    least one CLOSED Telegram-signaled trade), same reuse of
+    strategy_breakdown() rather than a second query."""
+    candidates = [s for s in strategy_breakdown(since_iso, until_iso) if s["closed"] > 0]
+    if not candidates:
+        return None
+    return min(candidates, key=lambda s: s["total_pnl"])
+
+
+def performance_report(since_iso=None, until_iso=None):
+    """2026-09-15, urgent CEO directive: the new Telegram Signal
+    Performance Report -- win ratio, net PnL ($ and %), best/worst
+    strategy, and total signals sent, for signals actually SENT to
+    Telegram (never all paper trades). Reuses signal_period_summary() and
+    best/worst_performing_strategy() above rather than recomputing win-
+    rate/PnL math a second way -- this function only assembles their
+    results into the exact shape the new dashboard section needs.
+
+    net_pnl_pct is against the account's configured initial_balance, the
+    same denominator paper_trading.strategy_groups.summarize_strategy_ids
+    already uses for a group's own balance/PnL% -- not a second,
+    competing definition of "percent return"."""
+    summary = signal_period_summary(since_iso, until_iso)
+    initial_balance = pt_config.load().get("initial_balance", 10000.0)
+    net_pnl_pct = round(summary["total_pnl"] / initial_balance * 100, 2) if initial_balance else 0.0
+    return {
+        "total_signals_sent": summary["total_signals"],
+        "win_rate_pct": summary["win_rate_pct"],
+        "net_pnl": summary["total_pnl"],
+        "net_pnl_pct": net_pnl_pct,
+        "closed": summary["closed"],
+        "pending": summary["pending"],
+        "min_sample_size": summary["min_sample_size"],
+        "best_strategy": best_performing_strategy(since_iso, until_iso),
+        "worst_strategy": worst_performing_strategy(since_iso, until_iso),
+    }

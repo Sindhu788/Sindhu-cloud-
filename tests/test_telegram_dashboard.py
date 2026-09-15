@@ -205,6 +205,80 @@ def test_best_performing_strategy_none_with_no_signals_at_all(test_db):
     assert telegram_analytics.best_performing_strategy() is None
 
 
+# --------------------------------------------------------------- worst-performing sent-signal strategy
+
+def test_worst_performing_strategy_picks_the_lowest_real_total_pnl(test_db):
+    _open_position(id="wp1", strategy_id="stratWinner", strategy_name="Winner")
+    _close("wp1", 120.0, 20.0, 20.0, "take_profit")
+    _log_signal("wp1", strategy_id="stratWinner", strategy_name="Winner")
+
+    _open_position(id="wp2", strategy_id="stratLoser", strategy_name="Loser")
+    _close("wp2", 90.0, -5.0, -5.0, "stop_loss")
+    _log_signal("wp2", strategy_id="stratLoser", strategy_name="Loser")
+
+    worst = telegram_analytics.worst_performing_strategy()
+    assert worst["strategy_id"] == "stratLoser"
+    assert worst["total_pnl"] == -5.0
+
+
+def test_worst_performing_strategy_none_with_no_signals_at_all(test_db):
+    assert telegram_analytics.worst_performing_strategy() is None
+
+
+# --------------------------------------------------------------- 2026-09-15: Telegram Signal Performance Report
+
+def test_performance_report_reuses_summary_and_best_worst(test_db):
+    _open_position(id="pr1", strategy_id="stratWinner", strategy_name="Winner")
+    _close("pr1", 120.0, 20.0, 20.0, "take_profit")
+    _log_signal("pr1", strategy_id="stratWinner", strategy_name="Winner")
+
+    _open_position(id="pr2", strategy_id="stratLoser", strategy_name="Loser")
+    _close("pr2", 90.0, -5.0, -5.0, "stop_loss")
+    _log_signal("pr2", strategy_id="stratLoser", strategy_name="Loser")
+
+    report = telegram_analytics.performance_report()
+    assert report["total_signals_sent"] == 2
+    assert report["net_pnl"] == 15.0
+    assert report["best_strategy"]["strategy_id"] == "stratWinner"
+    assert report["worst_strategy"]["strategy_id"] == "stratLoser"
+
+
+def test_performance_report_net_pnl_pct_uses_initial_balance(test_db):
+    from paper_trading import config as pt_config
+    pt_config.save({**pt_config.load(), "initial_balance": 1000.0})
+
+    _open_position(id="pr3")
+    _close("pr3", 110.0, 50.0, 5.0, "take_profit")
+    _log_signal("pr3")
+
+    report = telegram_analytics.performance_report()
+    assert report["net_pnl"] == 50.0
+    assert report["net_pnl_pct"] == 5.0  # 50 / 1000 * 100
+
+
+def test_performance_report_period_filtering(test_db):
+    _open_position(id="pr4")
+    _close("pr4", 110.0, 10.0, 10.0, "take_profit")
+    _log_signal("pr4", sent_at="2026-01-01T00:00:00+00:00")
+
+    _open_position(id="pr5")
+    _close("pr5", 90.0, -3.0, -3.0, "stop_loss")
+    _log_signal("pr5", sent_at="2026-02-01T00:00:00+00:00")
+
+    report = telegram_analytics.performance_report(since_iso="2026-01-15T00:00:00+00:00")
+    assert report["total_signals_sent"] == 1
+    assert report["net_pnl"] == -3.0
+
+
+def test_performance_report_empty_period_returns_zeroed_shape(test_db):
+    report = telegram_analytics.performance_report()
+    assert report["total_signals_sent"] == 0
+    assert report["net_pnl"] == 0.0
+    assert report["net_pnl_pct"] == 0.0
+    assert report["best_strategy"] is None
+    assert report["worst_strategy"] is None
+
+
 # --------------------------------------------------------------- Hypothetical $100/month PnL tracker
 
 def test_hypothetical_pnl_scales_real_r_multiple_onto_hypothetical_capital(test_db):

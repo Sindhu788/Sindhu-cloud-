@@ -6547,14 +6547,15 @@
       const box = document.getElementById("tgDashBox");
       if (!box) return;
       box.innerHTML = `<p class="muted">Loading...</p>`;
-      let delivery, analytics, mirrorRes, nearMiss, reactionsRes;
+      let delivery, analytics, mirrorRes, nearMiss, reactionsRes, perfReport;
       try {
-        [delivery, analytics, mirrorRes, nearMiss, reactionsRes] = await Promise.all([
+        [delivery, analytics, mirrorRes, nearMiss, reactionsRes, perfReport] = await Promise.all([
           apiGet(`/api/paper-trading/telegram/delivery-log?period=${period}`),
           apiGet(`/api/paper-trading/telegram/analytics?period=${period}`).catch(() => null),
           apiGet(`/api/paper-trading/telegram/log?limit=30`).catch(() => ({ messages: [] })),
           apiGet(`/api/paper-trading/telegram/near-misses?limit=200`).catch(() => null),
           apiGet(`/api/paper-trading/telegram/reactions?limit=30`).catch(() => ({ reactions: [] })),
+          apiGet(`/api/paper-trading/telegram/performance-report?period=${period}`).catch(() => null),
         ]);
       } catch (e) {
         if (isStaleRoute(myToken)) return;
@@ -6667,22 +6668,26 @@
         ${nearMiss.near_misses.length > 100 ? `<p class="muted plain-note">Showing the 100 most recent of ${fmtNum(nearMiss.near_misses.length)} near-misses logged so far.</p>` : ""}
         ` : ""}
 
-        ${analytics ? `
-        <div class="section-title">Telegram-Sent Signals Only &mdash; Real Performance ${helpIcon("delivery_status")}</div>
-        <p class="muted plain-note">Every number below counts ONLY signals that genuinely reached Telegram (the High-Confidence-filtered subset) &mdash; never every signal the system generated, and never a hypothetical figure.</p>
+        ${perfReport ? `
+        <div class="section-title">Telegram Signal Performance Report ${helpIcon("delivery_status")}</div>
+        <p class="muted plain-note">2026-09-15: every number below counts ONLY signals that were actually SENT to Telegram (the High-Confidence-filtered subset) &mdash; never every paper trade the system opened, and never a hypothetical figure. Switch periods with the tabs above &mdash; Today, Yesterday, Last 7 Days, Last 15 Days, and Last 1 Month are all independently viewable here.</p>
         <div class="grid">
-          ${card("Signals Sent", fmtNum(analytics.summary.total_signals))}
-          ${card("Wins", fmtNum(analytics.summary.wins))}
-          ${card("Losses", fmtNum(analytics.summary.losses))}
-          ${card("Win Rate", analytics.summary.win_rate_pct != null ? `${analytics.summary.win_rate_pct.toFixed(1)}%` : `Needs ${analytics.summary.min_sample_size}+ finished`)}
-          ${card("Total PnL", pnlSpan(analytics.summary.total_pnl))}
-          ${card("Best Strategy", analytics.best_strategy
-            ? `${esc(analytics.best_strategy.strategy_name)} (${pnlSpan(analytics.best_strategy.total_pnl)})`
+          ${card("Signals Sent", fmtNum(perfReport.total_signals_sent))}
+          ${card("Win Ratio", perfReport.win_rate_pct != null ? `${perfReport.win_rate_pct.toFixed(1)}%` : `Needs ${perfReport.min_sample_size}+ finished`)}
+          ${card("Net PnL ($)", pnlSpan(perfReport.net_pnl))}
+          ${card("Net PnL (%)", `${perfReport.net_pnl_pct >= 0 ? "+" : ""}${perfReport.net_pnl_pct.toFixed(2)}%`)}
+          ${card("Best Strategy", perfReport.best_strategy
+            ? `${esc(perfReport.best_strategy.strategy_name)} (${pnlSpan(perfReport.best_strategy.total_pnl)})`
+            : "Not enough closed trades yet")}
+          ${card("Worst Strategy", perfReport.worst_strategy
+            ? `${esc(perfReport.worst_strategy.strategy_name)} (${pnlSpan(perfReport.worst_strategy.total_pnl)})`
             : "Not enough closed trades yet")}
         </div>
+        ` : ""}
 
+        ${analytics ? `
         <div class="section-title">Per-Strategy &mdash; Delivered Signals Only</div>
-        <p class="muted plain-note">This table counts only signals that genuinely reached Telegram, so it will read lower than the log above whenever delivery is blocked.</p>
+        <p class="muted plain-note">The same Telegram-sent-only signals as the Performance Report above, broken down per strategy. This table counts only signals that genuinely reached Telegram, so it will read lower than the log above whenever delivery is blocked.</p>
         <div class="table-wrap"><table>
           <thead><tr><th>Strategy</th><th>Delivered</th><th>Wins</th><th>Losses</th><th>Still Open</th><th>Win Ratio</th><th>Signals</th></tr></thead>
           <tbody>${(analytics.strategy_breakdown || []).map(b => {

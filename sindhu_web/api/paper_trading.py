@@ -2149,6 +2149,21 @@ def get_telegram_analytics(period: str = "all", simulate_capital: float = None):
     }
 
 
+@router.get("/api/paper-trading/telegram/performance-report")
+def get_telegram_performance_report(period: str = "today"):
+    """2026-09-15, urgent CEO directive: new Telegram Signal Performance
+    Report section -- win ratio, net PnL ($ and %), best/worst strategy,
+    and total signals sent, for signals actually SENT to Telegram only
+    (never all paper trades, see telegram_analytics.performance_report's
+    own docstring). Reuses the exact same period vocabulary as every other
+    Telegram Dashboard endpoint (today/yesterday/7d/15d/30d/week/month/all)
+    -- "today", "yesterday", "7d", "15d", and "30d" (the closest rolling
+    equivalent to "last 1 month") are the five periods the CEO asked for,
+    each independently selectable via this same `period` param."""
+    since_iso, until_iso = _period_bounds(period)
+    return {"period": period, **telegram_analytics.performance_report(since_iso, until_iso)}
+
+
 @router.get("/api/paper-trading/telegram/delivery-log")
 def get_telegram_delivery_log(period: str = "all"):
     """EVERY signal the system generated in this period with its honest
