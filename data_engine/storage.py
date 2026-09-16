@@ -4605,6 +4605,21 @@ def list_paper_closed_trades_ordered(strategy_id=None, limit=500, since=None):
     return [{"id": r[0], "strategy_id": r[1], "symbol": r[2], "pnl": r[3], "closed_at": r[4]} for r in rows]
 
 
+def list_recent_closed_pnls(strategy_id, limit):
+    """This strategy's most recent `limit` closed trades, NEWEST first, as
+    [{"pnl", "closed_at"}]. Deliberately separate from
+    list_paper_closed_trades_ordered (oldest-first + LIMIT, which returns
+    the OLDEST trades once a strategy has more than `limit`) -- used by
+    paper_trading.cooling_off, which needs the latest streak."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT pnl, closed_at FROM paper_positions WHERE status='closed' AND pnl IS NOT NULL "
+            "AND strategy_id = ? ORDER BY closed_at DESC LIMIT ?",
+            (strategy_id, limit),
+        ).fetchall()
+    return [{"pnl": r[0], "closed_at": r[1]} for r in rows]
+
+
 def list_paper_pattern_trades_ordered(strategy_id, symbol, market_state, session, since=None, limit=200):
     """Closed trades for one EXACT (strategy, symbol, market_state, session)
     pattern, oldest-to-newest -- used by paper_trading.auto_avoid to compute

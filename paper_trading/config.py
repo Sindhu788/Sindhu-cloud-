@@ -92,6 +92,13 @@ _DEFAULTS = {
     # management convention (comparable to typical prop-firm daily/overall
     # drawdown limits) -- not a custom invention.
     "drawdown_pause_streak_threshold": 7,
+    # 2026-09-16 audit (CEO Section 10.1): per-strategy cooling-off -- after
+    # this many CONSECUTIVE losses a strategy opens nothing new for
+    # cooling_off_hours (from its latest losing close), then resumes on its
+    # own. Shorter than the manual-resume pause above; only ever adds a
+    # reason not to trade. 0 = off. See paper_trading/cooling_off.py.
+    "cooling_off_loss_streak": 4,
+    "cooling_off_hours": 3.0,
     "drawdown_pause_pct_threshold": 15.0,
     # Grand Feature Expansion, Phase 1 Feature 5: Account-wide Drawdown
     # Circuit-Breaker. Unlike the per-strategy threshold above (one

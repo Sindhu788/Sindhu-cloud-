@@ -44,6 +44,7 @@ from paper_trading import confluence, signal_tracker, insights, custom_alerts, e
 from paper_trading import sanity_check_alert
 from paper_trading import htf_confluence_filter
 from paper_trading import pattern_stats
+from paper_trading import cooling_off
 
 
 def _now_iso():
@@ -659,6 +660,14 @@ class PaperTradingEngine:
         if paused:
             self._log_decision(exchange, symbol, pick, "rejected",
                                 f"strategy paused (Drawdown Protection): {pause_reason}", snapshot)
+            return 0, 1
+
+        # 2026-09-16 audit (CEO Section 10.1): short, self-expiring
+        # per-strategy cooling-off after a run of consecutive losses -- only
+        # ever adds a reason NOT to open; see paper_trading/cooling_off.py.
+        cooling, cooling_reason, _ = cooling_off.check(book, settings)
+        if cooling:
+            self._log_decision(exchange, symbol, pick, "rejected", cooling_reason, snapshot)
             return 0, 1
 
         avoid_reason = (

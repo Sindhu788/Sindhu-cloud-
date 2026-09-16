@@ -177,6 +177,8 @@ class SettingsUpdate(BaseModel):
     profit_lock_trigger_r: Optional[float] = None
     profit_lock_trail_pct: Optional[float] = None
     ensemble_voting_min_agreeing_strategies: Optional[int] = None
+    cooling_off_loss_streak: Optional[int] = None
+    cooling_off_hours: Optional[float] = None
 
 
 @router.get("/api/paper-trading/settings")
