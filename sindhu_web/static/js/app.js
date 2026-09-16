@@ -252,6 +252,85 @@
     return res.json();
   }
 
+  // 2026-09-16 audit: shared explicit-save wiring for simple settings forms.
+  // Save is disabled until a value really differs from what the server
+  // returned; values are validated inline before any request; only changed
+  // fields are sent (several at once); "✓ Saved" appears only after the
+  // server accepted them, and a failure is shown -- never silently queued.
+  function wireSettingsForm({ path, saveBtnId, statusId, baseline, fields, onSaved }) {
+    const saveBtn = document.getElementById(saveBtnId);
+    const status = document.getElementById(statusId);
+    if (!saveBtn || !status) return;
+    const current = {};
+    fields.forEach(f => { current[f.key] = baseline[f.key]; });
+    const showErr = (el, msg) => {
+      let err = el.parentElement.querySelector(".field-error");
+      if (!err) { err = document.createElement("div"); err.className = "field-error"; el.parentElement.appendChild(err); }
+      err.textContent = msg || "";
+      el.classList.toggle("input-invalid", !!msg);
+    };
+    const read = () => {
+      const values = {}, errors = {};
+      fields.forEach(f => {
+        const raw = String(document.getElementById(f.id).value).trim();
+        if (f.kind === "enum") { values[f.key] = raw; return; }
+        if (f.kind === "text") { if (!raw) errors[f.key] = "Can't be empty."; else values[f.key] = raw; return; }
+        if (raw === "" || isNaN(Number(raw))) { errors[f.key] = "Enter a number."; return; }
+        const n = Number(raw);
+        if (f.kind === "int" && !Number.isInteger(n)) { errors[f.key] = "Must be a whole number."; return; }
+        const incl = f.minInclusive !== false;
+        if (f.min != null && (incl ? n < f.min : n <= f.min)) { errors[f.key] = `Must be ${incl ? "at least" : "greater than"} ${f.min}.`; return; }
+        if (f.max != null && n > f.max) { errors[f.key] = `Must be at most ${f.max}.`; return; }
+        values[f.key] = n;
+      });
+      return { values, errors };
+    };
+    const changedKeys = (values) => Object.keys(values).filter(k => String(values[k]) !== String(current[k]));
+    const refresh = () => {
+      const { values, errors } = read();
+      fields.forEach(f => showErr(document.getElementById(f.id), errors[f.key]));
+      const changed = changedKeys(values);
+      saveBtn.disabled = !(changed.length && !Object.keys(errors).length);
+      if (!status.dataset.sticky) {
+        status.style.color = "";
+        status.textContent = Object.keys(errors).length ? "Fix the highlighted field(s) before saving."
+          : changed.length ? `${changed.length} unsaved change${changed.length === 1 ? "" : "s"}.` : "";
+      }
+    };
+    fields.forEach(f => {
+      const el = document.getElementById(f.id);
+      ["input", "change"].forEach(evt => el.addEventListener(evt, () => { delete status.dataset.sticky; refresh(); }));
+    });
+    saveBtn.onclick = async () => {
+      const { values, errors } = read();
+      const changed = changedKeys(values);
+      if (Object.keys(errors).length || !changed.length) { refresh(); return; }
+      saveBtn.disabled = true;
+      status.dataset.sticky = "1";
+      status.style.color = "";
+      status.innerHTML = `<span class="spinner-circle spinner-sm"></span> Saving...`;
+      try {
+        const body = Object.fromEntries(changed.map(k => [k, values[k]]));
+        await apiPost(path, body, 30000);
+        changed.forEach(k => { current[k] = values[k]; });
+        status.style.color = "var(--green,#1f9d55)";
+        status.textContent = `✓ Saved (${changed.join(", ")})`;
+        if (onSaved) onSaved(body);
+      } catch (e) {
+        let msg = e.message;
+        try {
+          const serverErrors = JSON.parse(e.message).detail.errors;
+          fields.forEach(f => { if (serverErrors[f.key]) showErr(document.getElementById(f.id), serverErrors[f.key]); });
+          msg = "The server rejected the highlighted value(s).";
+        } catch (_) {}
+        status.style.color = "var(--red,#e5484d)";
+        status.textContent = `Not saved: ${msg}`;
+        saveBtn.disabled = false;
+      }
+    };
+    refresh();
+  }
+
   function debounce(fn, ms) {
     let t;
     return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
@@ -8960,6 +9039,9 @@
   async function renderPaperTrading() {
     const myToken = activeRouteToken;
     let activePtTab = "overview";
+    // Unsaved Engine Settings edits ({inputId: raw value}) -- kept outside
+    // render() so the 30s auto-refresh can't wipe a half-finished edit.
+    let ptEngineDraft = null;
     let ptStrategySectionFilter = "profitable";
     // Note, 2026-09-14: unlike most other render functions in this file,
     // this closure does NOT declare a `const en = getLang() === "en";`
@@ -9017,7 +9099,7 @@
         apiGet("/api/paper-trading/positions").catch(() => ({ positions: [] })),
         apiGet("/api/paper-trading/trades?limit=50").catch(() => ({ trades: [] })),
         apiGet("/api/paper-trading/decisions?limit=30").catch(() => ({ decisions: [] })),
-        apiGet("/api/paper-trading/settings").catch(() => ({})),
+        apiGet("/api/paper-trading/settings").catch(() => ({ _unavailable: true })),
         // Fix, 2026-09-12 (Task 6 audit): this used to fall back to a
         // ZEROED summary ({closed_trades:0, win_rate:0, total_pnl:0}) --
         // which, since the real response ALSO always has those same keys,
@@ -9594,8 +9676,20 @@
             </div>
             <div class="form-row"><label>Daily Goal %</label><input id="ptDailyGoal" type="number" step="0.1" value="${settings.daily_goal_pct}"></div>
             <div class="form-row"><label>${getLang() === "en" ? "Ensemble Voting: Min. Agreeing Strategies" : "Ensemble Voting: Min. Agreeing Strategies"} ${helpIcon("ensemble_voting")}</label><input id="ptEnsembleMinAgree" type="number" min="1" step="1" value="${settings.ensemble_voting_min_agreeing_strategies}"></div>
+            <div class="form-row"><label>Cooling-off: losses in a row (0 = off)</label><input id="ptCoolingStreak" type="number" min="0" step="1" value="${settings.cooling_off_loss_streak}"></div>
+            <div class="form-row"><label>Cooling-off: pause length (hours)</label><input id="ptCoolingHours" type="number" min="0" step="0.5" value="${settings.cooling_off_hours}"></div>
           </div>
-          <span id="ptSettingsStatus" class="muted"></span>
+          <p class="muted plain-note">Cooling-off: after that many losses in a row, only that one strategy stops opening new trades for the set hours, then resumes on its own. Open trades are not affected.</p>
+          <div class="btn-row" style="margin-top:10px;">
+            <button class="btn" id="ptSaveEngineSettings" disabled>Save Changes</button>
+            <button class="btn-ghost" id="ptResetEngineSettings">Reset to default</button>
+            <button class="btn-ghost" id="ptDiscardEngineSettings" style="display:none;">Discard changes</button>
+            <span id="ptSettingsStatus" class="muted"></span>
+          </div>
+          <details style="margin-top:10px;" id="ptSettingsHistoryBox">
+            <summary class="muted" style="cursor:pointer;">Settings change history</summary>
+            <div id="ptSettingsHistory" class="table-wrap"><p class="muted">Loading...</p></div>
+          </details>
         </div>
 
         <div class="section-title">${getLang() === "en" ? "Position Size Calculator" : "Position Size Calculator"} ${helpIcon("position_size_calculator")}</div>
@@ -10270,33 +10364,167 @@
         }
       };
 
-      const saveEngineSettings = debounce(async () => {
-        const status = document.getElementById("ptSettingsStatus");
-        status.textContent = "Saving...";
-        try {
-          await autosave("POST", "/api/paper-trading/settings", {
-            max_open_trades: parseInt(document.getElementById("ptMaxOpen").value, 10),
-            cooldown_minutes: parseInt(document.getElementById("ptCooldown").value, 10),
-            risk_pct_default: parseFloat(document.getElementById("ptRiskPct").value),
-            initial_balance: parseFloat(document.getElementById("ptBalance").value),
-            coin_filter_top_n: parseInt(document.getElementById("ptTopN").value, 10),
-            tick_interval_seconds: parseInt(document.getElementById("ptTickInterval").value, 10),
-            priority_rule: document.getElementById("ptPriorityRule").value,
-            opposite_signal_policy: document.getElementById("ptOppositePolicy").value,
-            daily_goal_pct: parseFloat(document.getElementById("ptDailyGoal").value),
-            ensemble_voting_min_agreeing_strategies: parseInt(document.getElementById("ptEnsembleMinAgree").value, 10),
-          });
-          status.textContent = "Saved";
-        } catch (e) {
-          status.textContent = "Save failed (will retry)";
+      // 2026-09-16 audit: explicit, validated Save instead of saving every
+      // keystroke. The old debounced autosave POSTed ALL ten fields 600ms
+      // after any pause in typing -- so typing "100" into Initial Balance
+      // could first save 1 or 10 (initial_balance feeds position sizing and
+      // the account-drawdown circuit-breaker, which never self-unpauses);
+      // a failure was silently queued "for retry" with no real error shown;
+      // and the page's own 30s auto-refresh re-rendered the form from the
+      // server mid-edit, making an in-flight change look like it reverted.
+      const ENGINE_FIELDS = [
+        ["ptMaxOpen", "max_open_trades", "int", "Max Open Trades", 1, null, true],
+        ["ptCooldown", "cooldown_minutes", "int", "Cooldown", 0, null, true],
+        ["ptRiskPct", "risk_pct_default", "float", "Risk %", 0, 100, false],
+        ["ptBalance", "initial_balance", "float", "Initial Balance", 0, null, false],
+        ["ptTopN", "coin_filter_top_n", "int", "Coin Filter Top-N", 1, null, true],
+        ["ptTickInterval", "tick_interval_seconds", "int", "Tick Interval", 1, null, true],
+        ["ptPriorityRule", "priority_rule", "enum", "Signal Priority Rule"],
+        ["ptOppositePolicy", "opposite_signal_policy", "enum", "Opposite Signal Policy"],
+        ["ptDailyGoal", "daily_goal_pct", "float", "Daily Goal %", 0, null, true],
+        ["ptEnsembleMinAgree", "ensemble_voting_min_agreeing_strategies", "int", "Ensemble Min. Agreeing", 1, null, true],
+        ["ptCoolingStreak", "cooling_off_loss_streak", "int", "Cooling-off streak", 0, null, true],
+        ["ptCoolingHours", "cooling_off_hours", "float", "Cooling-off hours", 0, 168, true],
+      ];
+      const engineBaseline = {};
+      ENGINE_FIELDS.forEach(([, key]) => { engineBaseline[key] = settings[key]; });
+      const engineStatus = document.getElementById("ptSettingsStatus");
+
+      function engineFieldError(el, msg) {
+        let err = el.parentElement.querySelector(".field-error");
+        if (!err) {
+          err = document.createElement("div");
+          err.className = "field-error";
+          el.parentElement.appendChild(err);
         }
-      }, 600);
-      ["ptMaxOpen", "ptCooldown", "ptRiskPct", "ptBalance", "ptTopN", "ptTickInterval", "ptDailyGoal", "ptEnsembleMinAgree"].forEach(id => {
-        document.getElementById(id).addEventListener("input", saveEngineSettings);
+        err.textContent = msg || "";
+        el.classList.toggle("input-invalid", !!msg);
+      }
+      function readEngineForm() {
+        const values = {}, errors = {};
+        ENGINE_FIELDS.forEach(([id, key, kind, , lo, hi, loInclusive]) => {
+          const raw = document.getElementById(id).value.trim();
+          if (kind === "enum") { values[key] = raw; return; }
+          if (raw === "" || isNaN(Number(raw))) { errors[key] = "Enter a number."; return; }
+          const n = Number(raw);
+          if (kind === "int" && !Number.isInteger(n)) { errors[key] = "Must be a whole number."; return; }
+          if (lo != null && (loInclusive ? n < lo : n <= lo)) { errors[key] = `Must be ${loInclusive ? "at least" : "greater than"} ${lo}.`; return; }
+          if (hi != null && n > hi) { errors[key] = `Must be at most ${hi}.`; return; }
+          values[key] = n;
+        });
+        return { values, errors };
+      }
+      function engineChangedFields(values) {
+        return Object.keys(values).filter(k => String(values[k]) !== String(engineBaseline[k]));
+      }
+      function refreshEngineFormState() {
+        const { values, errors } = readEngineForm();
+        ENGINE_FIELDS.forEach(([id, key]) => engineFieldError(document.getElementById(id), errors[key]));
+        const changed = engineChangedFields(values);
+        const hasEdits = changed.length > 0 || Object.keys(errors).length > 0;
+        ptEngineDraft = hasEdits ? Object.fromEntries(ENGINE_FIELDS.map(([id]) => [id, document.getElementById(id).value])) : null;
+        document.getElementById("ptSaveEngineSettings").disabled = !(changed.length > 0 && Object.keys(errors).length === 0);
+        document.getElementById("ptDiscardEngineSettings").style.display = hasEdits ? "" : "none";
+        if (!engineStatus.dataset.sticky) {
+          engineStatus.textContent = !hasEdits ? ""
+            : Object.keys(errors).length ? "Fix the highlighted field(s) before saving."
+            : `${changed.length} unsaved change${changed.length === 1 ? "" : "s"}.`;
+          engineStatus.style.color = "";
+        }
+      }
+      async function loadEngineSettingsHistory() {
+        const box = document.getElementById("ptSettingsHistory");
+        if (!box) return;
+        try {
+          const { entries } = await apiGet("/api/paper-trading/settings/history?limit=30");
+          box.innerHTML = entries.length
+            ? `<table><thead><tr><th>When (PKT)</th><th>Changed</th></tr></thead><tbody>${entries.map(e => `
+                <tr><td style="white-space:nowrap;">${esc(fmtPKTFull(e.changed_at))}</td>
+                <td>${e.changes.map(c => `${esc(c.field)}: <span class="muted">${esc(c.old)}</span> &rarr; <b>${esc(c.new)}</b>`).join("<br>")}</td></tr>`).join("")}
+              </tbody></table>`
+            : `<p class="muted">No settings changes recorded yet.</p>`;
+        } catch (e) {
+          box.innerHTML = `<p class="muted">Couldn't load history: ${esc(e.message)}</p>`;
+        }
+      }
+
+      // A failed settings fetch must never leave an editable form full of
+      // "undefined" that one click could save over the real values.
+      if (settings._unavailable) {
+        ENGINE_FIELDS.forEach(([id]) => { const el = document.getElementById(id); el.value = ""; el.disabled = true; });
+        ["ptSaveEngineSettings", "ptResetEngineSettings"].forEach(id => { document.getElementById(id).disabled = true; });
+        engineStatus.style.color = "var(--red,#e5484d)";
+        engineStatus.textContent = "Couldn't load the current settings from the server -- editing is disabled until the next refresh succeeds.";
+      }
+      // Re-apply an unsaved draft after the 30s auto-refresh rebuilt the form.
+      if (ptEngineDraft && !settings._unavailable) {
+        Object.entries(ptEngineDraft).forEach(([id, v]) => { const el = document.getElementById(id); if (el) el.value = v; });
+      }
+      ENGINE_FIELDS.forEach(([id, , kind]) => {
+        const el = document.getElementById(id);
+        el.addEventListener(kind === "enum" ? "change" : "input", () => { delete engineStatus.dataset.sticky; refreshEngineFormState(); });
       });
-      ["ptPriorityRule", "ptOppositePolicy"].forEach(id => {
-        document.getElementById(id).addEventListener("change", saveEngineSettings);
-      });
+      if (!settings._unavailable) refreshEngineFormState();
+      document.getElementById("ptSettingsHistoryBox").addEventListener("toggle", (e) => {
+        if (e.target.open) loadEngineSettingsHistory();
+      }, { once: true });
+
+      document.getElementById("ptDiscardEngineSettings").onclick = () => {
+        ENGINE_FIELDS.forEach(([id, key]) => { document.getElementById(id).value = engineBaseline[key]; });
+        engineStatus.textContent = "";
+        refreshEngineFormState();
+      };
+      document.getElementById("ptResetEngineSettings").onclick = async () => {
+        try {
+          const defaults = await apiGet("/api/paper-trading/settings/defaults");
+          ENGINE_FIELDS.forEach(([id, key]) => { if (defaults[key] !== undefined) document.getElementById(id).value = defaults[key]; });
+          delete engineStatus.dataset.sticky;
+          refreshEngineFormState();
+          if (engineChangedFields(readEngineForm().values).length) {
+            engineStatus.textContent = "Default values filled in -- review them, then click Save Changes to apply.";
+          } else {
+            engineStatus.textContent = "Already at default values.";
+          }
+        } catch (e) {
+          engineStatus.textContent = `Couldn't load defaults: ${e.message}`;
+        }
+      };
+      document.getElementById("ptSaveEngineSettings").onclick = async () => {
+        const saveBtn = document.getElementById("ptSaveEngineSettings");
+        const { values, errors } = readEngineForm();
+        if (Object.keys(errors).length) { refreshEngineFormState(); return; }
+        const changed = engineChangedFields(values);
+        if (!changed.length) return;
+        const body = Object.fromEntries(changed.map(k => [k, values[k]]));
+        saveBtn.disabled = true;
+        engineStatus.dataset.sticky = "1";
+        engineStatus.style.color = "";
+        engineStatus.innerHTML = `<span class="spinner-circle spinner-sm"></span> Saving ${changed.length} change${changed.length === 1 ? "" : "s"}...`;
+        try {
+          const saved = await apiPost("/api/paper-trading/settings", body, 30000);
+          // Confirm against what the SERVER now holds, not what was typed.
+          const mismatched = changed.filter(k => String(saved[k]) !== String(values[k]));
+          if (mismatched.length) throw new Error(`server kept a different value for ${mismatched.join(", ")}`);
+          changed.forEach(k => { engineBaseline[k] = saved[k]; });
+          ptEngineDraft = null;
+          refreshEngineFormState();
+          engineStatus.style.color = "var(--green,#1f9d55)";
+          engineStatus.textContent = `✓ Saved (${changed.join(", ")})`;
+          appendLog(`[Paper Trading] Settings saved: ${changed.map(k => `${k}=${saved[k]}`).join(", ")}`);
+          const hist = document.getElementById("ptSettingsHistoryBox");
+          if (hist && hist.open) loadEngineSettingsHistory();
+        } catch (e) {
+          let msg = e.message;
+          try {
+            const serverErrors = JSON.parse(e.message).detail.errors;
+            ENGINE_FIELDS.forEach(([id, key]) => { if (serverErrors[key]) engineFieldError(document.getElementById(id), serverErrors[key]); });
+            msg = "The server rejected the highlighted value(s).";
+          } catch (_) {}
+          engineStatus.style.color = "var(--red,#e5484d)";
+          engineStatus.textContent = `Not saved: ${msg}`;
+          saveBtn.disabled = false;
+        }
+      };
 
       document.getElementById("btnCalcPositionSize").onclick = async () => {
         const resultEl = document.getElementById("pscResult");
@@ -11202,29 +11430,19 @@
     loadRestartAndApiStats();
     autoRefresh(loadRestartAndApiStats, 30);
 
-    async function saveSettings() {
-      const status = document.getElementById("setSaveStatus");
-      status.textContent = "Saving...";
-      try {
-        await autosave("POST", "/api/settings", {
-          exchange: document.getElementById("setExchange").value,
-          default_risk_pct: parseFloat(document.getElementById("setRisk").value),
-          refresh_speed_seconds: parseInt(document.getElementById("setRefresh").value, 10),
-        });
-        status.textContent = "Saved";
-      } catch (e) {
-        status.textContent = "Save failed (will retry)";
-      }
-    }
-    // Auto Save: every field change persists immediately (debounced) --
-    // the button stays for explicit, instant confirmation.
-    const debouncedSaveSettings = debounce(saveSettings, 500);
-    ["setExchange", "setRisk", "setRefresh"].forEach(id => {
-      const el = document.getElementById(id);
-      el.addEventListener("input", debouncedSaveSettings);
-      el.addEventListener("change", debouncedSaveSettings);
+    // 2026-09-16 audit: explicit validated save (was keystroke autosave that
+    // silently queued failures "for retry"). See wireSettingsForm().
+    wireSettingsForm({
+      path: "/api/settings",
+      saveBtnId: "btnSaveSettings",
+      statusId: "setSaveStatus",
+      baseline: s,
+      fields: [
+        { id: "setExchange", key: "exchange", kind: "enum" },
+        { id: "setRisk", key: "default_risk_pct", kind: "float", min: 0, max: 100, minInclusive: false },
+        { id: "setRefresh", key: "refresh_speed_seconds", kind: "int", min: 1 },
+      ],
     });
-    document.getElementById("btnSaveSettings").onclick = saveSettings;
 
     async function loadCostTracker() {
       const totalEl = document.getElementById("costTrackerTotal");
@@ -14108,21 +14326,28 @@
           </div>
           <div class="btn-row"><button class="btn" id="ceoSetSave">Save Settings</button><span id="ceoSetStatus" class="muted"></span></div>
         </div>`);
-      document.getElementById("ceoSetSave").onclick = async () => {
-        const status = document.getElementById("ceoSetStatus");
-        status.textContent = "Saving...";
-        try {
-          await autosave("POST", "/api/settings", {
-            exchange: document.getElementById("ceoSetExchange").value,
-            quote_asset: document.getElementById("ceoSetQuote").value,
-            num_coins: parseInt(document.getElementById("ceoSetNumCoins").value, 10),
-            default_risk_pct: parseFloat(document.getElementById("ceoSetRisk").value),
-            theme: document.getElementById("ceoSetTheme").value,
-          });
-          document.documentElement.setAttribute("data-theme", document.getElementById("ceoSetTheme").value);
-          status.textContent = "Saved.";
-        } catch (e) { status.textContent = `Failed (queued for retry): ${e.message}`; }
-      };
+      // 2026-09-16 audit: this card is on the cloud's default landing page;
+      // its /api/settings calls used to 404 there (router not mounted) and
+      // every failure was silently "queued for retry" forever.
+      if (!st || !st.available_exchanges) {
+        document.getElementById("ceoSetSave").disabled = true;
+        document.getElementById("ceoSetStatus").textContent = "Couldn't load the current settings from the server -- editing is disabled.";
+      } else {
+        wireSettingsForm({
+          path: "/api/settings",
+          saveBtnId: "ceoSetSave",
+          statusId: "ceoSetStatus",
+          baseline: st,
+          fields: [
+            { id: "ceoSetExchange", key: "exchange", kind: "enum" },
+            { id: "ceoSetQuote", key: "quote_asset", kind: "text" },
+            { id: "ceoSetNumCoins", key: "num_coins", kind: "int", min: 1 },
+            { id: "ceoSetRisk", key: "default_risk_pct", kind: "float", min: 0, max: 100, minInclusive: false },
+            { id: "ceoSetTheme", key: "theme", kind: "enum" },
+          ],
+          onSaved: (saved) => { if (saved.theme) document.documentElement.setAttribute("data-theme", saved.theme); },
+        });
+      }
     }
 
     // ------------------------------------------------------------ boot + live updates

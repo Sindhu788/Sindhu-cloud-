@@ -71,8 +71,31 @@ class SettingsUpdate(BaseModel):
     default_risk_pct: Optional[float] = None
 
 
+def _validate_settings_update(req):
+    """2026-09-16 audit: reject nonsensical values instead of persisting
+    them. {field: message}; empty = valid."""
+    errors = {}
+    if req.exchange is not None and req.exchange not in ALL_EXCHANGE_IDS:
+        errors["exchange"] = f"must be one of: {', '.join(ALL_EXCHANGE_IDS)}"
+    if req.quote_asset is not None and not req.quote_asset.strip():
+        errors["quote_asset"] = "can't be empty"
+    if req.num_coins is not None and req.num_coins < 1:
+        errors["num_coins"] = "must be at least 1"
+    if req.theme is not None and req.theme not in ("dark", "light"):
+        errors["theme"] = "must be dark or light"
+    if req.refresh_speed_seconds is not None and req.refresh_speed_seconds < 1:
+        errors["refresh_speed_seconds"] = "must be at least 1"
+    if req.default_risk_pct is not None and not (0 < req.default_risk_pct <= 100):
+        errors["default_risk_pct"] = "must be greater than 0 and at most 100"
+    return errors
+
+
 @router.post("/api/settings")
 def update_settings(req: SettingsUpdate):
+    errors = _validate_settings_update(req)
+    if errors:
+        from fastapi import HTTPException
+        raise HTTPException(422, {"errors": errors})
     if req.exchange is not None:
         cfg = config.load_persistent("settings_exchanges", "exchanges.json", config.DEFAULTS["exchanges.json"])
         cfg["default"] = req.exchange

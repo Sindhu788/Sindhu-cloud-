@@ -174,3 +174,101 @@ def update(**fields):
     settings.update({k: v for k, v in fields.items() if v is not None})
     save(settings)
     return settings
+
+
+# --------------------------------------------------------------- 2026-09-16 audit: settings save UX
+#
+# Validation, defaults and a change history for the dashboard's Settings
+# save. Validation only rejects values that are nonsensical for the field
+# itself (negative balance, a risk % above 100, an unknown enum) -- it never
+# narrows or widens any safety gate's own threshold.
+
+_PRIORITY_RULES = {"confidence_and_win_rate", "confidence", "win_rate", "profit", "manual"}
+_OPPOSITE_POLICIES = {"block", "allow", "close_and_reverse"}
+
+# field -> (kind, min, max, min_inclusive); None bound = unbounded
+_NUMERIC_RULES = {
+    "initial_balance": ("float", 0, None, False),
+    "risk_pct_default": ("float", 0, 100, False),
+    "max_open_trades": ("int", 1, None, True),
+    "cooldown_minutes": ("int", 0, None, True),
+    "coin_filter_top_n": ("int", 1, None, True),
+    "tick_interval_seconds": ("int", 1, None, True),
+    "lookback_days": ("int", 1, None, True),
+    "lesson_default_sl_pct": ("float", 0, 100, False),
+    "lesson_default_rr": ("float", 0, None, False),
+    "daily_goal_pct": ("float", 0, None, True),
+    "profit_lock_trigger_r": ("float", 0, None, False),
+    "profit_lock_trail_pct": ("float", 0, 100, True),
+    "ensemble_voting_min_agreeing_strategies": ("int", 1, None, True),
+    "cooling_off_loss_streak": ("int", 0, None, True),
+    "cooling_off_hours": ("float", 0, 168, True),
+}
+
+
+def _valid_hhmm(value):
+    parts = str(value).split(":")
+    if len(parts) != 2 or not all(p.isdigit() for p in parts):
+        return False
+    return 0 <= int(parts[0]) <= 23 and 0 <= int(parts[1]) <= 59
+
+
+def validate_update(fields):
+    """{field: plain-English error} for every invalid value in `fields`
+    (None values are ignored, same as update()). Empty dict = valid."""
+    errors = {}
+    for key, value in fields.items():
+        if value is None:
+            continue
+        if key in _NUMERIC_RULES:
+            kind, lo, hi, lo_inclusive = _NUMERIC_RULES[key]
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or value != value:
+                errors[key] = "must be a number"
+                continue
+            if kind == "int" and int(value) != value:
+                errors[key] = "must be a whole number"
+                continue
+            if lo is not None and (value < lo if lo_inclusive else value <= lo):
+                errors[key] = f"must be {'at least' if lo_inclusive else 'greater than'} {lo}"
+            elif hi is not None and value > hi:
+                errors[key] = f"must be at most {hi}"
+        elif key == "priority_rule" and value not in _PRIORITY_RULES:
+            errors[key] = f"must be one of: {', '.join(sorted(_PRIORITY_RULES))}"
+        elif key == "opposite_signal_policy" and value not in _OPPOSITE_POLICIES:
+            errors[key] = f"must be one of: {', '.join(sorted(_OPPOSITE_POLICIES))}"
+        elif key in ("time_filter_block_start_utc", "time_filter_block_end_utc") and not _valid_hhmm(value):
+            errors[key] = "must be a time in HH:MM (24-hour) format"
+    return errors
+
+
+def defaults():
+    return dict(_DEFAULTS)
+
+
+_HISTORY_KEY = "paper_trading_settings_history"
+_HISTORY_FILE = "paper_trading_settings_history.json"
+HISTORY_KEEP_LAST = 200
+
+
+def load_history():
+    """Newest first. Stored via load_persistent, so the cloud keeps its
+    history in Postgres (not the ephemeral local disk) -- the same
+    local-file-vs-cloud-database split every other setting here uses."""
+    data = base_config.load_persistent(_HISTORY_KEY, _HISTORY_FILE, {"entries": []})
+    return list(data.get("entries", []))
+
+
+def record_change(before, after, source="dashboard"):
+    """Appends one history entry listing every field whose value actually
+    changed; a save that changed nothing records nothing. Returns the
+    entry, or None."""
+    changes = [
+        {"field": k, "old": before.get(k), "new": after.get(k)}
+        for k in sorted(after) if before.get(k) != after.get(k)
+    ]
+    if not changes:
+        return None
+    entry = {"changed_at": datetime.now(timezone.utc).isoformat(), "source": source, "changes": changes}
+    entries = [entry] + load_history()
+    base_config.save_persistent(_HISTORY_KEY, _HISTORY_FILE, {"entries": entries[:HISTORY_KEEP_LAST]})
+    return entry

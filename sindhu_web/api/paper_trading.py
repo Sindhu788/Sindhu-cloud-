@@ -188,9 +188,31 @@ def get_settings():
 
 @router.post("/api/paper-trading/settings")
 def update_settings(req: SettingsUpdate):
-    settings = pt_config.update(**req.dict(exclude_none=True))
+    fields = req.dict(exclude_none=True)
+    # 2026-09-16 audit: reject nonsensical values (negative balance, risk %
+    # over 100, unknown enum...) with a per-field message instead of saving
+    # them. 422 + {"errors": {field: message}} so the dashboard can show
+    # each error inline next to its own input.
+    errors = pt_config.validate_update(fields)
+    if errors:
+        raise HTTPException(422, {"errors": errors})
+    before = pt_config.load()
+    settings = pt_config.update(**fields)
+    pt_config.record_change(before, settings)
     sync.notify("paper_trading", "updated", "Paper Trading settings changed")
     return settings
+
+
+@router.get("/api/paper-trading/settings/defaults")
+def get_settings_defaults():
+    """What "Reset to default" fills the form with -- the real built-in
+    defaults, never a guessed copy in the frontend."""
+    return pt_config.defaults()
+
+
+@router.get("/api/paper-trading/settings/history")
+def get_settings_history(limit: int = 50):
+    return {"entries": pt_config.load_history()[:max(1, min(limit, pt_config.HISTORY_KEEP_LAST))]}
 
 
 class ResetBalanceRequest(BaseModel):
