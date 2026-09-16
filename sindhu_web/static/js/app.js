@@ -264,10 +264,12 @@
     const current = {};
     fields.forEach(f => { current[f.key] = baseline[f.key]; });
     const showErr = (el, msg) => {
-      let err = el.parentElement.querySelector(".field-error");
-      if (!err) { err = document.createElement("div"); err.className = "field-error"; el.parentElement.appendChild(err); }
+      const parent = el && el.parentElement;
+      if (!parent) return;
+      let err = parent.querySelector(".field-error");
+      if (!err) { err = document.createElement("div"); err.className = "field-error"; parent.appendChild(err); }
       err.textContent = msg || "";
-      el.classList.toggle("input-invalid", !!msg);
+      if (el.classList) el.classList.toggle("input-invalid", !!msg);
     };
     const read = () => {
       const values = {}, errors = {};
@@ -10418,14 +10420,16 @@
       const engineStatus = document.getElementById("ptSettingsStatus");
 
       function engineFieldError(el, msg) {
-        let err = el.parentElement.querySelector(".field-error");
+        const parent = el && el.parentElement;
+        if (!parent) return;
+        let err = parent.querySelector(".field-error");
         if (!err) {
           err = document.createElement("div");
           err.className = "field-error";
-          el.parentElement.appendChild(err);
+          parent.appendChild(err);
         }
         err.textContent = msg || "";
-        el.classList.toggle("input-invalid", !!msg);
+        if (el.classList) el.classList.toggle("input-invalid", !!msg);
       }
       function readEngineForm() {
         const values = {}, errors = {};
