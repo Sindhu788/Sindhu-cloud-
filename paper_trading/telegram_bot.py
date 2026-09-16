@@ -243,7 +243,25 @@ def load_settings():
         if not merged.get("channel_id") and os.environ.get("TELEGRAM_CHANNEL_ID"):
             merged["channel_id"] = os.environ["TELEGRAM_CHANNEL_ID"]
         return merged
-    return base_config.load_or_seed("telegram_settings.json", _DEFAULTS)
+
+    # 2026-09-16 audit: the SAME empty-string-shadows-the-env-var bug fixed
+    # for the Postgres branch above was still live on this local branch.
+    # load_or_seed() does merged.update(file_contents), so a
+    # telegram_settings.json that persists "bot_token": "" (written by any
+    # save from the Settings page before a token was entered) permanently
+    # shadows the _DEFAULTS entry that reads TELEGRAM_BOT_TOKEN -- exactly
+    # the "Bot Set Up: No despite the env var being set" symptom, just on
+    # the laptop instead of the cloud. Confirmed on this machine: the real
+    # telegram_settings.json holds "" for both keys. Same narrow rule as
+    # above -- an empty string was never a deliberately-configured value,
+    # so fall back to the env var only in that case; a real saved value is
+    # never overridden.
+    local = base_config.load_or_seed("telegram_settings.json", _DEFAULTS)
+    if not local.get("bot_token") and os.environ.get("TELEGRAM_BOT_TOKEN"):
+        local["bot_token"] = os.environ["TELEGRAM_BOT_TOKEN"]
+    if not local.get("channel_id") and os.environ.get("TELEGRAM_CHANNEL_ID"):
+        local["channel_id"] = os.environ["TELEGRAM_CHANNEL_ID"]
+    return local
 
 
 def save_settings(**fields):
