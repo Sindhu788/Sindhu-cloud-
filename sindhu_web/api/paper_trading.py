@@ -179,6 +179,8 @@ class SettingsUpdate(BaseModel):
     ensemble_voting_min_agreeing_strategies: Optional[int] = None
     cooling_off_loss_streak: Optional[int] = None
     cooling_off_hours: Optional[float] = None
+    max_portfolio_risk_pct_per_coin: Optional[float] = None
+    max_open_positions_per_coin: Optional[int] = None
 
 
 @router.get("/api/paper-trading/settings")
@@ -1400,9 +1402,16 @@ def get_coin_heatmap(period: str = "all"):
     """Grand Feature Expansion, Phase 3 Feature 3: which coins are
     CONSISTENTLY profitable across every strategy that traded them --
     distinct from the plain aggregate ranking /coin-stats-style endpoints
-    already give."""
+    already give.
+
+    Investigation Batch 2026-09-17, item 1.6: cached (30s, keyed per
+    period) -- real evidence showed this ballooning to 850ms+ under the
+    Paper Trading page's concurrent request batch (GIL contention)."""
     since_iso, _ = _period_bounds(period)
-    return {"coins": coin_heatmap.compute_coin_heatmap(since_iso)}
+
+    def _compute():
+        return coin_heatmap.compute_coin_heatmap(since_iso)
+    return {"coins": cache.cached(f"paper_coin_heatmap_{period}", 30, _compute)}
 
 
 @router.get("/api/paper-trading/coin-deep-dive/{symbol}")
@@ -1517,17 +1526,25 @@ def get_pattern_reliability(strategy_id: Optional[str] = None):
     reliability threshold (pattern_stats.MIN_SAMPLE_SIZE, currently 25
     trades), and -- once reliable -- the Wilson 95% confidence interval
     and conclusion this is judged on. This is the exact same calculation
-    Pattern Auto-Avoid and Lesson Auto-Apply act on, just made visible."""
-    patterns = storage.list_paper_coin_pattern_memory(strategy_id, since=insights.fresh_session_start())
-    rows = []
-    for p in patterns:
-        result = pattern_stats.classify(p["wins"], p["trades"])
-        rows.append({
-            "strategy_id": p["strategy_id"], "strategy_name": p["strategy_name"],
-            "symbol": p["symbol"], "market_state": p["market_state"], "session": p["session"],
-            "total_pnl": p["total_pnl"], **result,
-        })
-    rows.sort(key=lambda r: r["sample_size"], reverse=True)
+    Pattern Auto-Avoid and Lesson Auto-Apply act on, just made visible.
+
+    Investigation Batch 2026-09-17, item 1.6: cached (30s, keyed per
+    strategy_id) -- real evidence showed this ballooning to 1.3s+ under
+    the Paper Trading page's concurrent request batch (GIL contention),
+    same finding as portfolio-risk-score/risk-pct-recommendations above."""
+    def _compute():
+        patterns = storage.list_paper_coin_pattern_memory(strategy_id, since=insights.fresh_session_start())
+        rows = []
+        for p in patterns:
+            result = pattern_stats.classify(p["wins"], p["trades"])
+            rows.append({
+                "strategy_id": p["strategy_id"], "strategy_name": p["strategy_name"],
+                "symbol": p["symbol"], "market_state": p["market_state"], "session": p["session"],
+                "total_pnl": p["total_pnl"], **result,
+            })
+        rows.sort(key=lambda r: r["sample_size"], reverse=True)
+        return rows
+    rows = cache.cached(f"paper_pattern_reliability_{strategy_id}", 30, _compute)
     return {
         "min_sample_size": pattern_stats.MIN_SAMPLE_SIZE,
         "method": "wilson_score_95",
@@ -1788,10 +1805,14 @@ def get_risk_pct_recommendations():
     """Grand Feature Expansion, Phase 5 Feature 6: Optimal Risk % Per
     Strategy -- a suggestion only. Applying one reuses the existing,
     already-validated POST .../strategy-config/{id}/overrides endpoint;
-    this endpoint never changes anything itself."""
-    settings = pt_config.load()
-    return {"recommendations": capital_allocation.compute_all_risk_pct_recommendations(
-        settings.get("risk_pct_default", 1.0))}
+    this endpoint never changes anything itself.
+
+    Investigation Batch 2026-09-17, item 1.6: cached (30s) -- same GIL-
+    contention finding as get_portfolio_risk_score just above."""
+    def _compute():
+        settings = pt_config.load()
+        return capital_allocation.compute_all_risk_pct_recommendations(settings.get("risk_pct_default", 1.0))
+    return {"recommendations": cache.cached("paper_risk_pct_recommendations", 30, _compute)}
 
 
 @router.get("/api/paper-trading/risk-metrics-all")
@@ -1890,15 +1911,30 @@ def get_portfolio_analytics():
 
 @router.get("/api/paper-trading/portfolio-risk-score")
 def get_portfolio_risk_score():
-    strategy_ids = [m["id"] for m in lib.list_all()]
-    return portfolio.compute_portfolio_risk_score(strategy_ids, since=insights.fresh_session_start())
+    """Investigation Batch 2026-09-17, item 1.6: real evidence (measured via
+    Resource Timing API against the running local app) showed this endpoint
+    alone takes <100ms in isolation but balloons to 1.5s+ when the Paper
+    Trading page's ~20-call second batch fires it concurrently with the
+    other heavy endpoints below -- classic Python GIL contention across
+    threadpool workers, not genuine per-call cost. Cached same as every
+    other endpoint in this file (30s: informational risk-scoring, not
+    something that needs to reflect a trade opened a second ago)."""
+    def _compute():
+        strategy_ids = [m["id"] for m in lib.list_all()]
+        return portfolio.compute_portfolio_risk_score(strategy_ids, since=insights.fresh_session_start())
+    return cache.cached("paper_portfolio_risk_score", 30, _compute)
 
 
 @router.get("/api/paper-trading/coin-exposure")
 def get_coin_exposure():
+    """Investigation Batch 2026-09-17, item 1.6: cached (30s) -- same GIL-
+    contention finding as the rest of this section."""
     exchanges_cfg = base_config.load_or_seed("exchanges.json", base_config.DEFAULTS["exchanges.json"])
     exchange = exchanges_cfg["default"]
-    return {"exposure": portfolio.compute_coin_exposure(exchange)}
+
+    def _compute():
+        return portfolio.compute_coin_exposure(exchange)
+    return {"exposure": cache.cached(f"paper_coin_exposure_{exchange}", 30, _compute)}
 
 
 @router.get("/api/paper-trading/duplicate-exposure-warnings")
@@ -1906,29 +1942,45 @@ def get_duplicate_exposure_warnings():
     """Grand Feature Expansion, Phase 7 Feature 1: Duplicate Exposure
     Warning -- flags a coin currently traded by 2+ independent strategies
     at once, regardless of price correlation (see correlation-warnings
-    above for the separate, price-correlation-based check)."""
+    above for the separate, price-correlation-based check).
+
+    Investigation Batch 2026-09-17, item 1.6: cached (30s) -- same GIL-
+    contention finding as the other endpoints in this section."""
     exchanges_cfg = base_config.load_or_seed("exchanges.json", base_config.DEFAULTS["exchanges.json"])
     exchange = exchanges_cfg["default"]
-    return {"warnings": portfolio.detect_duplicate_exposure_warnings(exchange)}
+
+    def _compute():
+        return portfolio.detect_duplicate_exposure_warnings(exchange)
+    return {"warnings": cache.cached(f"paper_duplicate_exposure_warnings_{exchange}", 30, _compute)}
 
 
 @router.get("/api/paper-trading/strategy-exposure")
 def get_strategy_exposure():
     """Grand Feature Expansion, Phase 3 Feature 5: Portfolio Heat Map --
     where open risk is concentrated BY STRATEGY (coin-exposure above
-    already covers by-coin)."""
+    already covers by-coin).
+
+    Investigation Batch 2026-09-17, item 1.6: cached (30s)."""
     exchanges_cfg = base_config.load_or_seed("exchanges.json", base_config.DEFAULTS["exchanges.json"])
     exchange = exchanges_cfg["default"]
-    return {"exposure": portfolio.compute_strategy_exposure(exchange)}
+
+    def _compute():
+        return portfolio.compute_strategy_exposure(exchange)
+    return {"exposure": cache.cached(f"paper_strategy_exposure_{exchange}", 30, _compute)}
 
 
 @router.get("/api/paper-trading/direction-exposure")
 def get_direction_exposure():
     """Grand Feature Expansion, Phase 3 Feature 5: Portfolio Heat Map --
-    long vs short split across every strategy combined."""
+    long vs short split across every strategy combined.
+
+    Investigation Batch 2026-09-17, item 1.6: cached (30s)."""
     exchanges_cfg = base_config.load_or_seed("exchanges.json", base_config.DEFAULTS["exchanges.json"])
     exchange = exchanges_cfg["default"]
-    return portfolio.compute_direction_exposure(exchange)
+
+    def _compute():
+        return portfolio.compute_direction_exposure(exchange)
+    return cache.cached(f"paper_direction_exposure_{exchange}", 30, _compute)
 
 
 # --------------------------------------------------------------- Trade Audit Engine (Group 6 #5)
@@ -2472,11 +2524,15 @@ def get_challenge():
     """Batch 9, Task 4: current Challenge Mode progress, or
     {"configured": False} if the CEO hasn't set one up. Read-only --
     tracking/reporting only, never touches risk_pct or any trading
-    behavior."""
-    progress = challenge_mode.compute_progress()
-    if progress is None:
-        return {"configured": False}
-    return {"configured": True, **progress}
+    behavior.
+
+    Investigation Batch 2026-09-17, item 1.6: cached (15s -- shorter than
+    most of this file's other 30s caches since a challenge's progress is
+    exactly the number a CEO watching one wants fresh)."""
+    def _compute():
+        progress = challenge_mode.compute_progress()
+        return {"configured": False} if progress is None else {"configured": True, **progress}
+    return cache.cached("paper_challenge_progress", 15, _compute)
 
 
 @router.post("/api/paper-trading/challenge")
@@ -2546,9 +2602,14 @@ def get_best_portfolio_suggestion(top_n: int = 3):
     Auto-Suggest, extended to a multi-strategy PORTFOLIO -- top N distinct
     strategies' best coin each, by real PnL, filtered to statistically-
     trusted combinations. Purely informational -- applying an idea reuses
-    each strategy's own existing enable/pause controls."""
+    each strategy's own existing enable/pause controls.
+
+    Investigation Batch 2026-09-17, item 1.6: cached (30s, keyed by top_n)."""
     from paper_trading import challenge_analysis
-    return challenge_analysis.suggest_best_portfolio(top_n=top_n)
+
+    def _compute():
+        return challenge_analysis.suggest_best_portfolio(top_n=top_n)
+    return cache.cached(f"paper_best_portfolio_suggestion_{top_n}", 30, _compute)
 
 
 @router.post("/api/paper-trading/challenge/recommend")

@@ -160,6 +160,25 @@ def is_valid_session(token):
     return _now() < datetime.fromisoformat(entry["expires_at"])
 
 
+def session_expires_at(token):
+    """Investigation Batch 2026-09-17, item 1.7 (session-expiry warning):
+    the raw expires_at ISO string for a valid session, or None -- same
+    two-backend lookup as is_valid_session, just returning the timestamp
+    instead of a bool so the dashboard can show a real countdown/warning
+    instead of only finding out about expiry the instant it's too late
+    (a 401 on the next request, mid-action)."""
+    if not token:
+        return None
+    if db_backend.IS_POSTGRES:
+        with storage.get_conn() as conn:
+            row = conn.execute(
+                "SELECT expires_at FROM auth_sessions WHERE token = ?", (token,)
+            ).fetchone()
+        return row[0] if row else None
+    entry = _load_sessions()["sessions"].get(token)
+    return entry["expires_at"] if entry else None
+
+
 def invalidate_session(token):
     if db_backend.IS_POSTGRES:
         with storage.get_conn() as conn:

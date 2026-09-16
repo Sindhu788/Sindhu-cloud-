@@ -15,6 +15,12 @@ EXCHANGE = "binance"
 SETTINGS = {
     "max_open_trades": 5, "initial_balance": 10000.0, "risk_pct_default": 1.0,
     "max_portfolio_risk_pct_per_coin": 10.0,  # $1000 cap on BTCUSDT combined risk
+    # This suite exists to test the DOLLAR cap in isolation -- the sibling
+    # count-based cap (max_open_positions_per_coin, added 2026-09-17, see
+    # tests/test_max_open_positions_per_coin.py for its own dedicated
+    # coverage) is disabled here so these many-strategies-on-one-coin
+    # scenarios aren't cut off by count before they can exercise the $ cap.
+    "max_open_positions_per_coin": 0,
 }
 
 

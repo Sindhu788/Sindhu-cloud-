@@ -46,6 +46,7 @@ Entry point for Railway (see Procfile):
 
 import asyncio
 import os
+import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -236,6 +237,38 @@ async def _lifespan(app: FastAPI):
     _groups_result = _sync_paper_groups()
     log(f"[cloud-runtime] Paper Trading groups sync: first_run={_groups_result['first_run']} "
         f"assigned={ {k: len(v) for k, v in _groups_result['assigned'].items()} }")
+
+    # Investigation Batch 2026-09-17, item 1.6: this lifespan never warmed
+    # any of the Paper Trading page's cached endpoints -- unlike the local
+    # laptop app (sindhu_web/server.py's own _warm_caches()), so THIS
+    # deployment (the one real users' browsers actually hit) always paid
+    # the full cold-compute cost on its own cache misses after every
+    # restart/free-tier sleep-wake, on top of the GIL-contention finding
+    # fixed in sindhu_web/api/paper_trading.py's newly-cached endpoints.
+    # Run in a background thread so it never delays this deployment
+    # becoming reachable -- exactly the local app's own reasoning.
+    def _warm_paper_trading_caches():
+        for label, fn in (
+            ("paper_trading_groups", paper_trading_api.get_paper_trading_groups),
+            ("paper_trading_style_breakdown", paper_trading_api.get_style_breakdown),
+            ("risk_metrics_all", paper_trading_api.get_risk_metrics_all),
+            ("strategy_correlation_matrix", paper_trading_api.get_strategy_correlation_matrix),
+            ("paper_lesson_candidates", paper_trading_api.get_lesson_candidates),
+            ("paper_portfolio_risk_score", paper_trading_api.get_portfolio_risk_score),
+            ("paper_risk_pct_recommendations", paper_trading_api.get_risk_pct_recommendations),
+            ("paper_pattern_reliability_None", paper_trading_api.get_pattern_reliability),
+            ("paper_coin_heatmap_all", paper_trading_api.get_coin_heatmap),
+            ("paper_coin_exposure", paper_trading_api.get_coin_exposure),
+            ("paper_strategy_exposure", paper_trading_api.get_strategy_exposure),
+            ("paper_direction_exposure", paper_trading_api.get_direction_exposure),
+            ("paper_challenge_progress", paper_trading_api.get_challenge),
+            ("paper_best_portfolio_suggestion", paper_trading_api.get_best_portfolio_suggestion),
+        ):
+            try:
+                fn()
+            except Exception as exc:
+                log(f"[cloud-runtime] Cache warm for {label} failed (non-fatal): {exc!r}")
+    threading.Thread(target=_warm_paper_trading_caches, daemon=True).start()
 
     task = asyncio.create_task(_broadcast_loop())
     yield

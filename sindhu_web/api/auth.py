@@ -30,9 +30,17 @@ def _set_session_cookie(response: Response, token: str):
 @router.get("/api/auth/status")
 def auth_status(request: Request):
     token = request.cookies.get(auth.SESSION_COOKIE)
+    logged_in = auth.is_valid_session(token)
+    # Investigation Batch 2026-09-17, item 1.7: session_expires_at is only
+    # meaningful (and only looked up) for a genuinely valid session -- an
+    # invalid/missing token already redirects to /login well before this
+    # would matter, and a raw expiry from a stale/expired token row would
+    # be misleading (already in the past) rather than useful.
+    expires_at = auth.session_expires_at(token) if logged_in else None
     return {
         "configured": auth.has_credentials(),
-        "logged_in": auth.is_valid_session(token),
+        "logged_in": logged_in,
+        "session_expires_at": expires_at,
     }
 
 

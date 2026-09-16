@@ -49,6 +49,27 @@ def evaluate(book_key, symbol, candidate, settings, exchange=None):
     if symbol not in open_symbols and len(open_symbols) >= max_coins:
         return False, f"max coins for this strategy reached ({max_coins})", None, None
 
+    # Investigation Batch 2026-09-17, 1.2: cross-strategy per-coin
+    # position-COUNT cap. The per-book cap just above only ever sees ONE
+    # strategy's own book, so it can't stop several DIFFERENT strategies
+    # each independently opening on the SAME coin. The dollar-based
+    # max_portfolio_risk_pct_per_coin check further below already caps
+    # combined $-at-stop across strategies for a coin, but real evidence
+    # showed that alone doesn't cap raw COUNT: 14 strategies each risking a
+    # small amount can together stay under a % cap while still leaving 14
+    # simultaneous positions open on one coin (see max_open_positions_per_coin's
+    # own comment in config.py). Checked early, before position sizing, same
+    # as the per-book cap above -- cheap, and no need to size a trade this
+    # will reject anyway. 0 = off.
+    max_positions_per_coin = settings.get("max_open_positions_per_coin", 5)
+    if exchange and max_positions_per_coin and max_positions_per_coin > 0:
+        existing_positions_on_coin = storage.get_open_paper_positions(exchange=exchange, symbol=symbol)
+        if len(existing_positions_on_coin) >= max_positions_per_coin:
+            return False, (
+                f"max positions per coin reached for {symbol}: {len(existing_positions_on_coin)} already open "
+                f"across all strategies (cap {max_positions_per_coin})"
+            ), None, None
+
     if candidate["stop_loss"] is None:
         return False, "no stop-loss could be computed -- risk cannot be sized", None, None
 

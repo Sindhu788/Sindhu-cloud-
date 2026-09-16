@@ -701,9 +701,16 @@
       ${actionLabel ? `<div class="toast-actions"><button class="btn-ghost toast-action">${esc(actionLabel)}</button></div>` : ""}`;
     stack.appendChild(el);
     const remove = () => el.remove();
-    el.querySelector(".toast-close").onclick = remove;
+    // Guarded, 2026-09-17 (item 1.7's new session-expiry check exposed
+    // this): the frontend render-smoke-test harness's stub DOM element
+    // doesn't parse innerHTML into real queryable children, so
+    // querySelector here can come back null there -- same defensive
+    // convention this file already uses for missing parentElement.
+    const closeBtn = el.querySelector(".toast-close");
+    if (closeBtn) closeBtn.onclick = remove;
     if (actionLabel && onAction) {
-      el.querySelector(".toast-action").onclick = () => { onAction(); remove(); };
+      const actionBtn = el.querySelector(".toast-action");
+      if (actionBtn) actionBtn.onclick = () => { onAction(); remove(); };
     }
     setTimeout(remove, timeoutMs || 15000);
   }
@@ -1026,6 +1033,49 @@
   }
   refreshTopbarStatus();
   setInterval(refreshTopbarStatus, 20000);
+
+  // Investigation Batch 2026-09-17, item 1.7: Session-Expiry Warning -- a
+  // login session (sindhu_web/auth.py's 30-day SESSION_LIFETIME_DAYS)
+  // used to expire with zero notice: the next click just redirected to
+  // /login, with no chance to finish whatever was in progress first.
+  // Polls the same /api/auth/status the login gate itself already
+  // computes session_expires_at from (no new backend trust surface), and
+  // warns once at each of two thresholds (24h and 1h remaining) -- each
+  // shown only once per real crossing (sessionStorage dedupe), not
+  // re-shown on every poll, and both are marked seen together once the
+  // tighter 1h threshold is reached so a tab reopened after a long sleep
+  // doesn't show the stale 24h message on top of the urgent one.
+  const SESSION_EXPIRY_WARNING_THRESHOLDS_HOURS = [24, 1]; // most lenient first
+  async function checkSessionExpiryWarning() {
+    const status = await apiGet("/api/auth/status").catch(() => null);
+    if (!status || !status.logged_in || !status.session_expires_at) return;
+    const hoursRemaining = (new Date(status.session_expires_at).getTime() - Date.now()) / 3600000;
+    let toShow = null;
+    for (const h of SESSION_EXPIRY_WARNING_THRESHOLDS_HOURS) {
+      if (hoursRemaining > h) continue;
+      const key = `sindhu_session_expiry_warned_${h}h`;
+      if (!sessionStorage.getItem(key)) toShow = h;
+      sessionStorage.setItem(key, "1");
+    }
+    if (toShow == null) return;
+    const en = getLang() === "en";
+    const urgent = toShow <= 1;
+    const remainingLabel = hoursRemaining < 1
+      ? `${Math.max(1, Math.round(hoursRemaining * 60))} ${en ? "minutes" : "minute"}`
+      : `${Math.max(1, Math.round(hoursRemaining))} ${en ? "hours" : "ghante"}`;
+    showToast({
+      title: en ? "Your session is expiring soon" : "Aapka session jald khatam ho raha hai",
+      body: en
+        ? `You'll be logged out in about ${remainingLabel}. Log in again now to avoid losing your place.`
+        : `Aap taqreeban ${remainingLabel} mein logout ho jayenge. Abhi dobara login karein.`,
+      isError: urgent,
+      actionLabel: en ? "Log in again" : "Dobara Login Karein",
+      onAction: () => { location.href = "/login"; },
+      timeoutMs: 60000,
+    });
+  }
+  checkSessionExpiryWarning();
+  setInterval(checkSessionExpiryWarning, 10 * 60 * 1000);
 
   // Master Task 3, Phase 0.8a/0.8c/0.8e: System Status Banner, visible from
   // every page. Reuses the same /api/paper-trading/status the Paper

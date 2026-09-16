@@ -15,6 +15,8 @@ misleading without re-opening that very recent, deliberate decision about
 what the channel itself shows.
 """
 
+import time
+
 from data_engine import storage
 
 BUCKET_WIDTH = 10  # 0-10, 10-20, ..., 90-100
@@ -22,6 +24,34 @@ BUCKET_WIDTH = 10  # 0-10, 10-20, ..., 90-100
 # this codebase (paper_trading.pattern_stats.MIN_SAMPLE_SIZE / the Wilson
 # gate's own minimum).
 MIN_TRUSTWORTHY_SAMPLE = 25
+
+# 2026-09-17 (Investigation Batch, 1.1): confidence.score() now calls
+# calibrated_win_rate_for() once per approved candidate every engine scan
+# cycle (potentially dozens of times per tick across strategies/coins).
+# compute_calibration_map() scans every closed paper position -- fine for
+# an occasional dashboard request, too slow to redo on every single
+# candidate. This tiny TTL cache is used ONLY by the use_cache=True path
+# below (the hot engine-scoring path); the dashboard endpoint and every
+# test in test_confidence_calibration.py keep calling
+# compute_calibration_map() directly, so they stay exact and instantly
+# reflect new data.
+_CACHE_TTL_SECONDS = 30
+_cache = {"map": None, "computed_at": 0.0}
+
+
+def _cached_calibration_map(now=None):
+    now = now if now is not None else time.time()
+    if _cache["map"] is None or now - _cache["computed_at"] >= _CACHE_TTL_SECONDS:
+        _cache["map"] = compute_calibration_map()
+        _cache["computed_at"] = now
+    return _cache["map"]
+
+
+def invalidate_cache():
+    """Tests (and anything that wants the very next cached lookup to see
+    freshly-closed trades immediately) can force a recompute."""
+    _cache["map"] = None
+    _cache["computed_at"] = 0.0
 
 
 def _bucket_index(confidence_pct):
@@ -64,15 +94,21 @@ def compute_calibration_map():
     return out
 
 
-def calibrated_win_rate_for(confidence_pct):
+def calibrated_win_rate_for(confidence_pct, use_cache=False):
     """For one signal's raw stated confidence: returns
     (real_win_rate_pct_or_None, trustworthy, sample_size) for whichever
     bucket it falls into. None/False when that bucket doesn't have
     MIN_TRUSTWORTHY_SAMPLE real trades yet -- never fabricated from too
-    little evidence."""
+    little evidence.
+
+    use_cache=True (only paper_trading.confidence's live scoring path
+    passes this) serves up to _CACHE_TTL_SECONDS-old calibration data
+    instead of rescanning every closed position on every call -- see the
+    cache docstring above. Every other caller (the dashboard endpoint,
+    every test here) defaults to False and always sees live data."""
     if confidence_pct is None:
         return None, False, 0
-    calibration = compute_calibration_map()
+    calibration = _cached_calibration_map() if use_cache else compute_calibration_map()
     bucket = calibration[_bucket_index(confidence_pct)]
     if not bucket["trustworthy"]:
         return None, False, bucket["sample_size"]

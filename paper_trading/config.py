@@ -56,6 +56,19 @@ _DEFAULTS = {
     # genuinely pile risk onto the same coin at once, not ordinary single-
     # strategy trading. Set to 0 to disable.
     "max_portfolio_risk_pct_per_coin": 10.0,
+    # Investigation Batch 2026-09-17, item 1.2: real evidence showed 14
+    # DIFFERENT strategies each independently opened one small position on
+    # the same coin (UUSDT) at once and stayed comfortably under the
+    # dollar-based cap above the whole time (each risked well under 1/14th
+    # of the cap) -- a $-at-stop cap alone never limits raw position COUNT.
+    # This is an ADDITIONAL, strictly count-based cap on top of (never a
+    # replacement for) max_portfolio_risk_pct_per_coin: risk_manager.evaluate()
+    # rejects a NEW entry once this many positions are already open on the
+    # SAME coin across EVERY strategy combined. Protects against the case a
+    # $-cap can't see -- a gap/halt/flash-crash that skips every stop on a
+    # coin at once hits all of them together, so raw count of simultaneous
+    # bets on one coin is itself a real concentration risk. 0 = off.
+    "max_open_positions_per_coin": 5,
     "cooldown_minutes": 15,
     # Master Task Grand Batch, Phase 2.1: default changed from "confidence"
     # to "confidence_and_win_rate" -- ranking by confidence alone ignored
@@ -191,6 +204,8 @@ _NUMERIC_RULES = {
     "initial_balance": ("float", 0, None, False),
     "risk_pct_default": ("float", 0, 100, False),
     "max_open_trades": ("int", 1, None, True),
+    "max_open_positions_per_coin": ("int", 0, None, True),
+    "max_portfolio_risk_pct_per_coin": ("float", 0, 100, True),
     "cooldown_minutes": ("int", 0, None, True),
     "coin_filter_top_n": ("int", 1, None, True),
     "tick_interval_seconds": ("int", 1, None, True),

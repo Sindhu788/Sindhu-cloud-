@@ -114,6 +114,26 @@ def _warm_caches():
             ("best_worst_strategies", lambda: reports.best_worst_strategies()),
             ("paper_trading_groups", lambda: paper_trading_api.get_paper_trading_groups()),
             ("paper_trading_style_breakdown", lambda: paper_trading_api.get_style_breakdown()),
+            # Investigation Batch 2026-09-17, item 1.6: real evidence (the
+            # Resource Timing API against the running app) showed the Paper
+            # Trading page's second request batch taking 16s+ -- not because
+            # any one of these is slow in isolation (each is under a second
+            # alone), but because ~20 of them fire at once and contend for
+            # the Python GIL across threadpool workers. Each is now cached
+            # (see their own endpoints for TTLs); warming them here means
+            # the FIRST real page load after a restart also gets the fast,
+            # already-computed path instead of paying full concurrent cost.
+            ("strategy_correlation_matrix", lambda: paper_trading_api.get_strategy_correlation_matrix()),
+            ("paper_lesson_candidates", lambda: paper_trading_api.get_lesson_candidates()),
+            ("paper_portfolio_risk_score", lambda: paper_trading_api.get_portfolio_risk_score()),
+            ("paper_risk_pct_recommendations", lambda: paper_trading_api.get_risk_pct_recommendations()),
+            ("paper_pattern_reliability_None", lambda: paper_trading_api.get_pattern_reliability()),
+            ("paper_coin_heatmap_all", lambda: paper_trading_api.get_coin_heatmap()),
+            ("paper_coin_exposure", lambda: paper_trading_api.get_coin_exposure()),
+            ("paper_strategy_exposure", lambda: paper_trading_api.get_strategy_exposure()),
+            ("paper_direction_exposure", lambda: paper_trading_api.get_direction_exposure()),
+            ("paper_challenge_progress", lambda: paper_trading_api.get_challenge()),
+            ("paper_best_portfolio_suggestion", lambda: paper_trading_api.get_best_portfolio_suggestion()),
         )
     ]
     for t in threads:
