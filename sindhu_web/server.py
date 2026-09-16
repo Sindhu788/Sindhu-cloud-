@@ -110,6 +110,10 @@ def _warm_caches():
             ("correlation_warnings", _warm_correlation_warnings),
             ("portfolio_analytics", _warm_portfolio_analytics),
             ("strategy_summary", _warm_strategy_summary),
+            ("risk_metrics_all", lambda: paper_trading_api.get_risk_metrics_all()),
+            ("best_worst_strategies", lambda: reports.best_worst_strategies()),
+            ("paper_trading_groups", lambda: paper_trading_api.get_paper_trading_groups()),
+            ("paper_trading_style_breakdown", lambda: paper_trading_api.get_style_breakdown()),
         )
     ]
     for t in threads:

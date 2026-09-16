@@ -2675,16 +2675,13 @@
     // sub-view reached by another means, not its own sidebar entry).
     const navPage = _navPagesById[id];
     document.title = navPage ? `${navPage.label} — SINDHU Dashboard` : "SINDHU Dashboard";
+    // 2026-09-16: standard blue spinning-circle loader (CEO request) instead
+    // of grey shimmer bars. Keeps the page-skeleton class so anything that
+    // detects "page still loading" by that class keeps working.
     content.innerHTML = `
-      <div class="page-skeleton">
-        <div class="skel-bar skel-title"></div>
-        <div class="skel-grid">
-          <div class="skel-card"></div><div class="skel-card"></div>
-          <div class="skel-card"></div><div class="skel-card"></div>
-        </div>
-        <div class="skel-bar skel-row"></div>
-        <div class="skel-bar skel-row"></div>
-        <div class="skel-bar skel-row"></div>
+      <div class="page-skeleton page-loader" role="status" aria-live="polite">
+        <div class="spinner-circle"></div>
+        <div class="muted">Loading...</div>
       </div>`;
     try {
       await renderFn();
@@ -10554,11 +10551,31 @@
       // using the existing retroactive-scoring endpoint, same one already
       // used by Telegram signal messages. Best-effort: a failed fetch just
       // leaves that cell as "-" rather than breaking the rest of the page.
-      document.querySelectorAll(".pt-confluence-cell").forEach(cell => {
-        apiGet(`/api/paper-trading/confluence/${cell.dataset.positionId}`)
-          .then(res => { cell.textContent = res.total ? `${res.passed}/${res.total}` : "-"; })
+      //
+      // 2026-09-16 audit: ONE bulk request instead of one per open position.
+      // The per-position version fired ~70 parallel scoring requests on
+      // every 30s auto-refresh and starved the whole server (Paper Trading
+      // measured 71s; see the endpoint's docstring for the evidence).
+      const confluenceCells = document.querySelectorAll(".pt-confluence-cell");
+      if (confluenceCells.length) {
+        const fillConfluence = (res) => {
+          confluenceCells.forEach(cell => {
+            const s = res.scores[cell.dataset.positionId];
+            cell.textContent = s && s.total ? `${s.passed}/${s.total}` : "-";
+          });
+        };
+        apiGet("/api/paper-trading/confluence-open-positions")
+          .then(res => {
+            if (res.ready) { fillConfluence(res); return; }
+            // First request after a restart: scores are computing in the
+            // background -- ask once more shortly instead of leaving "-".
+            setTimeout(() => {
+              if (isStaleRoute(myToken)) return;
+              apiGet("/api/paper-trading/confluence-open-positions").then(fillConfluence).catch(() => {});
+            }, 8000);
+          })
           .catch(() => {});
-      });
+      }
     };
 
     // Grand Feature Expansion, Phase 5 Feature 11: Best Combination

@@ -1082,6 +1082,36 @@ textarea { font-family: Consolas, monospace; min-height: 160px; }
    something that reads instantly, like a native app's placeholder screen,
    while the real page's own data fetch is still in flight) ---- */
 .page-skeleton { animation: skel-fade-in .15s ease; }
+/* 2026-09-16: standard spinning-circle page loader (blue accent), shown by
+   route() while a page's data loads -- replaces the grey shimmer bars. */
+.page-loader { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; min-height: 40vh; }
+.spinner-circle {
+  width: 42px; height: 42px; border-radius: 50%;
+  border: 4px solid var(--accent-dim); border-top-color: var(--accent);
+  animation: spinner-rotate .8s linear infinite;
+}
+.spinner-circle.spinner-sm { width: 16px; height: 16px; border-width: 2px; display: inline-block; vertical-align: middle; }
+@keyframes spinner-rotate { to { transform: rotate(360deg); } }
+/* 2026-09-16: inline settings validation */
+.field-error { color: var(--red, #e5484d); font-size: 12px; margin-top: 3px; min-height: 0; }
+.field-error:empty { display: none; }
+input.input-invalid, select.input-invalid { border-color: var(--red, #e5484d) !important; }
+.btn[disabled], .btn-ghost[disabled] { opacity: .45; cursor: not-allowed; }
+/* 2026-09-16: Telegram Status section (Telegram page) -- fits a 375px phone
+   without horizontal clipping: 4 short columns, 2x2 "today" tiles. */
+.tg-status-card { max-width: 640px; }
+.tg-status-total { margin-bottom: 10px; }
+.tg-status-total-value { font-size: 30px; font-weight: 800; line-height: 1.2; }
+.tg-status-table { width: 100%; }
+.tg-status-table th, .tg-status-table td { white-space: nowrap; }
+.tg-status-today { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.tg-status-today > div { background: var(--bg-hover); border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tg-status-today b { font-size: 18px; }
+@media (max-width: 600px) {
+  .tg-status-today { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tg-status-total-value { font-size: 26px; }
+}
+@media (prefers-reduced-motion: reduce) { .spinner-circle { animation-duration: 2s; } }
 .skel-bar.skel-title { height: 22px; width: 40%; margin-bottom: 18px; }
 .skel-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 20px; }
 .skel-card { height: 74px; border-radius: 12px; }

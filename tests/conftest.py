@@ -8,11 +8,17 @@ write real trading data.
 import pytest
 
 from data_engine import storage
+from sindhu_web import cache
 
 
 @pytest.fixture
 def test_db(tmp_path, monkeypatch):
     db_path = tmp_path / "test_sindhu.db"
     monkeypatch.setattr(storage, "DB_PATH", str(db_path))
+    # The in-memory endpoint cache is process-global: without clearing it, a
+    # cached endpoint (e.g. /api/reports/best-worst/strategies) would serve
+    # one test's fresh-DB result to the next test's different fresh DB.
+    cache.clear_all()
     storage.init_db()
     yield str(db_path)
+    cache.clear_all()

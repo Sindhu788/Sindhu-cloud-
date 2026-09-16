@@ -8,6 +8,7 @@ from data_engine import storage
 from backtest_engine.reports import generate_report, quick_batch_summary
 from backtest_engine import export
 from backtest_engine.diagnostics import plain_language_diagnosis
+from sindhu_web import cache
 
 router = APIRouter()
 
@@ -124,6 +125,16 @@ def best_worst_strategies():
     # History. Old batches are never deleted (see storage.py's "never
     # delete, only archive" pattern throughout) -- they simply aren't used
     # for THIS "how is it doing right now" ranking anymore.
+    #
+    # 2026-09-16 audit (navigation speed): 3.6s isolated but ~10s under a
+    # real page load (270 fresh SQLite connections, one quick_batch_summary
+    # per strategy), fetched by Home, Paper Trading, Telegram and Market.
+    # Backtest batches only change when a backtest completes, so the same
+    # stale-while-revalidate cache the other heavy endpoints use is safe.
+    return cache.cached("best_worst_strategies", 120, _compute_best_worst_strategies)
+
+
+def _compute_best_worst_strategies():
     batches = storage.list_recent_batches(limit=200)
     latest_per_strategy = {}
     completed_batch_counts = {}

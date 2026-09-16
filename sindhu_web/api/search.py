@@ -28,6 +28,12 @@ def search(q: str = ""):
         {"batch_id": b["batch_id"], "strategy_name": b["strategy_name"], "created_at": b["created_at"]}
         for b in storage.list_recent_batches(limit=200) if q_lower in b["strategy_name"].lower()
     ][:10]
-    trades = storage.search_trades(q, limit=10)
+    # 2026-09-16 audit: backtest_trades has ~3.4M rows and search_trades is a
+    # substring LIKE walked in entry_time order -- instant when the term is a
+    # real coin (BTC matches recent rows immediately), but a term that is NOT
+    # a coin (e.g. a strategy name like "Ichimoku") walked the whole table
+    # before returning nothing: measured >120s for one search. Trades are
+    # only ever matched by symbol, so skip the scan when no coin matches.
+    trades = storage.search_trades(q, limit=10) if coins else []
 
     return {"coins": coins, "strategies": strategies, "lessons": lessons, "reports": reports, "trades": trades}

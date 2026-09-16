@@ -2122,11 +2122,20 @@ def get_symbol_time_bounds(exchange, symbol):
     if none stored. Used as a cheap freshness signature for the resample
     cache: SQLite answers MIN/MAX on an indexed column via a direct b-tree
     seek, not a full scan, so this stays fast even on a multi-hundred-
-    thousand-row symbol."""
+    thousand-row symbol.
+
+    2026-09-16 audit: that seek only happens when a query has a SINGLE
+    min()/max() aggregate -- "SELECT MIN(x), MAX(x)" in one statement falls
+    back to walking every index entry for the symbol. Measured on the real
+    DB (UUSDT, 347,501 rows): combined form 0.46s, split scalar-subquery
+    form 0.003s, identical result. This sits under every get_ohlcv() call
+    (regime checks, confluence scoring, the engine), so it was the single
+    biggest cost of a per-position confluence score."""
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT MIN(open_time), MAX(open_time) FROM klines_1m WHERE exchange = ? AND symbol = ?",
-            (exchange, symbol),
+            "SELECT (SELECT MIN(open_time) FROM klines_1m WHERE exchange = ? AND symbol = ?), "
+            "(SELECT MAX(open_time) FROM klines_1m WHERE exchange = ? AND symbol = ?)",
+            (exchange, symbol, exchange, symbol),
         ).fetchone()
     return (row[0], row[1]) if row else (None, None)
 

@@ -803,13 +803,21 @@ def get_paper_trading_groups():
     straight from the same real per-strategy rows the rest of this file
     already reads, never a second parallel ledger. Also runs the
     idempotent group-assignment sync first, so a strategy newly enabled in
-    Paper Trading since the last sync is never missing from every group."""
-    strategy_groups.sync_group_assignments()
-    return {
-        "groups": strategy_groups.all_group_summaries(),
-        "challenge_daily": strategy_groups.challenge_daily_status(),
-        "challenge_recent_days": strategy_groups.challenge_recent_days(),
-    }
+    Paper Trading since the last sync is never missing from every group.
+
+    2026-09-16 audit (navigation speed): 3.8s per call measured (re-reads
+    all 154 strategy meta files), ~8.6s under the Paper Trading page's own
+    concurrent first-render batch, where it was the slowest call gating the
+    whole page. Served from the shared 30s stale-while-revalidate cache;
+    a manual move/sync below invalidates it immediately."""
+    def _compute():
+        strategy_groups.sync_group_assignments()
+        return {
+            "groups": strategy_groups.all_group_summaries(),
+            "challenge_daily": strategy_groups.challenge_daily_status(),
+            "challenge_recent_days": strategy_groups.challenge_recent_days(),
+        }
+    return cache.cached("paper_trading_groups", 30, _compute)
 
 
 @router.get("/api/paper-trading/style-breakdown")
@@ -817,8 +825,10 @@ def get_style_breakdown():
     """Phase 3.5 (5-Phase Improvement Batch): Scalping/Intraday/Swing
     breakdown, purely a different way of bucketing the exact same
     strategies (by each one's own most-traded real timeframe) -- reuses
-    strategy_groups.summarize_strategy_ids's math, not a new calculation."""
-    return {"styles": strategy_groups.style_breakdown()}
+    strategy_groups.summarize_strategy_ids's math, not a new calculation.
+
+    2026-09-16 audit: 3.7s per call, cached 60s like /groups above."""
+    return {"styles": cache.cached("paper_trading_style_breakdown", 60, strategy_groups.style_breakdown)}
 
 
 @router.get("/api/paper-trading/groups/{group_key}")
@@ -835,6 +845,7 @@ def sync_paper_trading_groups():
     -- exposed here so the CEO can re-check it on demand without
     restarting the server. Never reassigns an already-grouped strategy."""
     result = strategy_groups.sync_group_assignments()
+    cache.invalidate("paper_trading_groups")
     return result
 
 
@@ -851,6 +862,7 @@ def move_strategy_group(strategy_id: str, body: MoveStrategyGroupRequest):
     if body.group_key not in strategy_groups.GROUP_KEYS:
         raise HTTPException(400, f"Unknown group '{body.group_key}' -- must be one of {strategy_groups.GROUP_KEYS}")
     storage.upsert_paper_strategy_group(strategy_id, body.group_key, datetime.now(timezone.utc).isoformat(), auto_assigned=False)
+    cache.invalidate("paper_trading_groups")
     return {"ok": True, "strategy_id": strategy_id, "group_key": body.group_key}
 
 
@@ -1761,14 +1773,21 @@ def get_risk_pct_recommendations():
 @router.get("/api/paper-trading/risk-metrics-all")
 def get_risk_metrics_all():
     """Bulk version for a table view (Strategy Performance Dashboard) --
-    one call instead of one per strategy. All reads are cheap indexed DB
-    queries (no network), so a loop here is fine unlike coin_filter's
-    per-symbol exchange calls."""
-    since = insights.fresh_session_start()
-    out = {}
-    for meta in lib.list_all():
-        out[meta["id"]] = insights.compute_risk_metrics(meta["id"], since=since)
-    return {"metrics": out}
+    one call instead of one per strategy.
+
+    2026-09-16 audit (navigation speed): this used to loop
+    compute_risk_metrics() once per LIBRARY strategy (154) -- 154 separate
+    closed-trade queries, measured 11.6s alone and hitting the dashboard's
+    15s client timeout under a real page load (Home, Risk and Paper Trading
+    all fetch it). compute_risk_metrics_batch() already existed for exactly
+    this and returns byte-identical results (verified against the real DB:
+    loop 11.63s vs batch 0.47s, identical=True). Cached 60s with the same
+    stale-while-revalidate helper every other heavy dashboard endpoint uses
+    -- these are report-only ratios, never read by any gate."""
+    def _compute():
+        since = insights.fresh_session_start()
+        return insights.compute_risk_metrics_batch([meta["id"] for meta in lib.list_all()], since=since)
+    return {"metrics": cache.cached("risk_metrics_all", 60, _compute)}
 
 
 # --------------------------------------------------------------- Basic Market Regime Detection
@@ -2639,6 +2658,39 @@ def get_rotation_suggestion():
     other."""
     from paper_trading import challenge_analysis
     return challenge_analysis.strategy_rotation_suggestion()
+
+
+def _compute_open_positions_confluence():
+    exchanges_cfg = base_config.load_or_seed("exchanges.json", base_config.DEFAULTS["exchanges.json"])
+    exchange = exchanges_cfg["default"]
+    out = {}
+    for pos in storage.get_open_paper_positions():
+        try:
+            res = confluence.score_confluence(
+                pos.get("strategy_id"), pos["symbol"], exchange,
+                pos.get("market_state"), pos.get("session"), pos["direction"],
+            )
+            out[pos["id"]] = {"passed": res.get("passed"), "total": res.get("total")}
+        except Exception:
+            out[pos["id"]] = None
+    return out
+
+
+@router.get("/api/paper-trading/confluence-open-positions")
+def get_confluence_for_open_positions():
+    """2026-09-16 audit (navigation speed, root cause): the Paper Trading
+    page used to fire ONE /confluence/{id} request per open position on
+    every render -- and it re-renders every 30s. With 70 open positions
+    that was 70 parallel ~1-2s scoring requests every 30s, measured at 47s
+    each under load, saturating the server's worker threads so every OTHER
+    page's requests queued behind them (Paper Trading measured 71s, the
+    next page's requests hit the 15s client timeout). This computes every
+    open position's display score once, off the request path (same
+    score_confluence(), unchanged -- display only, never read by a gate),
+    and serves it from the shared stale-while-revalidate cache. `ready` is
+    False only for the very first request after a restart."""
+    scores = cache.cached_nonblocking("confluence_open_positions", 60, _compute_open_positions_confluence, None)
+    return {"ready": scores is not None, "scores": scores or {}}
 
 
 @router.get("/api/paper-trading/confluence/{position_id}")
