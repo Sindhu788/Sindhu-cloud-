@@ -1044,6 +1044,19 @@ textarea { font-family: Consolas, monospace; min-height: 160px; }
 @media (max-width: 480px) {
   .brand-text { font-size: 14px; }
   #healthPill { display: none; }
+  /* 2026-09-16 audit (mobile, measured at 375px): the topbar needed ~553px
+     (nav 44 + brand 93 + 11 right-side items 378 + gaps/padding), so the
+     browser widened the WHOLE page's layout viewport to 547px on a 375px
+     phone -- every right-aligned value on every page sat off-screen until
+     the user panned sideways. Trim it to fit: brand mark only, drop the
+     static "CEO" label pill and the Live Logs icon (still one tap away in
+     Quick Actions -> Logs), slightly smaller icons and gaps. */
+  .brand-text { display: none; }
+  .topbar-right { gap: 2px; min-width: 0; }
+  .topbar-right > .pill.pill-muted:first-child { display: none; }
+  #logsToggle { display: none; }
+  .icon-btn { width: 40px; height: 40px; }
+  .topbar { gap: 4px; padding: 0 8px; }
 }
 
 /* ---- bottom tab bar (mobile only; hidden >=769px above) ---- */

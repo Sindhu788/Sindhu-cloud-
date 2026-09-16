@@ -1156,8 +1156,18 @@
   const doSearch = debounce(async () => {
     const q = searchInput.value.trim();
     if (!q) { searchResults.classList.remove("open"); return; }
-    const res = await apiGet(`/api/search?q=${encodeURIComponent(q)}`).catch(() => null);
-    if (!res) return;
+    // 2026-09-16 audit: typing here used to do nothing at all on the cloud
+    // runner (search router is laptop-only -- it reads lessons/backtest
+    // tables the cloud database doesn't have, so it 404s). Show why.
+    let searchErr = null;
+    const res = await apiGet(`/api/search?q=${encodeURIComponent(q)}`).catch(e => { searchErr = e; return null; });
+    if (!res) {
+      searchResults.innerHTML = `<div class="search-group-title">${searchErr && String(searchErr.message).includes("404")
+        ? "Search is only available on the local laptop app."
+        : `Search failed: ${esc(searchErr ? searchErr.message : "no response")}`}</div>`;
+      searchResults.classList.add("open");
+      return;
+    }
 
     const groups = [
       { title: "Coins", items: res.coins.map(c => ({ label: c, go: () => { location.hash = "#market"; } })) },
@@ -2825,6 +2835,23 @@
       ]);
       if (isStaleRoute(myToken)) return;
 
+      // 2026-09-16 audit: the lightweight cloud runner only serves a stub
+      // /api/home ({version, system_health}) -- this full desktop Dashboard
+      // then crashed with "Cannot read properties of undefined (reading
+      // 'level')". route() also falls back to this page for any unknown
+      // #hash, so on the cloud a stale link landed on that raw error.
+      if (!h.maturity) {
+        content.innerHTML = `
+          <div class="card">
+            <b>${getLang() === "en" ? "This Dashboard page is only available on the local laptop app." : "Yeh Dashboard page sirf local laptop app par hai."}</b>
+            <p class="muted">${getLang() === "en"
+              ? "The cloud deployment runs Paper Trading only (no backtest/market-data engine)."
+              : "Cloud par sirf Paper Trading chalti hai (backtest/market-data engine nahi)."}</p>
+            <div class="btn-row"><a class="btn" href="#paper_trading">${getLang() === "en" ? "Open Paper Trading" : "Paper Trading Kholein"}</a></div>
+          </div>`;
+        return;
+      }
+
       const topStrategies = (bw.ranking || []).slice(0, 3);
       const zeroTradeAlerts = (strats.strategies || []).filter(s =>
         s.last_batch_result && s.last_batch_result.status === "completed" && s.last_batch_result.total_trades === 0
@@ -2986,7 +3013,7 @@
       // something from a handful of data points.
       const bestCheckTimeHtml = (bestCheckTime && bestCheckTime.has_enough_data && bestCheckTime.best_hours_utc.length) ? `
         <div class="card muted" style="margin-bottom:14px;font-size:12px;">
-          ⏰ ${getLang() === "en" ? "Best time to check" : "Check karne ka best time"}: <b>${bestCheckTime.best_hours_utc.map(h => `${String(h).padStart(2, "0")}:00 UTC`).join(", ")}</b>
+          ⏰ ${getLang() === "en" ? "Best time to check" : "Check karne ka best time"}: <b>${bestCheckTime.best_hours_utc.map(h => `${String((Number(h) + 5) % 24).padStart(2, "0")}:00 PKT`).join(", ")}</b>
           <span class="muted">(${getLang() === "en" ? "busiest hour(s) for real signals, from" : "sabse zyada signals wale ghante, in"} ${bestCheckTime.total_signals} ${getLang() === "en" ? "delivered signals" : "delivered signals"})</span>
         </div>
       ` : "";
@@ -4090,7 +4117,7 @@
               <button class="btn-ghost strat-edit-tags" data-id="${s.id}" data-tags="${esc((s.tags || []).join(", "))}" title="Edit tags" style="padding:0 4px;font-size:11px;">🏷</button>
               <button class="btn-ghost strat-edit-comment" data-id="${s.id}" data-comment="${esc(s.ceo_comment || "")}" title="${esc(s.ceo_comment || "Add a note")}" style="padding:0 4px;font-size:11px;">${s.ceo_comment ? "📝" : "🗒"}</button>
             </div>
-            <div class="muted" style="font-size:10px;">Last changed: ${s.updated_at ? esc(s.updated_at.slice(0, 16).replace("T", " ")) : "-"}</div>
+            <div class="muted" style="font-size:10px;">Last changed: ${s.updated_at ? esc(fmtPKTFull(s.updated_at)) : "-"}</div>
           </td>
           <td>${(s.concepts_used || []).join(", ") || "-"}</td>
           <td>${Object.entries(s.timeframes || {}).map(([role, tf]) => `${role}:${tf}`).join(", ") || "-"}</td>
@@ -6528,8 +6555,8 @@
           <div><span class="muted">Channel set</span><b>${s.channel_id ? "Yes" : "No"}</b></div>
           <div><span class="muted">Sending switch</span><b>${s.master_send_enabled ? "On" : "Off"}</b></div>
           <div><span class="muted">Proxy</span><b>${cs.proxy_enabled ? (cs.proxy_configured ? "On" : "On, but empty") : "Off"}</b></div>
-          <div><span class="muted">Last success</span><b>${cs.last_success_at ? esc(cs.last_success_at.slice(0, 16).replace("T", " ")) : "Never"}</b></div>
-          <div><span class="muted">Last failure</span><b>${cs.last_failure_at ? esc(cs.last_failure_at.slice(0, 16).replace("T", " ")) : "None"}</b></div>
+          <div><span class="muted">Last success</span><b>${cs.last_success_at ? esc(fmtPKTFull(cs.last_success_at)) + " PKT" : "Never"}</b></div>
+          <div><span class="muted">Last failure</span><b>${cs.last_failure_at ? esc(fmtPKTFull(cs.last_failure_at)) + " PKT" : "None"}</b></div>
           <div><span class="muted">Messages today</span><b>${cs.messages_sent_today != null ? cs.messages_sent_today : "-"}</b></div>
         </div>
         ${cs.last_failure_reason ? `<div class="conn-detail">Last recorded failure: ${esc(cs.last_failure_reason)}</div>` : ""}
@@ -6693,7 +6720,7 @@
           </tr></thead>
           <tbody>${signals.slice(0, 200).map(s => `
             <tr>
-              <td>${esc((s.generated_at || "").slice(0, 16).replace("T", " "))}</td>
+              <td>${esc(fmtPKTFull(s.generated_at))}</td>
               <td style="max-width:190px;">${esc(s.strategy_name || "-")}</td>
               <td>${esc(s.symbol || "-")}</td>
               <td><span class="pill ${s.direction === "long" ? "pill-bullish" : "pill-bearish"}">${esc((s.direction || "-").toUpperCase())}</span></td>
@@ -6733,7 +6760,7 @@
           </tr></thead>
           <tbody>${nearMiss.near_misses.slice(0, 100).map(n => `
             <tr>
-              <td>${esc((n.created_at || "").slice(0, 16).replace("T", " "))}</td>
+              <td>${esc(fmtPKTFull(n.created_at))}</td>
               <td style="max-width:180px;">${esc(n.strategy_name || "-")}</td>
               <td>${esc(n.symbol || "-")}</td>
               <td>${n.confluence_passed}/${n.confluence_total} aligned (needed ${n.confluence_required_count}+, ratio ${(n.confluence_required_ratio * 100).toFixed(0)}%)</td>
@@ -6801,7 +6828,7 @@
           <thead><tr><th>When</th><th>Position</th><th>Reaction</th><th>From</th></tr></thead>
           <tbody>${(reactionsRes.reactions || []).map(r => `
             <tr>
-              <td>${esc((r.at || "").slice(0, 16).replace("T", " "))}</td>
+              <td>${esc(fmtPKTFull(r.at))}</td>
               <td>${esc(r.position_id)}</td>
               <td>${r.reaction === "up" ? "👍" : "👎"}</td>
               <td>${esc(String(r.from_user || "-"))}</td>
@@ -6816,7 +6843,7 @@
               <div class="mirror-head">
                 <div>
                   <b>${esc(m.strategy_name || "Unknown strategy")}</b>
-                  <span class="muted" style="font-size:12px;"> &mdash; ${esc(m.trigger_type)} &mdash; ${esc((m.sent_at || "").slice(0, 16).replace("T", " "))}</span>
+                  <span class="muted" style="font-size:12px;"> &mdash; ${esc(m.trigger_type)} &mdash; ${esc(fmtPKTFull(m.sent_at))}</span>
                 </div>
                 ${tgStatusPill({
                   delivery_status: m.success ? "sent" : "blocked_network",
@@ -7565,8 +7592,8 @@
           </div>
           ${q.approved
             ? `<p class="muted">${en
-                ? `Approved ${esc((q.approved_at || "").slice(0, 16).replace("T", " "))} -- now enabled in live Paper Trading and flagged for Telegram alerts.`
-                : `${esc((q.approved_at || "").slice(0, 16).replace("T", " "))} ko approve ki gayi -- ab live Paper Trading mein enabled hai aur Telegram alerts ke liye flag ki gayi hai.`}</p>`
+                ? `Approved ${esc(fmtPKTFull(q.approved_at))} -- now enabled in live Paper Trading and flagged for Telegram alerts.`
+                : `${esc(fmtPKTFull(q.approved_at))} ko approve ki gayi -- ab live Paper Trading mein enabled hai aur Telegram alerts ke liye flag ki gayi hai.`}</p>`
             : `<p>${en
                 ? "This strategy has cleared the real profitability bar, but nothing has been enabled automatically. Approving below turns it on in live Paper Trading and flags it for Telegram alerts -- nothing else changes."
                 : "Yeh strategy asli profitability ki had paar kar chuki hai, lekin kuch bhi khud ba khud enable nahi hua. Neeche approve karne se yeh live Paper Trading mein on ho jayegi aur Telegram alerts ke liye flag ho jayegi -- aur kuch nahi badlega."}</p>
@@ -7578,7 +7605,7 @@
             : `Abhi tak koi profitable strategy nahi mili. ${scan.strategies_checked} strategies ke asli paper trading records check kiye -- abhi tak kisi ne bhi asli edge (cost ke baad positive PnL) aur bharosemand win rate (${result.min_win_rate}%+) kam se kam ${result.min_closed_trades} band trades par nahi dikhaya.`}</p>
         `}
 
-        <p class="muted" style="font-size:12px;">${en ? "Last scanned" : "Aakhri scan"}: ${esc((scan.scanned_at || "").slice(0, 16).replace("T", " "))} (${scan.strategies_checked} ${en ? "strategies checked" : "strategies check kiye"})</p>
+        <p class="muted" style="font-size:12px;">${en ? "Last scanned" : "Aakhri scan"}: ${esc(fmtPKTFull(scan.scanned_at))} (${scan.strategies_checked} ${en ? "strategies checked" : "strategies check kiye"})</p>
       `;
 
       document.getElementById("slScanNow").onclick = async () => {
@@ -7706,7 +7733,7 @@
           <thead><tr><th>${en ? "When" : "Kab"}</th><th>${en ? "Combo" : "Combo"}</th><th>${en ? "Outcome" : "Outcome"}</th><th>${en ? "Reason" : "Reason"}</th></tr></thead>
           <tbody>${(attempts.attempts || []).map(a => `
             <tr>
-              <td>${esc((a.created_at || "").slice(0, 16).replace("T", " "))}</td>
+              <td>${esc(fmtPKTFull(a.created_at))}</td>
               <td>${esc((a.dna_combo || []).join(" + "))}</td>
               <td><span class="pill ${a.outcome === "accepted" ? "pill-up" : "pill-down"}">${esc(a.outcome)}</span></td>
               <td style="max-width:360px;">${esc(a.reason)}</td>
@@ -8768,7 +8795,7 @@
               <td>${esc(s.strategy_name || s.strategy_id || "-")}</td>
               <td>${esc(s.symbol || "-")}</td>
               <td>${esc(s.direction || "-")}</td>
-              <td>${esc((s.sent_at || "").slice(0, 16).replace("T", " "))}</td>
+              <td>${esc(fmtPKTFull(s.sent_at))}</td>
               <td>${outcomePill(s.outcome)}</td>
               <td>${s.quality_grade
                 ? `<span class="pill ${s.quality_grade === "A+" || s.quality_grade === "A" ? "pill-bullish" : s.quality_grade === "B" ? "pill-muted" : "pill-bearish"}" title="${esc(s.grade_reason || "")}">${esc(s.quality_grade)}</span>`
@@ -9277,7 +9304,7 @@
                 <td>${esc(r.name)}</td>
                 <td style="font-size:12px;">${esc(r.metric)}${r.strategy_id ? ` (${esc(strategyNameById[r.strategy_id] || r.strategy_id)})` : ""} ${esc(r.comparison)} ${r.threshold}</td>
                 <td><input type="checkbox" class="car-toggle" data-id="${r.id}" ${r.enabled ? "checked" : ""}></td>
-                <td style="font-size:12px;">${r.last_triggered_at ? esc(r.last_triggered_at.slice(0, 16).replace("T", " ")) : "-"}</td>
+                <td style="font-size:12px;">${r.last_triggered_at ? esc(fmtPKTFull(r.last_triggered_at)) : "-"}</td>
                 <td><button class="btn-ghost car-delete" data-id="${r.id}">Delete</button></td>
               </tr>`).join("") || `<tr><td colspan="5">No custom rules yet.</td></tr>`}</tbody>
           </table></div>
@@ -9301,7 +9328,7 @@
               <tr>
                 <td>${esc(b.symbol)}</td>
                 <td style="font-size:12px;">${esc(b.reason || "-")}</td>
-                <td style="font-size:12px;">${esc((b.added_at || "").slice(0, 16).replace("T", " "))}</td>
+                <td style="font-size:12px;">${esc(fmtPKTFull(b.added_at))}</td>
                 <td><button class="btn-ghost cbl-remove" data-symbol="${esc(b.symbol)}">${getLang() === "en" ? "Remove" : "Hataayein"}</button></td>
               </tr>`).join("") || `<tr><td colspan="4">${getLang() === "en" ? "No coins blacklisted." : "Koi coin blacklist nahi."}</td></tr>`}</tbody>
           </table></div>
@@ -9754,7 +9781,7 @@
             : "Sirf ek taraf, cloud se local: har 24 ghante mein cloud runner apni open positions, closed trades, aur Telegram signal log ka backup banata hai -- taakay yeh data sirf cloud database par depend na rahe. Yahan se local data kabhi cloud par wapis nahi jaata."}</p>
           <div id="ptCloudSyncStatus" style="font-size:13px;margin-bottom:8px;">
             ${cloudSyncStatusRes.has_run
-              ? `${getLang() === "en" ? "Last synced" : "Aakhri sync"}: ${esc((cloudSyncStatusRes.generated_at || "").slice(0, 19).replace("T", " "))} UTC -- `
+              ? `${getLang() === "en" ? "Last synced" : "Aakhri sync"}: ${esc(fmtPKTFull(cloudSyncStatusRes.generated_at))} PKT -- `
                 + `${cloudSyncStatusRes.open_positions} ${getLang() === "en" ? "open" : "open"}, `
                 + `${cloudSyncStatusRes.closed_positions} ${getLang() === "en" ? "closed" : "closed"}, `
                 + `${cloudSyncStatusRes.telegram_signals} ${getLang() === "en" ? "Telegram signals" : "Telegram signals"}`
@@ -10592,8 +10619,8 @@
         try {
           const result = await apiPost("/api/paper-trading/cloud-sync/run-now");
           status.textContent = getLang() === "en"
-            ? `Done -- synced at ${result.generated_at.slice(0, 19).replace("T", " ")} UTC.`
-            : `Ho gaya -- ${result.generated_at.slice(0, 19).replace("T", " ")} UTC par sync hua.`;
+            ? `Done -- synced at ${fmtPKTFull(result.generated_at)} PKT.`
+            : `Ho gaya -- ${fmtPKTFull(result.generated_at)} PKT par sync hua.`;
           appendLog("[cloud-sync] manual backup snapshot generated.");
         } catch (e) {
           status.textContent = `${getLang() === "en" ? "Failed" : "Nakaam"}: ${e.message}`;
@@ -10755,7 +10782,7 @@
           };
           box.textContent = `History -- ${btn.dataset.name}\n(includes manual saves AND automatic self-learning events -- when Pattern Auto-Avoid or Lesson Auto-Apply changed this strategy's behavior)\n\n` +
             (timeline.length
-              ? timeline.map(e => `[${(e.at || "").slice(0, 19).replace("T", " ")}] ${labels[e.type] || e.type}${e.symbol ? ` (${e.symbol})` : ""}\n    ${e.detail}`).join("\n\n")
+              ? timeline.map(e => `[${fmtPKTFull(e.at)}] ${labels[e.type] || e.type}${e.symbol ? ` (${e.symbol})` : ""}\n    ${e.detail}`).join("\n\n")
               : "No history recorded for this strategy yet.");
         };
       });
@@ -11671,8 +11698,19 @@
       setTimeout(startOnboardingTour, 300);
     };
 
+    // 2026-09-16 audit: backups/weekly snapshots/infra digest are laptop-only
+    // routers -- on the cloud runner these 404'd as unhandled errors and left
+    // their cards blank with live-looking buttons. Say so plainly instead.
+    const localOnlyCard = (listId, btnId) => {
+      const el = document.getElementById(listId);
+      if (el) el.innerHTML = `<p class="muted">${getLang() === "en" ? "Available on the local laptop app only (not part of the cloud deployment)." : "Yeh sirf local laptop app par hai (cloud par nahi)."}</p>`;
+      const btn = document.getElementById(btnId);
+      if (btn) btn.disabled = true;
+    };
     async function loadBackups() {
-      const b = await apiGet("/api/backup/list");
+      let b;
+      try { b = await apiGet("/api/backup/list"); }
+      catch (e) { if (String(e.message).includes("404")) return localOnlyCard("backupList", "btnBackupNow"); throw e; }
       document.getElementById("backupList").innerHTML = `<table>
         <thead><tr><th>Name</th><th>Size</th><th>Modified</th></tr></thead>
         <tbody>${b.backups.map(x => `<tr><td>${esc(x.name)}</td><td>${fmtBytes(x.size_bytes)}</td><td>${esc(x.modified_at.slice(0,19))}</td></tr>`).join("")}</tbody>
@@ -11681,12 +11719,14 @@
     document.getElementById("btnBackupNow").onclick = async () => {
       await apiPost("/api/backup/create");
       appendLog("Manual backup created.");
-      loadBackups();
+      loadBackups().catch(console.error);
     };
     loadBackups();
 
     async function loadWeeklySnapshots() {
-      const s = await apiGet("/api/weekly-snapshot/list");
+      let s;
+      try { s = await apiGet("/api/weekly-snapshot/list"); }
+      catch (e) { if (String(e.message).includes("404")) return localOnlyCard("weeklySnapshotList", "btnWeeklySnapshotNow"); throw e; }
       document.getElementById("weeklySnapshotList").innerHTML = `<table>
         <thead><tr><th>Name</th><th>Size</th><th>Modified</th></tr></thead>
         <tbody>${s.snapshots.map(x => `<tr><td>${esc(x.name)}</td><td>${fmtBytes(x.size_bytes)}</td><td>${esc(x.modified_at.slice(0,19))}</td></tr>`).join("") || '<tr><td colspan="3">No weekly snapshots yet.</td></tr>'}</tbody>
@@ -11695,12 +11735,14 @@
     document.getElementById("btnWeeklySnapshotNow").onclick = async () => {
       await apiPost("/api/weekly-snapshot/create-now");
       appendLog("Weekly snapshot created.");
-      loadWeeklySnapshots();
+      loadWeeklySnapshots().catch(console.error);
     };
     loadWeeklySnapshots();
 
     async function loadInfraDigest() {
-      const d = await apiGet("/api/infra-weekly-digest?limit=1");
+      let d;
+      try { d = await apiGet("/api/infra-weekly-digest?limit=1"); }
+      catch (e) { if (String(e.message).includes("404")) return localOnlyCard("infraDigestBody", "btnGenInfraDigest"); throw e; }
       const body = document.getElementById("infraDigestBody");
       body.innerHTML = d.digests.length
         ? `<div style="white-space:pre-wrap;font-size:13px;">${esc(d.digests[0].report_text)}</div>
@@ -11710,7 +11752,7 @@
     document.getElementById("btnGenInfraDigest").onclick = async () => {
       await apiPost("/api/infra-weekly-digest/generate-now");
       appendLog("Infrastructure weekly digest generated.");
-      loadInfraDigest();
+      loadInfraDigest().catch(console.error);
     };
     loadInfraDigest();
 
@@ -11748,7 +11790,7 @@
       const el = document.getElementById("quietModeStatus");
       if (!el) return;
       el.textContent = s.quiet_mode_active
-        ? `Quiet Mode is ON until ${esc((s.quiet_mode_until || "").replace("T", " ").slice(0, 16))} UTC.`
+        ? `Quiet Mode is ON until ${esc(fmtPKTFull(s.quiet_mode_until))} PKT.`
         : "Quiet Mode is off.";
     }
     document.getElementById("btnQuietModeToday").onclick = async () => {
@@ -13024,7 +13066,7 @@
         <div class="card" style="margin-bottom:14px;">
           <b>↩ Undo Last Action</b>
           <div class="muted" style="margin-top:6px;font-size:12.5px;">${undoAction
-            ? `Last: ${esc(undoAction.description)} <span class="muted">(${esc((undoAction.at || "").slice(0, 16).replace("T", " "))})</span>`
+            ? `Last: ${esc(undoAction.description)} <span class="muted">(${esc(fmtPKTFull(undoAction.at))})</span>`
             : "Nothing to undo right now."}</div>
           ${undoAction ? `<div class="btn-row" style="margin-top:8px;"><button class="btn-ghost" id="btnUndoLastAction">Undo This</button><span id="undoStatus" class="muted"></span></div>` : ""}
         </div>
@@ -13176,7 +13218,7 @@
         ${tripHistory.events.length === 0 ? `<p class="muted">No safety gate has ever tripped.</p>` : `
           <table><thead><tr><th>When</th><th>Gate</th><th>Event</th><th>Reason</th></tr></thead><tbody>
             ${tripHistory.events.map(e => `<tr>
-              <td>${esc((e.created_at || "").slice(0, 16).replace("T", " "))}</td>
+              <td>${esc(fmtPKTFull(e.created_at))}</td>
               <td>${esc({ kill_switch: "Kill Switch", account_drawdown: "Account-Wide Drawdown", strategy_drawdown_pause: "Per-Strategy Drawdown" }[e.entity] || e.entity)}</td>
               <td><span class="pill ${e.action === "activated" || e.action === "paused" ? "pill-down" : "pill-up"}">${esc(e.action)}</span></td>
               <td>${esc(e.message)}</td>
