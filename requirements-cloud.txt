@@ -9,20 +9,37 @@
 # Traced by actually importing cloud_runtime.app's full dependency graph
 # and listing every third-party package really touched -- not copied from
 # requirements.txt by guesswork.
+#
+# 2026-09-16 audit: PINNED. Every package used to be unpinned, so each Render
+# rebuild silently pulled the newest release of everything -- one breaking
+# upstream release (pandas/fastapi/starlette/ccxt all ship often) would crash
+# the next deploy with nobody around to notice. These are exactly the versions
+# a clean `pip install -r` of the old unpinned file resolved on 2026-09-16
+# (the same day the live service last rebuilt successfully -- same or near-
+# identical versions), verified in a fresh venv: cloud_runtime.app imports,
+# 223 routes register, /health returns ok, pip check clean; PyPI confirms
+# manylinux cp313 wheels for every compiled pin (pandas, numpy, psycopg2-
+# binary, psutil).
+# To upgrade deliberately: bump a version here, redeploy, and check /health.
+# starlette/pydantic/numpy are transitive but pinned too -- they are the
+# ones most likely to break fastapi/pandas underneath an unchanged pin.
 
-fastapi
-uvicorn[standard]
-pandas
-ccxt
-requests
-PySocks
-psycopg2-binary
-openpyxl
-python-multipart
+fastapi==0.141.1
+starlette==1.6.0
+pydantic==2.13.5
+uvicorn[standard]==0.53.0
+pandas==3.0.5
+numpy==2.5.3
+ccxt==4.5.78
+requests==2.34.2
+PySocks==1.7.1
+psycopg2-binary==2.9.13
+openpyxl==3.1.5
+python-multipart==0.0.32
 # psutil: this was missing and caused every single Render deploy to crash
 # at import time (sindhu_web/api/system.py imports it at module level, and
 # cloud_runtime/app.py imports system.py at module level too -- so the
 # WHOLE app failed to import, before startup/lifespan ever ran). Confirmed
 # the only genuinely missing dependency by tracing cloud_runtime.app's real
 # import graph in a fresh subprocess and diffing against this file.
-psutil
+psutil==7.2.2
