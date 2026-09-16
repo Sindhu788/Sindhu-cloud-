@@ -11,6 +11,7 @@ hand against a real running instance -- see DEPLOYMENT_CHECKPOINT.md Step
 calls and takes ~30s.
 """
 
+import re
 import subprocess
 import sys
 import textwrap
@@ -120,7 +121,12 @@ def test_every_third_party_import_cloud_runtime_touches_is_in_requirements_cloud
     }
 
     with open(os.path.join(project_root, "requirements-cloud.txt"), encoding="utf-8") as f:
-        cloud_reqs = {line.strip().split("[")[0] for line in f if line.strip() and not line.startswith("#")}
+        # 2026-09-16: requirements-cloud.txt is now PINNED ("fastapi==0.141.1",
+        # "uvicorn[standard]==0.53.0") -- take just the distribution name
+        # before any extras/version specifier, or every pinned line would
+        # falsely read as "missing".
+        cloud_reqs = {re.split(r"[\[=<>!~;\s]", line.strip(), maxsplit=1)[0]
+                      for line in f if line.strip() and not line.startswith("#")}
 
     missing = []
     for name in sorted(third_party):
