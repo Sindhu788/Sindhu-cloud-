@@ -191,6 +191,13 @@ async def _lifespan(app: FastAPI):
     start_private_report_scheduler_thread()
     from paper_trading.challenge_multi import start_achievability_snapshot_scheduler_thread
     start_achievability_snapshot_scheduler_thread()
+    # Investigation Batch 2026-09-17, Part 2 (Telegram /challenge command):
+    # completion/failure/balance-threshold-pause detection + the once-a-day
+    # per-challenge update, all separate from the achievability snapshot
+    # thread just above (that one only ever records a trend number, never
+    # archives a challenge or sends anything).
+    from paper_trading.challenge_multi import start_challenge_lifecycle_scheduler_thread
+    start_challenge_lifecycle_scheduler_thread()
     from evolution_engine.weekly_review import start_evolution_weekly_review_scheduler_thread
     start_evolution_weekly_review_scheduler_thread()
     from paper_trading.strategy_lab import start_strategy_lab_scheduler_thread

@@ -59,7 +59,7 @@ def create_challenge(
         raise ValueError("start_amount must be positive")
 
     baseline_win_rate_pct = None
-    if scope_strategy_id and scope_symbol:
+    if scope_strategy_id or scope_symbol:  # see challenge_mode.compute_progress's own `scoped` comment
         from paper_trading import challenge_analysis
         rows = challenge_analysis._closed_rows(scope_strategy_id, scope_symbol)
         if rows:
@@ -197,6 +197,243 @@ def achievability_trend(challenge_id, days=7):
     from datetime import timedelta
     since_iso = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
     return storage.list_challenge_achievability_snapshots(challenge_id, since_iso=since_iso)
+
+
+def is_active_challenge_signal(strategy_id, symbol):
+    """Part 4, 4.1: does this signal belong to a user-created, currently
+    active (not archived, not paused) challenge? Used by telegram_bot.
+    format_signal_message to attach the distinct ⚫ marker alongside the
+    existing 🔵/🔴/🟣 group markers -- a challenge's scoped strategy+coin
+    is a SEPARATE, additive classification from strategy_groups' own
+    profitable/losing/challenge-GROUP buckets, so a signal can (and
+    often will) show both markers at once."""
+    if not strategy_id or not symbol:
+        return False
+    for c in storage.list_challenges():
+        if c["paused"]:
+            continue
+        if c["scope_strategy_id"] == strategy_id and c["scope_symbol"] == symbol:
+            return True
+    return False
+
+
+# --------------------------------------------------------------- Telegram /challenge command (2026-09-17)
+
+BALANCE_PAUSE_THRESHOLD_PCT = 50.0  # 2.5: pause + warn once current_amount drops this far below start
+
+
+def find_non_conflicting_path(paths, exclude_archived=True):
+    """2.12 (resource conflicts): a (strategy_id, symbol) combo already
+    claimed as another ACTIVE challenge's exact scope would have its real
+    trades counted toward BOTH challenges' targets at once -- the same
+    real money "used twice". Returns the first path (already ranked by
+    recommend_paths -- best first) whose combo isn't already claimed, or
+    None if every candidate is already claimed."""
+    claimed = {
+        (c["scope_strategy_id"], c["scope_symbol"])
+        for c in storage.list_challenges(include_archived=not exclude_archived)
+        if c["scope_strategy_id"] and c["scope_symbol"]
+    }
+    for p in paths:
+        if (p["strategy_id"], p["symbol"]) not in claimed:
+            return p
+    return None
+
+
+def check_balance_threshold(challenge_id, threshold_pct=BALANCE_PAUSE_THRESHOLD_PCT, now_iso=None):
+    """2.5: if a challenge's current_amount has dropped below threshold_pct
+    of its start_amount, pause it (paused=True -- NOT archived: paper
+    trading and every other challenge continue completely unaffected,
+    this only marks this one challenge for a human decision) and return
+    the info needed for a warning message. Returns None when there's
+    nothing new to warn about (not below threshold, already paused, or
+    already archived)."""
+    row = storage.get_challenge(challenge_id)
+    if not row or row["archived"] or row["paused"]:
+        return None
+    progress = compute_progress_for(challenge_id, now_iso=now_iso)
+    if progress is None:
+        return None
+    threshold_amount = row["start_amount"] * (threshold_pct / 100.0)
+    if progress["current_amount"] >= threshold_amount:
+        return None
+    storage.update_challenge(challenge_id, now_iso or _now_iso(), paused=True)
+    return {
+        "challenge_id": challenge_id, "label": row["label"],
+        "start_amount": row["start_amount"], "current_amount": progress["current_amount"],
+        "threshold_pct": threshold_pct,
+    }
+
+
+def resume_challenge(challenge_id, now_iso=None):
+    """The "continue" half of 2.5's warning -- explicitly un-pauses a
+    challenge the CEO decided to keep running as-is."""
+    row = storage.get_challenge(challenge_id)
+    if not row:
+        raise ValueError(f"unknown challenge id: {challenge_id}")
+    storage.update_challenge(challenge_id, now_iso or _now_iso(), paused=False)
+    return storage.get_challenge(challenge_id)
+
+
+def stop_challenge(challenge_id, now_iso=None):
+    """2.10 (/stopchallenge): manually ends a challenge early. Whatever
+    the result is at this exact moment becomes final -- archived with
+    final_status='stopped', same as a natural completion/failure, so it
+    shows up in history (2.14) honestly labeled as CEO-ended rather than
+    a real completion or a real deadline failure."""
+    row = storage.get_challenge(challenge_id)
+    if not row:
+        raise ValueError(f"unknown challenge id: {challenge_id}")
+    if row["archived"]:
+        raise ValueError(f"challenge {challenge_id} is already archived (final_status={row['final_status']})")
+    progress = compute_progress_for(challenge_id, now_iso=now_iso)
+    now_iso = now_iso or _now_iso()
+    storage.update_challenge(challenge_id, now_iso, archived=1, final_status="stopped")
+    return progress
+
+
+def celebration_summary(challenge_id):
+    """2.13: a genuine completion deserves more than "complete" -- days
+    taken, signals actually sent for this challenge, best/worst real
+    trade, and a real profit factor, all computed from this challenge's
+    own scoped real trades since it started (unscoped challenges use
+    every real trade system-wide since start, same convention
+    compute_progress already uses)."""
+    row = storage.get_challenge(challenge_id)
+    if not row:
+        return None
+    from paper_trading import challenge_analysis
+    rows = [
+        t for t in challenge_analysis._closed_rows(row["scope_strategy_id"], row["scope_symbol"])
+        if t.get("closed_at") and t["closed_at"] >= row["started_at"]
+    ]
+    days_taken = None
+    if rows:
+        started = datetime.fromisoformat(row["started_at"])
+        last_close = datetime.fromisoformat(max(t["closed_at"] for t in rows))
+        days_taken = round((last_close - started).total_seconds() / 86400, 2)
+    gains = sum(t["pnl"] for t in rows if t["pnl"] > 0)
+    losses = sum(-t["pnl"] for t in rows if t["pnl"] < 0)
+    profit_factor = round(gains / losses, 2) if losses > 0 else (None if not rows else float("inf"))
+    best_trade = max(rows, key=lambda t: t["pnl"]) if rows else None
+    worst_trade = min(rows, key=lambda t: t["pnl"]) if rows else None
+    return {
+        "challenge_id": challenge_id, "label": row["label"],
+        "start_amount": row["start_amount"], "target_amount": row["target_amount"],
+        "days_taken": days_taken, "signals_used": len(rows),
+        "profit_factor": profit_factor,
+        "best_trade": {"symbol": best_trade["symbol"], "pnl": round(best_trade["pnl"], 2)} if best_trade else None,
+        "worst_trade": {"symbol": worst_trade["symbol"], "pnl": round(worst_trade["pnl"], 2)} if worst_trade else None,
+    }
+
+
+def sweep_challenge_lifecycle(now_iso=None):
+    """Runs periodically (see the scheduler thread below): for every
+    active, non-paused challenge, checks in order -- (1) genuinely
+    completed (2.13's celebration), (2) deadline expired without hitting
+    the target (2.6's honest failure), (3) balance dropped below the
+    safe threshold (2.5's pause+warn). A challenge that just got paused
+    this same tick is skipped for the completed/failed checks below it
+    (an already-paused challenge is left for the CEO to resume or
+    /stopchallenge, not auto-archived out from under them).
+
+    Returns a list of {"kind": "completed"|"failed"|"paused", **details}
+    -- the Telegram sender (paper_trading.telegram_challenge_commands)
+    turns each into the right message; this function only detects real
+    state transitions and persists them, it never sends anything itself,
+    same read/write vs. send separation every other module here keeps."""
+    now_iso = now_iso or _now_iso()
+    events = []
+    for row in storage.list_challenges():
+        if row["paused"]:
+            continue
+        progress = compute_progress_for(row["id"], now_iso=now_iso)
+        if progress is None:
+            continue
+        if progress["progress_pct"] >= 100.0:
+            summary = celebration_summary(row["id"])
+            storage.update_challenge(row["id"], now_iso, archived=1, final_status="completed")
+            events.append({"kind": "completed", **summary})
+            continue
+        if progress["remaining_days"] <= 0:
+            storage.update_challenge(row["id"], now_iso, archived=1, final_status="failed")
+            events.append({
+                "kind": "failed", "challenge_id": row["id"], "label": row["label"],
+                "progress_pct": progress["progress_pct"], "current_amount": progress["current_amount"],
+                "target_amount": row["target_amount"], "days": row["days"],
+            })
+            continue
+        paused_info = check_balance_threshold(row["id"], now_iso=now_iso)
+        if paused_info:
+            events.append({"kind": "paused", **paused_info})
+    return events
+
+
+def list_challenge_history(limit=20):
+    """2.14: completed/failed/stopped challenges, most recent first."""
+    rows = [c for c in storage.list_challenges(include_archived=True) if c["archived"]]
+    rows.sort(key=lambda c: c["updated_at"], reverse=True)
+    return rows[:limit]
+
+
+def send_daily_challenge_updates(now_iso=None):
+    """2.15: a daily auto-update for each active challenge, without being
+    asked -- today's result, running total, % of target reached. Dedupes
+    against last_daily_update_sent_at so a scheduler tick running more
+    than once doesn't double-send the same UTC day's update."""
+    from paper_trading import telegram_bot
+    now_iso = now_iso or _now_iso()
+    today = now_iso[:10]
+    sent = []
+    for row in storage.list_challenges():
+        if (row["last_daily_update_sent_at"] or "")[:10] == today:
+            continue
+        progress = compute_progress_for(row["id"], now_iso=now_iso)
+        if progress is None:
+            continue
+        settings = telegram_bot.load_settings()
+        if not settings.get("bot_token") or not settings.get("channel_id"):
+            continue
+        label = row["label"] or row["id"]
+        status_word = "PAUSED" if row["paused"] else ("ahead of pace" if progress["ahead_of_pace"] else "behind pace")
+        text = (
+            f"\U0001F4C5 Daily update -- {label}\n"
+            f"${progress['current_amount']:.2f} of ${progress['target_amount']:.2f} target "
+            f"({progress['progress_pct']:.1f}%), {progress['remaining_days']:.1f} days left, {status_word}."
+        )
+        ok, _error = telegram_bot._raw_send(text)
+        if ok:
+            storage.update_challenge(row["id"], now_iso, last_daily_update_sent_at=now_iso)
+            sent.append(row["id"])
+    return sent
+
+
+def start_challenge_lifecycle_scheduler_thread():
+    """Runs once at server startup (see sindhu_web/server.py and
+    cloud_runtime/app.py): sweeps completed/failed/paused transitions
+    every 15 minutes (frequent enough that a genuine completion or a
+    balance-threshold breach gets a timely message, not a multi-hour-old
+    one), and sends the once-a-day per-challenge update on the same loop
+    (send_daily_challenge_updates is itself idempotent per UTC day, so
+    running it every 15 minutes just means it fires within 15 minutes of
+    a new UTC day starting, not more than once)."""
+    import threading
+    import time
+    from data_engine.logging_setup import log
+
+    def _loop():
+        while True:
+            try:
+                events = sweep_challenge_lifecycle()
+                if events:
+                    from paper_trading import telegram_challenge_commands
+                    telegram_challenge_commands.send_lifecycle_event_messages(events)
+                send_daily_challenge_updates()
+            except Exception as e:
+                log(f"[challenge-lifecycle] sweep failed: {e!r}")
+            time.sleep(15 * 60)
+
+    threading.Thread(target=_loop, daemon=True).start()
 
 
 def start_achievability_snapshot_scheduler_thread():

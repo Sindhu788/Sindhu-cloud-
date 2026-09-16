@@ -732,6 +732,18 @@ CREATE TABLE IF NOT EXISTS challenges (
     updated_at TEXT NOT NULL
 );
 
+-- Investigation Batch 2026-09-17, Telegram /challenge feature: paused (a
+-- challenge that dropped below its safe-balance threshold, auto-paused
+-- pending a CEO decision -- see paper_trading.challenge_multi.check_
+-- balance_threshold), final_status (set once archived: 'completed' /
+-- 'failed' / 'stopped', NULL while still active -- the real history 2.14
+-- asks for), and last_daily_update_sent_at (dedupes the once-a-day
+-- per-challenge Telegram update, 2.15, against a scheduler tick running
+-- more than once in the same UTC day).
+ALTER TABLE challenges ADD COLUMN IF NOT EXISTS paused INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE challenges ADD COLUMN IF NOT EXISTS final_status TEXT;
+ALTER TABLE challenges ADD COLUMN IF NOT EXISTS last_daily_update_sent_at TEXT;
+
 CREATE TABLE IF NOT EXISTS challenge_achievability_snapshots (
     id SERIAL PRIMARY KEY,
     challenge_id TEXT NOT NULL,

@@ -72,7 +72,7 @@ def _is_authorized(chat_id):
     return bool(configured) and str(chat_id) == str(configured)
 
 
-def _status_reply():
+def _status_reply(args=""):
     from paper_trading import account_drawdown_guard, kill_switch
     from paper_trading.engine import engine
     status = engine.status()
@@ -91,7 +91,7 @@ def _status_reply():
     return "\n".join(lines)
 
 
-def _pause_reply():
+def _pause_reply(args=""):
     from paper_trading.engine import engine
     if not engine.is_running():
         return "Engine is already stopped."
@@ -102,7 +102,7 @@ def _pause_reply():
     return "Engine stopped."
 
 
-def _resume_reply():
+def _resume_reply(args=""):
     from paper_trading.engine import engine
     if engine.is_running():
         return "Engine is already running."
@@ -116,7 +116,7 @@ def _resume_reply():
     return "Engine started."
 
 
-def _test_signal_reply():
+def _test_signal_reply(args=""):
     """Grand Master Batch, Phase 6 Item 18: sends a clearly-labeled fake
     signal (telegram_bot.send_test_signal) to the main channel in the
     exact real message format, for visual/format checking on demand --
@@ -126,19 +126,38 @@ def _test_signal_reply():
     return "Test signal sent to the main channel." if result["ok"] else f"Couldn't send test signal: {result['error']}"
 
 
-def _help_reply():
+def _help_reply(args=""):
+    # Investigation Batch 2026-09-17, Part 5: /menu is the full guide
+    # (every command AND every signal marker explained); /help stays this
+    # short original list for backward compatibility, but now points at
+    # /menu for the complete picture rather than duplicating it here.
     return (
         "Available commands:\n"
         "/status -- engine state, open trades, balance, kill switch / drawdown pause status\n"
         "/pause -- stop the engine (same as the dashboard's Stop Engine button)\n"
         "/resume -- start the engine (same as the dashboard's Start Engine button)\n"
         "/test -- sends a clearly-labeled fake signal to the main channel, for format checking only\n"
+        "/challenge, /stopchallenge, /resumechallenge, /mychallenges, /report -- see /menu for full details\n"
+        "/menu -- the complete guide (every command + every signal marker explained)\n"
         "/help -- this message"
     )
 
 
 _COMMANDS = {"/status": _status_reply, "/pause": _pause_reply, "/resume": _resume_reply,
              "/test": _test_signal_reply, "/help": _help_reply}
+
+
+def _register_challenge_commands():
+    """Deferred import (paper_trading.telegram_challenge_commands imports
+    challenge_analysis/challenge_multi/telegram_bot, and telegram_bot
+    itself lazily imports challenge_multi -- calling this once at module
+    load, after _COMMANDS already exists, avoids any import-order issue
+    rather than risking one with a top-level import)."""
+    from paper_trading import telegram_challenge_commands
+    _COMMANDS.update(telegram_challenge_commands.COMMANDS)
+
+
+_register_challenge_commands()
 
 
 def _answer_callback_query(callback_query_id, text=None):
@@ -191,14 +210,23 @@ def handle_update(update):
     message = update.get("message") or {}
     chat = message.get("chat") or {}
     chat_id = chat.get("id")
-    text = (message.get("text") or "").strip().split("@")[0]  # strip a group chat's /cmd@botname suffix
+    raw_text = (message.get("text") or "").strip()
 
     if not chat_id or not _is_authorized(chat_id):
         return None
-    handler = _COMMANDS.get(text)
+    if not raw_text:
+        return None
+    # Investigation Batch 2026-09-17: /challenge and friends take
+    # arguments (e.g. "/challenge 50 100 14d"), unlike every command that
+    # existed before them -- split off the command word (still stripping
+    # a group chat's /cmd@botname suffix) and pass the rest through.
+    parts = raw_text.split(None, 1)
+    command = parts[0].split("@")[0]
+    args = parts[1] if len(parts) > 1 else ""
+    handler = _COMMANDS.get(command)
     if not handler:
         return None
-    reply = handler()
+    reply = handler(args)
     _reply(chat_id, reply)
     return reply
 

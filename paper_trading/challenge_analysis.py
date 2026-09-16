@@ -34,10 +34,26 @@ DRIFT_RECENT_TRADES_WINDOW = 15
 
 
 def _closed_rows(strategy_id=None, symbol=None):
-    rows = storage.list_closed_paper_positions(limit=_MAX_ROWS, strategy_id=strategy_id)
+    """strategy_id/symbol each accept either a single value (the original,
+    common case -- filtered in SQL for strategy_id, exact-match for symbol)
+    or a list/tuple/set of values (2026-09-17, Telegram /challenge feature:
+    a challenge with multiple auto-selected strategies, or restricted to
+    several coins -- see paper_trading.challenge_multi.create_challenge's
+    scope_strategy_id/scope_symbol docs)."""
+    strategy_is_multi = isinstance(strategy_id, (list, tuple, set))
+    rows = storage.list_closed_paper_positions(
+        limit=_MAX_ROWS, strategy_id=None if strategy_is_multi else strategy_id,
+    )
     rows = [r for r in rows if r.get("pnl") is not None and r.get("strategy_id") is not None]
+    if strategy_is_multi:
+        strategy_ids = set(strategy_id)
+        rows = [r for r in rows if r["strategy_id"] in strategy_ids]
     if symbol:
-        rows = [r for r in rows if r["symbol"] == symbol]
+        if isinstance(symbol, (list, tuple, set)):
+            symbols = set(symbol)
+            rows = [r for r in rows if r["symbol"] in symbols]
+        else:
+            rows = [r for r in rows if r["symbol"] == symbol]
     return rows
 
 

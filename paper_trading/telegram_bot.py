@@ -1284,12 +1284,29 @@ def format_signal_message(position, confluence_result=None, reliability_result=N
 
     group_key = strategy_groups.get_group(position.get("strategy_id")) if position.get("strategy_id") else None
     status_emoji = _GROUP_MARKER_EMOJI.get(group_key, _UNCLASSIFIED_MARKER_EMOJI)
+    # Part 4, 4.1 (Investigation Batch 2026-09-17): a SEPARATE, additive
+    # marker for a signal belonging to a user-created Telegram /challenge
+    # -- alongside, never instead of, the group marker above (a signal
+    # can be both 🔵 Profitable-group AND ⚫ part of an active challenge).
+    # Guarded: this function is called on the hot signal-sending path, and
+    # dozens of existing tests exercise it directly with no DB set up at
+    # all (it previously had zero storage dependency) -- a query failure
+    # here (an un-migrated old DB file, a locked connection, ...) must
+    # never crash message formatting itself; the signal still sends,
+    # just without this one cosmetic marker.
+    challenge_marker = ""
+    try:
+        from paper_trading import challenge_multi
+        if challenge_multi.is_active_challenge_signal(position.get("strategy_id"), symbol):
+            challenge_marker = "\U000026AB "
+    except Exception:
+        pass
     _, _, duration_text = trading_style_for_timeframe(position.get("timeframe"))
     direction = (position.get("direction") or "").upper()
     confidence = position.get("confidence")
 
     lines = [
-        f"{status_emoji} <b>{symbol}</b>",
+        f"{challenge_marker}{status_emoji} <b>{symbol}</b>",
         f"{L['direction']}: {direction}" if direction else f"{L['direction']}: --",
         f"{L['entry']}: {_format_price(position.get('entry_price'))}",
         f"{L['stop_loss']}: {_format_price(position.get('stop_loss'))}",

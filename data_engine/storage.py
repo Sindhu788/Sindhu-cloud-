@@ -1205,6 +1205,9 @@ CREATE TABLE IF NOT EXISTS challenges (
     telegram_report_enabled INTEGER NOT NULL DEFAULT 0,
     compounding INTEGER NOT NULL DEFAULT 1,
     archived INTEGER NOT NULL DEFAULT 0,
+    paused INTEGER NOT NULL DEFAULT 0,
+    final_status TEXT,
+    last_daily_update_sent_at TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -1513,6 +1516,25 @@ def _migrate_telegram_log_grade_columns(conn):
         conn.execute("ALTER TABLE telegram_message_log ADD COLUMN quality_grade TEXT")
     if "grade_reason" not in have_columns:
         conn.execute("ALTER TABLE telegram_message_log ADD COLUMN grade_reason TEXT")
+
+
+def _migrate_challenge_columns(conn):
+    """Investigation Batch 2026-09-17, Telegram /challenge feature: adds
+    paused/final_status/last_daily_update_sent_at to an existing SQLite
+    challenges table (see the CREATE TABLE's own comment for what each
+    is for). Additive-only, existing rows default to "not paused, no
+    final status yet, never sent"."""
+    existing = {r[0] for r in
+                conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "challenges" not in existing:
+        return
+    have_columns = {r[1] for r in conn.execute("PRAGMA table_info(challenges)").fetchall()}
+    if "paused" not in have_columns:
+        conn.execute("ALTER TABLE challenges ADD COLUMN paused INTEGER NOT NULL DEFAULT 0")
+    if "final_status" not in have_columns:
+        conn.execute("ALTER TABLE challenges ADD COLUMN final_status TEXT")
+    if "last_daily_update_sent_at" not in have_columns:
+        conn.execute("ALTER TABLE challenges ADD COLUMN last_daily_update_sent_at TEXT")
 
 
 def _migrate_backtest_batch_extraction_warning_column(conn):
@@ -1996,6 +2018,7 @@ def init_db():
         _migrate_backtest_batch_extraction_warning_column(conn)
         _migrate_telegram_log_explanation_column(conn)
         _migrate_telegram_log_grade_columns(conn)
+        _migrate_challenge_columns(conn)
         _migrate_backtest_fk_constraints(conn)
 
 
@@ -5441,6 +5464,9 @@ _CHALLENGE_COLUMNS = [
     "id", "label", "start_amount", "target_amount", "timeframe_type", "days", "started_at",
     "scope_strategy_id", "scope_symbol", "baseline_win_rate_pct", "telegram_report_enabled",
     "compounding", "archived", "created_at", "updated_at",
+    # Investigation Batch 2026-09-17, Telegram /challenge feature -- see
+    # the CREATE TABLE's own comment for what each is for.
+    "paused", "final_status", "last_daily_update_sent_at",
 ]
 
 
@@ -5449,6 +5475,7 @@ def _row_to_challenge(row):
     d["telegram_report_enabled"] = bool(d["telegram_report_enabled"])
     d["compounding"] = bool(d["compounding"])
     d["archived"] = bool(d["archived"])
+    d["paused"] = bool(d["paused"])
     return d
 
 
@@ -5502,7 +5529,7 @@ def update_challenge(challenge_id, now_iso, **fields):
     unknown = set(fields) - allowed
     if unknown:
         raise ValueError(f"unknown challenge field(s): {unknown}")
-    bool_fields = {"telegram_report_enabled", "compounding", "archived"}
+    bool_fields = {"telegram_report_enabled", "compounding", "archived", "paused"}
     normalized = {k: (1 if v else 0) if k in bool_fields else v for k, v in fields.items()}
     set_clause = ", ".join(f"{k} = ?" for k in normalized)
     values = list(normalized.values()) + [now_iso, challenge_id]

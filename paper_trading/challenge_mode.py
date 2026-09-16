@@ -284,7 +284,15 @@ def compute_progress(now_iso=None, settings=None):
 
     scope_strategy_id = settings.get("scope_strategy_id")
     scope_symbol = settings.get("scope_symbol")
-    scoped = bool(scope_strategy_id and scope_symbol)
+    # 2026-09-17 (Telegram /challenge feature): was `and` -- which silently
+    # fell through to whole-account UNSCOPED tracking for a challenge that
+    # named strategies but no specific coin (or vice versa), even though
+    # _scoped_daily_rate/_scoped_current_amount below already handle a None
+    # scope_symbol or scope_strategy_id fine (see challenge_analysis.
+    # _closed_rows, which just skips whichever filter is absent). `or`
+    # lets a Telegram-created challenge scope to its auto-selected
+    # strategies without also requiring a coin restriction nobody asked for.
+    scoped = bool(scope_strategy_id or scope_symbol)
 
     required_daily_rate = _required_daily_rate(start_amount, target_amount, days)
     if scoped:

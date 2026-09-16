@@ -198,6 +198,12 @@ async def _lifespan(app: FastAPI):
     # local laptop's server.py.
     from paper_trading.challenge_multi import start_achievability_snapshot_scheduler_thread
     start_achievability_snapshot_scheduler_thread()
+    # Investigation Batch 2026-09-17, Part 2 (Telegram /challenge command):
+    # this is the deployment with the real bot token, so this is where a
+    # completion celebration / honest failure / balance-threshold pause
+    # warning / daily per-challenge update actually needs to fire from.
+    from paper_trading.challenge_multi import start_challenge_lifecycle_scheduler_thread
+    start_challenge_lifecycle_scheduler_thread()
 
     # Master Task Expansion, Part 4: Simple Paper-Trading Status Ping --
     # this deployment pings about ITS OWN engine/balance (see sindhu_web/
