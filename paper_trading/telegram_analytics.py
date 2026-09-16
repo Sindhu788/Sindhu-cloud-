@@ -138,6 +138,76 @@ def worst_performing_strategy(since_iso=None, until_iso=None):
     return min(candidates, key=lambda s: s["total_pnl"])
 
 
+def status_summary(now=None):
+    """2026-09-16 audit (CEO Sections 6.3 + 11): one shared source for the
+    dashboard's Telegram Status section AND the daily 24h report, so the two
+    can never show different numbers.
+
+    Per-group figures come straight from strategy_groups.all_group_summaries()
+    -- the exact function behind the Paper Trading Groups tab -- so they agree
+    with that tab by construction. The system-wide total is summed from every
+    per-strategy book (paper_account_state), which also includes any book not
+    (yet) assigned to a group; `unassigned` makes that difference explicit
+    instead of hiding it. As everywhere else in the app, PnL is realized PnL
+    since the last Reset Balance, while trade counts are all-time.
+
+    Today's Telegram block reuses signal_period_summary() (UTC day, the same
+    bounds as the Telegram page's own "Today" tab); `today_by_group` counts
+    today's sent signals by their strategy's CURRENT group, so the CEO can see
+    at a glance whether any Losing-group signal went out."""
+    from datetime import datetime, timezone
+    from paper_trading import strategy_groups
+
+    now = now or datetime.now(timezone.utc)
+    today_start_iso = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+
+    groups = strategy_groups.all_group_summaries()
+    group_rows = {
+        key: {
+            "label": g["label"], "strategy_count": g["strategy_count"],
+            "closed_trades": g["closed_trades"], "win_count": g["win_count"],
+            "win_rate_pct": g["win_rate_pct"], "total_pnl": g["total_pnl"],
+            "open_positions": g["open_positions"],
+        }
+        for key, g in groups.items()
+    }
+
+    states = storage.list_paper_account_states()
+    total_trades = sum(s.get("closed_count") or 0 for s in states)
+    total_wins = sum(s.get("win_count") or 0 for s in states)
+    total_pnl = round(sum(s.get("realized_pnl_total") or 0.0 for s in states), 2)
+    grouped_trades = sum(g["closed_trades"] for g in group_rows.values())
+    grouped_pnl = round(sum(g["total_pnl"] for g in group_rows.values()), 2)
+
+    today = signal_period_summary(today_start_iso, None)
+    assignments = storage.list_paper_strategy_groups()
+    today_by_group = {key: 0 for key in strategy_groups.GROUP_KEYS}
+    today_by_group["unassigned"] = 0
+    for row in storage.list_telegram_signal_outcomes(today_start_iso, None):
+        key = assignments.get(row.get("strategy_id"))
+        today_by_group[key if key in today_by_group else "unassigned"] += 1
+
+    return {
+        "generated_at": now.isoformat(),
+        "overall": {
+            "total_trades": total_trades, "win_count": total_wins,
+            "win_rate_pct": round(total_wins / total_trades * 100, 2) if total_trades else 0.0,
+            "total_pnl": total_pnl,
+        },
+        "groups": group_rows,
+        "unassigned": {
+            "closed_trades": total_trades - grouped_trades,
+            "total_pnl": round(total_pnl - grouped_pnl, 2),
+        },
+        "telegram_today": {
+            "day_start_utc": today_start_iso,
+            "sent": today["total_signals"], "won": today["wins"], "lost": today["losses"],
+            "breakeven": today["breakeven"], "pending": today["pending"],
+            "by_group": today_by_group,
+        },
+    }
+
+
 def performance_report(since_iso=None, until_iso=None):
     """2026-09-15, urgent CEO directive: the new Telegram Signal
     Performance Report -- win ratio, net PnL ($ and %), best/worst

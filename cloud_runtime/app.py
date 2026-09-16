@@ -196,6 +196,16 @@ async def _lifespan(app: FastAPI):
     from paper_trading.status_ping import start_scheduler_thread as _start_status_ping
     _start_status_ping()
 
+    # 2026-09-16 audit (CEO Section 11: automatic 24-hour report): the Daily
+    # Report scheduler used to start ONLY in the local laptop app
+    # (sindhu_web/server.py), whose own Telegram token is empty -- so no
+    # daily report was ever actually delivered automatically. This is the
+    # 24/7 deployment with the real bot. Same once-per-UTC-day gate
+    # (last daily_report send in THIS database) and the same master-send
+    # switch check as locally -- see paper_trading/daily_report.py.
+    from paper_trading.daily_report import start_daily_report_scheduler_thread as _start_daily_report
+    _start_daily_report()
+
     # Grand Master Prompt, Phase 2.4: Auto-Downgrade Rule -- reads/writes
     # only data_engine.storage (paper_positions, paper_downgrade_state),
     # already-mounted paper_trading_api territory, safe on this runner.

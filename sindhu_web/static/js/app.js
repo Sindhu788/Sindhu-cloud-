@@ -6793,19 +6793,9 @@
       }
     }
 
-    const [cs, tgAlert, netCheck] = await Promise.all([
+    const [cs, tgAlert] = await Promise.all([
       apiGet("/api/paper-trading/telegram/connection-status").catch(() => ({ state: "unknown", reason: "Status unavailable.", settings: {} })),
       apiGet(`/api/paper-trading/telegram/alert-status?lang=${getLang()}`).catch(() => ({ stale: false })),
-      // Fix, 2026-09-13: the static copy below used to unconditionally
-      // claim "Telegram is blocked on this internet connection" -- true
-      // for the CEO's own local machine (confirmed there by direct
-      // testing), but this same page also serves the cloud deployment,
-      // where that claim was never actually verified and is very likely
-      // false (a cloud host's outbound network path has nothing to do
-      // with a home/office ISP). A real, credential-independent check
-      // from wherever THIS page's own server is running replaces the
-      // assumption with an actual answer.
-      apiGet("/api/paper-trading/telegram/network-check").catch(() => null),
     ]);
     if (isStaleRoute(myToken)) return;
     const s = cs.settings || {};
@@ -6829,6 +6819,8 @@
       </div>
 
       <div data-tg-panel="log">
+        <div class="section-title">Telegram Status</div>
+        <div id="tgStatusSection" class="card tg-status-card"><div class="page-loader" style="min-height:80px;"><div class="spinner-circle spinner-sm"></div></div></div>
         ${paperPeriodTabsHtml("tgdash", "today")}
         <div id="tgDashBox"><p class="muted">Loading...</p></div>
       </div>
@@ -6849,13 +6841,7 @@
 
         <div class="section-title">Connection (for when the network blocks Telegram)</div>
         <div class="card settings-card">
-          ${netCheck == null ? `
-          <p class="muted plain-note">Couldn't run a live reachability check just now. If your OWN network blocks Telegram (this varies by hosting/region -- it does not affect every deployment), a proxy below fixes that.</p>
-          ` : netCheck.reachable ? `
-          <p class="muted plain-note">✅ Live check: this server just reached api.telegram.org directly, no proxy needed (HTTP ${netCheck.http_status}, ${netCheck.latency_ms}ms). If messages still aren't going out, the cause is the Bot Token/Channel ID or the switches above, not the network.</p>
-          ` : `
-          <p class="muted plain-note">⚠️ Live check: this server just tried to reach api.telegram.org directly and could not (${esc(netCheck.error || "connection failed")}). A proxy below routes around that -- fill it in and everything above starts delivering on its own, nothing else needs rebuilding.</p>
-          `}
+          <div id="tgNetCheckNote"><p class="muted plain-note"><span class="spinner-circle spinner-sm"></span> Running a live reachability check...</p></div>
           <label class="switch-row">
             <input type="checkbox" id="tgProxyEnabled" ${s.proxy_enabled ? "checked" : ""}>
             <span><b>Route through a proxy</b></span>
@@ -6911,6 +6897,26 @@
     });
 
     const setStatus = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
+
+    // Fix, 2026-09-13: the copy below used to unconditionally claim
+    // "Telegram is blocked on this internet connection" -- a real, credential-
+    // independent check from wherever THIS page's server runs replaces it.
+    // 2026-09-16 audit: fetched AFTER the page renders, not inside the
+    // initial Promise.all -- the check itself can take 10s+ (measured 9.8s
+    // on the local network) and the whole Telegram page used to sit on a
+    // blank loader until it finished or hit the 15s timeout (measured
+    // 15.08s to open, every time).
+    apiGet("/api/paper-trading/telegram/network-check", 30000).catch(() => null).then(netCheck => {
+      const note = document.getElementById("tgNetCheckNote");
+      if (!note || isStaleRoute(myToken)) return;
+      note.innerHTML = netCheck == null ? `
+          <p class="muted plain-note">Couldn't run a live reachability check just now. If your OWN network blocks Telegram (this varies by hosting/region -- it does not affect every deployment), a proxy below fixes that.</p>
+          ` : netCheck.reachable ? `
+          <p class="muted plain-note">✅ Live check: this server just reached api.telegram.org directly, no proxy needed (HTTP ${esc(netCheck.http_status)}, ${esc(netCheck.latency_ms)}ms). If messages still aren't going out, the cause is the Bot Token/Channel ID or the switches above, not the network.</p>
+          ` : `
+          <p class="muted plain-note">⚠️ Live check: this server just tried to reach api.telegram.org directly and could not (${esc(netCheck.error || "connection failed")}). A proxy below routes around that -- fill it in and everything above starts delivering on its own, nothing else needs rebuilding.</p>
+          `;
+    });
 
     document.getElementById("tgMasterSwitch").addEventListener("change", async (e) => {
       setStatus("tgSettingsStatus", "Saving...");
@@ -7002,6 +7008,54 @@
         // that's meaningless outside the cloud deployment.
       }
     })();
+
+    // 2026-09-16 audit: Telegram Status section (CEO Section 6.3). Same
+    // numbers as the Groups tab and the daily 24h report -- all three read
+    // telegram_analytics.status_summary() / strategy_groups on the server.
+    async function loadTelegramStatus() {
+      const box = document.getElementById("tgStatusSection");
+      if (!box) return;
+      let d;
+      try {
+        d = await apiGet("/api/paper-trading/telegram/status-summary", 30000);
+      } catch (e) {
+        if (!isStaleRoute(myToken)) box.innerHTML = `<p class="muted">Couldn't load Telegram Status: ${esc(e.message)}</p>`;
+        return;
+      }
+      if (isStaleRoute(myToken)) return;
+      const money = v => `${v < 0 ? "-" : ""}$${Math.abs(Number(v)).toFixed(2)}`;
+      const tone = v => v > 0 ? "var(--green,#1f9d55)" : v < 0 ? "var(--red,#e5484d)" : "inherit";
+      const t = d.telegram_today;
+      const groupRow = (key) => {
+        const g = d.groups[key];
+        return `<tr><td>${esc(g.label)}</td><td>${fmtNum(g.closed_trades)}</td><td>${g.closed_trades ? g.win_rate_pct.toFixed(1) + "%" : "-"}</td><td style="color:${tone(g.total_pnl)}">${money(g.total_pnl)}</td></tr>`;
+      };
+      box.innerHTML = `
+        <div class="tg-status-total">
+          <div class="muted" style="font-size:12px;">Overall system PnL (all groups combined)</div>
+          <div class="tg-status-total-value" style="color:${tone(d.overall.total_pnl)}">${money(d.overall.total_pnl)}</div>
+          <div class="muted" style="font-size:12px;">${fmtNum(d.overall.total_trades)} total trades &middot; ${d.overall.total_trades ? d.overall.win_rate_pct.toFixed(1) + "% win ratio" : "no closed trades yet"}</div>
+        </div>
+        <div class="table-wrap"><table class="tg-status-table">
+          <thead><tr><th>Group</th><th>Trades</th><th>Win %</th><th>PnL</th></tr></thead>
+          <tbody>
+            ${groupRow("losing")}${groupRow("profitable")}${groupRow("challenge")}
+            <tr style="font-weight:700;"><td>Total</td><td>${fmtNum(d.overall.total_trades)}</td><td>${d.overall.total_trades ? d.overall.win_rate_pct.toFixed(1) + "%" : "-"}</td><td style="color:${tone(d.overall.total_pnl)}">${money(d.overall.total_pnl)}</td></tr>
+          </tbody>
+        </table></div>
+        ${d.unassigned.closed_trades ? `<p class="muted plain-note">${fmtNum(d.unassigned.closed_trades)} trade(s) (${money(d.unassigned.total_pnl)}) belong to strategies not assigned to any group yet -- included in Total only.</p>` : ""}
+        <div class="muted" style="font-size:12px;margin:12px 0 6px;">Today on Telegram (since ${esc(fmtPKTFull(t.day_start_utc))} PKT)</div>
+        <div class="tg-status-today">
+          <div><span class="muted">Sent</span><b>${fmtNum(t.sent)}</b></div>
+          <div><span class="muted">Won</span><b style="color:${tone(1)}">${fmtNum(t.won)}</b></div>
+          <div><span class="muted">Lost</span><b style="color:${tone(-1)}">${fmtNum(t.lost)}</b></div>
+          <div><span class="muted">Pending / open</span><b>${fmtNum(t.pending)}</b></div>
+        </div>
+        ${t.by_group.losing > 0 ? `<div class="notice notice-warn" style="margin-top:8px;">${fmtNum(t.by_group.losing)} signal(s) sent today belong to a strategy currently in the Losing group -- Losing-group signals are supposed to be withheld. (It may have moved groups after sending.)</div>` : ""}
+        <p class="muted plain-note" style="margin-top:8px;">PnL is realized PnL since the last balance reset; trade counts are all-time -- the same convention as the Groups tab. Sent today by group: Profitable ${fmtNum(t.by_group.profitable)}, Challenge ${fmtNum(t.by_group.challenge)}, Losing ${fmtNum(t.by_group.losing)}${t.by_group.unassigned ? `, unassigned ${fmtNum(t.by_group.unassigned)}` : ""}.</p>
+      `;
+    }
+    loadTelegramStatus();
 
     await loadPeriod("today");
     content.querySelectorAll('[data-period-tab="tgdash"]').forEach(btn => {

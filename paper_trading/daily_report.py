@@ -16,7 +16,7 @@ from datetime import timedelta as _timedelta
 
 from backtest_engine import strategy_library as lib
 from data_engine import storage
-from paper_trading import insights, telegram_bot, challenge_mode
+from paper_trading import insights, telegram_bot, challenge_mode, telegram_analytics
 
 # A strategy needs at least this many CONSECUTIVE losses right now before
 # it's called out by name -- a 1-2 loss blip is normal noise, not a
@@ -127,6 +127,32 @@ def generate_daily_report(now=None):
     else:
         lines.append("\U0001F3C6 Aaj kisi strategy ka koi trade band nahi hua.")
 
+    # 2026-09-16 audit (CEO Section 11): clearly separated Overall /
+    # Per-Group / Telegram sections, from telegram_analytics.status_summary()
+    # -- the SAME function behind the dashboard's Telegram Status section,
+    # so the report and the dashboard can never disagree. Today's overall
+    # count/win ratio reuses today_summary above (already computed).
+    status = telegram_analytics.status_summary(now)
+    lines.append("")
+    lines.append("\U0001F4CA <b>1) Overall (aaj)</b>")
+    today_wr = (f"{today_summary['win_count'] / today_summary['closed_trades'] * 100:.1f}%"
+                if today_summary["closed_trades"] else "abhi koi trade band nahi")
+    lines.append(f"• Aaj ke trades: {today_summary['closed_trades']} -- win ratio: {today_wr}")
+    lines.append(
+        f"• Poore system ka total PnL (sab groups): ${status['overall']['total_pnl']:.2f} "
+        f"({status['overall']['total_trades']} trades, win ratio {status['overall']['win_rate_pct']:.1f}%)"
+    )
+    lines.append("")
+    lines.append("\U0001F465 <b>2) Group-wise</b>")
+    for key in ("profitable", "losing", "challenge"):
+        g = status["groups"][key]
+        wr = f"{g['win_rate_pct']:.1f}%" if g["closed_trades"] else "-"
+        lines.append(f"• {g['label']}: {g['closed_trades']} trades, win ratio {wr}, PnL ${g['total_pnl']:.2f}")
+    lines.append("")
+    tg = status["telegram_today"]
+    lines.append("\U0001F4E1 <b>3) Telegram (aaj)</b>")
+    lines.append(f"• Bheje gaye: {tg['sent']} -- jeete: {tg['won']}, haare: {tg['lost']}, abhi open/pending: {tg['pending']}")
+
     lines.append("")
     if losing_streaks:
         lines.append("⚠️ <b>Losing streak par strategies:</b>")
@@ -171,6 +197,7 @@ def generate_daily_report(now=None):
         "yesterday_pnl": yesterday_summary["total_pnl"] if yesterday_summary["closed_trades"] > 0 else None,
         "losing_streaks": losing_streaks,
         "challenge_progress": challenge_progress,
+        "status_summary": status,
     }
 
 

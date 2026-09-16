@@ -2168,6 +2168,15 @@ def get_telegram_analytics(period: str = "all", simulate_capital: float = None):
     }
 
 
+@router.get("/api/paper-trading/telegram/status-summary")
+def get_telegram_status_summary():
+    """2026-09-16 audit: the Telegram page's Telegram Status section --
+    overall/per-group trades, win ratio and PnL plus today's sent/won/lost/
+    pending signals. See telegram_analytics.status_summary() (the same
+    function the daily 24h report uses)."""
+    return telegram_analytics.status_summary()
+
+
 @router.get("/api/paper-trading/telegram/performance-report")
 def get_telegram_performance_report(period: str = "today"):
     """2026-09-15, urgent CEO directive: new Telegram Signal Performance
