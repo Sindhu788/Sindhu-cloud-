@@ -88,10 +88,21 @@ Poori tafseel: `docs/FULL_A_TO_Z_AUDIT_AND_UPDATE_REPORT.md`. Mukhtasar:
 
 ---
 
-## 4. Ab kya baaki hai (CEO ke faislay ke liye)
+## 4. 17 Sep 2026 — Investigation Batch (Confidence fix, per-coin cap, Telegram /challenge)
 
-- Cloud par ek dafa ≥12 minute ke liye app bina restart ke jawab dena band kar gaya tha (14:33–14:45 UTC, 16 Sep) — Render logs dekhne ke liye login/API access chahiye.
+- **Confidence % fix**: asli wajah nikli — `confidence.score()` ek hath-se-bana formula tha jo kabhi asli outcomes se check hi nahi hua tha. Ab yeh apne raw score ka bucket `confidence_calibration`'s real calibration map mein dekhta hai aur (25+ real trades hone par) **asli win rate** dikhata hai, warna raw heuristic par wapas gir jata hai. Asli 50-trade sample: pehle 75.8% average confidence dikhta tha, fix ke baad 36.3% (asli win rate 18% ke kaafi qareeb).
+- **Ek hi coin par 14 positions** ka asli sabab mila: 14 alag strategies har ek chhota risk le rahi thin, is liye dollar-based cap (`max_portfolio_risk_pct_per_coin`) کبھی cross نہیں hua. Naya `max_open_positions_per_coin` (default 5) cap laga — ab ek coin par zyada se zyada 5 positions, sab strategies milakar.
+- **Paper Trading page 16.1s se ~3.2s**: asli measurement se pata chala ke har individual endpoint <1s tha lekin ~20 ek saath chalne par Python GIL contention se 1-2s tak phool jate the. Un sab ko cache kiya aur cloud runner mein pehli baar cache-warming laga di (pehle sirf laptop app warm karta tha).
+- **Session-expiry warning**: 30-din session khatam hone se 24 ghante aur 1 ghanta pehle ek toast warning, taake achanak logout na ho.
+- **Telegram `/challenge` command family** (naya): `/challenge <balance> <target> <days>d` (ya template: `conservative`/`aggressive`) — asli history se best strategy+coin khud chunta hai, ghair-haqiqi target par honest warning deta hai, aur do challenges ko ek hi strategy+coin claim karne se rokta hai. `/stopchallenge`, `/resumechallenge`, `/mychallenges` (progress bar + leaderboard), `/report` (Total Trades + Group Detail + Challenges), `/menu` (har command aur har marker ki poori guide). Naya ⚫ marker challenge signals par. Har 15 minute par completion (celebration message), deadline-fail ("Challenge failed -- reached X%"), aur 50%-balance-drop (auto-pause + warning) check hoti hai; roz ek dafa har active challenge ka update bhi jata hai.
+- Weekly snapshot ki khaali/toothi DB file aur purani throwaway cloud-test-data copy delete ki.
+
+---
+
+## 5. Ab kya baaki hai (CEO ke faislay ke liye)
+
+- Cloud par ek dafa ≥12 minute ke liye app bina restart ke jawab dena band kar gaya tha (14:33–14:45 UTC, 16 Sep) — Render logs dekhne ke liye login/API access chahiye. Fix ke baad se dobara nahi hua (17 Sep tak 24+ ghante continuous uptime), lekin asli platform logs abhi tak nahi dekhe ja sake.
 - Challenge group ke liye alag $2 **trading** balance — position sizing aur account-drawdown breaker ki math badalta hai (safety gate), is liye implement nahi kiya; faisla CEO ka.
-- Correlated coins (alag coins, ek hi direction) ka combined exposure sizing mein shamil nahi — sirf same-coin cap hai.
-- Proxy password rotate karna (plaintext mein mila tha).
-- Confidence % ko recalibrate karna ya user-facing messages se hatana.
+- Correlated coins (alag coins, ek hi direction) ka combined exposure sizing mein shamil nahi — sirf same-coin cap hai (ab count-based bhi, pehle sirf dollar-based).
+- Proxy password rotate karna (plaintext mein mila tha) — iske liye us proxy provider ke account mein login chahiye, jo AI khud nahi kar sakta.
+- Telegram `/challenge` ke naye commands sirf code-level tests se verify hue hain (37 real tests) — asli Telegram chat se ek dafa manually try karna baaki hai.
