@@ -21,6 +21,14 @@ def isolated_snapshot_dir(tmp_path, monkeypatch, test_db):
     # patching this too, _hot_copy would silently hot-copy the REAL local
     # database on every test run instead of the isolated test one.
     monkeypatch.setattr(backup, "DB_PATH", test_db)
+    # 2026-09-16 audit: patching backup.DB_PATH alone was NOT enough.
+    # create_weekly_snapshot() calls _hot_copy(DB_PATH, ...) using
+    # weekly_snapshot's OWN module-level DB_PATH (same import-by-value at
+    # line 20), so the copy SOURCE was still the real database. Confirmed
+    # live: a full-suite run copied the real 11 GB sindhu.db into the
+    # pytest tmp dir and filled the C: drive to 0.9% free, which then
+    # cascaded as "database or disk is full" into 25 unrelated tests.
+    monkeypatch.setattr(weekly_snapshot, "DB_PATH", test_db)
     monkeypatch.setattr(weekly_snapshot, "_SNAPSHOT_DIR", str(tmp_path / "weekly_snapshots"))
     yield
 
