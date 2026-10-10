@@ -48,6 +48,7 @@ NAV_GROUPS = ["CEO / Orchestrator", "Research", "Data", "Strategy", "Trading / E
               "Risk", "Learning / Reflection", "Reporting", "Memory Core", "Operations / System"]
 
 NAV_PAGES = [
+    {"id": "how_to_trade", "label": "How to Trade", "enabled": True, "icon": "layers", "group": "Research", "external_url": "/how-to-trade"},
     # 1.1 CEO / Orchestrator -- the default landing page (see route() in
     # app.js), coordinating/surfacing every other department at a glance.
     {"id": "ceo", "label": "SINDHU CEO", "enabled": True, "icon": NAV_ICONS["ceo"], "group": "CEO / Orchestrator"},

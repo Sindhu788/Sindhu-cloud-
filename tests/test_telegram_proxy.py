@@ -17,6 +17,8 @@ def isolated_config(tmp_path, monkeypatch):
     store -- without this, these tests would touch the real
     data/config/telegram_settings.json on disk."""
     monkeypatch.setattr(base_config, "CONFIG_DIR", str(tmp_path))
+    monkeypatch.setenv("SINDHU_PUBLIC_SIGNAL_OWNER", "main")
+    monkeypatch.delenv("SINDHU_CLOUD_MODE", raising=False)
     yield
 
 

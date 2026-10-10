@@ -1,0 +1,278 @@
+{
+  "doji-1": {
+    "path": "detections.doji",
+    "value": true
+  },
+  "doji-7": {
+    "path": "detections.doji",
+    "value": true
+  },
+  "doji-0.03": {
+    "path": "detections.doji",
+    "value": true
+  },
+  "non-doji-1": {
+    "path": "detections.doji",
+    "value": false
+  },
+  "non-doji-7": {
+    "path": "detections.doji",
+    "value": false
+  },
+  "non-doji-0.03": {
+    "path": "detections.doji",
+    "value": false
+  },
+  "zero-range-1": {
+    "path": "detections.doji",
+    "value": false
+  },
+  "zero-range-7": {
+    "path": "detections.doji",
+    "value": false
+  },
+  "zero-range-0.03": {
+    "path": "detections.doji",
+    "value": false
+  },
+  "bull-engulf-1": {
+    "path": "detections.engulfing_bullish",
+    "value": true
+  },
+  "bull-engulf-7": {
+    "path": "detections.engulfing_bullish",
+    "value": true
+  },
+  "bull-engulf-0.03": {
+    "path": "detections.engulfing_bullish",
+    "value": true
+  },
+  "bear-engulf-1": {
+    "path": "detections.engulfing_bearish",
+    "value": true
+  },
+  "bear-engulf-7": {
+    "path": "detections.engulfing_bearish",
+    "value": true
+  },
+  "bear-engulf-0.03": {
+    "path": "detections.engulfing_bearish",
+    "value": true
+  },
+  "non-engulf-1": {
+    "path": "detections.engulfing_bearish",
+    "value": false
+  },
+  "non-engulf-7": {
+    "path": "detections.engulfing_bearish",
+    "value": false
+  },
+  "non-engulf-0.03": {
+    "path": "detections.engulfing_bearish",
+    "value": false
+  },
+  "bull-fvg-1": {
+    "path": "detections.fvg_bullish",
+    "value": true
+  },
+  "bull-fvg-7": {
+    "path": "detections.fvg_bullish",
+    "value": true
+  },
+  "bull-fvg-0.03": {
+    "path": "detections.fvg_bullish",
+    "value": true
+  },
+  "no-fvg-1": {
+    "path": "detections.fvg_bullish",
+    "value": false
+  },
+  "no-fvg-7": {
+    "path": "detections.fvg_bullish",
+    "value": false
+  },
+  "no-fvg-0.03": {
+    "path": "detections.fvg_bullish",
+    "value": false
+  },
+  "bear-fvg-1": {
+    "path": "detections.fvg_bearish",
+    "value": true
+  },
+  "bear-fvg-7": {
+    "path": "detections.fvg_bearish",
+    "value": true
+  },
+  "bear-fvg-0.03": {
+    "path": "detections.fvg_bearish",
+    "value": true
+  },
+  "rsi-up-1": {
+    "path": "detections.indicators.rsi14",
+    "value": 100.0
+  },
+  "rsi-up-7": {
+    "path": "detections.indicators.rsi14",
+    "value": 100.0
+  },
+  "rsi-up-0.03": {
+    "path": "detections.indicators.rsi14",
+    "value": 100.0
+  },
+  "rsi-flat-1": {
+    "path": "detections.indicators.rsi14",
+    "value": 50.0
+  },
+  "rsi-flat-7": {
+    "path": "detections.indicators.rsi14",
+    "value": 50.0
+  },
+  "rsi-flat-0.03": {
+    "path": "detections.indicators.rsi14",
+    "value": 50.0
+  },
+  "rsi-down-1": {
+    "path": "detections.indicators.rsi14",
+    "value": 0.0
+  },
+  "rsi-down-7": {
+    "path": "detections.indicators.rsi14",
+    "value": 0.0
+  },
+  "rsi-down-0.03": {
+    "path": "detections.indicators.rsi14",
+    "value": 0.0
+  },
+  "confirmed-pivot-1": {
+    "path": "detections.resistance",
+    "value": 110.0
+  },
+  "confirmed-pivot-7": {
+    "path": "detections.resistance",
+    "value": 770.0
+  },
+  "confirmed-pivot-0.03": {
+    "path": "detections.resistance",
+    "value": 3.3
+  },
+  "bos-1": {
+    "path": "detections.bos_bullish",
+    "value": true
+  },
+  "bos-7": {
+    "path": "detections.bos_bullish",
+    "value": true
+  },
+  "bos-0.03": {
+    "path": "detections.bos_bullish",
+    "value": true
+  },
+  "sweep-1": {
+    "path": "detections.liquidity_sweep_bearish",
+    "value": true
+  },
+  "sweep-7": {
+    "path": "detections.liquidity_sweep_bearish",
+    "value": true
+  },
+  "sweep-0.03": {
+    "path": "detections.liquidity_sweep_bearish",
+    "value": true
+  },
+  "no-sweep-1": {
+    "path": "detections.liquidity_sweep_bearish",
+    "value": false
+  },
+  "no-sweep-7": {
+    "path": "detections.liquidity_sweep_bearish",
+    "value": false
+  },
+  "no-sweep-0.03": {
+    "path": "detections.liquidity_sweep_bearish",
+    "value": false
+  },
+  "double-top-1": {
+    "path": "detections.chart_shapes",
+    "contains": "double_top"
+  },
+  "double-top-7": {
+    "path": "detections.chart_shapes",
+    "contains": "double_top"
+  },
+  "double-top-0.03": {
+    "path": "detections.chart_shapes",
+    "contains": "double_top"
+  },
+  "correlated": {
+    "path": "decision",
+    "value": "NO_TRADE"
+  },
+  "conflict": {
+    "path": "decision",
+    "value": "NO_TRADE"
+  },
+  "agreement": {
+    "path": "decision",
+    "value": "PAPER_CANDIDATE"
+  },
+  "invalidated": {
+    "path": "decision",
+    "value": "NO_TRADE"
+  },
+  "insufficient": {
+    "path": "decision",
+    "value": "NO_TRADE"
+  },
+  "empty": {
+    "path": "decision",
+    "value": "NO_TRADE"
+  },
+  "risk-budget": {
+    "path": "planned_loss_including_assumed_costs",
+    "max": 10
+  },
+  "invalid-risk": {
+    "error": true
+  },
+  "duplicate": {
+    "error": true
+  },
+  "gap": {
+    "error": true
+  },
+  "bad-ohlc": {
+    "error": true
+  },
+  "order-block-bull-low": {
+    "path": "detections.order_block.bull_low",
+    "value": 99
+  },
+  "order-block-bull-high": {
+    "path": "detections.order_block.bull_high",
+    "value": 103
+  },
+  "order-block-bear-low": {
+    "path": "detections.order_block.bear_low",
+    "value": 97
+  },
+  "order-block-bear-high": {
+    "path": "detections.order_block.bear_high",
+    "value": 101
+  },
+  "no-bull-order-block": {
+    "path": "detections.order_block.bull_low",
+    "value": null
+  },
+  "no-bear-order-block": {
+    "path": "detections.order_block.bear_low",
+    "value": null
+  },
+  "confirmed-resistance": {
+    "path": "detections.resistance",
+    "value": 108
+  },
+  "confirmed-support": {
+    "path": "detections.support",
+    "value": 92
+  }
+}

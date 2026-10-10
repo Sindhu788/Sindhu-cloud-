@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SINDHU · How to Trade</title><link rel="stylesheet" href="/static/css/app.css">
+<style>body{margin:0;background:#101922;color:#e6eef3;font:16px/1.55 system-ui}main{max-width:1140px;margin:auto;padding:30px}h1{margin-bottom:4px}a{color:#85d6b8}button,select,textarea{font:inherit;border:1px solid #486073;border-radius:8px;background:#182938;color:inherit;padding:10px}button{cursor:pointer}button:disabled{opacity:.5}section{background:#142431;padding:20px;border-radius:12px;margin:20px 0}label{display:block;margin:10px 0}textarea{width:95%;min-height:160px}pre{white-space:pre-wrap;overflow-wrap:anywhere}.muted{color:#b7c8d2}.grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}dt{font-weight:700;margin-top:12px}dd{margin-left:0}.scroll{overflow:auto}td,th{text-align:left;padding:9px;border-bottom:1px solid #334854}#status[role=alert]{color:#ffd49b}@media(max-width:750px){.grid{grid-template-columns:1fr}main{padding:15px}}</style></head>
+<body><main><a href="/">← SINDHU dashboard</a><h1>How to Trade</h1><p class="muted">Learn a rule. Test its behavior. Inspect the evidence.</p>
+<p>Educational paper research · Synthetic examples are labelled · No orders or public signals are sent here.</p>
+<p id="status" role="alert" aria-live="polite">Loading curriculum…</p>
+<section><label for="concept">Concept</label><select id="concept"></select><dl id="lesson"></dl></section>
+<div class="grid"><section><h2>Candle laboratory</h2><p class="muted">Use closed OHLCV candles with UTC timestamps in milliseconds. The supplied example is synthetic.</p><label for="label">Data source</label><select id="label"><option value="synthetic">Synthetic fixture</option><option value="historical">Historical input</option></select><label for="timeframe">Timeframe</label><select id="timeframe"><option>1h</option><option>1m</option><option>5m</option><option>15m</option><option>4h</option><option>1d</option></select><label for="candles">Candle JSON</label><textarea id="candles" spellcheck="false"></textarea><button id="analyze">Analyze</button> <button id="baseline">Run costed baseline</button><pre id="analysis"></pre></section>
+<section><h2>Trading exam</h2><p>Separate labelled fixtures assess recognition, abstention, risk and invalidation. This score does not measure profitability.</p><button id="exam">Run exam</button><pre id="exam-result"></pre><h2>Strategy library</h2><p id="strategy-count"></p><label for="strategy">Saved strategy</label><select id="strategy"></select><button id="evaluate-strategy">Evaluate saved rules</button><pre id="strategy-result"></pre><p class="muted">Definitions retain their IDs, versions and existing rules. No strategy is automatically promoted. Native multi-timeframe data is required when a strategy uses it.</p><button id="research">Run chronological / walk-forward checks</button><pre id="research-result"></pre></section></div>
+<section><h2>Measured paper leaderboard</h2><p class="muted">Sorted by sample size. Missing figures show NOT TESTED. Recorded costs have not been independently verified.</p><button id="leaderboard">Load measured results</button><div id="board" class="scroll"></div></section>
+<section><h2>Isolated virtual session</h2><p>Start with $100 virtual cash and $0 PnL. Historical positions stay separate. The example uses labelled synthetic fixture prices and assumed costs.</p><button id="create-session">Create $100 virtual session</button> <button id="session-example" disabled>Run synthetic accounting example</button><pre id="session-result"></pre></section>
+<section><h2>Sources and limitations</h2><ul id="sources"></ul><p>Geometric and SMC rules are declared conventions. They cannot establish institutional intent or guarantee a statistical advantage.</p></section>
+</main><script>
+'use strict';
+const $=id=>document.getElementById(id);let modules=[];
+let virtualSession=null;
+async function api(path,body){const opts={credentials:'same-origin'};if(body!==undefined){const t=await fetch('/api/token',{credentials:'same-origin'});if(!t.ok)throw Error('Sign in before running a test');const token=(await t.json()).token;opts.method='POST';opts.headers={'Content-Type':'application/json','X-Sindhu-Token':token};opts.body=JSON.stringify(body);}const r=await fetch('/api/intelligence/'+path,opts);if(!r.ok)throw Error(r.status===401?'Sign in to use this feature':'Request failed ('+r.status+'); check input or database readiness');return r.json();}
+function renderLesson(){const m=modules.find(x=>x.id===$('concept').value);$('lesson').replaceChildren();for(const [name,value] of Object.entries({Definition:m.definition,'Detection rules':m.detection_rules,'Required data':m.required_data,Interpretation:JSON.stringify(m.interpretation),Confirmation:m.confirmation,Invalidation:m.invalidation,Limitations:m.limitations,Example:m.worked_example,'Test scenarios':JSON.stringify(m.test_cases),'Mapped strategies':m.strategy_ids.length,'Implementation mode':m.mode})){const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=name;dd.textContent=value;$('lesson').append(dt,dd);}}
+async function action(id,fn){const button=$(id);button.disabled=true;$('status').textContent='Running…';try{await fn();$('status').textContent='Complete';}catch(e){$('status').textContent=e.message;}finally{button.disabled=false;}}
+function request(){return {candles:JSON.parse($('candles').value),timeframe:$('timeframe').value,data_label:$('label').value};}
+const sample=Array.from({length:240},(_,i)=>{let p=100+Math.sin(i/4)*2;return {timestamp:1704067200000+i*3600000,open:p,high:p+1,low:p-1,close:p+.2,volume:100};});$('candles').value=JSON.stringify(sample,null,2);
+$('analyze').onclick=()=>action('analyze',async()=>{$('analysis').textContent=JSON.stringify(await api('analyze',request()),null,2);});
+$('baseline').onclick=()=>action('baseline',async()=>{$('analysis').textContent=JSON.stringify(await api('research/baseline',request()),null,2);});
+$('research').onclick=()=>action('research',async()=>{$('research-result').textContent=JSON.stringify(await api('research/evaluate',request()),null,2);});
+$('evaluate-strategy').onclick=()=>action('evaluate-strategy',async()=>{$('strategy-result').textContent=JSON.stringify(await api('strategy/'+encodeURIComponent($('strategy').value)+'/evaluate',request()),null,2);});
+$('exam').onclick=()=>action('exam',async()=>{const r=await api('exam',{});$('exam-result').textContent=`${r.passed}/${r.total} · ${r.score_pct.toFixed(1)}%\nFalse positives: ${r.false_positive}; false negatives: ${r.false_negative}\n${r.warning}\n${JSON.stringify(r.failures,null,2)}`;});
+$('leaderboard').onclick=()=>action('leaderboard',async()=>{
+  const r=await api('leaderboard'),table=document.createElement('table'),head=document.createElement('tr');
+  for(const title of ['Strategy / version','Trades','Win %','Profit factor','Average return %','Expectancy','Drawdown (PnL)','Planned R:R','Status','Evidence']){
+    const th=document.createElement('th');th.textContent=title;head.append(th);
+  }
+  table.append(head);
+  for(const row of r.rows){
+    const tr=document.createElement('tr');
+    for(const value of [String(row.name||row.strategy_id)+' / '+(row.version??'unknown'),row.trades,row.win_rate_pct,row.profit_factor,row.average_return_pct,row.expectancy,row.max_drawdown,row.average_risk_reward,row.status]){
+      const td=document.createElement('td');td.textContent=value==null?'NOT TESTED':typeof value==='number'?String(Math.round(value*100)/100):value;tr.append(td);
+    }
+    const td=document.createElement('td'),details=document.createElement('details'),summary=document.createElement('summary'),pre=document.createElement('pre');
+    summary.textContent='Period, regime and uncertainty';
+    pre.textContent=JSON.stringify({period:row.test_period??'NOT TESTED',dataset:row.dataset_sha256??'NOT TESTED',regimes:row.by_regime??'NOT TESTED',sample_warning:row.sample_warning??'NOT TESTED',win_rate_interval:row.win_rate_95pct_interval??'NOT TESTED',drawdown_basis:row.drawdown_basis??'NOT TESTED',risk_reward_basis:row.risk_reward_basis??'NOT TESTED',costs_verified:row.costs_verified??false},null,2);
+    details.append(summary,pre);td.append(details);tr.append(td);table.append(tr);
+  }
+  $('board').replaceChildren(table);
+  if(r.truncated)$('board').prepend(document.createTextNode('Partial sample: history exceeds the query limit.'));
+});
+$('concept').onchange=renderLesson;
+$('create-session').onclick=()=>action('create-session',async()=>{const r=await api('virtual-sessions',{});virtualSession=r.session_id;$('session-result').textContent=JSON.stringify(r,null,2);$('session-example').disabled=false;});
+$('session-example').onclick=()=>action('session-example',async()=>{$('session-result').textContent=JSON.stringify(await api('virtual-sessions/'+encodeURIComponent(virtualSession)+'/example',{}),null,2);});
+api('strategies').then(r=>{for(const s of r.strategies){const o=document.createElement('option');o.value=s.id;o.textContent=(s.name||s.id)+' · v'+(s.version??'?')+' · '+s.status;$('strategy').append(o);}}).catch(e=>$('strategy-result').textContent=e.message);
+api('curriculum').then(r=>{modules=r.modules;for(const m of modules){const o=document.createElement('option');o.value=m.id;o.textContent=m.title;$('concept').append(o);}renderLesson();$('strategy-count').textContent=r.strategy_count+' existing versioned definitions';for(const s of r.sources){const li=document.createElement('li'),a=document.createElement('a');a.href=s.url;a.textContent=s.title;a.rel='noopener noreferrer';li.append(a);$('sources').append(li);}$('status').textContent=modules.length+' modules loaded';}).catch(e=>$('status').textContent=e.message);
+</script></body></html>

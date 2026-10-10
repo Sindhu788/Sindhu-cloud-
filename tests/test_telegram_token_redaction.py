@@ -20,6 +20,8 @@ from paper_trading import telegram_bot
 @pytest.fixture(autouse=True)
 def isolated_config(tmp_path, monkeypatch):
     monkeypatch.setattr(base_config, "CONFIG_DIR", str(tmp_path))
+    monkeypatch.setenv("SINDHU_PUBLIC_SIGNAL_OWNER", "main")
+    monkeypatch.delenv("SINDHU_CLOUD_MODE", raising=False)
     yield
 
 
