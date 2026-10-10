@@ -683,9 +683,14 @@ def _raw_send(text, channel_id_override=None, force_alert=False, reply_markup=No
     dict (Telegram Bot API shape) -- set by send_signal_for_position() to
     attach the 👍/👎 reaction buttons to a real trade signal. Every other
     caller omits this and gets a plain message with no buttons, unchanged."""
+    if os.environ.get('SINDHU_TELEGRAM_DRY_RUN')=='1':
+        return False, 'Telegram dry-run: network delivery disabled'
     settings = load_settings()
     token = settings.get("bot_token")
     channel_id = channel_id_override or settings.get("channel_id")
+    from paper_trading.signal_ownership import public_delivery_allowed
+    if not public_delivery_allowed(settings,channel_id):
+        return False, "Public delivery blocked: this process is not the configured signal publisher"
     if not token or not channel_id:
         return False, "Telegram bot token or channel ID not configured yet"
     proxies = _build_proxies(settings)
@@ -871,6 +876,8 @@ def send_private_document(file_path, caption=None):
     conventions as _raw_send, just a different Telegram endpoint and a
     multipart file body instead of a JSON text body. Returns
     {"ok": bool, "error": str|None}."""
+    if os.environ.get('SINDHU_TELEGRAM_DRY_RUN')=='1':
+        return {'ok':False,'error':'Telegram dry-run: network delivery disabled'}
     settings = load_settings()
     token = settings.get("bot_token")
     personal_chat_id = settings.get("personal_chat_id")

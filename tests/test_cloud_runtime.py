@@ -111,6 +111,9 @@ def test_every_third_party_import_cloud_runtime_touches_is_in_requirements_cloud
         "anyio", "starlette", "pydantic", "pydantic_core",
         "annotated_types", "annotated_doc", "typing_extensions", "typing_inspection",
         "six", "coincurve", "cryptography", "cython_runtime", "sniffio", "h11", "click", "colorama",
+        # Optional FastAPI serialization/telemetry imports in newer QA runtimes.
+        # SINDHU does not import these; FastAPI itself handles their availability.
+        "orjson", "opentelemetry",
     }
     # A directly-required package's PyPI name doesn't always match its
     # import name -- same mapping used by requirements-cloud.txt itself.
@@ -166,7 +169,7 @@ def test_cloud_nav_only_lists_pages_this_runner_actually_mounts(cloud_app):
     in the cloud sidebar with no way to notice except a user clicking it."""
     page_ids = {p["id"] for p in cloud_app._CLOUD_NAV_PAGES}
     assert page_ids == {"paper_trading", "telegram_dashboard", "strategy_overview", "signal_tracker",
-                         "challenge_mode", "self_learning", "risk_department", "memory_core"}
+                         "challenge_mode", "self_learning", "risk_department", "memory_core", "how_to_trade"}
     for group in (p["group"] for p in cloud_app._CLOUD_NAV_PAGES):
         assert group in cloud_app._CLOUD_NAV_GROUPS
 
@@ -203,6 +206,8 @@ def test_app_mounts_exactly_the_expected_routers(cloud_app):
     # hour) that this router was simply never mounted here even though
     # its tables already exist in this runner's own Postgres schema.
     assert "/api/activity" in route_paths
+    assert "/api/intelligence/analyze" in route_paths
+    assert "/how-to-trade" in route_paths
     assert "/api/audit-trail" in route_paths
     # A page this runner does NOT serve must not have leaked in via some
     # other import path.

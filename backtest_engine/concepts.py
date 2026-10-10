@@ -28,6 +28,8 @@ def rsi(series, period=14):
     avg_loss = loss.ewm(alpha=1 / period, adjust=False).mean()
     rs = avg_gain / avg_loss.replace(0, np.nan)
     value = 100 - (100 / (1 + rs))
+    # A gain-only window has RSI 100; only a flat/undefined window is 50.
+    value = value.mask((avg_loss == 0) & (avg_gain > 0), 100.0)
     return value.fillna(50.0)
 
 
@@ -228,17 +230,15 @@ def swing_points(df, lookback=2):
 
 def support_resistance(df, lookback=2):
     swing_high, swing_low = swing_points(df, lookback)
-    resistance = df["high"].where(swing_high).ffill()
-    support = df["low"].where(swing_low).ffill()
+    resistance = df["high"].shift(lookback).where(swing_high).ffill()
+    support = df["low"].shift(lookback).where(swing_low).ffill()
     return support, resistance
 
 
 def break_of_structure(df, lookback=2):
     """Bullish BOS: close breaks above the most recently confirmed swing
     high (trend continuation up). Bearish BOS: the mirror case down."""
-    swing_high, swing_low = swing_points(df, lookback)
-    swing_high_level = df["high"].where(swing_high).ffill()
-    swing_low_level = df["low"].where(swing_low).ffill()
+    swing_low_level, swing_high_level = support_resistance(df, lookback)
 
     bullish_bos = (df["close"] > swing_high_level).fillna(False)
     bearish_bos = (df["close"] < swing_low_level).fillna(False)
