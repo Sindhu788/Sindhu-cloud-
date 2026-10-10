@@ -2,9 +2,17 @@
 See paper_trading/engine.py's run_single_coin_scan_now() docstring.
 """
 from unittest.mock import MagicMock, patch
+import pytest
 
 from paper_trading import coin_blacklist, kill_switch
 from paper_trading.engine import PaperTradingEngine
+
+
+@pytest.fixture(autouse=True)
+def isolated_enabled_scanner(test_db,monkeypatch):
+    # These cases exercise normal opted-in scanning. Safe startup is
+    # separately tested to refuse all entry points before any work.
+    monkeypatch.delenv('SINDHU_SAFE_START',raising=False)
 
 
 def _fresh_engine():

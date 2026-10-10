@@ -73,12 +73,15 @@ def leaderboard(trades=None,definitions=None):
     for row in trades:groups[(row.get('strategy_id'),row.get('strategy_version'))].append(row)
     rows=[]
     for (ident,version),items in groups.items():
-        rows.append({'strategy_id':ident,'version':version,'name':items[0].get('strategy_name'),**metrics(items)})
+        rows.append({'strategy_id':ident,'version':version,'name':items[0].get('strategy_name'),
+                     'version_provenance':'Recorded field only: legacy scanner stored priority as version. Historical records preserved; exact historical rule version is unverified.',
+                     **metrics(items)})
     for d in definitions:
         if (d['id'],d.get('version')) not in groups:
             rows.append({'strategy_id':d['id'],'version':d.get('version'),'name':d.get('name'),**metrics([])})
     # Sample size first; never present the best small-sample win rate as a winner.
     rows.sort(key=lambda r:(-r['trades'],str(r.get('name'))))
     return {'rows':rows,'source':'Recorded closed paper positions','truncated':incomplete,
+            'version_grouping':'Recorded version labels; legacy rule-version provenance is unverified.',
             'ranking':'Sample count; not a profitability ranking','automatic_promotion':False,
             'historical_open_positions_included':False}

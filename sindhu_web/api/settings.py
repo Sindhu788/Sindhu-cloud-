@@ -23,6 +23,12 @@ def _postgres_expiry_notice(app_cfg):
     showing a scary countdown that doesn't apply."""
     if not db_backend.IS_POSTGRES:
         return None
+    # A Neon destination has no relationship to Render's retired 30-day DB.
+    # Inspect only the hostname internally; never return the connection string.
+    import os
+    from urllib.parse import urlsplit
+    if (urlsplit(os.environ.get('DATABASE_URL', '')).hostname or '').endswith('.neon.tech'):
+        return None
     created = datetime.strptime(app_cfg["postgres_free_tier_created_date"], "%Y-%m-%d").replace(tzinfo=timezone.utc)
     expiry = created + timedelta(days=POSTGRES_FREE_TIER_DAYS)
     days_remaining = (expiry - datetime.now(timezone.utc)).days

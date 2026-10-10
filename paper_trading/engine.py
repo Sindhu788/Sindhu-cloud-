@@ -17,6 +17,7 @@ import os
 import threading
 import time
 import uuid
+from paper_trading.market_data_guard import MarketDataRejected
 from datetime import datetime, timezone, timedelta as _timedelta
 
 from data_engine import storage, config as base_config, feature_toggles
@@ -154,6 +155,8 @@ class PaperTradingEngine:
         # their own connections. Decisions are now buffered here and
         # flushed in ONE batched write per tick -- see _flush_decisions().
         self._pending_decisions = []
+        self._scan_lock = threading.Lock()
+        self._current_scan = None
 
     # ------------------------------------------------------------ control
     def is_running(self):
@@ -170,6 +173,7 @@ class PaperTradingEngine:
         once is enough for however many strategies are active; the
         automation pipeline's Paper Trading handoff just enables a new
         strategy's config rather than restarting the engine scoped to it."""
+        self._require_scanning_allowed()
         with self._lock:
             if self._running:
                 return False
@@ -301,6 +305,9 @@ class PaperTradingEngine:
         return self._last_summary
 
     def run_single_coin_scan_now(self, symbol):
+        return self._run_scan('coin', lambda: self._coin_scan_impl(symbol))
+
+    def _coin_scan_impl(self, symbol):
         """Master Task Expansion, Part 6: Manual Scan -- Scan Selected Coin
         (Cloud Monitoring Roadmap). Runs the exact same per-coin pipeline
         _tick() uses for every coin (market_state.classify -> _process_coin,
@@ -312,8 +319,10 @@ class PaperTradingEngine:
         if kill_switch.is_active():
             return {"symbol": symbol, "skipped": True, "reason": "kill switch is active"}
         if not coin_blacklist.filter_out_blacklisted([symbol]):
+            self._current_scan.update(outcome='blocked', reason='Coin blacklist excludes selected symbol.')
             return {"symbol": symbol, "skipped": True, "reason": f"{symbol} is on the coin blacklist"}
         settings = pt_config.load()
+        self._current_scan['coins_scanned'] += 1
         # Same exchange-failover awareness as _tick(): prefer whichever
         # exchange the real tick loop last confirmed actually works (e.g.
         # in cloud mode, once bybit's geo-block forced a fallback to okx/
@@ -324,7 +333,14 @@ class PaperTradingEngine:
         try:
             snapshot = market_state.classify(exchange, symbol)
         except Exception as e:
+            self._current_scan.update(outcome='error', reason='Market data unavailable.', errors=1)
+            reason=str(e) if isinstance(e,MarketDataRejected) else 'Market data unavailable; evaluation skipped.'
+            self._log_decision(exchange, symbol, {}, 'no_trade', reason, {})
             return {"symbol": symbol, "skipped": False, "error": str(e)}
+        if snapshot is None:
+            self._log_decision(exchange, symbol, {}, 'no_trade', 'Market snapshot unavailable.', {})
+            return {"symbol":symbol,'skipped':True,'reason':'Market snapshot unavailable.'}
+        self._record_candle_receipt(exchange,symbol,snapshot)
         opened, rejected = self._process_coin(exchange, symbol, snapshot, settings)
         self._flush_decisions()
         return {"symbol": symbol, "skipped": False, "market_state": snapshot["market_state"],
@@ -354,6 +370,44 @@ class PaperTradingEngine:
 
     # ------------------------------------------------------------ tick
     def _tick(self):
+        return self._run_scan('scheduled_or_manual_tick', self._tick_impl)
+
+    @staticmethod
+    def _require_scanning_allowed():
+        if os.environ.get('SINDHU_SAFE_START') == '1':
+            raise RuntimeError('Safe startup is enabled; scanning stays disabled until an approved configuration change.')
+
+    def _run_scan(self, kind, function):
+        from paper_trading.scan_telemetry import utc_now, write_receipt
+        self._require_scanning_allowed()
+        if not self._scan_lock.acquire(blocking=False):
+            raise RuntimeError('A scan is already in progress; duplicate scan refused.')
+        self._current_scan = dict(started_at=utc_now(), kind=kind, outcome='complete', reason='',
+                                  coins_scanned=0, candidates=0, rejected=0, accepted=0,
+                                  no_trade=0, errors=0)
+        try:
+            if kill_switch.is_active():
+                self._current_scan.update(outcome='blocked', reason='Kill switch is active.')
+            return function()
+        except Exception as exc:
+            self._current_scan.update(outcome='error', reason=type(exc).__name__)
+            self._current_scan['errors'] += 1
+            raise
+        finally:
+            self._scan_progress.update(in_progress=False, current_symbol=None)
+            self._flush_decisions()
+            if self._current_scan['outcome']=='complete' and self._current_scan['errors']:
+                self._current_scan.update(outcome='partial', reason='One or more coin evaluations failed.')
+            self._current_scan['completed_at'] = utc_now()
+            try:
+                with storage.get_conn() as conn:
+                    write_receipt(conn, self._current_scan)
+            except Exception:
+                self._log('[paper-trading] Scan receipt could not be persisted; diagnostics coverage is incomplete.')
+            self._current_scan = None
+            self._scan_lock.release()
+
+    def _tick_impl(self):
         tick_started_monotonic = time.monotonic()
         if kill_switch.is_active():
             self._last_summary = {"shortlisted": [], "opened": 0, "closed": 0, "rejected": 0}
@@ -383,6 +437,7 @@ class PaperTradingEngine:
             client = get_exchange_client(exchange)
             symbols = storage.load_symbols(exchange)
         if not symbols:
+            self._current_scan.update(outcome='blocked', reason='No exchange symbols available.')
             self._last_summary = {"shortlisted": [], "opened": 0, "closed": 0, "rejected": 0}
             self._last_tick_duration_seconds = round(time.monotonic() - tick_started_monotonic, 2)
             return
@@ -411,15 +466,21 @@ class PaperTradingEngine:
         self._scan_progress = {"in_progress": True, "current_symbol": None, "index": 0, "total": len(shortlist)}
         for entry in shortlist:
             symbol = entry["symbol"]
+            self._current_scan['coins_scanned'] += 1
             self._scan_progress["index"] += 1
             self._scan_progress["current_symbol"] = symbol
             try:
                 snapshot = market_state.classify(exchange, symbol)
             except Exception as e:
                 self._log(f"[paper-trading] market state error {symbol}: {e!r}")
+                self._current_scan['errors'] += 1
+                reason=str(e) if isinstance(e,MarketDataRejected) else 'Market data unavailable; evaluation skipped.'
+                self._log_decision(exchange, symbol, {}, 'no_trade', reason, {})
                 continue
             if snapshot is None:
+                self._log_decision(exchange, symbol, {}, 'no_trade', 'Market snapshot unavailable.', {})
                 continue
+            self._record_candle_receipt(exchange,symbol,snapshot)
 
             closed += len(position_manager.monitor_and_close(
                 exchange, symbol, snapshot["price"],
@@ -428,6 +489,7 @@ class PaperTradingEngine:
 
             events = self._event_tracker.check(snapshot)
             if not events:
+                self._log_decision(exchange, symbol, {}, 'no_trade', 'No new market event; duplicate evaluation skipped.', snapshot)
                 continue
 
             try:
@@ -436,6 +498,7 @@ class PaperTradingEngine:
                 rejected += r
             except Exception as e:
                 self._log(f"[paper-trading] decision error {symbol}: {e!r}")
+                self._current_scan['errors'] += 1
 
         self._scan_progress["in_progress"] = False
         self._scan_progress["current_symbol"] = None
@@ -578,12 +641,20 @@ class PaperTradingEngine:
         return closed
 
     def _process_coin(self, exchange, symbol, snapshot, settings):
+        settings = dict(settings, _scan_diagnostics=[])
         market_type = snapshot["market_state"]
         strategies = strategy_matcher.relevant_strategies(symbol, market_type)
         lessons = lesson_matcher.relevant_lessons(market_type, settings.get("lesson_default_timeframe", "1h"))
 
         candidates = signal_generator.generate_candidates(exchange, symbol, strategies, lessons, settings)
+        if settings['_scan_diagnostics']:
+            self._log_decision(exchange,symbol,{},'no_trade',
+                               '; '.join(sorted(set(settings['_scan_diagnostics'])))[:300],snapshot)
+        if self._current_scan is not None:
+            self._current_scan['candidates'] += len(candidates)
         if not candidates:
+            self._log_decision(exchange, symbol, {}, 'no_trade',
+                               'No eligible strategies or lessons.' if not strategies and not lessons else 'No entry rule matched.', snapshot)
             return 0, 0
 
         rejected = 0
@@ -775,11 +846,20 @@ class PaperTradingEngine:
 
         return 1, 0
 
+    def _record_candle_receipt(self, exchange, symbol, snapshot):
+        if snapshot.get('candle_receipt') and self._current_scan is not None:
+            self._current_scan.setdefault('market_data',[]).append(
+                dict(snapshot['candle_receipt'],exchange=exchange,symbol=symbol))
+
     def _log_decision(self, exchange, symbol, candidate, decision, reason, snapshot, position_id=None):
         """Buffers the decision instead of writing it immediately -- see
         _pending_decisions' own comment in __init__ for why. Flushed by
         _flush_decisions() once per tick (or once per manual single-coin
         scan), never left across ticks."""
+        if self._current_scan is not None:
+            metric = {'rejected':'rejected', 'opened':'accepted', 'dry_run':'accepted', 'no_trade':'no_trade'}.get(decision)
+            if metric:
+                self._current_scan[metric] += 1
         self._pending_decisions.append({
             "exchange": exchange, "symbol": symbol, "direction": candidate.get("direction"),
             "decision": decision, "reason": reason,
@@ -819,6 +899,9 @@ def resume_engine_on_startup():
     "resume only if it was already running" contract as
     evolution_engine.engine.resume_evolution_jobs_on_startup, called
     once from sindhu_web/server.py's lifespan."""
+    if os.environ.get('SINDHU_SAFE_START') == '1':
+        default_log('[paper-trading] Staying OFF -- safe startup is enabled.')
+        return
     if kill_switch.is_active():
         default_log("[paper-trading] Staying OFF -- kill switch is active (must be explicitly deactivated first).")
         return

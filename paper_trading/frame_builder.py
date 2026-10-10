@@ -31,6 +31,8 @@ def build_entry_frame(exchange, symbol, timeframe, lessons, start_ms=None, end_m
     df = get_ohlcv(exchange, symbol, timeframe, start_ms=start_ms, end_ms=end_ms)
     if df is None or len(df) < 30:
         return None
+    from paper_trading.market_data_guard import closed_recent_frame
+    df,_=closed_recent_frame(df,timeframe)
     df = df.copy()
 
     for name in ("ema", "sma", "rsi", "atr"):

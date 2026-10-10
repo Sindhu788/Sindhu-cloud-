@@ -173,7 +173,8 @@ async def token_guard_middleware(request: Request, call_next):
     # just decided one layer up. Static files stay reachable (app.js/
     # app.css are code, not data -- serving them pre-login leaks nothing,
     # and the login page needs this same static mount available too).
-    if path != "/" and path not in _LOGIN_EXEMPT_PATHS and not path.startswith("/static"):
+    public_preview = request.method in ('GET', 'HEAD') and path in ('/preview', '/api/quality/preview')
+    if path != "/" and not public_preview and path not in _LOGIN_EXEMPT_PATHS and not path.startswith("/static"):
         session_token = request.cookies.get(auth.SESSION_COOKIE)
         if not auth.is_valid_session(session_token):
             if request.method in _SAFE_METHODS and not path.startswith("/api/") and not path.startswith("/ws"):

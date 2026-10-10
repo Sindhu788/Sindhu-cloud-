@@ -7724,8 +7724,8 @@
               ? "This feature is not available on the cloud dashboard. Discovering brand-new strategies requires running real backtests against the full historical price database, which (by design, to keep the free cloud server light) only exists on your local computer -- the same reason the Evolution Engine and Backtesting pages also aren't on this cloud dashboard."
               : "Yeh feature cloud dashboard par available nahi hai. Naye strategies discover karne ke liye asli backtests chalane padte hain, jo poori historical price database maangte hain -- yeh database (jaanbujh kar, free cloud server ko halka rakhne ke liye) sirf aapke local computer par maujood hai. Isi wajah se Evolution Engine aur Backtesting pages bhi is cloud dashboard par nahi hain."}</p>
             <p class="muted" style="font-size:12.5px;">${en
-              ? "Open the SINDHU app on your own computer (E:\\\\sindhu) to see live Self-Learning status, past discovery cycles, and to click \"Run Discovery Cycle Now.\""
-              : "Live Self-Learning status, purane discovery cycles dekhne aur \"Run Discovery Cycle Now\" dabane ke liye apne computer par (E:\\\\sindhu) SINDHU app kholein."}</p>
+              ? "Open the local SINDHU Main dashboard to see Self-Learning status, past discovery cycles, and Run Discovery Cycle Now."
+              : "Self-Learning status aur purane discovery cycles dekhne ke liye local SINDHU Main dashboard kholein."}</p>
           </div>`;
         return;
       }
@@ -9222,8 +9222,8 @@
              coinBlacklistRes, riskPctRecsRes, dupExposureRes, cloudSyncStatusRes, patternSharingRes] = await Promise.all([
         apiGet("/api/paper-trading/strategy-performance").catch(() => null),
         apiGet("/api/paper-trading/lesson-performance").catch(() => ({ performance: [] })),
-        apiGet("/api/backtesting/strategies").catch(() => ({ strategies: [] })),
-        apiGet("/api/knowledge/lessons?status=active").catch(() => ({ lessons: [] })),
+        apiGet("/api/paper-trading/catalog/strategies").catch(() => ({ strategies: [] })),
+        apiGet("/api/paper-trading/catalog/lessons").catch(() => ({ lessons: [] })),
         apiGet("/api/paper-trading/session-stats").catch(() => ({ sessions: [] })),
         apiGet("/api/paper-trading/hour-of-day-stats").catch(() => ({ hours: [] })),
         apiGet("/api/paper-trading/lesson-candidates").catch(() => ({ candidates: [] })),
