@@ -144,14 +144,20 @@ def run_tick_now():
     without waiting for the next scheduled tick. This IS the Cloud
     Monitoring Roadmap's "Scan All Coins" -- reused as-is, no new endpoint
     needed for that half of Part 6's Manual Scan Button."""
-    summary = engine.run_single_tick_now()
+    try:
+        summary = engine.run_single_tick_now()
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc)) from None
     return {"ok": True, "summary": summary}
 
 
 @router.post("/api/paper-trading/run-coin-scan-now/{symbol}")
 def run_coin_scan_now(symbol: str):
     """Master Task Expansion, Part 6: Manual Scan -- Scan Selected Coin."""
-    result = engine.run_single_coin_scan_now(symbol)
+    try:
+        result = engine.run_single_coin_scan_now(symbol)
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc)) from None
     return {"ok": True, **result}
 
 

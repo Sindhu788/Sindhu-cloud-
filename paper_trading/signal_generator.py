@@ -25,6 +25,7 @@ from backtest_engine.mtf_context import MultiTimeframeContext
 from knowledge_engine.condition_eval import evaluate_condition
 
 from paper_trading import frame_builder
+from paper_trading.market_data_guard import closed_recent_frame
 
 
 def _lookback_start_ms(settings):
@@ -66,6 +67,12 @@ def strategy_candidates(exchange, symbol, strategies, lessons, settings):
             continue
         if ctx.is_empty():
             continue
+        try:
+            for role,tf in ctx.roles.items():
+                ctx.frames[role],_=closed_recent_frame(ctx.frames[role],tf)
+        except ValueError as exc:
+            settings.get('_scan_diagnostics',[]).append(str(exc))
+            continue
 
         strat = ConfiguredStrategy(cfg)
         try:
@@ -94,7 +101,7 @@ def strategy_candidates(exchange, symbol, strategies, lessons, settings):
         candidates.append({
             "source": "strategy",
             "strategy_id": s["strategy_id"], "strategy_name": s["strategy_name"],
-            "strategy_version": s.get("priority"),
+            "strategy_version": s.get("strategy_version"),
             "direction": direction, "action": signal.action,
             "entry_price": float(merged["close"].iloc[i]),
             "stop_loss": signal.stop_loss, "take_profit": signal.take_profit,
@@ -121,7 +128,11 @@ def lesson_candidates(exchange, symbol, lessons, settings):
 
     timeframe = settings.get("lesson_default_timeframe", "1h")
     start_ms = _lookback_start_ms(settings)
-    df = frame_builder.build_entry_frame(exchange, symbol, timeframe, require_lessons, start_ms=start_ms)
+    try:
+        df = frame_builder.build_entry_frame(exchange, symbol, timeframe, require_lessons, start_ms=start_ms)
+    except ValueError as exc:
+        settings.get('_scan_diagnostics',[]).append(str(exc))
+        return []
     if df is None:
         return []
     i = len(df) - 1

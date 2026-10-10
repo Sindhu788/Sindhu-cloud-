@@ -11,6 +11,7 @@ import time
 
 from backtest_engine import concepts
 from data_engine.resample import get_ohlcv
+from paper_trading.market_data_guard import closed_recent_frame
 
 _STATE_TIMEFRAME = "15m"
 _LOOKBACK_HOURS = 48
@@ -30,6 +31,7 @@ def classify(exchange, symbol):
     end_ms = _now_ms()
     start_ms = end_ms - _LOOKBACK_HOURS * 3600 * 1000
     df = get_ohlcv(exchange, symbol, interval=_STATE_TIMEFRAME, start_ms=start_ms, end_ms=end_ms)
+    df, candle_receipt = closed_recent_frame(df,_STATE_TIMEFRAME,end_ms)
     if len(df) < 20:
         return None
 
@@ -89,6 +91,7 @@ def classify(exchange, symbol):
         "session": concepts.session_of_hour(time.gmtime(last_bar_time / 1000).tm_hour),
         "last_bar_time": last_bar_time,
         "snapshot_at": _now_ms(),
+        "candle_receipt": candle_receipt,
     }
 
 

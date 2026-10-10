@@ -54,8 +54,23 @@ def virtual_session_create():
 @router.get('/api/intelligence/virtual-sessions/{session_id}')
 def virtual_session_get(session_id:str):
     from data_engine import storage
-    from trading_intelligence.sessions import load_session
-    with storage.get_conn() as conn:return checked(load_session,conn,session_id).snapshot()
+    from trading_intelligence.sessions import load_session,session_paused
+    with storage.get_conn() as conn:
+        return {**checked(load_session,conn,session_id).snapshot(),'paused':session_paused(conn,session_id)}
+
+
+@router.post('/api/intelligence/virtual-sessions/{session_id}/pause')
+def virtual_session_pause(session_id:str):
+    from data_engine import storage
+    from trading_intelligence.sessions import control_session
+    with storage.get_conn() as conn:return checked(control_session,conn,session_id,True)
+
+
+@router.post('/api/intelligence/virtual-sessions/{session_id}/resume')
+def virtual_session_resume(session_id:str):
+    from data_engine import storage
+    from trading_intelligence.sessions import control_session
+    with storage.get_conn() as conn:return checked(control_session,conn,session_id,False)
 
 
 @router.post('/api/intelligence/virtual-sessions/{session_id}/example')

@@ -31,6 +31,8 @@ def relevant_strategies(symbol, market_state):
     # to plain list_all()/load() on any deployment without Postgres (i.e.
     # every local laptop run), see that module's own docstring.
     for meta in lib.list_all_including_synced():
+        if meta.get('archived') or meta.get('safety_status')=='blocked':
+            continue
         strategy_id = meta["id"]
         # Opt-in: a strategy with no config row has never been deliberately
         # activated -- see storage.get_paper_strategy_config()'s matching
@@ -55,6 +57,7 @@ def relevant_strategies(symbol, market_state):
             "strategy_id": strategy_id,
             "strategy_name": meta["name"],
             "priority": cfg_meta.get("priority", 5),
+            "strategy_version": meta.get('current_version'),
             "config": config,
         })
 
