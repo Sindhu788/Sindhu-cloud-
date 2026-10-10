@@ -1,0 +1,2 @@
+# Uses the existing Python requests/pytest installation.
+# Parquet uses market_history/package.json (pure JavaScript, GZIP).

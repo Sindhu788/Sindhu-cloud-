@@ -10,6 +10,17 @@ from data_engine.resample import get_ohlcv
 
 
 class MultiTimeframeContext:
+    @classmethod
+    def from_frames(cls,frames,timeframes):
+        """Explicit native frames for offline tests; no storage/API access."""
+        if 'entry' not in timeframes or set(frames)!=set(timeframes):raise ValueError('One native frame per role including entry is required')
+        for frame in frames.values():
+            if frame.empty or frame.index.has_duplicates or not frame.index.is_monotonic_increasing:
+                raise ValueError('Native frames must be nonempty, unique and ordered')
+        obj=cls.__new__(cls);obj.exchange='synthetic';obj.symbol='SYNTHETIC';obj.roles=dict(timeframes)
+        obj.frames={role:frame.copy() for role,frame in frames.items()};obj.merged=None
+        return obj
+
     def __init__(self, exchange, symbol, timeframes, start_ms=None, end_ms=None):
         """timeframes: {role_name: timeframe_string}, must include "entry".
         Any other role names are strategy-defined (e.g. "bias", "trend",

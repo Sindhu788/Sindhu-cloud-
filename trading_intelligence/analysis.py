@@ -134,10 +134,10 @@ def analyze(rows,timeframe='1h',data_label='synthetic',as_of_ms=None):
         closed_at=int(df.index[-1].timestamp()*1000)+INTERVALS[timeframe]
         enough=enough and as_of_ms is not None and closed_at<=as_of_ms<closed_at+2*INTERVALS[timeframe]
     result=evaluate_evidence(evidence,enough_data=enough)
-    atr_pct=ind['atr14']/float(df.close.iloc[-1])*100
+    atr_pct=None if ind['atr14'] is None else ind['atr14']/float(df.close.iloc[-1])*100
     spread=abs(ind['ema20']-ind['ema50'])/float(df.close.iloc[-1])*100
     result.update(version=VERSION,data_label=data_label,timeframe=timeframe,detections=detections,
-                  evidence=[e.__dict__ for e in evidence],regime='volatile' if atr_pct>=3 else 'trending' if spread>=.5 else 'ranging',
+                  evidence=[e.__dict__ for e in evidence],regime='NOT TESTED' if len(df)<50 or atr_pct is None else 'volatile' if atr_pct>=3 else 'trending' if spread>=.5 else 'ranging',
                   unsupported_data=['open_interest','funding','order_book'],
                   educational_only=True,automatic_strategy_approval=False)
     return result

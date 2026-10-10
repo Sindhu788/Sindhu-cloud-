@@ -31,7 +31,7 @@ def metrics(rows):
     measured=[r for r in rows if r.get('pnl') is not None and math.isfinite(float(r['pnl']))]
     measured.sort(key=lambda r:(r.get('closed_at') or '',r.get('id') or ''))
     pnl=[float(r['pnl']) for r in measured];n=len(pnl)
-    if not n:return {'trades':0,'status':'NOT TESTED','win_rate_pct':None,'profit_factor':None,'expectancy':None,'max_drawdown':None,'max_drawdown_pct':None}
+    if not n:return {'trades':0,'status':'NOT TESTED','win_rate_pct':None,'profit_factor':None,'expectancy':None,'max_drawdown':None,'max_drawdown_pct':None,'average_win':None,'average_loss':None,'validation_status':'NOT TESTED'}
     wins=sum(x>0 for x in pnl);gross_win=sum(x for x in pnl if x>0);loss=-sum(x for x in pnl if x<0)
     total=0.0;peak=0.0;dd=0.0
     for value in pnl:total+=value;peak=max(peak,total);dd=max(dd,peak-total)
@@ -50,6 +50,9 @@ def metrics(rows):
             'profit_factor':pf,'profit_factor_note':'No losses in sample; ratio undefined' if not loss else None,
             'average_return_pct':sum(returns)/len(returns) if returns else None,'expectancy':sum(pnl)/n,
             'net_pnl':sum(pnl),'max_drawdown':dd,'max_drawdown_pct':None,
+            'average_win':gross_win/wins if wins else None,
+            'average_loss':-loss/sum(x<0 for x in pnl) if loss else None,
+            'validation_status':'Historical paper observations; independent backtest NOT TESTED',
             'drawdown_basis':'Recorded realized PnL in chronological order; initial balance/intratrade equity unavailable',
             'average_risk_reward':sum(rr)/len(rr) if rr else None,
             'risk_reward_basis':'Planned target distance / initial stop distance; not realized R',
