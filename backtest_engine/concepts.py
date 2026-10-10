@@ -284,10 +284,12 @@ def order_blocks(df, lookback=2):
     bearish_candle = df["close"] < df["open"]
     bullish_candle = df["close"] > df["open"]
 
-    last_bearish_low = df["low"].where(bearish_candle).ffill()
-    last_bearish_high = df["high"].where(bearish_candle).ffill()
-    last_bullish_low = df["low"].where(bullish_candle).ffill()
-    last_bullish_high = df["high"].where(bullish_candle).ffill()
+    # Origin must precede the break; a gapped opposite-colour BOS candle
+    # cannot be its own order-block origin.
+    last_bearish_low = df["low"].where(bearish_candle).ffill().shift(1)
+    last_bearish_high = df["high"].where(bearish_candle).ffill().shift(1)
+    last_bullish_low = df["low"].where(bullish_candle).ffill().shift(1)
+    last_bullish_high = df["high"].where(bullish_candle).ffill().shift(1)
 
     bull_low = last_bearish_low.where(bullish_bos).ffill()
     bull_high = last_bearish_high.where(bullish_bos).ffill()

@@ -1,0 +1,48 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    dependencies:
+      parquetjs-lite:
+        specifier: 0.8.7
+        version: 0.8.7
+
+packages:
+
+  int53@0.2.4:
+    resolution: {integrity: sha512-a5jlKftS7HUOhkUyYD7j2sJ/ZnvWiNlZS1ldR+g1ifQ+/UuZXIE+YTc/lK1qGj/GwAU5F8Z0e1eVq2t1J5Ob2g==}
+
+  node-int64@0.3.3:
+    resolution: {integrity: sha512-bLdNOp5SYyqfDz/ssGHt2OTg8u+jEkCx4EoZIzprqeonFIUhlSBrKu40e/x6hIFYJx4ZEt64/9IZJyafvhGZrw==}
+
+  parquetjs-lite@0.8.7:
+    resolution: {integrity: sha512-L0tdHzvy0btLJvAFZvjO0+ru+FL8tHPqiVE90KEnMy5jDqv+WmEy9Ii8SjiC+exAOi3RGyPYIdgJvFijYyEahA==}
+    engines: {node: '>=7.6'}
+
+  snappyjs@0.6.1:
+    resolution: {integrity: sha512-YIK6I2lsH072UE0aOFxxY1dPDCS43I5ktqHpeAsuLNYWkE5pGxRGWfDM4/vSUfNzXjC1Ivzt3qx31PCLmc9yqg==}
+
+  varint@5.0.2:
+    resolution: {integrity: sha512-lKxKYG6H03yCZUpAGOPOsMcGxd1RHCu1iKvEHYDPmTyq2HueGhD73ssNBqqQWfvYs04G9iUFRvmAVLW20Jw6ow==}
+
+snapshots:
+
+  int53@0.2.4: {}
+
+  node-int64@0.3.3: {}
+
+  parquetjs-lite@0.8.7:
+    dependencies:
+      int53: 0.2.4
+      node-int64: 0.3.3
+      snappyjs: 0.6.1
+      varint: 5.0.2
+
+  snappyjs@0.6.1: {}
+
+  varint@5.0.2: {}

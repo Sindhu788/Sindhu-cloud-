@@ -199,6 +199,7 @@ def test_main_cloud_public_sender_ownership_and_private_notifications():
 
 def test_non_owner_sender_returns_before_any_network_call(monkeypatch):
     from paper_trading import telegram_bot
+    monkeypatch.delenv('SINDHU_TELEGRAM_DRY_RUN',raising=False)
     monkeypatch.delenv('SINDHU_CLOUD_MODE',raising=False)
     monkeypatch.delenv('SINDHU_PUBLIC_SIGNAL_OWNER',raising=False)
     monkeypatch.setattr(telegram_bot,'load_settings',lambda:{'channel_id':'public'})
