@@ -13,6 +13,7 @@ import platform
 import sys
 import time
 import urllib.request
+import urllib.error
 import uuid
 from unittest.mock import patch
 
@@ -42,11 +43,12 @@ def main():
     from data_engine import storage,feature_toggles
     from paper_trading import config,market_state,signal_generator,strategy_matcher,lesson_matcher,kill_switch
     from paper_trading.engine import PaperTradingEngine
-    from paper_trading.market_data_guard import closed_recent_frame
+    from paper_trading.market_data_guard import closed_recent_frame, MarketDataRejected
     from backtest_engine.validator import validate
     from backtest_engine.mtf_context import MultiTimeframeContext
     from trading_intelligence.catalog import strategy_library,load_strategy_config
-    from trading_intelligence.shared_wallet import SharedWallet,now
+    from trading_intelligence.shared_wallet import now
+    from trading_intelligence.shared_postgres import local_wallet
     from trading_intelligence.shared_execution import SharedExecution
     root=ROOT/'data/recovery_main/shared_paper'
     # OS file lock, released on process exit. No stale-PID delete or duplicate worker.
@@ -57,7 +59,7 @@ def main():
         try:msvcrt.locking(lock.fileno(),msvcrt.LK_NBLCK,1)
         except OSError:raise RuntimeError('Existing shared scanner owns the worker lock') from None
     session=json.loads((root/'owner_session.json').read_text())['session_id']
-    wallet=SharedWallet(root/'wallet.db',initialize=False)
+    wallet=local_wallet(root)
     storage.init_db()
     # Existing user settings, with stronger caps for this isolated account.
     configured=root/'worker_configuration_receipt.json'
@@ -131,7 +133,18 @@ def main():
             wallet.event(session,key,'scan',{'success':success,'symbols':['BTCUSDT','ETHUSDT'],'candle_receipts':receipts})
             receipt.update(state='RUNNING' if success else 'ERROR',last_completed_utc=now(),last_successful_scan_utc=now() if success else receipt.get('last_successful_scan_utc'),
                            evaluated_symbols=['BTCUSDT','ETHUSDT'],results=results,cycles_completed=cycle+1)
+            if success:
+                receipt.pop('error_type',None);receipt.pop('error_reason',None)
             save();print(json.dumps({'scanner':receipt['state'],'completed_utc':receipt['last_completed_utc'],'cycle':cycle+1,'results':results}),flush=True)
+        except (MarketDataRejected, urllib.error.URLError, TimeoutError) as exc:
+            # Invalid/stale data blocks this cycle, not the whole service.
+            # A later cycle must pass the original guard again before entries.
+            reason=str(exc) if isinstance(exc,MarketDataRejected) else type(exc).__name__
+            wallet.event(session,key+'-feed','no_trade',{'reason':reason,'feed_health':'BLOCKED'})
+            wallet.event(session,key,'scan',{'success':False,'symbols':['BTCUSDT','ETHUSDT']})
+            receipt.update(state='WAITING_FOR_FRESH_DATA',error_type=type(exc).__name__,
+                           error_reason=reason,last_completed_utc=now(),cycles_completed=cycle+1)
+            save();print(json.dumps({'scanner':receipt['state'],'reason':reason}),flush=True)
         except Exception as exc:
             receipt.update(state='ERROR',error_type=type(exc).__name__,last_completed_utc=now());save()
             print(json.dumps({'scanner':'ERROR','error_type':type(exc).__name__}),flush=True)

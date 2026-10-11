@@ -57,13 +57,16 @@ class SharedWallet:
         finally:
             conn.close()
 
+    def _begin(self, conn):
+        conn.execute('BEGIN IMMEDIATE')
+
     def create(self, name, archive_sha256, data_label='live'):
         if data_label not in ('live', 'synthetic') or not name:
             raise ValueError('Explicit wallet identity and data label required')
         if len(archive_sha256) != 64 or any(c not in '0123456789abcdef' for c in archive_sha256):
             raise ValueError('Verified archive SHA-256 required')
         with self.connect() as conn:
-            conn.execute('BEGIN IMMEDIATE')
+            self._begin(conn)
             row = conn.execute('SELECT session_id,archive_sha256,data_label FROM shared_sessions WHERE name=?', (name,)).fetchone()
             if row:
                 if row[1:] != (archive_sha256, data_label):
@@ -126,7 +129,7 @@ class SharedWallet:
             if any(number(v) <= 0 for v in payload['prices'].values()):
                 raise ValueError('Positive mark prices required')
         with self.connect() as conn:
-            conn.execute('BEGIN IMMEDIATE')
+            self._begin(conn)
             self._load(conn, ident)
             self._append(conn, ident, event_id, kind, payload)
         return self.snapshot(ident)
@@ -151,7 +154,7 @@ class SharedWallet:
                  fee_bps=str(fee), slippage_bps=str(slip), spread_bps=str(spread))
         p['entered_at_ms']=entered_at_ms
         with self.connect() as conn:
-            conn.execute('BEGIN IMMEDIATE')
+            self._begin(conn)
             s = self._load(conn, ident)
             prior = conn.execute('SELECT 1 FROM shared_events WHERE session_id=? AND event_id=?', (ident, event_id)).fetchone()
             if prior:
@@ -181,7 +184,7 @@ class SharedWallet:
         if price <= 0 or not reason:
             raise ValueError('Positive exit price and explicit reason required')
         with self.connect() as conn:
-            conn.execute('BEGIN IMMEDIATE')
+            self._begin(conn)
             s = self._load(conn, ident)
             prior = conn.execute('SELECT payload FROM shared_events WHERE session_id=? AND event_id=? AND kind=?', (ident, event_id, 'close')).fetchone()
             if prior:
