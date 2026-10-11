@@ -59,17 +59,25 @@ def health():return {'status':'ok','version':VERSION,'educational_only':True,'ne
 
 @router.get('/api/intelligence/shared-wallet')
 def shared_wallet():
-    # Local-only until a reviewed Postgres journal migration is approved.
-    # Never create an ephemeral cloud wallet or silently fall back to legacy books.
+    # Never create an ephemeral cloud wallet or fall back to legacy books.
     from data_engine import db_backend
     from data_engine.paths import DATA_DIR
     if db_backend.IS_POSTGRES:
-        raise HTTPException(503,'Shared wallet is local review only; production migration awaiting approval.')
+        try:
+            wallet,ident=_postgres_shared_wallet()
+            result=wallet.snapshot(ident)
+            result['scanner']={'running':False,'state':'NOT_ACTIVATED',
+                               'standalone_lessons':'NOT EXECUTABLE',
+                               'public_delivery':False,'real_orders':0}
+            return result
+        except Exception:
+            raise HTTPException(503,'Verified PostgreSQL shared wallet unavailable; migration/activation requires approval.') from None
     from trading_intelligence.shared_wallet import SharedWallet
     root=Path(DATA_DIR)/'shared_paper'
     try:
         receipt=json.loads((root/'owner_session.json').read_text(encoding='utf-8'))
-        wallet=SharedWallet(root/'wallet.db',initialize=False)
+        from trading_intelligence.shared_postgres import local_wallet
+        wallet=local_wallet(root)
         result=wallet.snapshot(receipt['session_id'])
         if result['archive_sha256']!=receipt['archive_sha256']:
             raise ValueError('Archive identity differs')
@@ -79,7 +87,7 @@ def shared_wallet():
         running=False
         try:
             process=psutil.Process(scanner.get('pid',0))
-            running=any('run_shared_paper.py' in part for part in process.cmdline()) and scanner.get('state') in ('STARTING','RUNNING')
+            running=any('run_shared_paper.py' in part for part in process.cmdline()) and scanner.get('state') in ('STARTING','RUNNING','WAITING_FOR_FRESH_DATA')
         except (psutil.Error,ValueError):pass
         result['scanner']={'running':running,'state':scanner.get('state','NOT_STARTED'),
                            'last_successful_scan_utc':scanner.get('last_successful_scan_utc'),
@@ -88,7 +96,7 @@ def shared_wallet():
                            'standalone_lessons':'NOT EXECUTABLE: explicit entry/exit/risk provenance required',
                            'public_delivery':False,'real_orders':0}
         return result
-    except (OSError,ValueError,KeyError):
+    except Exception:
         raise HTTPException(503,'Verified local shared wallet is unavailable; legacy balances are excluded.') from None
 
 
@@ -99,9 +107,20 @@ def shared_wallet_control(operation:str):
     from data_engine.paths import DATA_DIR
     from trading_intelligence.shared_wallet import SharedWallet
     import uuid
-    wallet=SharedWallet(Path(DATA_DIR)/'shared_paper/wallet.db',initialize=False)
+    from data_engine import db_backend
+    from trading_intelligence.shared_postgres import local_wallet
+    wallet=_postgres_shared_wallet()[0] if db_backend.IS_POSTGRES else local_wallet(Path(DATA_DIR)/'shared_paper')
     wallet.event(current['session_id'],'control-'+uuid.uuid4().hex,'control',{'paused':operation=='pause'})
     return shared_wallet()
+
+
+def _postgres_shared_wallet():
+    from trading_intelligence.shared_postgres import configured_wallet
+    wallet=configured_wallet()
+    with wallet.connect() as conn:
+        rows=list(conn.execute("SELECT session_id FROM shared_sessions WHERE data_label='live'"))
+    if len(rows)!=1:raise ValueError('Exactly one approved live wallet required')
+    return wallet,rows[0][0]
 
 
 @router.get('/api/intelligence/database-health')
