@@ -48,13 +48,13 @@ class MultiTimeframeContext:
         bar's values as of each entry bar."""
         entry_df = self.frames["entry"]
         base = entry_df.add_prefix("entry_").copy()
-        base["_ts"] = base.index
+        base["_ts"] = base.index.as_unit("ns")
 
         for role, df in self.frames.items():
             if role == "entry" or df.empty:
                 continue
             known = df.shift(1).add_prefix(f"{role}_")
-            known["_ts"] = known.index
+            known["_ts"] = known.index.as_unit("ns")
             base = pd.merge_asof(
                 base.sort_values("_ts"), known.sort_values("_ts"),
                 on="_ts", direction="backward",
