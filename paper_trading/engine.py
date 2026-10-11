@@ -676,6 +676,11 @@ class PaperTradingEngine:
         if not approved:
             return 0, rejected
 
+        if getattr(self, '_shared_execution', None) is not None and len({c['direction'] for c in approved}) > 1:
+            for c in approved:
+                self._log_decision(exchange, symbol, c, 'rejected', 'Conflicting strategy directions in shared wallet.', snapshot)
+            return 0, rejected + len(approved)
+
         # Group by book (strategy_id, or the shared "__lessons__" book for
         # lesson-only candidates) and process each group independently --
         # this is what lets two different strategies BOTH open a position
@@ -796,6 +801,12 @@ class PaperTradingEngine:
             self._log_decision(exchange, symbol, pick, "dry_run",
                                 "dry run -- would have opened this trade", snapshot)
             return 0, 0
+
+        # Explicit local shared-account adapter. All existing approval gates
+        # above still run. The global/legacy engine never installs this hook.
+        shared_execution = getattr(self, '_shared_execution', None)
+        if shared_execution is not None:
+            return shared_execution(book, exchange, symbol, pick, snapshot, settings, size, risk_amount)
 
         pos = position_manager.open_position(exchange, symbol, pick, size, risk_amount, pick["confidence"], snapshot)
         self._log_decision(exchange, symbol, pick, "opened", "trade opened", snapshot, position_id=pos["id"])
