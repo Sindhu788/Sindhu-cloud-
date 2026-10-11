@@ -57,6 +57,53 @@ def page():
 def health():return {'status':'ok','version':VERSION,'educational_only':True,'network_execution':False}
 
 
+@router.get('/api/intelligence/shared-wallet')
+def shared_wallet():
+    # Local-only until a reviewed Postgres journal migration is approved.
+    # Never create an ephemeral cloud wallet or silently fall back to legacy books.
+    from data_engine import db_backend
+    from data_engine.paths import DATA_DIR
+    if db_backend.IS_POSTGRES:
+        raise HTTPException(503,'Shared wallet is local review only; production migration awaiting approval.')
+    from trading_intelligence.shared_wallet import SharedWallet
+    root=Path(DATA_DIR)/'shared_paper'
+    try:
+        receipt=json.loads((root/'owner_session.json').read_text(encoding='utf-8'))
+        wallet=SharedWallet(root/'wallet.db',initialize=False)
+        result=wallet.snapshot(receipt['session_id'])
+        if result['archive_sha256']!=receipt['archive_sha256']:
+            raise ValueError('Archive identity differs')
+        scanner_path=root/'scanner_state.json'
+        scanner=json.loads(scanner_path.read_text()) if scanner_path.exists() else {}
+        import psutil
+        running=False
+        try:
+            process=psutil.Process(scanner.get('pid',0))
+            running=any('run_shared_paper.py' in part for part in process.cmdline()) and scanner.get('state') in ('STARTING','RUNNING')
+        except (psutil.Error,ValueError):pass
+        result['scanner']={'running':running,'state':scanner.get('state','NOT_STARTED'),
+                           'last_successful_scan_utc':scanner.get('last_successful_scan_utc'),
+                           'evaluated_symbols':scanner.get('evaluated_symbols',[]),
+                           'strategy_ids':scanner.get('strategy_ids',[]),
+                           'standalone_lessons':'NOT EXECUTABLE: explicit entry/exit/risk provenance required',
+                           'public_delivery':False,'real_orders':0}
+        return result
+    except (OSError,ValueError,KeyError):
+        raise HTTPException(503,'Verified local shared wallet is unavailable; legacy balances are excluded.') from None
+
+
+@router.post('/api/intelligence/shared-wallet/{operation}')
+def shared_wallet_control(operation:str):
+    if operation not in ('pause','resume'):raise HTTPException(404,'Unknown shared wallet control')
+    current=shared_wallet()
+    from data_engine.paths import DATA_DIR
+    from trading_intelligence.shared_wallet import SharedWallet
+    import uuid
+    wallet=SharedWallet(Path(DATA_DIR)/'shared_paper/wallet.db',initialize=False)
+    wallet.event(current['session_id'],'control-'+uuid.uuid4().hex,'control',{'paused':operation=='pause'})
+    return shared_wallet()
+
+
 @router.get('/api/intelligence/database-health')
 def database_health():
     from data_engine import storage,db_backend
