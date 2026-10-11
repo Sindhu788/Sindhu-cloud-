@@ -34,6 +34,72 @@ _CANDLESTICK_PATTERN_CONCEPTS = {
 _DMC_VARIANTS = {"dmc_confirmation", "dmc_blind_entry", "dmc_combined"}
 
 
+# Resolve only the requested concept; avoid building every role-prefixed name per bar.
+_EVENT_COLUMN_SUFFIXES = {
+    "bos": ("bull_bos", "bear_bos"),
+    "choch": ("bull_choch", "bear_choch"),
+    "fvg": ("bull_fvg", "bear_fvg"),
+    "liquidity_sweep": ("bull_liquidity_sweep", "bear_liquidity_sweep"),
+    "candle_break": ("bull_candle_break", "bear_candle_break"),
+    "aggression": ("bull_aggression", "bear_aggression"),
+    "imbalance": ("bull_imbalance", "bear_imbalance"),
+    "equal_highs_lows": ("bull_equal_lows", "bear_equal_highs"),
+    "engulfing": ("bull_engulfing", "bear_engulfing"),
+    "pin_bar": ("bull_pin_bar", "bear_pin_bar"),
+    "orb": ("bull_orb", "bear_orb"),
+    "initial_balance": ("ib_above", "ib_below"),
+    "double_choch_confirmation": ("bull_double_choch", "bear_double_choch"),
+    "four_hour_range_reentry": ("range_long_confirm", "range_short_confirm"),
+    "asian_range_sweep_reclaim": ("asian_long_confirm", "asian_short_confirm"),
+    "doji_confirm": ("doji_confirm_bull", "doji_confirm_bear"),
+    "hammer_confirm": ("hammer_confirm", "hammer_confirm"),
+    "shooting_star_confirm": ("shooting_star_confirm", "shooting_star_confirm"),
+    "morning_star": ("morning_star_event", "morning_star_event"),
+    "evening_star": ("evening_star_event", "evening_star_event"),
+    "liquidity_sweep_reclaim": ("level_long_confirm", "level_short_confirm"),
+    "laxman_break": ("laxman_long_confirm", "laxman_short_confirm"),
+    "fvg_reversal": ("fvg_reversal_long_confirm", "fvg_reversal_short_confirm"),
+    "order_block_reversal": ("ob_reversal_long_confirm", "ob_reversal_short_confirm"),
+    "eqhl_reversal": ("eqhl_long_confirm", "eqhl_short_confirm"),
+    "pdhl_reversal": ("pdhl_long_confirm", "pdhl_short_confirm"),
+    "mss_reversal": ("mss_long_confirm", "mss_short_confirm"),
+    "htf_key_level_engulfing": ("htf_key_level_long_confirm", "htf_key_level_short_confirm"),
+    "sniper_headshot_entry": ("sniper_long_confirm", "sniper_short_confirm"),
+    "pdhl_mtf_reversal": ("pdhl_mtf_long_confirm", "pdhl_mtf_short_confirm"),
+    "cisd_entry": ("cisd_long_confirm", "cisd_short_confirm"),
+    "fractal_sweep_reversal": ("fractal_sweep_long_confirm", "fractal_sweep_short_confirm"),
+    "liquidity_sweep_multi_confirm": ("liqsweep_multi_long_confirm", "liqsweep_multi_short_confirm"),
+    "liquidity_sweep_cisd_swing": ("liqsweep_cisd_long_confirm", "liqsweep_cisd_short_confirm"),
+    "ote_liquidity_sweep_reversal": ("ote_long_confirm", "ote_short_confirm"),
+    "trendline_breakout": ("trendline_long_confirm", "trendline_short_confirm"),
+    "range_breakout_volume_confirm": ("range_vol_bull_confirm", "range_vol_bear_confirm"),
+    "htf_ltf_fvg_ob_confluence": ("confluence_long_confirm", "confluence_short_confirm"),
+    "heikin_ashi_reversal": ("ha_long_confirm", "ha_short_confirm"),
+    "fibonacci_golden_zone": ("fib_long_confirm", "fib_short_confirm"),
+    "frvp_poc_reversal": ("frvp_long_confirm", "frvp_short_confirm"),
+    "fvg_equilibrium_entry": ("fvg_eq_long_confirm", "fvg_eq_short_confirm"),
+    "donchian_lwti_volume_confluence": ("donchian_long_confirm", "donchian_short_confirm"),
+    # New Batch 5, Strategy 1: both variants share the same
+    # confirm columns (only one is ever in concepts_used per run).
+    "liquidity_sweep_engulfing_loose": ("liqsweep_engulf_long_confirm", "liqsweep_engulf_short_confirm"),
+    "liquidity_sweep_engulfing_strict": ("liqsweep_engulf_long_confirm", "liqsweep_engulf_short_confirm"),
+    # New Batch 5, Strategy 2: two distinct entry modes, each
+    # bidirectional (direction picks which side of the same
+    # computed columns to read) -- selected via entry_rule_groups.
+    "frvp_hvn_reaction": ("frvp_hvn_support_long", "frvp_hvn_resistance_short"),
+    "frvp_lvn_breakout": ("frvp_lvn_breakout_long", "frvp_lvn_breakout_short"),
+    "sr_liquidity_sweep_sideways": ("sr_sweep_long_confirm", "sr_sweep_short_confirm"),
+    "fvg_momentum_pullback": ("fvgmp_long_confirm", "fvgmp_short_confirm"),
+    "fvg_pure_inverse": ("fvgpi_long_confirm", "fvgpi_short_confirm"),
+    "order_block_trading_loose": ("obtrade_long_confirm", "obtrade_short_confirm"),
+    "order_block_trading_strict": ("obtrade_long_confirm", "obtrade_short_confirm"),
+    "crt_loose": ("crt_long_confirm", "crt_short_confirm"),
+    "crt_strict": ("crt_long_confirm", "crt_short_confirm"),
+    "bos_choch_retest": ("bosc_long_confirm", "bosc_short_confirm"),
+    "ichimoku_system": ("ichimoku_long_confirm", "ichimoku_short_confirm"),
+    "ichimoku_cross": ("ichimoku_cross_above", "ichimoku_cross_below"),
+}
+
 class ConfiguredStrategy(Strategy):
     def __init__(self, config):
         self.config = config
@@ -2643,6 +2709,8 @@ class ConfiguredStrategy(Strategy):
                 arr = self._array(df, col)
                 if arr is None:
                     return False
+                if window == 1:
+                    return bool(arr[i] == True)  # noqa: E712; NaN remains false
                 start = max(0, i - window + 1)
                 # Bug fix: a role-tagged concept column merged onto the
                 # entry index via MultiTimeframeContext (see mtf_context.py)
@@ -2730,70 +2798,6 @@ class ConfiguredStrategy(Strategy):
                               and prev_lo <= prev_price <= prev_hi)
                 return not was_inside
 
-            event_colmap = {
-                "bos": (_rcol("bull_bos"), _rcol("bear_bos")),
-                "choch": (_rcol("bull_choch"), _rcol("bear_choch")),
-                "fvg": (_rcol("bull_fvg"), _rcol("bear_fvg")),
-                "liquidity_sweep": (_rcol("bull_liquidity_sweep"), _rcol("bear_liquidity_sweep")),
-                "candle_break": (_rcol("bull_candle_break"), _rcol("bear_candle_break")),
-                "aggression": (_rcol("bull_aggression"), _rcol("bear_aggression")),
-                "imbalance": (_rcol("bull_imbalance"), _rcol("bear_imbalance")),
-                "equal_highs_lows": (_rcol("bull_equal_lows"), _rcol("bear_equal_highs")),
-                "engulfing": (_rcol("bull_engulfing"), _rcol("bear_engulfing")),
-                "pin_bar": (_rcol("bull_pin_bar"), _rcol("bear_pin_bar")),
-                "orb": (_rcol("bull_orb"), _rcol("bear_orb")),
-                "initial_balance": (_rcol("ib_above"), _rcol("ib_below")),
-                "double_choch_confirmation": (_rcol("bull_double_choch"), _rcol("bear_double_choch")),
-                "four_hour_range_reentry": (_rcol("range_long_confirm"), _rcol("range_short_confirm")),
-                "asian_range_sweep_reclaim": (_rcol("asian_long_confirm"), _rcol("asian_short_confirm")),
-                "doji_confirm": (_rcol("doji_confirm_bull"), _rcol("doji_confirm_bear")),
-                "hammer_confirm": (_rcol("hammer_confirm"), _rcol("hammer_confirm")),
-                "shooting_star_confirm": (_rcol("shooting_star_confirm"), _rcol("shooting_star_confirm")),
-                "morning_star": (_rcol("morning_star_event"), _rcol("morning_star_event")),
-                "evening_star": (_rcol("evening_star_event"), _rcol("evening_star_event")),
-                "liquidity_sweep_reclaim": (_rcol("level_long_confirm"), _rcol("level_short_confirm")),
-                "laxman_break": (_rcol("laxman_long_confirm"), _rcol("laxman_short_confirm")),
-                "fvg_reversal": (_rcol("fvg_reversal_long_confirm"), _rcol("fvg_reversal_short_confirm")),
-                "order_block_reversal": (_rcol("ob_reversal_long_confirm"), _rcol("ob_reversal_short_confirm")),
-                "eqhl_reversal": (_rcol("eqhl_long_confirm"), _rcol("eqhl_short_confirm")),
-                "pdhl_reversal": (_rcol("pdhl_long_confirm"), _rcol("pdhl_short_confirm")),
-                "mss_reversal": (_rcol("mss_long_confirm"), _rcol("mss_short_confirm")),
-                "htf_key_level_engulfing": (_rcol("htf_key_level_long_confirm"), _rcol("htf_key_level_short_confirm")),
-                "sniper_headshot_entry": (_rcol("sniper_long_confirm"), _rcol("sniper_short_confirm")),
-                "pdhl_mtf_reversal": (_rcol("pdhl_mtf_long_confirm"), _rcol("pdhl_mtf_short_confirm")),
-                "cisd_entry": (_rcol("cisd_long_confirm"), _rcol("cisd_short_confirm")),
-                "fractal_sweep_reversal": (_rcol("fractal_sweep_long_confirm"), _rcol("fractal_sweep_short_confirm")),
-                "liquidity_sweep_multi_confirm": (_rcol("liqsweep_multi_long_confirm"), _rcol("liqsweep_multi_short_confirm")),
-                "liquidity_sweep_cisd_swing": (_rcol("liqsweep_cisd_long_confirm"), _rcol("liqsweep_cisd_short_confirm")),
-                "ote_liquidity_sweep_reversal": (_rcol("ote_long_confirm"), _rcol("ote_short_confirm")),
-                "trendline_breakout": (_rcol("trendline_long_confirm"), _rcol("trendline_short_confirm")),
-                "range_breakout_volume_confirm": (_rcol("range_vol_bull_confirm"), _rcol("range_vol_bear_confirm")),
-                "htf_ltf_fvg_ob_confluence": (_rcol("confluence_long_confirm"), _rcol("confluence_short_confirm")),
-                "heikin_ashi_reversal": (_rcol("ha_long_confirm"), _rcol("ha_short_confirm")),
-                "fibonacci_golden_zone": (_rcol("fib_long_confirm"), _rcol("fib_short_confirm")),
-                "frvp_poc_reversal": (_rcol("frvp_long_confirm"), _rcol("frvp_short_confirm")),
-                "fvg_equilibrium_entry": (_rcol("fvg_eq_long_confirm"), _rcol("fvg_eq_short_confirm")),
-                "donchian_lwti_volume_confluence": (_rcol("donchian_long_confirm"), _rcol("donchian_short_confirm")),
-                # New Batch 5, Strategy 1: both variants share the same
-                # confirm columns (only one is ever in concepts_used per run).
-                "liquidity_sweep_engulfing_loose": (_rcol("liqsweep_engulf_long_confirm"), _rcol("liqsweep_engulf_short_confirm")),
-                "liquidity_sweep_engulfing_strict": (_rcol("liqsweep_engulf_long_confirm"), _rcol("liqsweep_engulf_short_confirm")),
-                # New Batch 5, Strategy 2: two distinct entry modes, each
-                # bidirectional (direction picks which side of the same
-                # computed columns to read) -- selected via entry_rule_groups.
-                "frvp_hvn_reaction": (_rcol("frvp_hvn_support_long"), _rcol("frvp_hvn_resistance_short")),
-                "frvp_lvn_breakout": (_rcol("frvp_lvn_breakout_long"), _rcol("frvp_lvn_breakout_short")),
-                "sr_liquidity_sweep_sideways": (_rcol("sr_sweep_long_confirm"), _rcol("sr_sweep_short_confirm")),
-                "fvg_momentum_pullback": (_rcol("fvgmp_long_confirm"), _rcol("fvgmp_short_confirm")),
-                "fvg_pure_inverse": (_rcol("fvgpi_long_confirm"), _rcol("fvgpi_short_confirm")),
-                "order_block_trading_loose": (_rcol("obtrade_long_confirm"), _rcol("obtrade_short_confirm")),
-                "order_block_trading_strict": (_rcol("obtrade_long_confirm"), _rcol("obtrade_short_confirm")),
-                "crt_loose": (_rcol("crt_long_confirm"), _rcol("crt_short_confirm")),
-                "crt_strict": (_rcol("crt_long_confirm"), _rcol("crt_short_confirm")),
-                "bos_choch_retest": (_rcol("bosc_long_confirm"), _rcol("bosc_short_confirm")),
-                "ichimoku_system": (_rcol("ichimoku_long_confirm"), _rcol("ichimoku_short_confirm")),
-                "ichimoku_cross": (_rcol("ichimoku_cross_above"), _rcol("ichimoku_cross_below")),
-            }
             if cond.name in _DMC_VARIANTS:
                 # Computed post-merge in prepare() (not per-role in
                 # _compute_concept_columns), always under the literal
@@ -2808,8 +2812,9 @@ class ConfiguredStrategy(Strategy):
                 if cond.direction == "bullish":
                     return _within("entry_dmc_long_confirm")
                 return False
-            if cond.name in event_colmap:
-                bull_col, bear_col = event_colmap[cond.name]
+            if cond.name in _EVENT_COLUMN_SUFFIXES:
+                bull, bear = _EVENT_COLUMN_SUFFIXES[cond.name]
+                bull_col, bear_col = _rcol(bull), _rcol(bear)
                 if cond.direction == "bearish":
                     return _within(bear_col)
                 if cond.direction == "bullish":
