@@ -21,6 +21,7 @@ def main():
     p=argparse.ArgumentParser()
     p.add_argument('mode', choices=['test','serve'])
     p.add_argument('--port', type=int, default=8431)
+    p.add_argument('--status-outage',action='store_true',help='Isolated frontend error-state QA only')
     args=p.parse_args()
     if args.mode=='test':
         import pytest
@@ -31,11 +32,16 @@ def main():
                             'tests/test_telegram_freshness_gate.py','tests/test_telegram_retry_queue.py',
                             'tests/test_phase3_cloud_monitoring.py','tests/test_trading_intelligence.py',
                             '--basetemp='+str(ROOT/'data/overnight_pytest')])
+    if args.status_outage:os.environ['SINDHU_DATA_DIR']=str(ROOT/'data/overnight_outage_qa')
     from data_engine import storage
     from sindhu_web import auth
     storage.init_db()
     if not auth.has_credentials():
         auth.set_credentials('qa-review','synthetic-qa-only')
+    if args.status_outage:
+        from paper_trading.engine import engine
+        def unavailable_status():raise RuntimeError('Isolated QA status outage')
+        engine.status=unavailable_status
     import uvicorn
     uvicorn.run('cloud_runtime.app:app',host='127.0.0.1',port=args.port,
                 access_log=False,log_level='warning')

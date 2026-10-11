@@ -282,6 +282,7 @@ class PaperTradingEngine:
                 pass
         return {
             "running": self._running,
+            "safe_start": os.environ.get('SINDHU_SAFE_START') == '1',
             "dry_run": settings.get("dry_run", True),
             "started_at": self._started_at,
             "last_tick_at": self._last_tick_at,

@@ -456,6 +456,10 @@ def run_backtest(df, strategy, settings, control=None, on_trade=None, knowledge_
             "stop_loss": position["stop_loss"],
             "take_profit": position["take_profit"],
             "risk_amount": _risk_amount({**position, "size": size}),
+            "initial_risk_amount": (position.get("_original_risk_distance") or 0.0) * size,
+            "initial_planned_rr": (abs(position["take_profit"] - position["entry_price"]) /
+                                   position["_original_risk_distance"]
+                                   if position.get("take_profit") is not None and position.get("_original_risk_distance") else None),
             "reward_amount": _reward_amount({**position, "size": size}),
             "entry_reason": position["entry_reason"],
             "entry_type": position["entry_type"],

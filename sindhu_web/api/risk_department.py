@@ -61,7 +61,15 @@ def _position_cap_usage():
 
 def _incomplete_lock_summary():
     active_ids = [s["id"] for s in strategy_library.list_all() if not s.get("archived")]
-    locks = extraction_lock.check_strategy_locks_bulk(active_ids)
+    try:
+        locks = extraction_lock.check_strategy_locks_bulk(active_ids)
+    except Exception:
+        if not CLOUD_MODE:
+            raise
+        # The curated cloud schema may omit local extraction provenance.
+        # Unknown is never reported as zero locked strategies.
+        return {"total_active_strategies": len(active_ids), "locked_count": None,
+                "locked_strategy_ids": None, "status": "UNAVAILABLE"}
     locked = [sid for sid, l in locks.items() if l["locked"]]
     return {"total_active_strategies": len(active_ids), "locked_count": len(locked), "locked_strategy_ids": locked}
 
@@ -72,7 +80,13 @@ def _evolution_gate_summary():
     Rollback/comparison history is still read here from storage directly
     (no evolution_engine import needed), since that's just DB rows and is
     honest to show wherever the process happens to be reading its DB."""
-    comparisons = storage.list_evolution_comparisons(limit=50)
+    try:
+        comparisons = storage.list_evolution_comparisons(limit=50)
+    except Exception:
+        if not CLOUD_MODE:
+            raise
+        return {"trade_threshold_for_judgement": 100, "recent_comparisons_checked": None,
+                "recent_rollbacks": None, "governor": None, "status": "UNAVAILABLE"}
     rolled_back = sum(1 for c in comparisons if c.get("rolled_back"))
     result = {
         "trade_threshold_for_judgement": 100,
