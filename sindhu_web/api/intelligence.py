@@ -1,5 +1,7 @@
 """Bounded educational endpoints, protected by each app's existing middleware."""
 from pathlib import Path
+import json
+import re
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -8,6 +10,28 @@ from typing import Literal
 from trading_intelligence import VERSION
 
 router=APIRouter()
+
+
+@router.get('/api/intelligence/historical-lab')
+def historical_lab(limit: int=50):
+    from data_engine.paths import DATA_DIR
+    root=Path(DATA_DIR)/'research_lab';progress_path=root/'progress.json'
+    if not progress_path.exists():return {'status':'UNAVAILABLE','rows':[],'automatic_approval':False}
+    progress=json.loads(progress_path.read_text());run_id=progress.get('run_id','')
+    if not re.fullmatch(r'[0-9a-f]{20}',run_id):raise HTTPException(503,'Research checkpoint invalid.')
+    results=[]
+    for path in (root/run_id).glob('*-*.json'):
+        if path.stat().st_size>200000:continue
+        results.append(json.loads(path.read_text()))
+    def rank(row):
+        val=row.get('results',{}).get('validation',{})
+        eligible=(not row.get('policy_quarantined',True) and row.get('leakage_audit',{}).get('pass') is True
+                  and val.get('sample_size',0)>=30)
+        return (eligible,(val.get('expectancy_r_week_block95') or [-1e9])[0] if eligible else -1e9)
+    results.sort(key=rank,reverse=True)
+    return {'status':progress.get('stage'),'run_id':run_id,'completed_cases':len(results),'rows':results[:max(1,min(limit,100))],
+            'ranking':'Policy and validation evidence only; holdout never selects this order.','automatic_approval':False,
+            'execution':'Spot long/flat. Short definitions and OI/funding/book claims are not validated by spot OHLCV.'}
 
 
 class AnalysisRequest(BaseModel):

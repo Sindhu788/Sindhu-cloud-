@@ -1109,7 +1109,7 @@
       <span class="esb-item">${runningLabel}</span>
       <span class="esb-item esb-muted">${en ? "Last heartbeat" : "Aakhri Dhadkan"}: ${_fmtClock(s.last_tick_at)}</span>
       <span class="esb-item esb-muted">${en ? "Today" : "Aaj"}: ${s.trades_today || 0} ${en ? "trades" : "trades"}</span>
-      <span class="esb-item esb-muted">${en ? "Today" : "Aaj"}: ${s.signals_sent_today || 0} ${en ? "signals sent" : "signals sent"}</span>
+      <span class="esb-item esb-muted">${en ? "Today" : "Aaj"}: ${s.signals_sent_today || 0} ${en ? "Telegram deliveries (all types)" : "Telegram deliveries (sab qisam)"}</span>
       ${badgesHtml}`;
     banner.style.display = "flex";
     document.documentElement.style.setProperty("--banner-h", "30px");
@@ -8878,10 +8878,14 @@
               <td>${fmtRate(s.telegram_win_rate)} <span class="muted">(${s.telegram_closed_trades})</span></td>
               <td>${s.backtest_vs_paper_diverges
                 ? `<span class="pill pill-bearish" title="${en ? "An alert is also raised on the Alerts page once this is detected." : "Alerts page par bhi alert ban jaata hai jab yeh detect hota hai."}">${en ? "Diverges" : "Farq Hai"}</span>`
-                : `<span class="pill pill-bullish">${en ? "In line" : "Theek Match"}</span>`}</td>
+                : s.backtest_win_rate == null || s.paper_win_rate == null || s.paper_closed_trades < table.min_sample_size
+                  ? `<span class="pill">${en ? "Insufficient evidence" : "Saboot na-kaafi"}</span>`
+                  : `<span class="pill pill-bullish">${en ? "In line" : "Theek Match"}</span>`}</td>
               <td>${s.diverges
                 ? `<span class="pill pill-bearish">${en ? "Diverges" : "Farq Hai"}</span>`
-                : `<span class="pill pill-bullish">${en ? "In line" : "Theek Match"}</span>`}</td>
+                : s.paper_win_rate == null || s.telegram_win_rate == null || s.paper_closed_trades < table.min_sample_size || s.telegram_closed_trades < table.min_sample_size
+                  ? `<span class="pill">${en ? "Insufficient evidence" : "Saboot na-kaafi"}</span>`
+                  : `<span class="pill pill-bullish">${en ? "In line" : "Theek Match"}</span>`}</td>
             </tr>`).join("") || `<tr><td colspan="6">${en ? "No strategies with closed trades yet." : "Abhi tak koi strategy ka trade band nahi hua."}</td></tr>`}
           </tbody>
         </table></div>`;
@@ -9285,10 +9289,10 @@
       // mid-request (frequent on the free tier) -- previously that
       // rendered confidently wrong numbers ($NaN balance, a "Stopped"
       // pill contradicting the topbar's separately-timed, correctly
-      // successful poll). "running" is only ever absent from a real
-      // status response when the fallback was used, so it's a reliable
-      // signal to show an honest "reconnecting" state instead of guessing.
-      const statusUnavailable = !("running" in status);
+      // successful poll). The fallback includes running=false, so check its
+      // explicit outage marker and require a valid balance before rendering.
+      const statusUnavailable = status._unavailable === true || typeof status.running !== "boolean" || !Number.isFinite(Number(status.balance));
+      const scanControlsBlocked = statusUnavailable || status.safe_start === true || killSwitch._unavailable || acctDrawdown._unavailable;
       const analyticsUnavailable = !("closed_trades" in allTimeSummary);
       content.innerHTML = `
         <div class="section-title">${t("Paper Trading")}</div>
@@ -9684,13 +9688,13 @@
           </div>
         </div>` : ""}
         <div class="btn-row">
-          <button class="btn" id="ptStart" ${status.running || killSwitch.active ? "disabled" : ""}>${t("Start Engine")}</button>
+          <button class="btn" id="ptStart" ${scanControlsBlocked || status.running || killSwitch.active ? "disabled" : ""}>${t("Start Engine")}</button>
           <button class="btn-ghost" id="ptStop" ${status.running ? "" : "disabled"}>${t("Stop Engine")}</button>
-          <button class="btn-ghost" id="ptRunTick">${t("Run One Tick Now")}</button>
+          <button class="btn-ghost" id="ptRunTick" ${scanControlsBlocked ? "disabled" : ""}>${t("Run One Tick Now")}</button>
           <input id="ptScanCoinSymbol" placeholder="e.g. BTCUSDT" style="width:120px;">
-          <button class="btn-ghost" id="ptScanCoin">Scan This Coin Now</button>
+          <button class="btn-ghost" id="ptScanCoin" ${scanControlsBlocked ? "disabled" : ""}>Scan This Coin Now</button>
           <label style="display:flex;align-items:center;gap:6px;width:auto;">
-            <input type="checkbox" id="ptDryRun" ${settings.dry_run ? "checked" : ""} style="width:auto;"> Dry Run Mode
+            <input type="checkbox" id="ptDryRun" ${settings.dry_run ? "checked" : ""} ${settings._unavailable ? "disabled" : ""} style="width:auto;"> Dry Run Mode
           </label>
           <button class="btn-ghost" id="ptResetBalance" style="border-color:var(--red,#c0392b);color:var(--red,#c0392b);">${t("Reset Balance")}</button>
           ${!killSwitch.active ? `<button class="btn" id="ptKillSwitchActivate" style="background:var(--red,#c0392b);border-color:var(--red,#c0392b);color:#fff;">🛑 EMERGENCY STOP</button>` : ""}
@@ -13233,7 +13237,7 @@
     const myToken = activeRouteToken;
     const [d, tripHistory] = await Promise.all([
       apiGet("/api/risk-department").catch(() => null),
-      apiGet("/api/safety-gate-trip-history?limit=20").catch(() => ({ events: [] })),
+      apiGet("/api/safety-gate-trip-history?limit=20").catch(() => ({ events: [], _unavailable: true })),
     ]);
     if (isStaleRoute(myToken)) return;
     if (!d) { content.innerHTML = `<div class="card"><b>Failed to load Risk data.</b></div>`; return; }
@@ -13269,7 +13273,7 @@
       <div class="card" style="margin-bottom:14px;">
         <b>Safety Gate Trip History</b>
         <p class="muted" style="margin:4px 0 8px;">Grand Master Batch, Phase 4 Item 18: every real time the Kill Switch, account-wide Drawdown Protection, or a per-strategy Drawdown Protection pause has tripped or been resumed, permanent and in one place -- with the real plain-language reason recorded at the time.</p>
-        ${tripHistory.events.length === 0 ? `<p class="muted">No safety gate has ever tripped.</p>` : `
+        ${tripHistory._unavailable ? `<p class="muted">Safety gate history unavailable.</p>` : tripHistory.events.length === 0 ? `<p class="muted">No recorded safety gate trips in the available history.</p>` : `
           <table><thead><tr><th>When</th><th>Gate</th><th>Event</th><th>Reason</th></tr></thead><tbody>
             ${tripHistory.events.map(e => `<tr>
               <td>${esc(fmtPKTFull(e.created_at))}</td>
@@ -13296,7 +13300,7 @@
 
       <div class="card" style="margin-bottom:14px;">
         <b>Incomplete Lock</b>
-        <div class="muted" style="margin-top:6px;">${d.incomplete_lock.locked_count} of ${d.incomplete_lock.total_active_strategies} active strategies are currently locked (incomplete extraction) -- cannot be tested/traded until resolved on the Clarification page.</div>
+        <div class="muted" style="margin-top:6px;">${d.incomplete_lock.status === "UNAVAILABLE" ? "UNAVAILABLE — extraction metadata could not be read. Lock state is unknown; this does not permit trading." : `${d.incomplete_lock.locked_count} of ${d.incomplete_lock.total_active_strategies} active strategies are currently locked (incomplete extraction) -- cannot be tested/traded until resolved on the Clarification page.`}</div>
       </div>
 
       <div class="card" style="margin-bottom:14px;">
@@ -13310,7 +13314,7 @@
       <div class="card">
         <b>Evolution Gate (100-trade) &amp; Governor</b>
         <div class="muted" style="margin-top:6px;">
-          Judged after <b>${evo.trade_threshold_for_judgement}</b> completed trades. Recent comparisons checked: ${evo.recent_comparisons_checked}, rollbacks: ${evo.recent_rollbacks}.
+          Judged after <b>${evo.trade_threshold_for_judgement}</b> completed trades. ${evo.status === "UNAVAILABLE" ? "Local evolution history UNAVAILABLE on this deployment." : `Recent comparisons checked: ${evo.recent_comparisons_checked}, rollbacks: ${evo.recent_rollbacks}.`}
           ${gov
             ? `<br>Governor -- CPU ${gov.cpu_percent}% (limit ${gov.cpu_limit_percent}%), RAM ${gov.ram_percent}% (limit ${gov.ram_limit_percent}%), queue ${gov.queue_size}/${gov.max_queue_size}.`
             : `<br><i>Evolution Engine / Governor only runs on the local app, not this cloud deployment.</i>`}
