@@ -48,7 +48,7 @@ def main():
         identity = {'original_run_id': old['run_id'], 'original_hashes': preserved,
                     'manifest_sha256': receipt['manifest_sha256'], 'replay_seconds': 120,
                     'frozen_replication_selection': old['replication_selection'],
-                    'code_sha256': {name: sha256(ROOT/name) for name in ('scripts/retry_failed_research.py', 'trading_intelligence/historical_lab.py', 'backtest_engine/engine.py', 'backtest_engine/mtf_context.py')},
+                    'code_sha256': {name: sha256(ROOT/name) for name in ('scripts/retry_failed_research.py', 'trading_intelligence/historical_lab.py', 'backtest_engine/engine.py', 'backtest_engine/mtf_context.py', 'backtest_engine/configured_strategy.py')},
                     'selection_policy': 'Diagnostic retries only; original ranking and cross-coin selections unchanged.'}
         atomic_json(args.output/'identity.json', identity)
         atomic_json(args.output/'progress.json', {'stage':'SOURCE_VALIDATION','completed':0})

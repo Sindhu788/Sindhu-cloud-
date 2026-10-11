@@ -149,10 +149,11 @@ def leakage_check(config,frames,full_prepared=None):
 class FrozenReplay:
     def __init__(self,strategy,frame,start,end,spot_only):
         self.inner=strategy;self.config=strategy.config;self.frame=frame;self.start=start;self.end=end;self.spot_only=spot_only
+        self.active=(frame.index>=start)&(frame.index<end)
     def prepare(self,frame):return self.frame
     def manage_position(self,frame,i,position):return self.inner.manage_position(frame,i,position)
     def on_bar(self,frame,i,position):
-        if not self.start<=frame.index[i]<self.end:return None
+        if not self.active[i]:return None
         signal=self.inner.on_bar(frame,i,position)
         if self.spot_only and signal is not None and signal.action=='sell':return None
         return signal
