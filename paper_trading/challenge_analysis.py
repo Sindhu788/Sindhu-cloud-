@@ -473,7 +473,9 @@ def difficulty_rating(required_daily_rate_pct, real_daily_rate_pct):
     numbers -- Easy/Moderate/Hard/Extremely Unlikely, derived from the
     exact same required-vs-real-pace multiple challenge_mode.py's own
     UNREALISTIC_MULTIPLE concept already uses, just with finer bands."""
-    if real_daily_rate_pct is None or real_daily_rate_pct <= 0:
+    if real_daily_rate_pct is None:
+        return "Insufficient evidence"
+    if real_daily_rate_pct <= 0:
         return "Extremely Unlikely"
     multiple = required_daily_rate_pct / real_daily_rate_pct
     for ceiling, label in DIFFICULTY_BANDS:
@@ -557,8 +559,8 @@ def give_up_point_check(remaining_days, best_case_days_to_target):
     if remaining_days <= 0:
         return {"implausible": True, "reason": "The challenge's deadline has already passed."}
     if best_case_days_to_target is None:
-        return {"implausible": True,
-                "reason": "No real combination has ever demonstrated a positive pace toward this target."}
+        return {"implausible": None,
+                "reason": "Insufficient historical evidence to estimate time to target; no probability is inferred."}
     if best_case_days_to_target > remaining_days:
         return {"implausible": True,
                 "reason": (

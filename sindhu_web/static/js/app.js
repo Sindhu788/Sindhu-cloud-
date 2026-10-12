@@ -131,8 +131,18 @@
 
   async function ensureToken() {
     if (apiToken) return apiToken;
-    const res = await fetch("/api/token");
-    const data = await res.json();
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+    let data;
+    try {
+      const res = await fetch("/api/token", { signal: controller.signal });
+      if (!res.ok) throw new Error(`Login/token request failed (HTTP ${res.status}). Sign in again.`);
+      data = await res.json();
+      if (!data.token) throw new Error("Authenticated request token unavailable. Sign in again.");
+    } catch (e) {
+      if (e.name === "AbortError") throw new Error("Login/token request timed out. Retry after the service wakes.");
+      throw e;
+    } finally { clearTimeout(timer); }
     apiToken = data.token;
     localStorage.setItem("sindhu_token", apiToken);
     return apiToken;
@@ -7813,6 +7823,20 @@
   // is left completely untouched for backward compatibility.
   let challengeExpandedId = null;
 
+  function challengeDialog(title, message, initialDays, onSave) {
+    const overlay=document.createElement("div");
+    overlay.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:10000;display:grid;place-items:center;padding:20px";
+    overlay.innerHTML=`<form role="dialog" aria-modal="true" aria-labelledby="challenge-dialog-title" class="card" style="width:min(440px,100%);background:var(--bg-elevated,#17232f)"><h2 id="challenge-dialog-title">${esc(title)}</h2><p>${esc(message)}</p>${initialDays==null ? "" : `<label for="challenge-dialog-value">Total days</label><input id="challenge-dialog-value" type="number" min="1" max="3650" step="1" required value="${esc(initialDays)}">`}<p id="challenge-dialog-error" role="alert"></p><div class="btn-row"><button class="btn" id="challenge-dialog-save" type="submit">${initialDays==null ? "Archive" : "Save deadline"}</button><button class="btn-ghost" id="challenge-dialog-cancel" type="button">Cancel</button></div></form>`;
+    document.body.append(overlay);
+    overlay.querySelector("#challenge-dialog-cancel").onclick=()=>overlay.remove();
+    overlay.querySelector("form").onsubmit=async e=>{
+      e.preventDefault();const save=overlay.querySelector("#challenge-dialog-save");save.disabled=true;
+      try{await onSave(initialDays==null ? null : Number(overlay.querySelector("#challenge-dialog-value").value));overlay.remove();}
+      catch(error){overlay.querySelector("#challenge-dialog-error").textContent=error.message;save.disabled=false;}
+    };
+    (overlay.querySelector("input")||overlay.querySelector("#challenge-dialog-cancel")).focus();
+  }
+
   function challengeDifficultyPill(difficulty, en) {
     const cls = { "Easy": "pill-bullish", "Moderate": "pill-neutral", "Hard": "pill-bearish",
                   "Extremely Unlikely": "pill-bearish" }[difficulty] || "pill-muted";
@@ -7926,19 +7950,16 @@
         };
       });
       content.querySelectorAll(".ch-archive").forEach(btn => {
-        btn.onclick = async () => {
-          if (!confirm(en ? "Archive this challenge? It stops being tracked but its history is never deleted." : "Yeh challenge archive karna hai? Track hona band ho jayega lekin history kabhi delete nahi hoti.")) return;
+        btn.onclick = () => challengeDialog("Archive challenge", "Stop tracking this target; its history is preserved.", null, async () => {
           await apiPost(`/api/paper-trading/challenges/${btn.dataset.id}/archive`);
-          render();
-        };
+          await render();
+        });
       });
       content.querySelectorAll(".ch-extend").forEach(btn => {
-        btn.onclick = async () => {
-          const newDays = prompt(en ? "New total number of days:" : "Nayi total din ki tadaad:", btn.dataset.days);
-          if (!newDays) return;
-          await apiSend("POST", `/api/paper-trading/challenges/${btn.dataset.id}/extend`, { new_days: Number(newDays) });
-          render();
-        };
+        btn.onclick = () => challengeDialog("Extend deadline", "Change the total challenge duration in days.", btn.dataset.days, async newDays => {
+          await apiSend("POST", `/api/paper-trading/challenges/${btn.dataset.id}/extend`, { new_days: newDays });
+          await render();
+        });
       });
 
       const timeframeSelect = document.getElementById("chmTimeframe");
@@ -8017,7 +8038,7 @@
         ${challengeDifficultyPill(a.difficulty, en)}
         ${a.give_up_point && a.give_up_point.implausible ? `<span class="pill pill-bearish">${en ? "Mathematically implausible" : "Riyazi Tor Par Namumkin"}</span>` : ""}
       </div>
-      ${a.give_up_point && a.give_up_point.implausible ? `<p class="muted" style="font-size:12.5px;">${esc(a.give_up_point.reason)}</p>` : ""}
+      ${a.give_up_point && a.give_up_point.reason ? `<p class="muted" style="font-size:12.5px;">${esc(a.give_up_point.reason)}</p>` : ""}
       <div style="font-size:12.5px;margin-bottom:8px;">
         ${caseHtml(en ? "Best case" : "Best Case", bwl.best_case)}
         ${caseHtml(en ? "Likely case" : "Likely Case", bwl.likely_case)}
@@ -9119,8 +9140,22 @@
     `).join("")}</div>`;
   }
 
+  function sharedAccountHtml(s) {
+    if (!s) return `<section class="card" id="shared-account"><b>Fresh shared $100 paper account</b><p role="status">Shared account unavailable. Archived strategy balances below are separate.</p><a href="/how-to-trade">Shared account controls</a></section>`;
+    const metric = (name, v) => `<div><b>${esc(name)}</b><br>${esc(v == null ? "N/A" : typeof v === "number" ? v.toFixed(2) : String(v))}</div>`;
+    const totals = (label, m) => `<h3>${esc(label)}</h3><div class="stat-grid">${Object.entries(m).map(([k,v])=>metric(k,v)).join("")}</div>`;
+    const d=s.daily_utc||{}, life=s.lifetime||{}, scan=s.last_scan;
+    return `<section class="card" id="shared-account"><h2>Fresh shared $100 paper account</h2><p>One cash wallet across participating strategies. ${s.paused ? "Entries PAUSED" : "Virtual entries enabled"}. No real-money orders.</p><p>Session ${esc(s.session_id)} · started ${esc(s.created_at)}</p>
+      ${totals("Session cumulative",{"Starting cash":s.initial_balance,"Cash":s.cash,"Equity":s.equity,"Open positions":s.open_positions,"Closed trades":s.closed_trades,"Wins":s.wins,"Losses":s.losses,"Win rate %":s.win_rate_pct,"Realized PnL":s.realized_pnl,"Unrealized PnL":s.unrealized_pnl,"Profit factor":s.profit_factor,"Average realized R":s.realized_average_r,"Max drawdown %":s.max_drawdown_pct,"Scans completed":life.scans_completed,"Candidates":life.candidates,"Accepted":life.accepted,"Rejected":life.rejected,"Private deliveries":life.delivery_success,"Delivery failures":life.delivery_failure})}
+      ${totals("Today · UTC",{"Starting equity":d.starting_equity,"Current equity":d.current_equity,"Realized PnL":d.realized_pnl,"Net PnL":d.net_pnl,"Closed trades":d.closed_trades,"Wins":d.wins,"Losses":d.losses,"Scans completed":d.scans_completed,"Candidates":d.candidates,"Accepted":d.accepted,"Rejected":d.rejected,"NO_TRADE":d.no_trade,"Private deliveries":d.delivery_success,"Delivery failures":d.delivery_failure})}
+      <p>Last recorded scan: ${esc(scan ? scan[0]+" · "+(scan[1].success ? "completed" : "feed/evaluation blocked") : "N/A")}. Local scanner: ${esc(s.scanner?.state||"unavailable")}. Cloud worker and local worker are separate processes.</p>
+      <p>Assumed per-side costs: fee 10 bps, slippage 5 bps, spread 3 bps. Rejections: ${esc(Object.entries(d.rejection_reasons||{}).map(([k,v])=>k+": "+v).join("; ")||"None today")}</p><a href="/how-to-trade">Shared account controls and learning</a></section>`;
+  }
+
   async function renderPaperTrading() {
     const myToken = activeRouteToken;
+    let sharedSnapshot = null;
+    const loadShared = async () => { sharedSnapshot = await apiGet("/api/intelligence/shared-wallet").catch(() => null); };
     let activePtTab = "overview";
     // Unsaved Engine Settings edits ({inputId: raw value}) -- kept outside
     // render() so the 30s auto-refresh can't wipe a half-finished edit.
@@ -9141,6 +9176,8 @@
     // Regression guard: tests/frontend_harness/check_pages_render.mjs
     // (real execution of every page, run via tests/test_frontend_pages_render.py).
     const render = async () => {
+      await loadShared();
+      if (isStaleRoute(myToken)) return;
       // Fix, 2026-09-13 (Priority 6): this used to be ONE Promise.all firing
       // all ~34 calls simultaneously. Each apiGet() call's own 15s abort
       // timer starts the instant it's created, not when the browser/server
@@ -9295,7 +9332,9 @@
       const scanControlsBlocked = statusUnavailable || status.safe_start === true || killSwitch._unavailable || acctDrawdown._unavailable;
       const analyticsUnavailable = !("closed_trades" in allTimeSummary);
       content.innerHTML = `
-        <div class="section-title">${t("Paper Trading")}</div>
+        ${sharedAccountHtml(sharedSnapshot)}
+        <div class="section-title">Archived / legacy strategy books</div>
+        <p class="muted">Legacy balances and controls below belong to the old independent books; they are not the fresh shared $100 wallet.</p>
         ${ptTabBarHtml(activePtTab)}
         <div class="pt-tab-panel" data-pt-tab="overview">
         ${statusUnavailable ? `<div class="card" style="border-color:var(--yellow,#c9a227);margin-bottom:10px;">
@@ -11171,6 +11210,10 @@
       };
     }
 
+    content.innerHTML = sharedAccountHtml(null) + `<p role="status">Loading archived analytics; fresh account loads first.</p>`;
+    await loadShared();
+    if (isStaleRoute(myToken)) return;
+    content.innerHTML = sharedAccountHtml(sharedSnapshot) + `<p role="status">Loading archived analytics; shared account above is independent.</p>`;
     await render();
     // Master Task 3, Phase 0.8d: a real-time WebSocket event (onLive below)
     // already re-renders the instant a trade opens/closes, but this page
@@ -14516,10 +14559,15 @@
 
   // ------------------------------------------------------------ init
   (async function init() {
-    await ensureToken();
-    await renderNav();
-    connectWs();
-    reportClientDiagnostics();
-    route();
+    try {
+      await ensureToken();
+      await renderNav();
+      connectWs();
+      reportClientDiagnostics();
+      await route();
+    } catch (e) {
+      content.innerHTML = `<div class="card" role="alert"><b>Dashboard could not start</b><p>${esc(e.message)}</p><button class="btn" id="bootstrap-retry">Retry dashboard</button> <a href="/login">Sign in</a></div>`;
+      document.getElementById("bootstrap-retry").onclick = () => location.reload();
+    }
   })();
 })();

@@ -252,4 +252,5 @@ class SharedWallet:
                     expectancy=float(pnl/len(closed)) if closed else None, max_drawdown_pct=float(dd), paused=s['paused'],
                     daily_utc=totals(now()[:10]), lifetime=totals(), last_scan=scans[-1] if scans else None,
                     positions=list(s['positions'].values()), real_money=False, network_orders=0,
+                    cost_assumptions={'fee_bps_per_side':10,'slippage_bps_per_side':5,'spread_bps_per_side':3},
                     warning='Educational spot simulation; PF/average R require 30 closes. Historical trades excluded.')

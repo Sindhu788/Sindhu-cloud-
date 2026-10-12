@@ -19,7 +19,13 @@ from unittest.mock import patch
 
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
-os.environ.update(DATABASE_URL='',SINDHU_DATA_DIR=str(ROOT/'data/recovery_main'),SINDHU_SAFE_START='0',
+DATA_ROOT=ROOT/'data/recovery_main'
+qa_root=os.environ.get('SINDHU_PAPER_QA_DATA_DIR')
+if qa_root:
+    DATA_ROOT=Path(qa_root).resolve()
+    if not DATA_ROOT.is_relative_to((ROOT/'data/functional_qa').resolve()) or (DATA_ROOT/'shared_paper/backend.json').exists():
+        raise ValueError('Paper QA requires isolated local SQLite storage; PostgreSQL marker refused')
+os.environ.update(DATABASE_URL='',SINDHU_DATA_DIR=str(DATA_ROOT),SINDHU_SAFE_START='0',
                   SINDHU_TELEGRAM_DRY_RUN='1',SINDHU_PUBLIC_SIGNAL_OWNER='disabled',SINDHU_CLOUD_MODE='0',
                   OMP_NUM_THREADS='1',OPENBLAS_NUM_THREADS='1')
 if os.name=='nt':platform._wmi_query=lambda *a,**k: (_ for _ in ()).throw(OSError('WMI unavailable'))
@@ -50,7 +56,7 @@ def main():
     from trading_intelligence.shared_wallet import now
     from trading_intelligence.shared_postgres import local_wallet
     from trading_intelligence.shared_execution import SharedExecution
-    root=ROOT/'data/recovery_main/shared_paper'
+    root=DATA_ROOT/'shared_paper'
     # OS file lock, released on process exit. No stale-PID delete or duplicate worker.
     lock=open(root/'scanner.lock','a+b')
     if os.name=='nt':
@@ -71,18 +77,11 @@ def main():
     settings=config.load()
     if settings.get('initial_balance')!=100 or settings.get('engine_enabled'):
         raise RuntimeError('Shared mode requires $100 and legacy engine_enabled=false; settings were not overwritten')
-    selected=[];excluded=[]
-    for item in strategy_library():
-        if item.get('archived') or item.get('status')=='rejected':continue
-        cfg=load_strategy_config(item['id'])
-        supported=(set((cfg.timeframes or {}).values())=={'1h'} and
-                   (cfg.long_entry_type or cfg.entry_type)=='market' and not cfg.exit_conditions and
-                   not any((cfg.partial_take_profit,cfg.trailing_stop,cfg.time_exit_bars,cfg.breakeven_at_rr)))
-        if not supported or validate(cfg):
-            excluded.append(item['id']);continue
-        selected.append(dict(strategy_id=item['id'],strategy_name=item['name'],strategy_version=item['version'],priority=5,config=cfg))
-        if len(selected)==2:break
-    if not selected:raise RuntimeError('No validated fixed-protective market strategies available; worker not enabled')
+    from trading_intelligence.paper_eligibility import select_eligible
+    manifest_path=root/'eligibility.json'
+    if not manifest_path.exists():
+        raise RuntimeError('Frozen session allowlist missing; owner approval required before activation')
+    selected=select_eligible(json.loads(manifest_path.read_text()),isolated=bool(qa_root))
     engine=PaperTradingEngine();adapter=SharedExecution(wallet,session,engine,quote)
     engine._shared_execution=adapter
     # No narrative curriculum module is treated as a complete entry system.
@@ -90,7 +89,9 @@ def main():
     # it remains excluded until that provenance is available.
     receipt={'pid':os.getpid(),'started_at_utc':now(),'session_id':session,'strategy_ids':[x['strategy_id'] for x in selected],
              'concepts':'Compiled concepts within selected strategies; standalone narrative lessons NOT EXECUTABLE',
-             'public_delivery':False,'real_orders':0,'state':'STARTING'}
+             'public_delivery':False,'real_orders':0,'state':'STARTING',
+             'evaluated_timeframes':['15m','1h'],'storage_scope':'isolated_local_qa' if qa_root else 'approved_shared',
+             'selected_versions':{x['strategy_id']:x['strategy_version'] for x in selected}}
     def save():
         temp=root/'scanner_state.tmp';temp.write_text(json.dumps(receipt,indent=2),encoding='utf-8');temp.replace(root/'scanner_state.json')
     save()
