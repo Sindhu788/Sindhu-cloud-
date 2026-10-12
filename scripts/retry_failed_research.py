@@ -20,6 +20,7 @@ if os.name == 'nt':
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--output', required=True, type=Path)
+    parser.add_argument('--only', action='append', default=[], help='Retry a subset of the seven original failed IDs')
     args = parser.parse_args()
     from market_history.core import sha256
     from market_history.downloader import atomic_json, writer_lock
@@ -34,6 +35,9 @@ def main():
     expected = {'872544b77a57', 'd62e5015a93b', 'e117bb9c6b9b', '909e02bad309', 'b36687e8401a', 'b397a95c9d43', 'fb090ba34aa8'}
     if len(failures) != 7 or {r['strategy_id'] for r in failures} != expected or any(r['coin'] != 'BTCUSDT' for r in failures):
         raise ValueError('Failed-case scope differs')
+    selected = set(args.only) or expected
+    if not selected.issubset(expected):
+        raise ValueError('Only original failed-case IDs may be retried')
     files = [original/'latest.json', original/'progress.json'] + [original/old['run_id']/('BTCUSDT-'+ident+'.json') for ident in sorted(expected)]
     preserved = {str(p): sha256(p) for p in files}
     manifest, receipt = verified_manifest(source)
@@ -45,7 +49,7 @@ def main():
             raise ValueError('Frozen strategy definition differs: '+ident)
     args.output.mkdir(parents=True, exist_ok=False)
     with writer_lock(args.output):
-        identity = {'original_run_id': old['run_id'], 'original_hashes': preserved,
+        identity = {'original_run_id': old['run_id'], 'original_hashes': preserved, 'retry_strategy_ids': sorted(selected),
                     'manifest_sha256': receipt['manifest_sha256'], 'replay_seconds': 120,
                     'frozen_replication_selection': old['replication_selection'],
                     'code_sha256': {name: sha256(ROOT/name) for name in ('scripts/retry_failed_research.py', 'trading_intelligence/historical_lab.py', 'backtest_engine/engine.py', 'backtest_engine/mtf_context.py', 'backtest_engine/configured_strategy.py')},
@@ -60,7 +64,7 @@ def main():
             derived.append(check)
         results = []
         # Resolve alignment failures first; original time limits stay intact.
-        ordered = sorted(expected, key=lambda ident: ident in {'872544b77a57','d62e5015a93b','e117bb9c6b9b'})
+        ordered = sorted(selected, key=lambda ident: ident in {'872544b77a57','d62e5015a93b','e117bb9c6b9b'})
         for ident in ordered:
             atomic_json(args.output/'progress.json', {'stage':'REPLAY','strategy_id':ident,'completed':len(results)})
             started = time.monotonic()
