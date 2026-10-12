@@ -92,6 +92,9 @@ def shared_wallet():
         result['scanner']={'running':running,'state':scanner.get('state','NOT_STARTED'),
                            'last_successful_scan_utc':scanner.get('last_successful_scan_utc'),
                            'evaluated_symbols':scanner.get('evaluated_symbols',[]),
+                           'evaluated_timeframes':scanner.get('evaluated_timeframes',[]),
+                           'cycles_completed':scanner.get('cycles_completed',0),
+                           'selected_versions':scanner.get('selected_versions',{}),
                            'strategy_ids':scanner.get('strategy_ids',[]),
                            'standalone_lessons':'NOT EXECUTABLE: explicit entry/exit/risk provenance required',
                            'public_delivery':False,'real_orders':0}
@@ -117,10 +120,8 @@ def shared_wallet_control(operation:str):
 def _postgres_shared_wallet():
     from trading_intelligence.shared_postgres import configured_wallet
     wallet=configured_wallet()
-    with wallet.connect() as conn:
-        rows=list(conn.execute("SELECT session_id FROM shared_sessions WHERE data_label='live'"))
-    if len(rows)!=1:raise ValueError('Exactly one approved live wallet required')
-    return wallet,rows[0][0]
+    from trading_intelligence.shared_selection import active_session
+    return wallet,active_session(wallet,postgres=True)
 
 
 @router.get('/api/intelligence/database-health')

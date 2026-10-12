@@ -43,7 +43,7 @@ def test_difficulty_easy_when_required_pace_is_a_fraction_of_real_pace():
 
 
 def test_difficulty_extremely_unlikely_with_no_real_pace():
-    assert challenge_analysis.difficulty_rating(1.0, None) == "Extremely Unlikely"
+    assert challenge_analysis.difficulty_rating(1.0, None) == "Insufficient evidence"
     assert challenge_analysis.difficulty_rating(1.0, 0.0) == "Extremely Unlikely"
 
 
@@ -206,3 +206,9 @@ def test_strategy_rotation_no_suggestion_when_all_best_in_same_state(test_db):
 
     result = challenge_analysis.strategy_rotation_suggestion()
     assert result["suggestion"] is None
+
+
+def test_missing_target_pace_is_unknown_not_mathematically_impossible():
+    result=challenge_analysis.give_up_point_check(remaining_days=7,best_case_days_to_target=None)
+    assert result["implausible"] is None
+    assert "no probability is inferred" in result["reason"]

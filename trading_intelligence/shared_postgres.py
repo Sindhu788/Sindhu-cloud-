@@ -65,7 +65,7 @@ def local_wallet(root):
         data=json.loads(Path('D:/sindhu/data/config/neon_runtime_connection.json').read_text())
         return psycopg2.connect(data['database_url'],connect_timeout=10)
     wallet=PostgresSharedWallet(connection)
-    with wallet.connect() as conn:
-        rows=list(conn.execute("SELECT session_id FROM shared_sessions WHERE data_label='live'"))
-    if rows!=[(settings['session_id'],)]:raise ValueError('Shared backend session identity differs')
+    from trading_intelligence.shared_selection import active_session
+    if active_session(wallet,postgres=True)!=settings['session_id']:
+        raise ValueError('Shared backend session identity differs')
     return wallet
