@@ -30,3 +30,9 @@ def test_duplicate_strategy_not_counted_twice():
     duplicated=manifest();duplicated["strategies"].append(copy.deepcopy(duplicated["strategies"][0]))
     with pytest.raises(ValueError,match="Duplicate"):
         select_eligible(duplicated,isolated=True)
+
+
+def test_only_transport_newlines_are_equivalent():
+    from trading_intelligence.paper_eligibility import canonical_digest
+    assert canonical_digest(b'a\r\nb\r\n') == canonical_digest(b'a\nb\n')
+    assert canonical_digest(b'a\nb\n') != canonical_digest(b'a\nc\n')
