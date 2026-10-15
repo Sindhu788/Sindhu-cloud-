@@ -66,9 +66,8 @@ def shared_wallet():
         try:
             wallet,ident=_postgres_shared_wallet()
             result=wallet.snapshot(ident)
-            result['scanner']={'running':False,'state':'NOT_ACTIVATED',
-                               'standalone_lessons':'NOT EXECUTABLE',
-                               'public_delivery':False,'real_orders':0}
+            from trading_intelligence.cloud_shared_scanner import status
+            result['scanner']=status()
             return result
         except Exception:
             raise HTTPException(503,'Verified PostgreSQL shared wallet unavailable; migration/activation requires approval.') from None

@@ -21,12 +21,19 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 DATA_ROOT=ROOT/'data/recovery_main'
 qa_root=os.environ.get('SINDHU_PAPER_QA_DATA_DIR')
-if qa_root:
+CLOUD='--cloud' in sys.argv
+if CLOUD:
+    if qa_root or not os.environ.get('DATABASE_URL') or os.environ.get('SINDHU_SHARED_PAPER_ENABLED')!='1':
+        raise ValueError('Explicit PostgreSQL Cloud paper activation required')
+    from data_engine.paths import DATA_DIR
+    DATA_ROOT=Path(DATA_DIR)
+elif qa_root:
     DATA_ROOT=Path(qa_root).resolve()
     if not DATA_ROOT.is_relative_to((ROOT/'data/functional_qa').resolve()) or (DATA_ROOT/'shared_paper/backend.json').exists():
         raise ValueError('Paper QA requires isolated local SQLite storage; PostgreSQL marker refused')
-os.environ.update(DATABASE_URL='',SINDHU_DATA_DIR=str(DATA_ROOT),SINDHU_SAFE_START='0',
-                  SINDHU_TELEGRAM_DRY_RUN='1',SINDHU_PUBLIC_SIGNAL_OWNER='disabled',SINDHU_CLOUD_MODE='0',
+if not CLOUD:os.environ.update(DATABASE_URL='',SINDHU_DATA_DIR=str(DATA_ROOT))
+os.environ.update(SINDHU_SAFE_START='0',
+                  SINDHU_TELEGRAM_DRY_RUN='1',SINDHU_PUBLIC_SIGNAL_OWNER='disabled',SINDHU_CLOUD_MODE='1' if CLOUD else '0',
                   OMP_NUM_THREADS='1',OPENBLAS_NUM_THREADS='1')
 if os.name=='nt':platform._wmi_query=lambda *a,**k: (_ for _ in ()).throw(OSError('WMI unavailable'))
 
@@ -43,7 +50,7 @@ def quote(symbol):
 
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--cycles',type=int,default=1)
+    parser=argparse.ArgumentParser();parser.add_argument('--cycles',type=int,default=1);parser.add_argument('--cloud',action='store_true')
     args=parser.parse_args()
     import pandas as pd
     from data_engine import storage,feature_toggles
@@ -57,6 +64,7 @@ def main():
     from trading_intelligence.shared_postgres import local_wallet
     from trading_intelligence.shared_execution import SharedExecution
     root=DATA_ROOT/'shared_paper'
+    root.mkdir(parents=True,exist_ok=True)
     # OS file lock, released on process exit. No stale-PID delete or duplicate worker.
     lock=open(root/'scanner.lock','a+b')
     if os.name=='nt':
@@ -64,12 +72,16 @@ def main():
         lock.seek(0);lock.write(b'0');lock.flush();lock.seek(0)
         try:msvcrt.locking(lock.fileno(),msvcrt.LK_NBLCK,1)
         except OSError:raise RuntimeError('Existing shared scanner owns the worker lock') from None
-    session=json.loads((root/'owner_session.json').read_text())['session_id']
-    wallet=local_wallet(root)
-    storage.init_db()
+    if CLOUD:
+        from trading_intelligence.cloud_shared_scanner import cloud_wallet
+        wallet,session,cloud_lock=cloud_wallet()
+    else:
+        session=json.loads((root/'owner_session.json').read_text())['session_id']
+        wallet=local_wallet(root)
+        storage.init_db()
     # Existing user settings, with stronger caps for this isolated account.
     configured=root/'worker_configuration_receipt.json'
-    if not configured.exists():
+    if not CLOUD and not configured.exists():
         original=json.loads(Path('D:/sindhu/data/config/paper_trading_settings.json').read_text())
         config.update(**dict(original,engine_enabled=False,dry_run=False,initial_balance=100,
                              risk_pct_default=min(float(original.get('risk_pct_default',1)),1)))
@@ -78,7 +90,7 @@ def main():
     if settings.get('initial_balance')!=100 or settings.get('engine_enabled'):
         raise RuntimeError('Shared mode requires $100 and legacy engine_enabled=false; settings were not overwritten')
     from trading_intelligence.paper_eligibility import select_eligible
-    manifest_path=root/'eligibility.json'
+    manifest_path=ROOT/'cloud_runtime/paper_allowlist.json' if CLOUD else root/'eligibility.json'
     if not manifest_path.exists():
         raise RuntimeError('Frozen session allowlist missing; owner approval required before activation')
     selected=select_eligible(json.loads(manifest_path.read_text()),isolated=bool(qa_root))
@@ -90,7 +102,7 @@ def main():
     receipt={'pid':os.getpid(),'started_at_utc':now(),'session_id':session,'strategy_ids':[x['strategy_id'] for x in selected],
              'concepts':'Compiled concepts within selected strategies; standalone narrative lessons NOT EXECUTABLE',
              'public_delivery':False,'real_orders':0,'state':'STARTING',
-             'evaluated_timeframes':['15m','1h'],'storage_scope':'isolated_local_qa' if qa_root else 'approved_shared',
+             'evaluated_timeframes':['15m','1h'],'storage_scope':'cloud_postgres' if CLOUD else 'isolated_local_qa' if qa_root else 'approved_shared',
              'selected_versions':{x['strategy_id']:x['strategy_version'] for x in selected}}
     def save():
         temp=root/'scanner_state.tmp';temp.write_text(json.dumps(receipt,indent=2),encoding='utf-8');temp.replace(root/'scanner_state.json')
@@ -99,6 +111,9 @@ def main():
     for cycle in range(args.cycles) if args.cycles else count():
         key=uuid.uuid4().hex;frames={};counter=[0];receipts=[]
         try:
+            if CLOUD:
+                # Losing the lease stops this child before another scan/entry.
+                cloud_lock.cursor().execute('SELECT 1')
             if kill_switch.is_active() or feature_toggles.is_master_paused():
                 raise RuntimeError('Kill switch or master pause active')
             for symbol in ('BTCUSDT','ETHUSDT'):
