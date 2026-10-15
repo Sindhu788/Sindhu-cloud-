@@ -26,6 +26,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { webcrypto as crypto } from "node:crypto";
+import assert from "node:assert/strict";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const APP_JS_PATH = path.join(__dirname, "..", "..", "sindhu_web", "static", "js", "app.js");
@@ -161,6 +162,19 @@ function loadAppJsWithTestExport(sandbox) {
 
 async function main() {
   const sandbox = buildSandbox();
+  const sharedPaper = process.argv.includes('--shared-paper');
+  let combinedContent;
+  if (sharedPaper) {
+    const elements = new Map();
+    sandbox.document.getElementById = id => { if (!elements.has(id)) elements.set(id, makeElementStub()); return elements.get(id); };
+    combinedContent = sandbox.document.getElementById('content');
+    sandbox.fetch = async url => ({ok:true,status:200,json:async()=>url==='/api/paper-trading/status' ? {
+      account_mode:'shared_wallet',balance:100,cash:100,initial_balance:100,running:true,
+      safe_start:false,dry_run:false,open_trades:0,closed_trades:0,realized_pnl:0,win_rate_pct:null,
+      scanner_state:'RUNNING',last_tick_at:'2026-10-16T07:06:17+00:00',entries_paused:false,
+      scan_progress:{},last_summary:{shortlisted:[]},per_strategy:[]
+    }:url==='/api/intelligence/shared-wallet' ? null : makeMagic(),text:async()=>''});
+  }
   const exportsObj = loadAppJsWithTestExport(sandbox);
   // let the auto-running init() IIFE's microtasks settle before we start
   // calling pages ourselves (it awaits ensureToken/renderNav/route()).
@@ -168,8 +182,17 @@ async function main() {
 
   const results = {};
   for (const [id, fn] of Object.entries(exportsObj.PAGES)) {
+    if (sharedPaper && id !== 'paper_trading') continue;
     try {
       await fn();
+      if (sharedPaper) {
+        assert.match(combinedContent.innerHTML,/Combined Balance/);
+        assert.match(combinedContent.innerHTML,/\$100\.00/);
+        assert.match(combinedContent.innerHTML,/Realized PnL \(Session\)/);
+        assert.match(combinedContent.innerHTML,/Archived \/ historical results/);
+        assert.match(combinedContent.innerHTML,/Shared paper scanner: RUNNING/);
+        assert.doesNotMatch(combinedContent.innerHTML,/Each strategy runs its own independent book/);
+      }
       results[id] = { ok: true };
     } catch (e) {
       results[id] = { ok: false, error: e && e.message, stack: e && e.stack };

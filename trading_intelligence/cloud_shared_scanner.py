@@ -61,6 +61,8 @@ def status():
     if running:
         try:
             receipt = json.loads((Path(DATA_DIR)/'shared_paper/scanner_state.json').read_text(encoding='utf-8'))
+            if receipt.get('pid') != _process.pid:
+                receipt = {}
         except (OSError, ValueError):
             pass
     return {'running': running, 'state': receipt.get('state', 'STARTING') if running else 'NOT_ACTIVATED' if _process is None else 'STOPPED',
