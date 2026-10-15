@@ -1,6 +1,12 @@
 """Frozen, explicit paper-only allowlists; no automatic strategy promotion."""
 from backtest_engine.validator import validate
-from trading_intelligence.catalog import strategy_library, load_strategy_config
+from trading_intelligence.catalog import strategy_library, load_strategy_config, LIBRARY
+import hashlib
+
+
+def canonical_digest(raw):
+    """Only CRLF/LF transport differences are equivalent; rule bytes stay frozen."""
+    return hashlib.sha256(raw.replace(b"\r\n", b"\n")).hexdigest()
 
 
 def select_eligible(manifest, *, isolated):
@@ -15,7 +21,10 @@ def select_eligible(manifest, *, isolated):
         seen.add(ident);item=catalog.get(ident)
         if not item or item.get("archived") or item.get("status")=="rejected":
             raise ValueError("Allowlisted strategy is missing, archived or blocked")
-        if (item["version"] != frozen["version"] or item["definition_sha256"] != frozen["definition_sha256"]):
+        if item["version"] != frozen["version"]:
+            raise ValueError("Frozen strategy definition changed; renewed review required")
+        canonical=canonical_digest((LIBRARY/ident/"versions"/f'v{item["version"]}.json').read_bytes())
+        if frozen["definition_sha256"] not in (item["definition_sha256"],canonical):
             raise ValueError("Frozen strategy definition changed; renewed review required")
         cfg=load_strategy_config(ident,item["version"])
         supported=(set((cfg.timeframes or {}).values())=={"1h"} and

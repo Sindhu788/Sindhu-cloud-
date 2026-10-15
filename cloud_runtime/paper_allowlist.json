@@ -1,8 +1,8 @@
 {
   "mode": "owner_approved_paper",
   "strategies": [
-    {"strategy_id":"143a732de079","version":1,"definition_sha256":"d745747ae246376e0c2045aece052332142204f2a5fcbf804d800a6bd25cc859"},
-    {"strategy_id":"2a7a1524c270","version":1,"definition_sha256":"74c5ad321e209efc0120d20beba071cbb9579a1854d68476cbd9215dcce10096"}
+    {"strategy_id":"143a732de079","version":1,"definition_sha256":"0120310f70428a8081cc96484243e1da8a3e7af911fec130e44260167ce46458"},
+    {"strategy_id":"2a7a1524c270","version":1,"definition_sha256":"a101242bc6ec996a31df932ecd38822b095ffe771b400709043a7e62b96954ae"}
   ],
   "exclusions": "Experimental paper rules only; no profitability claim. Standalone lessons and other strategies remain excluded. Activation requires explicit deployment approval."
 }
