@@ -164,6 +164,15 @@ async def _broadcast_loop():
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
+    if os.environ.get('SINDHU_SHARED_PAPER_ENABLED')=='1':
+        # Shared mode skips every legacy engine and delivery scheduler.
+        from trading_intelligence.cloud_shared_scanner import start, stop
+        start()
+        try:
+            yield
+        finally:
+            stop()
+        return
     if os.environ.get('SINDHU_SAFE_START')=='1':
         with storage.get_conn() as conn:
             conn.execute('SELECT 1').fetchone()
