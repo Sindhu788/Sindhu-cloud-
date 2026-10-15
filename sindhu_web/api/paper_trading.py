@@ -39,6 +39,7 @@ from paper_trading import challenge_ai_advisor
 from paper_trading.engine import engine
 from data_engine import config as base_config
 from sindhu_web import broadcast, cache, sync
+from trading_intelligence import shared_control
 
 router = APIRouter()
 
@@ -54,6 +55,9 @@ def _on_engine_event(payload):
 
 @router.get("/api/paper-trading/status")
 def get_status():
+    if shared_control.enabled():
+        try:return shared_control.status()
+        except Exception:raise HTTPException(503,'Shared paper wallet unavailable; historical balance is not a fallback.') from None
     return engine.status()
 
 
@@ -64,6 +68,9 @@ def get_health_check():
 
 @router.post("/api/paper-trading/start")
 def start_engine():
+    if shared_control.enabled():
+        try:return shared_control.control('start')
+        except (ValueError,RuntimeError) as exc:raise HTTPException(409,str(exc)) from None
     try:
         started = engine.start(log=_log_and_broadcast, on_event=_on_engine_event)
     except RuntimeError as e:
@@ -80,6 +87,8 @@ def start_engine():
 
 @router.post("/api/paper-trading/stop")
 def stop_engine():
+    if shared_control.enabled():
+        return shared_control.control('stop')
     stopped = engine.stop()
     if not stopped:
         raise HTTPException(400, "engine already stopped")
@@ -144,6 +153,8 @@ def run_tick_now():
     without waiting for the next scheduled tick. This IS the Cloud
     Monitoring Roadmap's "Scan All Coins" -- reused as-is, no new endpoint
     needed for that half of Part 6's Manual Scan Button."""
+    if shared_control.enabled():
+        raise HTTPException(409,'Shared scanner schedules its own verified cycles; legacy manual tick is excluded.')
     try:
         summary = engine.run_single_tick_now()
     except RuntimeError as exc:
@@ -154,6 +165,8 @@ def run_tick_now():
 @router.post("/api/paper-trading/run-coin-scan-now/{symbol}")
 def run_coin_scan_now(symbol: str):
     """Master Task Expansion, Part 6: Manual Scan -- Scan Selected Coin."""
+    if shared_control.enabled():
+        raise HTTPException(409,'Shared scanner owns the verified BTC/ETH cycle; legacy manual scan is excluded.')
     try:
         result = engine.run_single_coin_scan_now(symbol)
     except RuntimeError as exc:
@@ -197,6 +210,8 @@ def get_settings():
 @router.post("/api/paper-trading/settings")
 def update_settings(req: SettingsUpdate):
     fields = req.dict(exclude_none=True)
+    if shared_control.enabled() and fields.get('initial_balance',100)!=100:
+        raise HTTPException(422,{'errors':{'initial_balance':'This shared session starts with $100 total; changing settings cannot reset its ledger.'}})
     # 2026-09-16 audit: reject nonsensical values (negative balance, risk %
     # over 100, unknown enum...) with a per-field message instead of saving
     # them. 422 + {"errors": {field: message}} so the dashboard can show

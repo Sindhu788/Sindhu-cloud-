@@ -9086,6 +9086,7 @@
   // already re-renders on every real "paper" channel tick event.
   let _scanCycleTimer = null;
   function scanIndicatorHtml(status) {
+    if (status.account_mode === "shared_wallet") return `<div class="card scan-indicator"><b>Shared paper scanner: ${esc(status.scanner_state)}</b><p>Last completed scan: ${esc(status.last_tick_at || "Awaiting first verified cycle")}. Entries ${status.entries_paused ? "paused" : "enabled"}. Real orders: 0.</p></div>`;
     if (!status.running) return "";
     const coins = (status.last_summary && status.last_summary.shortlisted) || [];
     const en = getLang() === "en";
@@ -9331,10 +9332,14 @@
       const statusUnavailable = status._unavailable === true || typeof status.running !== "boolean" || !Number.isFinite(Number(status.balance));
       const scanControlsBlocked = statusUnavailable || status.safe_start === true || killSwitch._unavailable || acctDrawdown._unavailable;
       const analyticsUnavailable = !("closed_trades" in allTimeSummary);
+      const sharedMode = status.account_mode === "shared_wallet";
+      const heroUnavailable = sharedMode ? statusUnavailable : analyticsUnavailable;
+      const heroPnl = sharedMode ? Number(status.realized_pnl || 0) : allTimeSummary.total_pnl;
+      const heroWinRate = sharedMode ? (status.win_rate_pct == null ? "N/A" : `${Number(status.win_rate_pct).toFixed(1)}%`) : `${Number(allTimeSummary.win_rate).toFixed(1)}%`;
       content.innerHTML = `
         ${sharedAccountHtml(sharedSnapshot)}
-        <div class="section-title">Archived / legacy strategy books</div>
-        <p class="muted">Legacy balances and controls below belong to the old independent books; they are not the fresh shared $100 wallet.</p>
+        <div class="section-title">${sharedMode ? "Paper Trading · one shared $100 wallet" : "Archived / legacy strategy books"}</div>
+        <p class="muted">${sharedMode ? "Combined Balance and Start/Stop below use the single shared paper wallet. Historical results are preserved separately." : "Legacy balances and controls below belong to the old independent books; they are not the fresh shared $100 wallet."}</p>
         ${ptTabBarHtml(activePtTab)}
         <div class="pt-tab-panel" data-pt-tab="overview">
         ${statusUnavailable ? `<div class="card" style="border-color:var(--yellow,#c9a227);margin-bottom:10px;">
@@ -9349,20 +9354,21 @@
              competing with it as 4 more full-size cards. -->
         <div class="grid">
           ${card("Combined Balance", statusUnavailable ? "--" : `$${Number(status.balance).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}`)}
-          ${cardClass("Realized PnL (All-Time)", analyticsUnavailable ? "--" : `${allTimeSummary.total_pnl >= 0 ? "+" : ""}$${allTimeSummary.total_pnl.toFixed(2)}`, analyticsUnavailable ? "" : (allTimeSummary.total_pnl > 0 ? "positive" : allTimeSummary.total_pnl < 0 ? "negative" : ""))}
-          ${card("Win Rate (All-Time)", analyticsUnavailable ? "--" : `${allTimeSummary.win_rate.toFixed(1)}%`)}
+          ${cardClass(sharedMode ? "Realized PnL (Session)" : "Realized PnL (All-Time)", heroUnavailable ? "--" : `${heroPnl >= 0 ? "+" : ""}$${heroPnl.toFixed(2)}`, heroUnavailable ? "" : (heroPnl > 0 ? "positive" : heroPnl < 0 ? "negative" : ""))}
+          ${card(sharedMode ? "Win Rate (Session)" : "Win Rate (All-Time)", heroUnavailable ? "--" : heroWinRate)}
           ${card("Open Positions", statusUnavailable ? "--" : fmtNum(status.open_trades))}
         </div>
         <div class="muted" style="font-size:12px;display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-top:2px;">
           <span>${statusUnavailable ? "<span class=\"pill pill-pending\">Unknown</span>" : (status.running ? "<span class=\"pill pill-completed\">Running</span>" : "<span class=\"pill pill-muted\">Stopped</span>")}</span>
           <span>${statusUnavailable ? "<span class=\"pill pill-pending\">Unknown</span>" : (status.dry_run ? "<span class=\"pill pill-pending\">Dry Run</span>" : "<span class=\"pill pill-bullish\">Live Paper Trading</span>")}</span>
-          <span>${t("Closed Trades (All-Time)")}: ${analyticsUnavailable ? "--" : fmtNum(allTimeSummary.closed_trades)}</span>
+          <span>${sharedMode ? "Closed Trades (Session)" : t("Closed Trades (All-Time)")}: ${heroUnavailable ? "--" : fmtNum(sharedMode ? status.closed_trades : allTimeSummary.closed_trades)}</span>
           <span>${t("Queue (shortlisted coins)")}: ${statusUnavailable ? "--" : fmtNum(status.queue)}</span>
         </div>
-        <div class="muted" style="font-size:12px;margin-top:4px;">Each strategy runs its own independent book -- balance/PnL/open positions are never merged between strategies. See the breakdown below.</div>
+        <div class="muted" style="font-size:12px;margin-top:4px;">${sharedMode ? "All participating paper strategies share $100 total. Archived strategy books below do not add money to this wallet." : "Each strategy runs its own independent book -- balance/PnL/open positions are never merged between strategies. See the breakdown below."}</div>
 
         ${scanIndicatorHtml(status)}
         <div id="ptSignalMatchDetail" class="card" style="display:none;margin-bottom:16px;"></div>
+        ${sharedMode ? '<div class="section-title">Archived / historical results</div>' : ""}
 
         ${(alertsRes.alerts || []).length ? `
         <div class="section-title">${t("Alerts")}</div>
@@ -9729,13 +9735,13 @@
         <div class="btn-row">
           <button class="btn" id="ptStart" ${scanControlsBlocked || status.running || killSwitch.active ? "disabled" : ""}>${t("Start Engine")}</button>
           <button class="btn-ghost" id="ptStop" ${status.running ? "" : "disabled"}>${t("Stop Engine")}</button>
-          <button class="btn-ghost" id="ptRunTick" ${scanControlsBlocked ? "disabled" : ""}>${t("Run One Tick Now")}</button>
+          <button class="btn-ghost" id="ptRunTick" ${scanControlsBlocked || sharedMode ? "disabled" : ""}>${t("Run One Tick Now")}</button>
           <input id="ptScanCoinSymbol" placeholder="e.g. BTCUSDT" style="width:120px;">
-          <button class="btn-ghost" id="ptScanCoin" ${scanControlsBlocked ? "disabled" : ""}>Scan This Coin Now</button>
+          <button class="btn-ghost" id="ptScanCoin" ${scanControlsBlocked || sharedMode ? "disabled" : ""}>Scan This Coin Now</button>
           <label style="display:flex;align-items:center;gap:6px;width:auto;">
             <input type="checkbox" id="ptDryRun" ${settings.dry_run ? "checked" : ""} ${settings._unavailable ? "disabled" : ""} style="width:auto;"> Dry Run Mode
           </label>
-          <button class="btn-ghost" id="ptResetBalance" style="border-color:var(--red,#c0392b);color:var(--red,#c0392b);">${t("Reset Balance")}</button>
+          <button class="btn-ghost" id="ptResetBalance" ${sharedMode ? 'disabled title="Shared ledger is preserved; historical books are not reset."' : ""} style="border-color:var(--red,#c0392b);color:var(--red,#c0392b);">${t("Reset Balance")}</button>
           ${!killSwitch.active ? `<button class="btn" id="ptKillSwitchActivate" style="background:var(--red,#c0392b);border-color:var(--red,#c0392b);color:#fff;">🛑 EMERGENCY STOP</button>` : ""}
           <span id="ptStatusMsg" class="muted"></span>
         </div>
