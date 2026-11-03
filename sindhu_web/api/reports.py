@@ -24,20 +24,21 @@ def backtest_history(limit: int = 200):
     History page -- unlike live job progress (in-memory, gone on restart),
     this is recomputed from backtest_batches/backtest_results each call, so
     old batches stay visible and browsable indefinitely."""
-    batches = storage.list_recent_batches(limit=limit)
-    completed = [b for b in batches if b["status"] == "completed"]
-    summaries = []
-    for b in completed:
-        s = quick_batch_summary(b["batch_id"])
-        if s:
-            s["created_at"] = b["created_at"]
-            # Present when the automation pipeline (Part 2) ran an
-            # optimization pass involving this batch, either as the
-            # original or the optimized side -- lets the Backtest History
-            # page show the original-vs-optimized comparison inline
-            # without a separate request per row.
-            s["optimization"] = storage.get_optimization_for_batch(b["batch_id"])
-            summaries.append(s)
+    with storage.connection_scope():
+        batches = storage.list_recent_batches(limit=limit)
+        completed = [b for b in batches if b["status"] == "completed"]
+        summaries = []
+        for b in completed:
+            s = quick_batch_summary(b["batch_id"])
+            if s:
+                s["created_at"] = b["created_at"]
+                # Present when the automation pipeline (Part 2) ran an
+                # optimization pass involving this batch, either as the
+                # original or the optimized side -- lets the Backtest History
+                # page show the original-vs-optimized comparison inline
+                # without a separate request per row.
+                s["optimization"] = storage.get_optimization_for_batch(b["batch_id"])
+                summaries.append(s)
     return {"batches": summaries}
 
 

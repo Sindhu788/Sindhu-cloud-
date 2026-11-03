@@ -9,10 +9,13 @@ def test_returns_none_when_not_running_against_postgres(monkeypatch):
 
 
 def test_computes_30_day_expiry_and_days_remaining(monkeypatch):
+    # Relative to today so the test does not rot once a fixed date passes.
+    from datetime import date, timedelta
     monkeypatch.setattr(db_backend, "IS_POSTGRES", True)
-    result = _postgres_expiry_notice({"postgres_free_tier_created_date": "2026-09-05"})
-    assert result["created_date"] == "2026-09-05"
-    assert result["expiry_date"] == "2026-10-05"
+    created = date.today() - timedelta(days=10)
+    result = _postgres_expiry_notice({"postgres_free_tier_created_date": created.isoformat()})
+    assert result["created_date"] == created.isoformat()
+    assert result["expiry_date"] == (created + timedelta(days=30)).isoformat()
     assert isinstance(result["days_remaining"], int)
     assert 0 < result["days_remaining"] <= 30
 

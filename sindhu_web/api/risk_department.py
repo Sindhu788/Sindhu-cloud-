@@ -123,5 +123,6 @@ def get_risk_department_summary():
 
 
 @router.get("/api/risk-department")
+@storage.in_connection_scope
 def risk_department_endpoint():
     return get_risk_department_summary()

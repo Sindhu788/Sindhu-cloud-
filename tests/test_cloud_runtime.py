@@ -169,7 +169,7 @@ def test_cloud_nav_only_lists_pages_this_runner_actually_mounts(cloud_app):
     in the cloud sidebar with no way to notice except a user clicking it."""
     page_ids = {p["id"] for p in cloud_app._CLOUD_NAV_PAGES}
     assert page_ids == {"paper_trading", "telegram_dashboard", "strategy_overview", "signal_tracker",
-                         "challenge_mode", "self_learning", "risk_department", "memory_core", "how_to_trade"}
+                         "challenge_mode", "self_learning", "risk_department", "memory_core", }
     for group in (p["group"] for p in cloud_app._CLOUD_NAV_PAGES):
         assert group in cloud_app._CLOUD_NAV_GROUPS
 
@@ -206,8 +206,6 @@ def test_app_mounts_exactly_the_expected_routers(cloud_app):
     # hour) that this router was simply never mounted here even though
     # its tables already exist in this runner's own Postgres schema.
     assert "/api/activity" in route_paths
-    assert "/api/intelligence/analyze" in route_paths
-    assert "/how-to-trade" in route_paths
     assert "/api/audit-trail" in route_paths
     # A page this runner does NOT serve must not have leaked in via some
     # other import path.

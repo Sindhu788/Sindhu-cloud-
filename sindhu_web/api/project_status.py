@@ -133,6 +133,7 @@ def _tp_label(tp):
 
 
 @router.get("/api/compare-strategies/dual-tp")
+@storage.in_connection_scope
 def compare_dual_tp():
     """Part 1/Part 2 of the 6-part dual-TP task: every one of the 16
     original strategies side by side with its Fixed-1:2-TP draft variant
@@ -349,6 +350,7 @@ def session_handoff(period: str = "today"):
 
 
 @router.get("/api/project-status")
+@storage.in_connection_scope
 def project_status(period: str = "all"):
     since = _period_bounds(period)
     changelog = _load_json(_CHANGELOG_PATH, [])

@@ -4,6 +4,7 @@ functions. See that module's own docstring for the transparent-formula
 guarantee -- nothing here invents a new score independently of it.
 """
 from fastapi import APIRouter
+from data_engine import storage
 
 from sindhu_web import module_health
 
@@ -52,6 +53,7 @@ def _avg(modules, keys):
 
 
 @router.get("/api/decision-center")
+@storage.in_connection_scope
 def get_decision_center():
     """Phase 4.1: Biggest Problem / Recommended Action / Estimated Impact /
     Priority Level, computed fresh from real state every request -- never

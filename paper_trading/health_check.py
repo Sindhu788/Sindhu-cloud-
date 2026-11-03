@@ -60,10 +60,50 @@ def _check_last_candle_fetch():
         return {"name": "Live candle/ticker fetch", "ok": False, "detail": str(e)}
 
 
+def _check_signal_delivery_readiness():
+    """Plain-language list of everything currently stopping PUBLIC Telegram signals from this process."""
+    from paper_trading import signal_ownership, telegram_bot
+    blockers = signal_ownership.delivery_blockers(telegram_bot.load_settings())
+    if not blockers:
+        return {"name": "Public signal delivery", "ok": True, "detail": "ready (per-signal gates still apply)"}
+    return {"name": "Public signal delivery", "ok": False, "detail": "blocked: " + "; ".join(blockers)}
+
+
+def _check_database_size():
+    from data_engine import db_size_guard
+    u = db_size_guard.database_usage()
+    if u["size_bytes"] is None:
+        return {"name": "Database size", "ok": True, "detail": "size unavailable on this backend", "metrics": u}
+    mb = u["size_bytes"] // (1024 * 1024)
+    if u["pct"] is None:
+        return {"name": "Database size", "ok": True, "detail": f"{mb} MB (no limit configured)", "metrics": u}
+    return {"name": "Database size", "ok": u["pct"] < 90,
+            "detail": f"{mb} MB = {u['pct']}% of the {u['limit_bytes'] // (1024 * 1024)} MB limit", "metrics": u}
+
+
+def _check_market_data_rejections():
+    """Visible metric for candle frames the freshness/validity guard skipped."""
+    from paper_trading.market_data_guard import rejection_summary
+    summary = rejection_summary()
+    n = summary["rejected_in_window"]
+    if n == 0:
+        return {"name": "Market-data rejections (last 60 min)", "ok": True, "detail": "none", "metrics": summary}
+    reasons = "; ".join(f"{k} x{v}" for k, v in sorted(summary["by_reason"].items(), key=lambda kv: -kv[1])[:3])
+    return {"name": "Market-data rejections (last 60 min)", "ok": False,
+            "detail": f"{n} candle frames skipped ({reasons}) -- signals for those symbols were not evaluated",
+            "metrics": summary}
+
+
 def run_health_check():
-    checks = [_check_database(), _check_engine_state(), _check_last_candle_fetch()]
+    core = [_check_database(), _check_engine_state(), _check_last_candle_fetch()]
+    # Recovery additions are advisory: they show red on the page but do not change the original
+    # all_ok contract (database + engine + exchange reachable).
+    advisory = [dict(c, advisory=True) for c in (_check_market_data_rejections(), _check_database_size(),
+                                                   _check_signal_delivery_readiness())]
+    checks = core + advisory
     return {
         "checked_at": datetime.now(timezone.utc).isoformat(),
-        "all_ok": all(c["ok"] for c in checks),
+        "all_ok": all(c["ok"] for c in core),
+        "warnings": [c["name"] for c in advisory if not c["ok"]],
         "checks": checks,
     }

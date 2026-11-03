@@ -35,10 +35,20 @@ LOG_FILE = os.path.join(LOGS_DIR, "sindhu.log")
 SESSION_FILE = os.path.join(HISTORY_DIR, "sessions.jsonl")
 
 
+_ENSURED_DIRS = set()
+
+
 def ensure_folders():
+    # Hot path: storage.get_conn() calls this on EVERY database connection. Creating ~10
+    # directories each time measured ~15 ms/call on Windows (7.9 s of a 23 s endpoint), so
+    # remember which directory sets are already in place and re-verify with a single stat.
+    key = (DATA_DIR, tuple(ALL_DIRS))
+    if key in _ENSURED_DIRS and os.path.isdir(DATA_DIR) and os.path.isdir(ALL_DIRS[-1]):
+        return
     os.makedirs(DATA_DIR, exist_ok=True)
     for d in ALL_DIRS:
         os.makedirs(d, exist_ok=True)
+    _ENSURED_DIRS.add(key)
 
 
 def migrate_legacy_files():
