@@ -184,6 +184,8 @@ async def _lifespan(app: FastAPI):
     # -- so this same runner also works for a quick local smoke test
     # against a throwaway SQLite file, with no Postgres server required.
     storage.init_db()
+    from data_engine import db_size_guard
+    db_size_guard.check_and_warn(log)
 
     # Same "resume only if it was already running" contract as the local
     # app's lifespan (sindhu_web/server.py) -- a fresh deploy or restart

@@ -2076,6 +2076,11 @@ def insert_klines(exchange, symbol, rows):
     (open_time, open, high, low, close, volume, close_time, quote_volume, trades)."""
     if not rows:
         return 0
+    if db_backend.IS_POSTGRES:
+        # Candles never belong in the small hosted Postgres (live candles are fetched, not stored).
+        from data_engine.logging_setup import log as _log
+        _log("[storage] insert_klines ignored: candles are never written to the Postgres database")
+        return 0
     with get_conn() as conn:
         conn.executemany(
             """INSERT OR REPLACE INTO klines_1m

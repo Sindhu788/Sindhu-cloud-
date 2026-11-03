@@ -60,6 +60,18 @@ def _check_last_candle_fetch():
         return {"name": "Live candle/ticker fetch", "ok": False, "detail": str(e)}
 
 
+def _check_database_size():
+    from data_engine import db_size_guard
+    u = db_size_guard.database_usage()
+    if u["size_bytes"] is None:
+        return {"name": "Database size", "ok": True, "detail": "size unavailable on this backend", "metrics": u}
+    mb = u["size_bytes"] // (1024 * 1024)
+    if u["pct"] is None:
+        return {"name": "Database size", "ok": True, "detail": f"{mb} MB (no limit configured)", "metrics": u}
+    return {"name": "Database size", "ok": u["pct"] < 90,
+            "detail": f"{mb} MB = {u['pct']}% of the {u['limit_bytes'] // (1024 * 1024)} MB limit", "metrics": u}
+
+
 def _check_market_data_rejections():
     """Visible metric for candle frames the freshness/validity guard skipped."""
     from paper_trading.market_data_guard import rejection_summary
@@ -74,7 +86,8 @@ def _check_market_data_rejections():
 
 
 def run_health_check():
-    checks = [_check_database(), _check_engine_state(), _check_last_candle_fetch(), _check_market_data_rejections()]
+    checks = [_check_database(), _check_engine_state(), _check_last_candle_fetch(), _check_market_data_rejections(),
+              _check_database_size()]
     return {
         "checked_at": datetime.now(timezone.utc).isoformat(),
         "all_ok": all(c["ok"] for c in checks),

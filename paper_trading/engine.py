@@ -139,6 +139,7 @@ class PaperTradingEngine:
         self._last_telegram_sweep_at = None  # Task 4 (Batch 2) -- see TELEGRAM_SWEEP_INTERVAL_SECONDS
         self._last_divergence_check_at = None  # Grand Feature Expansion, Phase 1 Feature 8
         self._last_retry_sweep_at = None  # Grand Feature Expansion, Phase 2 Feature 11
+        self._last_db_guard_at = None  # recovery: hourly DB size warning + scan-log pruning
         self._last_decay_sweep_at = None  # Grand Feature Expansion, Phase 3 Feature 11
         self._last_custom_alerts_sweep_at = None  # Grand Feature Expansion, Phase 4 Feature 25
         # Grand Master Prompt, Phase 3.12/3.14: Scan Timer + Scanner
@@ -566,6 +567,16 @@ class PaperTradingEngine:
                                f"abandoned={retry_result['abandoned']}")
             except Exception as e:
                 self._log(f"[paper-trading] Telegram retry sweep error: {e!r}")
+
+        # Recovery: hourly database-size warning and bounded pruning of the scan-receipt log.
+        if self._last_db_guard_at is None or (now - self._last_db_guard_at) >= 3600:
+            self._last_db_guard_at = now
+            try:
+                from data_engine import db_size_guard
+                db_size_guard.prune_append_only_logs()
+                db_size_guard.check_and_warn(self._log)
+            except Exception as e:
+                self._log(f"[paper-trading] DB size guard error: {e!r}")
 
         # Grand Feature Expansion, Phase 3 Feature 11: hourly Win-Rate
         # Decay Detection sweep -- see WIN_RATE_DECAY_SWEEP_INTERVAL_SECONDS.
