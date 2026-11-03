@@ -2482,6 +2482,7 @@ def get_live_signal_feed(limit: int = 50):
 
 
 @router.get("/api/paper-trading/signal-tracker/match-table")
+@storage.in_connection_scope
 def get_signal_match_table():
     """Batch 6, Task 5: per-strategy backtest vs paper vs Telegram-sent
     win rate, side by side, flagging real divergence once both sides have

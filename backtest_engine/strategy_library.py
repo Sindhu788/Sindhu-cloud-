@@ -14,7 +14,10 @@ from backtest_engine import validator
 from backtest_engine.strategy_config import StrategyConfig
 from backtest_engine.strategy_safety_check import run_safety_check
 
-_LIBRARY_DIR = os.path.join(
+# SINDHU_STRATEGY_LIBRARY_DIR lets tests / scratch servers point at a COPY of the library.
+# Without it, any process (tests, profiling scripts, a server started on a DB copy) that lists
+# strategies refreshes backtest_snapshot inside the real git-tracked meta.json files.
+_LIBRARY_DIR = os.environ.get("SINDHU_STRATEGY_LIBRARY_DIR") or os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "strategies", "library"
 )
 
@@ -67,7 +70,13 @@ def save_backtest_snapshot(strategy_id, snapshot):
     Skips the write entirely if nothing actually changed, so a page that
     polls this endpoint repeatedly does not rewrite the file on every call."""
     meta = _read_meta(strategy_id)
-    if meta.get("backtest_snapshot") == snapshot:
+    previous = meta.get("backtest_snapshot") or {}
+    # Never degrade a stored value: a refresh that could not compute the profit factor this time
+    # (None) must not overwrite a real value recorded for the same batch.
+    if (snapshot.get("profit_factor") is None and previous.get("profit_factor") is not None
+            and previous.get("batch_id") == snapshot.get("batch_id")):
+        snapshot = dict(snapshot, profit_factor=previous["profit_factor"])
+    if previous == snapshot:
         return
     meta["backtest_snapshot"] = snapshot
     _write_meta(strategy_id, meta)

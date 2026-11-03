@@ -2,6 +2,7 @@ import json
 import sqlite3
 import os
 import statistics
+import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
@@ -1763,6 +1764,38 @@ def _migrate_trade_history_columns(conn):
 # inside its mutation loop), and never let a partially-drained queue stay
 # stuck -- see EvolutionEngine._tick()'s early resource check and
 # Governor.clear_queue().
+_scope = threading.local()
+
+
+@contextmanager
+def connection_scope():
+    """Reuse ONE SQLite connection for every get_conn() call made inside the block
+    (same thread). For read-heavy endpoints that loop over many rows and call small
+    storage helpers (N+1 pattern): opening/closing the connection costs ~40 ms each on
+    an 11 GB database. The block commits once at the end; use it for reads. No effect
+    on Postgres (the cloud backend pools per call)."""
+    if db_backend.IS_POSTGRES or getattr(_scope, "conn", None) is not None:
+        yield
+        return
+    with get_conn() as conn:
+        _scope.conn, _scope.path = conn, DB_PATH
+        try:
+            yield
+        finally:
+            _scope.conn = None
+
+
+def in_connection_scope(fn):
+    """Decorator form of connection_scope() for read-only request handlers."""
+    import functools
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        with connection_scope():
+            return fn(*args, **kwargs)
+    return wrapper
+
+
 @contextmanager
 def get_conn():
     # Lightweight cloud runner support: when DATABASE_URL is set, every
@@ -1779,6 +1812,11 @@ def get_conn():
             conn.commit()
         finally:
             conn.close()
+        return
+
+    shared = getattr(_scope, "conn", None)
+    if shared is not None and getattr(_scope, "path", None) == DB_PATH:
+        yield shared
         return
 
     ensure_folders()

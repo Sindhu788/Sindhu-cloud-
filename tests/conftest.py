@@ -18,6 +18,15 @@ if not os.environ.get("SINDHU_DATA_DIR"):
     os.environ["SINDHU_DATA_DIR"] = _TEST_DATA_DIR
     atexit.register(shutil.rmtree, _TEST_DATA_DIR, ignore_errors=True)
 
+# Strategy library: tests work on a throw-away COPY so nothing ever rewrites the git-tracked
+# strategies/library/*/meta.json (the strategy list endpoint refreshes backtest_snapshot on read).
+if not os.environ.get("SINDHU_STRATEGY_LIBRARY_DIR"):
+    _real_lib = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "strategies", "library")
+    _test_lib = tempfile.mkdtemp(prefix="sindhu_test_library_")
+    shutil.copytree(_real_lib, _test_lib, dirs_exist_ok=True)
+    os.environ["SINDHU_STRATEGY_LIBRARY_DIR"] = _test_lib
+    atexit.register(shutil.rmtree, _test_lib, ignore_errors=True)
+
 # Tests run as the "main" process role; the public-signal-owner guard defaults to
 # "cloud", so declare this process the publisher unless a test overrides it.
 os.environ.setdefault("SINDHU_PUBLIC_SIGNAL_OWNER", "main")
