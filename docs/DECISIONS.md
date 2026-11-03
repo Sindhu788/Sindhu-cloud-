@@ -19,3 +19,12 @@
 - D11 Local scanning stays OFF: local DB candles go stale within an hour (only 10 coins were gap-filled), local engine mode would start schedulers/db writes on an 11 GB DB, and Cloud is the single publisher. Local keeps SINDHU_PUBLIC_SIGNAL_OWNER=disabled (stricter than "cloud"). Undo: use a non-safe start and a candle gap-fill scheduler.
 - D12 Pushed the paging fix after targeted tests (19) while the full suite ran, because Cloud was producing no signals; the only delta since the last full green run was the paging fix and a test-fake fix. Full-suite result recorded in the checkpoint; revert if red.
 - D13 Keep-alive: the GitHub Actions workflow is inert (default branch main has no workflow; schedules never run from other branches). Not pushed to main because main auto-deploys the old Render service. Primary fix = external pinger (cron-job.org), optional Cloudflare cron; opt-in in-app self-ping retained. Free-hours (750/month shared) caveat documented. Undo: n/a (docs only).
+
+## 2026-11-04 - decisions in the grand master run
+- D14 Left auto_send_high_confidence_only unchanged (Cloud OFF, old local file ON): turning it ON is stricter and would likely stop all signals; it is the owner's call (OWNER_TODO 6, PARITY.md). Undo/apply: Dashboard -> Telegram settings.
+- D15 Local scanning stays off; local config aligned to Cloud for coin_filter_mode=liquidity / top_n=10 and channel_group_filter=profitable_challenge (backup D:\sindhu_backup_config_*).
+- D16 Lite layer is client-side only (queue, cache, dedupe, deferred heavy calls); disable per browser with localStorage sindhu_lite=off. Heavy panels are deferred and queued, NOT click-to-load (not done).
+- D17 Decisions are flushed every 10 rows (was: only when a scan ended) so a sleeping/restarting instance does not lose them; adds a compact paper_decision_trace table pruned to 7 days / 20,000 rows.
+- D18 Monitoring alerts go only through telegram_bot.send_private_message (personal_chat_id); with no owner chat they are silently skipped and the dashboard shows a warning. Limiter state persisted (Neon cloud_settings key owner_alert_state; local json).
+- D19 Did not push the keep-alive workflow to main (main auto-deploys the old Render service).
+- D20 Backtest comparison (Step 14) uses 3 coins and 60 days with assumed costs and no tuning; it shows no regression and no profitable strategy. Not proof of live performance.

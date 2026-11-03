@@ -1,16 +1,20 @@
-# OWNER / MANAGER TODO (only what truly needs a person) - updated 2026-11-04
+# OWNER / MANAGER TODO (only what truly needs a person) - updated 4 Nov 2026
 
-Live state: Cloud (Render Sindhu-cloud--1) runs the legacy engine with Telegram delivery READY (log: `Public signal delivery: READY`, which also proves bot token + channel id + master/auto send are set). Local is safe-mode only. Rollback: redeploy tag `pre-recovery-backup` (c223070) or `git revert -m 1 <merge commit>`.
+**Live state:** Cloud (Render `Sindhu-cloud--1`) runs the legacy engine on 10 liquid coins (OKX feed), Telegram delivery READY, and has already sent live signals (first: 3 Nov 21:33 UTC). Local is safe-mode only and can never send. Rollback: docs/RUNBOOK.md section 7.
 
-1. **Rotate secrets** (only you can): proxy user/password, Neon database password, strategy-sync secret, Telegram bot token if it was ever shared. Keep them in Render env vars, not in `data/config/*.json`.
-2. **Old Render services**: `Trading-best`, `Trading-best--1`, `Trading-best--2` (all `python bot.py`), `alpha-signal-bot`, `Trading-main future`, `sindhu-agency`, old `Sindhu-cloud-` (tracks main). If any uses the same Telegram bot token you get 409 conflicts / duplicate messages, and the free instance-hours (750/month) are shared by all free services. Suspend the ones you do not use.
-3. **Keep Cloud awake** - see section K below (the GitHub workflow can NOT work from this branch; use cron-job.org).
-4. **Check the first real signal** in the Telegram channel and send `/menu` once in the group; check the dashboard on a real phone. (I never send to the public channel.)
-5. **Decide on pauses**: see `docs/SCORECARD_2026-11-03.md` and `docs/PERFORMANCE_RECONCILIATION.md` (Wilson-aware list; nothing is paused automatically).
-6. **Settings page**: manually try a negative / empty number in Settings (my browser test could not exercise numeric validation).
-7. **Where did "+$270.05 over 1,856 trades" come from?** Local and Neon both contain the same 1,132 trades (-87.96); the figure could not be reproduced.
-8. **Balance reset to 100 on Cloud** (tool ready, archive-not-delete, `scripts/reset_paper_balance_to_target.py --allow-cloud --apply`): run only after you see signals flowing; take a Neon backup first.
-9. **Stale-candle problem on Cloud** - status in `docs/DECISIONS.md` (D6/D7): if the log still shows `candle frame rejected (...)` lines after the latest deploy, send me/the manager those lines (they now name exchange:symbol, last candle and age).
+Do these in order (most important first):
+1. **Set your private chat id** (Dashboard -> Settings -> Telegram -> "Personal chat id"). Until then the watchdog alerts, the daily health summary and the reconciliation alert are SILENT (the dashboard shows a yellow "Owner alerts are OFF" bar).
+2. **Keep Cloud awake** - section K: sign up for the free 1-minute pinger (cron-job.org). The GitHub keep-alive workflow cannot run from this branch. Decide on a paid plan if you want signals 24/7 (free plan: sleeps after 15 min, 750 shared hours/month).
+3. **Rotate secrets** - section N: Neon password, proxy login, Groq key, sync secret/API token; keep them only in Render env vars.
+4. **Old Render services** - section L: open each non-Sindhu service and check whether it holds `TELEGRAM_BOT_TOKEN`; suspend the ones you do not use (none showed activity in 30 days, but env vars cannot be read from outside).
+5. **Make a red test block a deploy** - section M (Render "Auto-Deploy: After CI Checks Pass").
+6. **Decide `auto_send_high_confidence_only`** (Cloud = OFF, your old local file = ON). OFF means signals also go out at the "low tier" (confluence strong but the 25-trade Wilson gate not yet met) - the three signals sent so far were low tier. ON is stricter and will probably mean no signals until patterns reach 25 trades. See docs/PARITY.md.
+7. **Opposite signals on the same coin:** on 3 Nov Cloud sent BTC/USDT LONG at 21:33 and SHORT at 21:38 (different strategies/timeframes; the duplicate guard only blocks the same direction). Decide whether subscribers should get both.
+8. **Strategy pauses** - docs/PERFORMANCE_RECONCILIATION.md (Step 15): 8 recommended pauses, 8 on watch, 38 with too few trades. Nothing is paused automatically. Backtests of the 10 most-traded strategies (Step 14) are all below PF 1 over 60 days.
+9. **Real-world checks only you can do:** look at the Telegram channel for the signal format, send `/menu` once in the group, open the dashboard on your phone, open Windows Firewall for TCP port 8420 if you want `http://192.168.1.111:8420` to work from the phone.
+10. **The "+$270.05 over 1,856 trades, 40-43 % win" figure** could not be reproduced: both databases hold the same 1,132 trades (-87.96). Where did it come from?
+11. **Balance reset to $100** - see the Step 26 note in docs/FIX_LOG.md (done or skipped, with the reason).
+12. **Go-live:** `docs/GO_LIVE_CRITERIA.md` - 1 of 11 gates met. Paper only; not financial advice.
 
 
 ## K. Keep Cloud awake (no signals while it sleeps)
