@@ -35,9 +35,10 @@ def settings_snapshot_sync(x_sindhu_sync_secret: Optional[str] = Header(None)):
 def settings_parity():
     """Local side: fetch the Cloud snapshot (cloud_sync_target.json) and list every key that differs."""
     target = base_config.load_or_seed("cloud_sync_target.json", {"cloud_url": "", "sync_secret": ""})
-    url, secret = (target.get("cloud_url") or "").rstrip("/"), target.get("sync_secret") or ""
+    url = (target.get("cloud_url") or "").rstrip("/")
+    secret = target.get("sync_secret") or strategy_sync.get_or_create_sync_secret()
     if not url or not secret:
-        return {"ok": False, "error": "cloud_sync_target.json has no cloud_url / sync_secret - cannot compare"}
+        return {"ok": False, "error": "cloud_sync_target.json has no cloud_url - cannot compare"}
     try:
         req = urllib.request.Request(url + "/api/ops/settings-snapshot-sync", headers={"X-Sindhu-Sync-Secret": secret})
         with urllib.request.urlopen(req, timeout=60) as r:
