@@ -32,3 +32,18 @@ export default { async scheduled(event, env, ctx) { ctx.waitUntil(fetch("https:/
 **C. Free-hours warning:** Render gives 750 free instance-hours per month for the whole workspace. A service that never sleeps uses ~744 h, so keeping Sindhu-cloud--1 awake 24/7 leaves almost nothing for the other free services (Trading-best x3, alpha-signal-bot, sindhu-agency, ...): Render suspends them all when the hours run out. Suspend the services you do not use (section 2) or move to the paid Starter plan.
 
 **D. Optional in-app self-ping:** set env `SINDHU_KEEPALIVE_URL=https://sindhu-cloud-1.onrender.com` on Render. It only keeps an already-awake instance awake; it cannot wake a sleeping one.
+
+## L. Telegram token-conflict review of the other Render services (read-only, 4 Nov 2026)
+Method: Render API (list services, last deploy, logs since 5 Oct). **Environment variable names/values cannot be listed with the connector, so "shares our bot token" is NOT VERIFIED for every row.** Nothing was changed, suspended or deleted.
+
+| Service | Type / start | Last deploy (status, date) | Logs in last 30 days | Could it use our bot? | Risk |
+|---|---|---|---|---|---|
+| Sindhu-cloud--1 (ours) | web, uvicorn cloud_runtime.app | live, 3 Nov | yes | it IS the publisher | - |
+| Sindhu-cloud- (old, tracks `main`) | web, `python cloud_runtime/app.py` | update_failed, 16 Sep (previous deploy may still be serving) | none | same code family and same repo: YES if it still runs and has TELEGRAM_* env | MEDIUM (check once in dashboard; suspend if unused) |
+| Trading-best-, -1, -2 | web, `python bot.py` (repo Trading-best-) | update_failed, 13 Jun | none | a `bot.py` is a Telegram-style bot: possible | LOW-MEDIUM |
+| alpha-signal-bot | web, gunicorn your_application.wsgi | build_failed, 8 May | none | cannot run (build failed) | LOW |
+| Trading-main future | web, repo Trading-main | not checked in detail | none | unknown | LOW |
+| sindhu-agency | web, agency_cloud.main | auto-deploy off, 14 Oct | none | separate app | LOW |
+| zaiqa-royale-portfolio | static site | n/a | n/a | no | NONE |
+
+Recommendation: in the Render dashboard open each non-Sindhu service -> Environment -> look for `TELEGRAM_BOT_TOKEN` / `BOT_TOKEN`; if the same bot appears, suspend that service (Render allows resume later). Two processes calling `getUpdates` for one bot cause HTTP 409 and lost commands; two senders cause duplicate messages. Also remember the 750 free instance-hours/month are shared by every free service.
