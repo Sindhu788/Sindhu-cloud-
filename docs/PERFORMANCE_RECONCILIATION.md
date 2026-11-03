@@ -28,3 +28,80 @@ It does **not** match this database: this DB holds 1,132 closed trades (1,197 in
 Market Structure Shift Reversal (37 trades, PF 0.15), Fibonacci Golden Zone Retracement (27, 0.24), Liquidity Sweep + CISD Pure Swing (44, 0.47), HTF Key Level Engulfing Reversal (53, 0.68), HTF-LTF FVG/OB Confluence Entry (35, 0.24), FVG 50% Equilibrium Entry (21, 0.46), Equal Highs/Lows Reversal (28, 0.28), Order Block Trading Strict (29, 0.43), Fair Value Gap Reversal (25, 0.28), FVG Pure + Inverse FVG (33, 0.49), Candlestick Pattern Reversal (44, 0.71), Support/Resistance + Liquidity Sweep Fixed-RR (34, 0.57).
 Only 4 strategies with >= 20 trades are positive: Laxman Rekha 5-EMA (+8.15, PF 1.80), Daily Liquidity Scalping (+4.73), Liquidity Sweep Multi-Confirmation (+2.43), Previous High/Low Reversal (+0.75). Ichimoku trailing-SL variants had 0% wins (n 5-8, too small to conclude).
 Note: these strategies are already auto-grouped "Losing" (trade, no Telegram signal), so pausing them mainly stops paper-balance drag.
+
+---
+# Step 14 - Old (pre-Codex main) vs new (recovery/clean) full-engine backtest (4 Nov 2026)
+
+Same 10 strategies (the 10 most-traded enabled ones), same JSON definitions, same candles (binance 1m resampled by each tree: BTCUSDT, ETHUSDT, SOLUSDT, 2026-09-01 .. 2026-11-01, 60 days), same settings (balance 1000, risk 1 %, commission 0.1 %, slippage 0.05 %, position size 10 %). **No parameter was tuned.** Each tree ran on its own copy of one throwaway candle DB.
+
+| Strategy | Old trades | Old win % | Old PF | Old net | Old max DD % | New trades | New win % | New PF | New net | New max DD % |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Previous High/Low Reversal [Manual Build] | 130 | 36.2 | 0.55 | -312.29 | 29.99 | 183 | 44.8 | 0.68 | -280.14 | 22.47 |
+| Candlestick Pattern Reversal Strategy [Manual  | 240 | 45.8 | 0.58 | -440.0 | 22.51 | 241 | 41.1 | 0.49 | -774.16 | 40.65 |
+| Liquidity Sweep + CISD (Pure Swing Variant) [M | 220 | 30.0 | 0.2 | -733.68 | 33.17 | 129 | 38.8 | 0.43 | -462.35 | 23.19 |
+| Liquidity Sweep Multi-Confirmation [Manual Bui | 171 | 30.4 | 0.6 | -397.62 | 22.0 | 87 | 31.0 | 0.79 | -131.43 | 19.3 |
+| Daily Liquidity Scalping Strategy [Manual Buil | 161 | 51.6 | 0.92 | -63.0 | 13.5 | 161 | 51.6 | 0.92 | -63.0 | 13.5 |
+| Market Structure Shift Reversal [Manual Build] | 200 | 44.5 | 0.62 | -369.01 | 20.67 | 178 | 48.9 | 0.57 | -335.27 | 15.54 |
+| HTF-LTF FVG/OB Confluence Entry [Manual Build] | 294 | 40.1 | 0.43 | -624.31 | 34.91 | 248 | 37.5 | 0.45 | -576.36 | 39.49 |
+| Candle Range Theory (Loose) [Manual Build] | 200 | 35.0 | 0.68 | -417.6 | 29.91 | 200 | 35.0 | 0.68 | -417.6 | 29.91 |
+| Support/Resistance + Liquidity Sweep (Fixed-RR | 185 | 52.4 | 0.65 | -357.64 | 20.86 | 76 | 47.4 | 0.49 | -233.83 | 9.98 |
+| FVG Pure + Inverse FVG (Structure) [Manual Bui | 183 | 36.6 | 0.45 | -502.12 | 26.06 | 183 | 36.6 | 0.45 | -502.12 | 26.06 |
+
+**Totals:** old 1984 trades, net -4217.27; new 1686 trades, net -3776.26 (net = sum of final balance minus 1000 over 30 strategy x coin accounts).
+
+Findings:
+- Three strategies are bit-identical in both trees (Daily Liquidity Scalping, Candle Range Theory Loose, FVG Pure + Inverse FVG): they do not use the changed concepts.
+- Strategies using support/resistance or break-of-structure trade fewer times in the new tree (e.g. Support/Resistance + Liquidity Sweep 185 -> 76, Liquidity Sweep Multi-Confirmation 171 -> 87, CISD 220 -> 129), consistent with the ~43 % drop in BOS events measured earlier. The old levels were the confirmation-bar high, not the pivot, so the old numbers were not measuring the written rule.
+- **No regression introduced by the Codex-era changes in this sample, but also no profitable strategy: all 10 have PF < 1 in both trees** (0.2-0.92 old, 0.43-0.92 new). With these fee and slippage assumptions the strategies lose over this 60-day window. This is a backtest on 3 coins and one regime; it is NOT proof that live paper results will match.
+- Hard limit of this comparison: 10 strategies, 3 coins, 60 days; costs assumed; no walk-forward (see Step 22).
+
+---
+# Step 15 - Strategy scorecard (4 Nov 2026, local DB = same 1,132 trades as Cloud)
+
+Data window: trades closed up to 2026-09-16 (no trade has closed since; the engine was off). **"Recent trend" = the last 14 days of that data (since 2026-09-02), not the last 14 days of calendar time.** Drawdown = peak-to-trough of cumulative PnL in paper dollars. Recommendations only; nothing is paused automatically.
+
+## By group
+
+| Group | Trades | Win % | PF | Net | Max DD | Recent 14d net (n) |
+|---|---|---|---|---|---|---|
+| profitable | 208 | 32.7 | 1.38 | 26.91 | 17.98 | 31.04 (178) |
+| challenge | 102 | 44.1 | 1.84 | 25.81 | 5.82 | 28.29 (81) |
+| losing | 822 | 36.0 | 0.44 | -140.68 | 140.68 | -114.87 (588) |
+| **all** | 1132 | 36.1 | 0.75 | -87.96 | 113.91 | -55.54 (847) |
+
+## Strategies with at least 25 closed trades (sorted by net)
+
+| Strategy | Group | Trades | Win % | PF | Net | Max DD | Recent 14d net | List |
+|---|---|---|---|---|---|---|---|---|
+| Laxman Rekha 5-EMA Trigger-Candle Strategy [Manual | challenge | 29 | 41.4 | 1.8 | 8.15 | 3.66 | 7.33 | KEEP |
+| Daily Liquidity Scalping Strategy [Manual Build] | profitable | 38 | 34.2 | 1.36 | 4.73 | 3.21 | 6.64 | KEEP |
+| Liquidity Sweep Multi-Confirmation [Manual Build] | profitable | 42 | 42.9 | 1.2 | 2.43 | 3.19 | 3.0 | KEEP |
+| Previous High/Low Reversal [Manual Build] | profitable | 51 | 37.3 | 1.05 | 0.75 | 5.57 | 1.84 | KEEP |
+| Sniper Headshot Entry [Manual Build] | challenge | 47 | 48.9 | 0.95 | -0.55 | 4.02 | 1.72 | WATCH |
+| FRVP POC Reversal [Manual Build] | losing | 30 | 53.3 | 0.73 | -1.93 | 3.73 | -2.82 | WATCH |
+| Candle Range Theory (Loose) [Manual Build] | losing | 34 | 32.4 | 0.8 | -2.17 | 4.81 | -2.17 | WATCH |
+| Range Breakout Volume Confirmation [Manual Build] | losing | 28 | 46.4 | 0.61 | -2.51 | 3.23 | -1.26 | WATCH |
+| Liquidity Sweep Reversal Strategy [Manual Build] | losing | 29 | 51.7 | 0.53 | -3.2 | 3.42 | -2.38 | WATCH |
+| Support/Resistance + Liquidity Sweep (Fixed-RR) [M | losing | 34 | 47.1 | 0.57 | -3.48 | 4.7 | -3.48 | WATCH |
+| Candlestick Pattern Reversal Strategy [Manual Buil | losing | 44 | 47.7 | 0.71 | -3.56 | 7.87 | -7.24 | WATCH |
+| FVG Pure + Inverse FVG (Structure) [Manual Build] | losing | 33 | 48.5 | 0.49 | -3.66 | 4.8 | -3.66 | PAUSE (recommend) |
+| Fair Value Gap Reversal [Manual Build] | losing | 25 | 60.0 | 0.28 | -3.82 | 3.9 | -3.74 | PAUSE (recommend) |
+| Order Block Trading (Strict) [Manual Build] | losing | 29 | 41.4 | 0.43 | -4.35 | 5.07 | -4.35 | PAUSE (recommend) |
+| Equal Highs/Lows Reversal [Manual Build] | losing | 28 | 46.4 | 0.28 | -4.55 | 5.23 | -2.65 | PAUSE (recommend) |
+| HTF-LTF FVG/OB Confluence Entry [Manual Build] | losing | 35 | 48.6 | 0.24 | -5.41 | 5.88 | -2.07 | PAUSE (recommend) |
+| HTF Key Level Engulfing Reversal [Manual Build] | losing | 53 | 30.2 | 0.68 | -5.78 | 7.34 | -1.89 | WATCH |
+| Liquidity Sweep + CISD (Pure Swing Variant) [Manua | losing | 44 | 47.7 | 0.47 | -5.81 | 6.88 | -4.73 | PAUSE (recommend) |
+| Fibonacci Golden Zone Retracement [Manual Build] | losing | 27 | 37.0 | 0.24 | -6.0 | 6.0 | -3.63 | PAUSE (recommend) |
+| Market Structure Shift Reversal [Manual Build] | losing | 37 | 32.4 | 0.15 | -7.36 | 7.36 | -6.61 | PAUSE (recommend) |
+
+38 further strategies have fewer than 25 closed trades: no conclusion is possible for them (Wilson 25 rule); they are neither kept nor paused here.
+
+**Recommended pauses (Wilson-aware: n >= 25 and the 95 % upper bound of the win rate is below the break-even win rate): 8.** Watch-list (losing but not yet conclusive): 8.
+
+## Confidence calibration
+
+too few trades after 2026-09-17 (0 < 100) - no calibration claim. All stored closed trades are dated 2026-08-29 .. 2026-09-16, i.e. BEFORE the 17 Sep confidence recalibration; no closed trade newer than 17 Sep exists in either database (Cloud has only open positions since 3 Nov). Calibration on post-fix data is therefore NOT VERIFIED. The pre-fix numbers (AUC 0.463, win 34-40 % in every bucket) stand as documented earlier.
+
+## The unreproducible "+$270.05 over 1,856 trades, 40-43 % win" claim
+
+Both databases hold exactly 1,132 closed trades with net -87.96. No grouping, period or filter of these trades yields +270.05 or 1,856 trades. The figure came from a source that is not in these databases (a different dataset or a backtest). Treat it as unverified.
