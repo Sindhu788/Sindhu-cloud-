@@ -50,3 +50,35 @@ def public_delivery_decision(settings, channel_id, *, environ=None):
 
 def public_delivery_allowed(settings, channel_id, *, environ=None):
     return public_delivery_decision(settings, channel_id, environ=environ)[0]
+
+
+def delivery_blockers(settings, environ=None):
+    """Every condition that would currently stop a PUBLIC signal from being sent by this process.
+    Empty list = nothing blocks it (the per-signal gates - confluence, Wilson 25, freshness 15 min,
+    0.5% drift, group filter - still apply to each individual signal)."""
+    env = os.environ if environ is None else environ
+    out = []
+    if str(env.get('SINDHU_TELEGRAM_DRY_RUN', '')).strip() == '1':
+        out.append('SINDHU_TELEGRAM_DRY_RUN=1 (network delivery disabled)')
+    if str(env.get('SINDHU_SAFE_START', '')).strip() == '1':
+        out.append('SINDHU_SAFE_START=1 (scanning and delivery disabled)')
+    allowed, why = public_delivery_decision(settings, settings.get('channel_id'), environ=env)
+    if not allowed:
+        out.append(why)
+    if not settings.get('bot_token'):
+        out.append('Telegram bot token not configured (telegram settings / TELEGRAM_BOT_TOKEN)')
+    if not settings.get('channel_id'):
+        out.append('Telegram channel id not configured (telegram settings / TELEGRAM_CHANNEL_ID)')
+    if not settings.get('master_send_enabled', True):
+        out.append('master_send_enabled is OFF in Telegram settings')
+    if not settings.get('auto_send_enabled', False):
+        out.append('auto_send_enabled is OFF in Telegram settings')
+    return out
+
+
+def delivery_report(settings, environ=None):
+    """Log lines for the startup banner: either READY or the exact list of blockers."""
+    blockers = delivery_blockers(settings, environ)
+    if not blockers:
+        return ['[telegram] Public signal delivery: READY (per-signal gates still apply)']
+    return ['[telegram] WARNING public signal delivery is BLOCKED by:'] + ['[telegram]   - ' + b for b in blockers]

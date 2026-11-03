@@ -60,6 +60,15 @@ def _check_last_candle_fetch():
         return {"name": "Live candle/ticker fetch", "ok": False, "detail": str(e)}
 
 
+def _check_signal_delivery_readiness():
+    """Plain-language list of everything currently stopping PUBLIC Telegram signals from this process."""
+    from paper_trading import signal_ownership, telegram_bot
+    blockers = signal_ownership.delivery_blockers(telegram_bot.load_settings())
+    if not blockers:
+        return {"name": "Public signal delivery", "ok": True, "detail": "ready (per-signal gates still apply)"}
+    return {"name": "Public signal delivery", "ok": False, "detail": "blocked: " + "; ".join(blockers)}
+
+
 def _check_database_size():
     from data_engine import db_size_guard
     u = db_size_guard.database_usage()
@@ -87,7 +96,7 @@ def _check_market_data_rejections():
 
 def run_health_check():
     checks = [_check_database(), _check_engine_state(), _check_last_candle_fetch(), _check_market_data_rejections(),
-              _check_database_size()]
+              _check_database_size(), _check_signal_delivery_readiness()]
     return {
         "checked_at": datetime.now(timezone.utc).isoformat(),
         "all_ok": all(c["ok"] for c in checks),

@@ -68,8 +68,6 @@ from sindhu_web.api import project_meta as project_meta_api
 from sindhu_web.api import timeline_compare as timeline_compare_api
 from sindhu_web.api import report_builder as report_builder_api
 from sindhu_web.api import activity as activity_api
-from sindhu_web.api import intelligence as intelligence_api
-from sindhu_web.api import quality as quality_api
 # 2026-09-16 audit: the CEO Control Room (this deployment's default landing
 # page) has a Settings card that reads/writes /api/settings -- never mounted
 # here, so every field showed blank/default values and every Save failed
@@ -101,8 +99,6 @@ APP_VERSION = "5.1-cloud"
 # specifically against endpoints this runner already mounts
 # (paper_trading_api's /api/paper-trading/strategy-overview).
 _CLOUD_NAV_PAGES = [
-    {"id": "control_room", "label": "Signal Control Room", "enabled": True, "icon": "activity", "group": "Paper Trading", "external_url": "/control-room"},
-    {"id": "how_to_trade", "label": "How to Trade", "enabled": True, "icon": "layers", "group": "Intelligence", "external_url": "/how-to-trade"},
     {"id": "paper_trading", "label": "Paper Trading", "enabled": True, "icon": "wallet", "group": "Paper Trading"},
     {"id": "strategy_overview", "label": "Strategies", "enabled": True, "icon": "layers", "group": "Paper Trading"},
     {"id": "telegram_dashboard", "label": "Telegram Signals", "enabled": True, "icon": "send", "group": "Paper Trading"},
@@ -165,14 +161,9 @@ async def _broadcast_loop():
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     if os.environ.get('SINDHU_SHARED_PAPER_ENABLED')=='1':
-        # Shared mode skips every legacy engine and delivery scheduler.
-        from trading_intelligence.cloud_shared_scanner import start, stop
-        start()
-        try:
-            yield
-        finally:
-            stop()
-        return
+        # The Codex shared-paper-scanner mode was removed (recovery/clean). The legacy engine, Telegram
+        # delivery and every scheduler below always start; this flag no longer changes anything.
+        log('[cloud-runtime] WARNING SINDHU_SHARED_PAPER_ENABLED is set but ignored: shared mode was removed; starting the legacy engine.')
     if os.environ.get('SINDHU_SAFE_START')=='1':
         with storage.get_conn() as conn:
             conn.execute('SELECT 1').fetchone()
@@ -186,6 +177,9 @@ async def _lifespan(app: FastAPI):
     storage.init_db()
     from data_engine import db_size_guard
     db_size_guard.check_and_warn(log)
+    from paper_trading import signal_ownership as _own, telegram_bot as _tgb
+    for _line in _own.delivery_report(_tgb.load_settings()):
+        log(_line)
 
     # Same "resume only if it was already running" contract as the local
     # app's lifespan (sindhu_web/server.py) -- a fresh deploy or restart
@@ -365,7 +359,7 @@ def create_app():
     for router in (paper_trading_api.router, ws.router, auth_api.router, system_api.router, strategy_lifecycle_api.router,
                    risk_department_api.router, memory_core_api.router, dashboard_scores_api.router,
                    project_meta_api.router, timeline_compare_api.router, report_builder_api.router,
-                   activity_api.router, settings_api.router, intelligence_api.router, quality_api.router):
+                   activity_api.router, settings_api.router):
         app.include_router(router)
 
     @app.get("/api/token")
