@@ -756,3 +756,10 @@ Details: docs/INVESTIGATION_REPORT.md, docs/CODEX_CLEANUP.md, docs/PERFORMANCE_R
 - Candles: real DB still has 29.4M 1m candles for 50 Binance coins (to 11 Sep); on 3 Nov the gap to now was filled for 10 coins (BTC ETH BNB XRP SOL ADA DOGE TRX AVAX LINK, ~76,000 candles each).
 - Smoke (throwaway instance with its own config, same DB): 194 GET endpoints, median 0.14 s, p90 2.4 s, only `strategy-sync/cloud-state` 401 (needs sync secret); 30-day BTC backtest produced 15 trades; a setting change persisted and was reverted.
 - Paper engine: left OFF. To run it locally you would have to drop safe mode, which also starts ~25 schedulers (auto-generation, 11 GB DB backups, strategy lab, evolution) - not recommended while Cloud publishes signals.
+
+
+## Cloud settings state (3 Nov 2026, after signal-start prep)
+- Deployed commit 72e63fa (tested tree: 2299 passed, 0 failed). `/health` ok on Postgres.
+- Neon `cloud_settings.telegram_settings` (new row, backed up before: `D:\sindhu_backup_phase0\cloud_settings_backup_*.json`) holds ONLY: `channel_group_filter=profitable_challenge`, `master_send_enabled=true`, `auto_send_enabled=true`. No token/channel id is stored there; they come from the env vars `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHANNEL_ID` (presence UNVERIFIED - BLOCKED-USER, no way to read Render env values).
+- Unchanged gates: confluence min 3 / ratio 1.0, Wilson 25, Evolution 100, freshness 15 min, drift 0.5 %, 60 s sweep, kill-switch, drawdown breaker, same-coin cap 5, always-on Profitable+Challenge gate, `auto_send_high_confidence_only` still at the Cloud default (OFF; local file had ON).
+- Still blocking all public signals on Render: env `SINDHU_SAFE_START=1`, `SINDHU_TELEGRAM_DRY_RUN=1`, `SINDHU_PUBLIC_SIGNAL_OWNER=disabled` (manager must change - docs/RENDER_ENV_CHANGES.md). No Telegram message was sent by this work.

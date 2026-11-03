@@ -40,6 +40,6 @@ Full Playwright click-through of every page at desktop and 375 px, an end-to-end
 
 ## 9. Signal-start prep status (3 Nov, second session)
 - Code: combined filter `profitable_challenge`, delivery-readiness tests, optional keep-alive (`SINDHU_KEEPALIVE_URL`, `SINDHU_KEEPALIVE_MINUTES`) - see git log on `recovery/clean`.
-- Cloud settings written to Neon `cloud_settings.telegram_settings` (only these keys, no token): see PROJECT_DOCUMENTATION.md "Cloud settings state" for whether this step completed.
+- Cloud settings written to Neon `cloud_settings.telegram_settings` (only these keys, no token): DONE on 3 Nov: `channel_group_filter=profitable_challenge`, `master_send_enabled=true`, `auto_send_enabled=true` (pre-change backup in `D:\sindhu_backup_phase0`).
 - Local app: safe mode on port 8420 (`D:\sindhu_runtime\start_local.cmd`, stop with `stop_local.cmd`). Paper engine is OFF on purpose; Cloud is the only publisher.
 - The manager must still: change the Render env vars (section 1), confirm token/channel env vars, turn on `auto_send_high_confidence_only` if wanted, ping `/health` or enable keep-alive, then watch the log for `Public signal delivery: READY`.
