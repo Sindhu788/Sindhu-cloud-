@@ -576,6 +576,8 @@ class PaperTradingEngine:
                 from paper_trading import monitoring
                 monitoring.watchdog_tick(self)
                 monitoring.maybe_send_daily_summary()
+                from paper_trading import reconciliation
+                reconciliation.maybe_alert()
             except Exception as e:
                 self._log(f"[paper-trading] watchdog error: {e!r}")
 
