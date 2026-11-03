@@ -747,3 +747,12 @@ Details: docs/INVESTIGATION_REPORT.md, docs/CODEX_CLEANUP.md, docs/PERFORMANCE_R
 - **Recovery additions:** hermetic tests and isolated strategy library, `/preview` login bypass removed, DB size guard (WARNING at 80 %), klines never written to Postgres, archive-based `scripts/reset_paper_balance_to_target.py`, one-connection read handlers (backtest-history 23.7 s -> 1.0 s).
 - **Tests:** clean baseline main = 2254 passed / 2 failed (date-rot + nav); recovery/clean = 2287 passed / 0 failed.
 - **Paper results (29 Aug - 16 Sep):** 1,132 closed, 36.1 % win, PF 0.75, -87.96 on 100; Losing group -140.68, Profitable + Challenge +52.72 (PF 1.52). Confidence AUC 0.463 (pre-recalibration data).
+
+
+## Running the app locally (recovery/clean) - added 3 Nov 2026
+- Venv: `D:\sindhu_venv` (from `requirements.lock.txt`). Code: git worktree `D:\sindhu_clean` (branch `recovery/clean`). Data: the real `D:\sindhu\data` (sindhu.db 10.4 GB + config). Backups: `D:\sindhu_backup_phase0` and `D:\sindhu_backup_<timestamp>`.
+- Start: `D:\sindhu_runtime\start_local.cmd` -> http://127.0.0.1:8420 (LAN/mobile: http://192.168.1.111:8420, allow port 8420 in Windows Firewall). Stop: `D:\sindhu_runtime\stop_local.cmd`. Log: `D:\sindhu_runtime\server.log`.
+- Mode: SAFE (`SINDHU_SAFE_START=1`): pages, manual backtests and settings work; no schedulers, no paper engine, no Telegram polling/reports. `SINDHU_PUBLIC_SIGNAL_OWNER=disabled`: local never sends public signals (proof: log line `signal NOT sent: SINDHU_PUBLIC_SIGNAL_OWNER='disabled'`; local token and channel are empty). Cloud is the only publisher.
+- Candles: real DB still has 29.4M 1m candles for 50 Binance coins (to 11 Sep); on 3 Nov the gap to now was filled for 10 coins (BTC ETH BNB XRP SOL ADA DOGE TRX AVAX LINK, ~76,000 candles each).
+- Smoke (throwaway instance with its own config, same DB): 194 GET endpoints, median 0.14 s, p90 2.4 s, only `strategy-sync/cloud-state` 401 (needs sync secret); 30-day BTC backtest produced 15 trades; a setting change persisted and was reverted.
+- Paper engine: left OFF. To run it locally you would have to drop safe mode, which also starts ~25 schedulers (auto-generation, 11 GB DB backups, strategy lab, evolution) - not recommended while Cloud publishes signals.

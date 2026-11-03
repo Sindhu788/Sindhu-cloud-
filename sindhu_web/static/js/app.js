@@ -11426,6 +11426,7 @@
           <select id="tgGroupFilter">
             <option value="all">All groups</option>
             <option value="profitable">Profitable group only</option>
+            <option value="profitable_challenge">Profitable + Challenge groups only</option>
             <option value="losing">Losing group only</option>
             <option value="challenge">Challenge group only</option>
           </select>
