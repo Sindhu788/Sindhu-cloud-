@@ -60,8 +60,21 @@ def _check_last_candle_fetch():
         return {"name": "Live candle/ticker fetch", "ok": False, "detail": str(e)}
 
 
+def _check_market_data_rejections():
+    """Visible metric for candle frames the freshness/validity guard skipped."""
+    from paper_trading.market_data_guard import rejection_summary
+    summary = rejection_summary()
+    n = summary["rejected_in_window"]
+    if n == 0:
+        return {"name": "Market-data rejections (last 60 min)", "ok": True, "detail": "none", "metrics": summary}
+    reasons = "; ".join(f"{k} x{v}" for k, v in sorted(summary["by_reason"].items(), key=lambda kv: -kv[1])[:3])
+    return {"name": "Market-data rejections (last 60 min)", "ok": False,
+            "detail": f"{n} candle frames skipped ({reasons}) -- signals for those symbols were not evaluated",
+            "metrics": summary}
+
+
 def run_health_check():
-    checks = [_check_database(), _check_engine_state(), _check_last_candle_fetch()]
+    checks = [_check_database(), _check_engine_state(), _check_last_candle_fetch(), _check_market_data_rejections()]
     return {
         "checked_at": datetime.now(timezone.utc).isoformat(),
         "all_ok": all(c["ok"] for c in checks),
