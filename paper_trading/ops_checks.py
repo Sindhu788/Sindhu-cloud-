@@ -80,6 +80,12 @@ def collect_warnings(now=None):
     if cloud:
         for blocker in signal_ownership.delivery_blockers(telegram_bot.load_settings()):
             out.append({"level": "critical", "code": "delivery_blocked", "message": "Signals will NOT be sent: " + blocker})
+    if cloud:
+        try:
+            if not telegram_bot.load_settings().get("personal_chat_id"):
+                out.append({"level": "warning", "code": "no_owner_chat", "message": "Owner alerts are OFF: set your private chat id in Settings > Telegram (personal_chat_id) to receive watchdog alerts and the daily health summary."})
+        except Exception:
+            pass
     summary = market_data_guard.rejection_summary()
     if summary["rejected_in_window"]:
         out.append({"level": "warning", "code": "market_data_rejected",

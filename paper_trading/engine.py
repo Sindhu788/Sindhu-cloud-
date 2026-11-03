@@ -140,6 +140,7 @@ class PaperTradingEngine:
         self._last_divergence_check_at = None  # Grand Feature Expansion, Phase 1 Feature 8
         self._last_retry_sweep_at = None  # Grand Feature Expansion, Phase 2 Feature 11
         self._last_db_guard_at = None  # recovery: hourly DB size warning + scan-log pruning
+        self._last_watchdog_at = None  # recovery: 60 s owner-chat watchdog
         self._last_decay_sweep_at = None  # Grand Feature Expansion, Phase 3 Feature 11
         self._last_custom_alerts_sweep_at = None  # Grand Feature Expansion, Phase 4 Feature 25
         # Grand Master Prompt, Phase 3.12/3.14: Scan Timer + Scanner
@@ -567,6 +568,16 @@ class PaperTradingEngine:
                                f"abandoned={retry_result['abandoned']}")
             except Exception as e:
                 self._log(f"[paper-trading] Telegram retry sweep error: {e!r}")
+
+        # Recovery: 60 s watchdog -> owner chat only (stale data, stalled scanner, engine stopped, send failures, ...).
+        if self._last_watchdog_at is None or (now - self._last_watchdog_at) >= 60:
+            self._last_watchdog_at = now
+            try:
+                from paper_trading import monitoring
+                monitoring.watchdog_tick(self)
+                monitoring.maybe_send_daily_summary()
+            except Exception as e:
+                self._log(f"[paper-trading] watchdog error: {e!r}")
 
         # Recovery: hourly database-size warning and bounded pruning of the scan-receipt log.
         if self._last_db_guard_at is None or (now - self._last_db_guard_at) >= 3600:
