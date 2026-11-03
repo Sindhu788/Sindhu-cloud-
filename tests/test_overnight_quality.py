@@ -101,7 +101,9 @@ def test_diagnostics_rolling_window_and_notification_types(test_db,monkeypatch,t
     assert 'No pre-upgrade' in data['telemetry_coverage']
 
 
-def test_public_preview_contains_no_private_data_and_admin_requires_auth(monkeypatch):
+def test_preview_pages_now_require_login_like_every_other_route(monkeypatch):
+    # Recovery decision: the Codex branch let anonymous visitors GET /preview and
+    # /api/quality/preview. Everything except the login-exempt paths needs a session.
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
     from sindhu_web import security
@@ -109,12 +111,8 @@ def test_public_preview_contains_no_private_data_and_admin_requires_auth(monkeyp
     app=FastAPI();app.include_router(router);app.middleware('http')(security.token_guard_middleware)
     monkeypatch.setattr(security.auth,'is_valid_session',lambda t:False)
     c=TestClient(app,base_url='http://127.0.0.1',client=('127.0.0.1',1234))
-    response=c.get('/preview')
-    assert response.status_code==200
-    assert response.headers['cache-control']=='no-store'
-    assert '/static/js/control_room.js?v=' in response.text
-    assert '/static/css/control_room.css?v=' in response.text
-    assert c.get('/api/quality/preview').json()['private_data_available'] is False
+    assert c.get('/preview',follow_redirects=False).status_code==307
+    assert c.get('/api/quality/preview').status_code==401
     for path in ('/api/quality/diagnostics','/api/quality/journal','/api/paper-trading/catalog/strategies'):
         assert c.get(path).status_code==401
     assert c.post('/api/quality/preview',json={}).status_code==401
@@ -128,6 +126,7 @@ def test_main_cloud_catalogs_and_controls_have_real_http_contract(test_db,monkey
     from sindhu_web import security
     from data_engine import paths
     monkeypatch.setattr(paths,'CONFIG_DIR',str(tmp_path))
+    monkeypatch.setenv('SINDHU_SAFE_START','1')  # the contract under test is the safe-start refusal
     monkeypatch.setattr(security.auth,'is_valid_session',lambda t:t=='qa-only')
     monkeypatch.setattr(security,'get_or_create_token',lambda:'qa-only-csrf')
     for app in (main.app,cloud.app):
