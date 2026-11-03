@@ -11561,9 +11561,10 @@
         apiGet("/api/system/restart-analytics").catch(() => null),
         apiGet("/api/system/api-monitor").catch(() => null),
       ]);
+      if (!document.getElementById("healthRestartCount")) return;  // page was left while the request was queued
       if (restarts) {
-        document.getElementById("healthRestartCount").textContent = restarts.restart_count;
-        document.getElementById("healthLastRestart").textContent = (restarts.last_restart_at || "-").replace("T", " ").slice(0, 19);
+        (document.getElementById("healthRestartCount") || {}).textContent = restarts.restart_count;
+        (document.getElementById("healthLastRestart") || {}).textContent = (restarts.last_restart_at || "-").replace("T", " ").slice(0, 19);
       }
       if (apiStats) {
         document.getElementById("healthApiRequests").textContent =
@@ -11710,7 +11711,7 @@
       } catch (e) { listEl.innerHTML = `<p class="muted">Couldn't load: ${esc(e.message)}</p>`; }
     }
     async function loadSyncBandwidth() {
-      const el = document.getElementById("syncBandwidthStats");
+      const el = document.getElementById("syncBandwidthStats") || {};  // page may have been left while loading
       try {
         const b = await apiGet("/api/paper-trading/strategy-sync/bandwidth");
         el.textContent = `${b.push_count} successful push(es), ${b.total_bytes_sent.toLocaleString()} bytes sent in total (avg ${b.average_bytes_per_push} bytes/push).`;
@@ -11926,7 +11927,7 @@
       ]);
       const overrides = s.strategy_channel_overrides || {};
       const strategies = stratsRes.strategies || [];
-      const box = document.getElementById("tgChannelOverridesBox");
+      const box = document.getElementById("tgChannelOverridesBox") || {};  // page may have been left while loading
       box.innerHTML = `<table>
         <thead><tr><th>Strategy</th><th>Channel ID</th><th></th></tr></thead>
         <tbody>${strategies.map(st => `
@@ -11981,7 +11982,7 @@
     };
     async function loadTelegramLog() {
       const r = await apiGet("/api/paper-trading/telegram/log").catch(() => ({ messages: [] }));
-      document.getElementById("tgLogBody").innerHTML = r.messages.map(m => `
+      (document.getElementById("tgLogBody") || {}).innerHTML = r.messages.map(m => `
         <tr>
           <td>${esc((m.sent_at||"").slice(0,19))}</td>
           <td>${esc(m.trigger_type)}</td>

@@ -27,3 +27,10 @@ def test_version_history_handler_survives_leaving_the_page_while_loading():
     app = _read("js/app.js")
     i = app.index('document.getElementById("versionHistoryTitle").textContent')
     assert 'if (!document.getElementById("versionHistoryTitle")' in app[i - 400:i]
+
+
+def test_settings_loaders_tolerate_the_page_being_left_while_loading():
+    app = _read("js/app.js")
+    for needle in ('(document.getElementById("tgLogBody") || {}).innerHTML', 'getElementById("tgChannelOverridesBox") || {}',
+                   'getElementById("syncBandwidthStats") || {}', 'if (!document.getElementById("healthRestartCount")) return;'):
+        assert needle in app
