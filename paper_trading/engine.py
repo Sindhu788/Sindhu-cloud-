@@ -873,8 +873,12 @@ class PaperTradingEngine:
         try:
             tier, reason = telegram_bot.evaluate_auto_send_tier(pos["id"])
             if tier is not None:
-                telegram_bot.send_signal_for_position(pos["id"], trigger_type="automatic", high_confidence=(tier == "high"))
-                self._log(f"[paper-trading] Telegram auto-signal sent for {pos['id']} (tier={tier}): {reason}")
+                _res = telegram_bot.send_signal_for_position(pos["id"], trigger_type="automatic", high_confidence=(tier == "high")) or {}
+                # The old line said "sent" even when a later gate withheld the message (duplicate / stale / drift / group).
+                if _res.get("ok"):
+                    self._log(f"[paper-trading] Telegram auto-signal sent for {pos['id']} (tier={tier}): {reason}")
+                else:
+                    self._log(f"[paper-trading] Telegram auto-signal NOT sent for {pos['id']} (tier={tier}): {_res.get('error') or _res.get('reason') or 'withheld'}")
         except Exception as e:
             self._log(f"[paper-trading] Telegram auto-send check failed: {e!r}")
 
