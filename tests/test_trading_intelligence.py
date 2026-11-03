@@ -273,3 +273,30 @@ def test_actual_main_cloud_api_qa_with_lifespan_off(monkeypatch):
         assert client.post('/api/intelligence/strategy/does-not-exist/evaluate',json=payload).status_code==404
         assert client.get('/api/intelligence/leaderboard').status_code==200
     assert versions==['1.0.0','1.0.0']
+
+
+def test_public_delivery_decision_explains_why_a_signal_is_withheld():
+    from paper_trading.signal_ownership import public_delivery_decision
+    settings = {'channel_id': 'public'}
+    ok, why = public_delivery_decision(settings, 'public', environ={'SINDHU_CLOUD_MODE': '1'})
+    assert ok and why == ''
+    ok, why = public_delivery_decision(settings, 'public', environ={})
+    assert not ok and 'SINDHU_PUBLIC_SIGNAL_OWNER' in why and "role 'main'" in why
+    ok, why = public_delivery_decision(settings, 'public', environ={'SINDHU_PUBLIC_SIGNAL_OWNER': 'any'})
+    assert ok
+    ok, why = public_delivery_decision(settings, 'public', environ={'SINDHU_PUBLIC_SIGNAL_OWNER': 'bogus'})
+    assert not ok and 'fail closed' in why
+
+
+def test_withheld_signal_is_logged_not_silent(monkeypatch):
+    from paper_trading import telegram_bot
+    from data_engine import logging_setup
+    lines = []
+    monkeypatch.setattr(logging_setup, 'log', lambda m: lines.append(m))
+    telegram_bot._WITHHELD_LOG.update(reason=None, at=0.0)
+    monkeypatch.setenv('SINDHU_PUBLIC_SIGNAL_OWNER', 'cloud')
+    monkeypatch.delenv('SINDHU_CLOUD_MODE', raising=False)
+    monkeypatch.setattr(telegram_bot, 'load_settings', lambda: {'bot_token': 'x', 'channel_id': 'public'})
+    ok, msg = telegram_bot._raw_send('hello')
+    assert ok is False and 'Public delivery blocked' in msg
+    assert any('signal NOT sent' in m for m in lines)

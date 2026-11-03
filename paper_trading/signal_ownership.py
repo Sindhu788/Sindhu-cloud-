@@ -1,19 +1,48 @@
 """One public signal publisher across Main and Cloud.
 
 Cloud owns public delivery by default; Main remains the research interface.
-An explicit owner override must agree on both hosts. Private notifications are
-outside this guard. This is a process-role guard, not an exactly-once delivery
-guarantee for multiple replicas of the same role.
+Private notifications (the personal chat) are never blocked by this guard.
+
+Configuration (environment variable NAMES; values are not secrets):
+  SINDHU_PUBLIC_SIGNAL_OWNER  'cloud' (default) | 'main' | 'any'
+      cloud -> only a process started with SINDHU_CLOUD_MODE=1 may publish
+      main  -> only a process WITHOUT SINDHU_CLOUD_MODE may publish
+      any   -> this process may publish (explicit opt-in; if both Main and Cloud
+               run with 'any', every signal is sent twice)
+  SINDHU_CLOUD_MODE           1/true/yes/on marks the process role as 'cloud'
+
+This is a process-role guard, not an exactly-once delivery guarantee for
+multiple replicas of the same role. Whenever a public signal is withheld the
+reason is returned by public_delivery_decision() and logged by the caller.
 """
 import os
 
+_TRUE = ('1', 'true', 'yes', 'on')
+_OWNERS = ('main', 'cloud', 'any')
+
+
+def process_role(environ=None):
+    env = os.environ if environ is None else environ
+    return 'cloud' if str(env.get('SINDHU_CLOUD_MODE', '')).strip().lower() in _TRUE else 'main'
+
+
+def public_delivery_decision(settings, channel_id, *, environ=None):
+    """Return (allowed, reason). `reason` is '' when allowed and a plain-language
+    explanation (naming the env vars involved) when the signal is withheld."""
+    env = os.environ if environ is None else environ
+    private = settings.get('personal_chat_id')
+    if private and str(channel_id) == str(private) and str(channel_id) != str(settings.get('channel_id')):
+        return True, ''
+    owner = env.get('SINDHU_PUBLIC_SIGNAL_OWNER', 'cloud').strip().lower()
+    role = process_role(env)
+    if owner not in _OWNERS:
+        return False, (f"SINDHU_PUBLIC_SIGNAL_OWNER={owner!r} is not one of {'/'.join(_OWNERS)}; "
+                       f"public signal withheld (fail closed)")
+    if owner == 'any' or owner == role:
+        return True, ''
+    return False, (f"this process has role '{role}' but the configured public signal publisher is '{owner}' "
+                   f"(SINDHU_PUBLIC_SIGNAL_OWNER, SINDHU_CLOUD_MODE); public signal withheld")
+
 
 def public_delivery_allowed(settings, channel_id, *, environ=None):
-    env=os.environ if environ is None else environ
-    private=settings.get('personal_chat_id')
-    if private and str(channel_id)==str(private) and str(channel_id)!=str(settings.get('channel_id')):
-        return True
-    owner=env.get('SINDHU_PUBLIC_SIGNAL_OWNER','cloud').strip().lower()
-    cloud=str(env.get('SINDHU_CLOUD_MODE','')).strip().lower() in ('1','true','yes','on')
-    role='cloud' if cloud else 'main'
-    return owner in ('main','cloud') and role==owner
+    return public_delivery_decision(settings, channel_id, environ=environ)[0]

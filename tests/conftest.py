@@ -18,6 +18,10 @@ if not os.environ.get("SINDHU_DATA_DIR"):
     os.environ["SINDHU_DATA_DIR"] = _TEST_DATA_DIR
     atexit.register(shutil.rmtree, _TEST_DATA_DIR, ignore_errors=True)
 
+# Tests run as the "main" process role; the public-signal-owner guard defaults to
+# "cloud", so declare this process the publisher unless a test overrides it.
+os.environ.setdefault("SINDHU_PUBLIC_SIGNAL_OWNER", "main")
+
 import pytest
 
 from data_engine import storage

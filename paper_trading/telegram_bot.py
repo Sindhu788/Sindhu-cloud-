@@ -650,6 +650,24 @@ def _build_proxies(settings):
     return {"http": url, "https": url}
 
 
+_WITHHELD_LOG = {"reason": None, "at": 0.0}
+
+
+def _log_withheld_once(reason, min_interval_seconds=60):
+    """Log a withheld public signal. The same reason is repeated at most once a
+    minute so a busy scanner cannot flood the log, but it is never silent."""
+    import time as _t
+    now = _t.time()
+    if _WITHHELD_LOG["reason"] == reason and now - _WITHHELD_LOG["at"] < min_interval_seconds:
+        return
+    _WITHHELD_LOG.update(reason=reason, at=now)
+    try:
+        from data_engine.logging_setup import log as _log
+        _log(f"[telegram] WARNING signal NOT sent: {reason}")
+    except Exception:
+        pass
+
+
 def _raw_send(text, channel_id_override=None, force_alert=False, reply_markup=None):
     """Real HTTP call to the Telegram Bot API -- no simulation. Returns
     (success: bool, error: str|None).
@@ -688,9 +706,11 @@ def _raw_send(text, channel_id_override=None, force_alert=False, reply_markup=No
     settings = load_settings()
     token = settings.get("bot_token")
     channel_id = channel_id_override or settings.get("channel_id")
-    from paper_trading.signal_ownership import public_delivery_allowed
-    if not public_delivery_allowed(settings,channel_id):
-        return False, "Public delivery blocked: this process is not the configured signal publisher"
+    from paper_trading.signal_ownership import public_delivery_decision
+    allowed, why = public_delivery_decision(settings, channel_id)
+    if not allowed:
+        _log_withheld_once(why)
+        return False, "Public delivery blocked: " + why
     if not token or not channel_id:
         return False, "Telegram bot token or channel ID not configured yet"
     proxies = _build_proxies(settings)
