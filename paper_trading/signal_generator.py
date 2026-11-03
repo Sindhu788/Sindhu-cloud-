@@ -69,7 +69,7 @@ def strategy_candidates(exchange, symbol, strategies, lessons, settings):
             continue
         try:
             for role,tf in ctx.roles.items():
-                ctx.frames[role],_=closed_recent_frame(ctx.frames[role],tf)
+                ctx.frames[role],_=closed_recent_frame(ctx.frames[role],tf,label=f"{exchange}:{symbol}:{role}")
         except ValueError as exc:
             settings.get('_scan_diagnostics',[]).append(str(exc))
             continue

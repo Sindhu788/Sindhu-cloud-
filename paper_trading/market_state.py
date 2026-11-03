@@ -31,7 +31,7 @@ def classify(exchange, symbol):
     end_ms = _now_ms()
     start_ms = end_ms - _LOOKBACK_HOURS * 3600 * 1000
     df = get_ohlcv(exchange, symbol, interval=_STATE_TIMEFRAME, start_ms=start_ms, end_ms=end_ms)
-    df, candle_receipt = closed_recent_frame(df,_STATE_TIMEFRAME,end_ms)
+    df, candle_receipt = closed_recent_frame(df,_STATE_TIMEFRAME,end_ms,label=f"{exchange}:{symbol}")
     if len(df) < 20:
         return None
 

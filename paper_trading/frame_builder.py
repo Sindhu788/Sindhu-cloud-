@@ -32,7 +32,7 @@ def build_entry_frame(exchange, symbol, timeframe, lessons, start_ms=None, end_m
     if df is None or len(df) < 30:
         return None
     from paper_trading.market_data_guard import closed_recent_frame
-    df,_=closed_recent_frame(df,timeframe)
+    df,_=closed_recent_frame(df,timeframe,label=f"{exchange}:{symbol}")
     df = df.copy()
 
     for name in ("ema", "sma", "rsi", "atr"):
