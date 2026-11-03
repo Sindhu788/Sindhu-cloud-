@@ -53,3 +53,21 @@ Recommendation: in the Render dashboard open each non-Sindhu service -> Environm
 Render deploys every push to `codex/trading-intelligence` **without waiting for CI**. To make a red test block a deploy, do ONE of:
 1. Render dashboard -> Sindhu-cloud--1 -> Settings -> Build & Deploy -> **Auto-Deploy: "After CI Checks Pass"** (recommended; no GitHub setting needed).
 2. GitHub -> Settings -> Branches -> Add rule for `codex/trading-intelligence` -> "Require status checks to pass" -> select `pytest` (then push through pull requests instead of directly).
+
+## N. Secrets and safety scan (Step 25, 4 Nov 2026, report only - nothing changed)
+Method: regex scan (Telegram bot tokens, database URLs with passwords, URL credentials, Groq/OpenAI/Google/AWS keys, private keys, key/secret/password assignments) over every git-tracked file, the git history (git log -S / -G) and the local data/config, data/logs and root files. All values masked.
+
+| Where | Finding | Real secret? | Action |
+|---|---|---|---|
+| Git-tracked files (13 hits) | tests/test_telegram_proxy.py, test_telegram_env_var_fallback_fix.py, test_phase4_coin_event_caution.py, tests/frontend_harness/*.mjs, paper_trading/telegram_bot.py L85, app.js L11479/L11890: 21-27 character placeholders such as http://user:pass@host and fake tokens | NO | none |
+| Git history | no gsk_ key, no Neon host (@ep-), no credentialed Postgres URL, no bot-token pattern in any commit | NO | none |
+| .gitignore | data/ (config, database, logs), .env, .env.*, *.key, *.pem are ignored; git check-ignore confirms data/config/telegram_settings.json, data/database/sindhu.db and .env | - | none |
+| data/config/ai_settings.json (ignored, on this PC) | Groq API key gsk_***(56 chars) and a second key field | YES | rotate; prefer env var GROQ_API_KEY |
+| data/config/neon_runtime_connection.json | full Neon connection string with password, post***(43 chars) | YES | rotate the Neon password; keep it only in Render env DATABASE_URL |
+| data/config/telegram_settings.json | proxy URL with user:password, http***(41 chars) | YES | rotate the proxy login |
+| data/config/api_token.json, strategy_sync_secret.json | API token and sync secret | YES | rotate (regenerated when deleted; the Cloud copy is in Neon cloud_settings) |
+| D:\sindhu_backup_* | copies of the config above | YES | keep private, never upload; delete old copies after rotation |
+| data/git_publish_tree.json | 21-24 character URL-like strings only | NO | none |
+| Logs (server_*.log, data/logs) | no tokens found | NO | none |
+
+Rotation needs the provider dashboards (owner task). After rotating Neon, update DATABASE_URL on Render, then edit or delete neon_runtime_connection.json.
