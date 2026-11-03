@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException
+from sindhu_web import cache
 from pydantic import BaseModel
 
 from data_engine import storage
@@ -89,6 +90,7 @@ def set_learning_freeze(strategy_id: str, req: LearningFreezeRequest):
 
 
 @router.get("/api/evolution/strategies")
+@cache.cached_endpoint("evo_strategies", 60)
 def list_strategies(base_id: str = None, status: str = "active", limit: int = 500):
     return {"strategies": storage.list_bot_strategies(base_id=base_id, status=status, limit=limit)}
 
@@ -138,6 +140,7 @@ def strategy_lineage_explanation(base_id: str):
 
 
 @router.get("/api/evolution/ranking")
+@cache.cached_endpoint("evo_ranking", 60)
 def strategy_ranking(base_id: str = None):
     return {"ranking": mutator.rank_strategies(base_id=base_id)}
 

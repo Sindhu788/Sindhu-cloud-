@@ -2857,6 +2857,7 @@ def check_graveyard_similarity(req: SimilarityCheck):
 
 
 @router.get("/api/paper-trading/retirement-suggestions")
+@cache.cached_endpoint("retirement_suggestions", 60)
 def get_retirement_suggestions():
     """Grand Feature Expansion, Phase 4 Feature 4: Auto-Retirement
     Suggestion. Archiving itself reuses the existing, fully reversible

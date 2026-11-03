@@ -434,6 +434,7 @@ def _rule_count_for(strategy_id, cfg, fidelity_reports):
 
 @router.get("/api/backtesting/duplicates")
 @storage.in_connection_scope
+@cache.cached_endpoint("dup_groups", 60)
 def get_duplicate_strategy_groups():
     """Surfaces the SAME DNA-fingerprint duplicate detection already used
     at import time (knowledge_compiler.quality.strategy_dna -- no new

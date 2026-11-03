@@ -134,6 +134,7 @@ def _tp_label(tp):
 
 @router.get("/api/compare-strategies/dual-tp")
 @storage.in_connection_scope
+@cache.cached_endpoint("dual_tp", 60)
 def compare_dual_tp():
     """Part 1/Part 2 of the 6-part dual-TP task: every one of the 16
     original strategies side by side with its Fixed-1:2-TP draft variant
