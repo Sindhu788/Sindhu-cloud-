@@ -14,3 +14,7 @@
 - D9 Parity (`/api/ops/settings-parity`) treats engine_enabled, telegram send flags and token flags as expected differences (Cloud publishes, Local never does).
 
 - D10 ROOT CAUSE of "no signals" on Cloud (found 3 Nov 20:27 UTC from the new log detail): `okx:ZRO/USDT 1h ... last closed candle 10-27 09:00Z, age 646035s, 300 closed rows`. Cloud uses OKX (Binance/Bybit not reachable from Render); OKX caps a request at 300 candles, and `live_candles._fetch_range` stopped paging when a page was shorter than 1000 rows. The cache therefore held only the first 300 candles of the lookback window (a week old) and the stale-candle guard rejected every frame. This was latent since Cloud stopped using Binance (1000-row pages). Fix: keep paging until the data reaches now or the cursor stops advancing (bounded by 400 pages); tests `tests/test_live_candles_pagination.py`. The freshness rule is unchanged.
+
+## 2026-11-03/04 Grand master run
+- D11 Local scanning stays OFF: local DB candles go stale within an hour (only 10 coins were gap-filled), local engine mode would start schedulers/db writes on an 11 GB DB, and Cloud is the single publisher. Local keeps SINDHU_PUBLIC_SIGNAL_OWNER=disabled (stricter than "cloud"). Undo: use a non-safe start and a candle gap-fill scheduler.
+- D12 Pushed the paging fix after targeted tests (19) while the full suite ran, because Cloud was producing no signals; the only delta since the last full green run was the paging fix and a test-fake fix. Full-suite result recorded in the checkpoint; revert if red.
