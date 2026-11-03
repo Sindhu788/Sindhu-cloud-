@@ -2,12 +2,15 @@
 
 Deployed: commit `4d7e31b` (merge of `recovery/clean`) on `codex/trading-intelligence` -> Render service "Sindhu-cloud--1". Rollback: redeploy tag `pre-recovery-backup` (= c223070, the previous live commit) or `git revert -m 1 4d7e31b` and push.
 
+## 0. Deploy result (3 Nov 10:09 UTC)
+Deploy `dep-dbkr4pqvcj2c739qc1jg` (commit 4d7e31b) is LIVE; `/health` ok on Postgres. The new instance log shows `SINDHU_SHARED_PAPER_ENABLED is set but ignored` and then `Safe startup: database connected; background trading and delivery remain disabled` - so **`SINDHU_SAFE_START=1` is ALSO set on Render** (and the engine/delivery stay off while it is). Remove it together with the other variables below, then restart/redeploy. Settings save + refresh on Cloud could not be tested (needs a login).
+
 ## 1. Render environment (manager, via Render dashboard / connector) - REQUIRED for signals
 See `docs/RENDER_ENV_CHANGES.md`. Until this is done the app starts the legacy engine but still sends NO public signals, because the old values are still set:
 - remove `SINDHU_SHARED_PAPER_ENABLED` (or 0)
 - `SINDHU_TELEGRAM_DRY_RUN` -> `0` (or remove)
 - `SINDHU_PUBLIC_SIGNAL_OWNER` -> `cloud` (or remove)
-- remove `SINDHU_SAFE_START` if present
+- remove `SINDHU_SAFE_START` (CONFIRMED SET in the 3 Nov logs; while set, no engine and no delivery)
 Then check the service log for `[telegram] Public signal delivery: READY`. If it says BLOCKED it lists every reason.
 
 ## 2. Telegram settings (Settings page on the Cloud app)

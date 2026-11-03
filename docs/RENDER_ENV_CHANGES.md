@@ -11,7 +11,7 @@ Render logs for this service show the Codex shared scanner running (`{"scanner":
 | `SINDHU_SHARED_PAPER_ENABLED` | **remove** (or `0`) | shared scanner mode was removed; the flag is ignored and only logs a WARNING |
 | `SINDHU_TELEGRAM_DRY_RUN` | **`0`** (or remove) | `1` blocks every Telegram network send |
 | `SINDHU_PUBLIC_SIGNAL_OWNER` | **`cloud`** (or remove; default is cloud) | `disabled` blocks all public signals; `main` would block Cloud |
-| `SINDHU_SAFE_START` | **remove** (or `0`) | `1` disables scanning and delivery |
+| `SINDHU_SAFE_START` | **remove** (or `0`) | `1` disables scanning and delivery - CONFIRMED SET on Render (post-deploy log: `Safe startup ... delivery remain disabled`) |
 | `SINDHU_CLOUD_MODE` | `1` (already in render.yaml) | marks this process as the Cloud publisher |
 | `SINDHU_LIVE_CANDLES` | `1` (already in render.yaml) | fetch live candles instead of storing them (keeps the DB small) |
 
