@@ -1,3 +1,5 @@
+# NOTE: GitHub only runs scheduled workflows from the repo's DEFAULT branch (main). This file sits on
+# codex/trading-intelligence, so the schedule is inactive until the default branch is changed (see docs/OWNER_TODO.md section K).
 # Keeps the Render free-plan service awake (it sleeps after ~15 min without inbound requests, which stops the
 # paper engine and Telegram signals). GitHub's scheduler can lag by a few minutes, so a 10-minute cron is safe.
 # /health is a cheap endpoint (no database read). Change the URL if the Render service URL changes.
