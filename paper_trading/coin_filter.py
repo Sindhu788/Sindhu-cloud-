@@ -57,6 +57,7 @@ def _coin_activity_score(exchange, symbol):
     returns = closes.pct_change().dropna()
 
     volume_score = float(volume.tail(24).mean())
+    turnover_score = float((volume * closes).tail(24).mean())  # quote-currency (USD) turnover, comparable across coins
     volatility_score = float(returns.std() * 100) if len(returns) else 0.0
     ema_fast = closes.ewm(span=8, adjust=False).mean()
     ema_slow = closes.ewm(span=21, adjust=False).mean()
@@ -65,6 +66,7 @@ def _coin_activity_score(exchange, symbol):
     score = {
         "symbol": symbol,
         "volume": volume_score,
+        "turnover": turnover_score,
         "volatility_pct": round(volatility_score, 4),
         "trend_strength_pct": round(trend_score, 4),
         "last_close_time": int(df.index[-1].timestamp() * 1000),
@@ -77,7 +79,7 @@ def _coin_activity_score(exchange, symbol):
     return score
 
 
-def shortlist(exchange, symbols, top_n, log=default_log):
+def shortlist(exchange, symbols, top_n, log=default_log, mode="activity"):
     """Returns the top_n symbols ranked by a simple, transparent activity
     score (volume rank + volatility rank + trend rank), each with its raw
     metrics attached so the rest of the pipeline (and the dashboard) can
@@ -126,6 +128,14 @@ def shortlist(exchange, symbols, top_n, log=default_log):
     def _rank(key, reverse=True):
         ordered = sorted(scored, key=lambda s: s[key], reverse=reverse)
         return {s["symbol"]: rank for rank, s in enumerate(ordered)}
+
+    if mode == "liquidity":
+        # Owner choice (3 Nov 2026): scan the most LIQUID coins (majors) - rank by USD turnover only. The default
+        # "activity" mode (volume + volatility + trend rank-sum) favours volatile mid-cap alts and is unchanged.
+        ordered = sorted(scored, key=lambda s: s["turnover"], reverse=True)
+        for rank, s in enumerate(ordered):
+            s["activity_score"] = -rank
+        return ordered[:top_n]
 
     volume_rank = _rank("volume")
     volatility_rank = _rank("volatility_pct")

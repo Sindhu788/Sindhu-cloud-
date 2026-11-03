@@ -456,7 +456,7 @@ class PaperTradingEngine:
         # picked, never instead of it.
         symbols = coin_priority.filter_out_demoted(symbols)
         shortlist = coin_filter.shortlist(exchange, symbols, settings.get("coin_filter_top_n", 20),
-                                          log=self._log)
+                                          log=self._log, mode=settings.get("coin_filter_mode", "activity"))
         shortlist = coin_priority.ensure_pinned_included(shortlist, symbols, log=self._log)
         shortlisted_symbols = [s["symbol"] for s in shortlist]
         if not LIVE_CANDLES_ONLY:

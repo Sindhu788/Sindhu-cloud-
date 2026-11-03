@@ -1,45 +1,13 @@
-# OWNER / MANAGER TODO (after the recovery deploy)
+# OWNER / MANAGER TODO (only what truly needs a person) - updated 2026-11-04
 
-Deployed: commit `4d7e31b` (merge of `recovery/clean`) on `codex/trading-intelligence` -> Render service "Sindhu-cloud--1". Rollback: redeploy tag `pre-recovery-backup` (= c223070, the previous live commit) or `git revert -m 1 4d7e31b` and push.
+Live state: Cloud (Render Sindhu-cloud--1) runs the legacy engine with Telegram delivery READY (log: `Public signal delivery: READY`, which also proves bot token + channel id + master/auto send are set). Local is safe-mode only. Rollback: redeploy tag `pre-recovery-backup` (c223070) or `git revert -m 1 <merge commit>`.
 
-## 0. Deploy result (3 Nov 10:09 UTC)
-Deploy `dep-dbkr4pqvcj2c739qc1jg` (commit 4d7e31b) is LIVE; `/health` ok on Postgres. The new instance log shows `SINDHU_SHARED_PAPER_ENABLED is set but ignored` and then `Safe startup: database connected; background trading and delivery remain disabled` - so **`SINDHU_SAFE_START=1` is ALSO set on Render** (and the engine/delivery stay off while it is). Remove it together with the other variables below, then restart/redeploy. Settings save + refresh on Cloud could not be tested (needs a login).
-
-## 1. Render environment (manager, via Render dashboard / connector) - REQUIRED for signals
-See `docs/RENDER_ENV_CHANGES.md`. Until this is done the app starts the legacy engine but still sends NO public signals, because the old values are still set:
-- remove `SINDHU_SHARED_PAPER_ENABLED` (or 0)
-- `SINDHU_TELEGRAM_DRY_RUN` -> `0` (or remove)
-- `SINDHU_PUBLIC_SIGNAL_OWNER` -> `cloud` (or remove)
-- remove `SINDHU_SAFE_START` (CONFIRMED SET in the 3 Nov logs; while set, no engine and no delivery)
-Then check the service log for `[telegram] Public signal delivery: READY`. If it says BLOCKED it lists every reason.
-
-## 2. Telegram settings
-CORRECTION to earlier advice: `channel_group_filter` only routes channels (values all / profitable / losing / challenge). The rule "only Profitable + Challenge signals are sent" is a SEPARATE always-on gate in the code, so nothing needs to be set for it. A new value `profitable_challenge` (Settings dropdown: "Profitable + Challenge groups only") was added as a second layer; Cloud's saved value is written after the code is live (see section 9).
-There is no saved Telegram settings row in Neon - Cloud runs on defaults + env vars: `master_send_enabled` ON by default, **`auto_send_enabled` OFF by default** (it must be turned on), `auto_send_high_confidence_only` OFF by default (your local file had it ON = stricter, Wilson 25-trade gate required; recommended to turn ON on Cloud too). Bot token + channel id come from the env vars `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHANNEL_ID`; I could not read env values, so the manager must confirm both are set.
-
-## 3. Security - rotate (I could not and must not do this)
-Proxy credentials (telegram_settings.json), Neon database password (connection string is stored in plain text in `data/config/neon_runtime_connection.json`), strategy-sync secret, Telegram bot token if it was ever pasted anywhere. Move secrets to Render env vars.
-
-## 4. Keep the free Render plan awake
-The free plan sleeps after ~15 minutes without requests (logs: shut down 03:09Z, restarted on next request 04:07Z); the engine and signals stop while asleep. Either upgrade to a paid plan, or point an external pinger (UptimeRobot / cron-job.org) at `https://sindhu-cloud-1.onrender.com/health` every 5-10 minutes.
-
-## 5. Other Render services (possible Telegram conflicts)
-`Trading-best`, `Trading-best--1`, `Trading-best--2` (all `python bot.py`, repo Trading-best-), `alpha-signal-bot`, `Trading-main future`, `sindhu-agency`, and the old `Sindhu-cloud-` (tracks main). If any of them uses the same Telegram bot token, two processes polling one bot cause "409 Conflict" and lost commands/messages. Suspend the ones you do not use.
-
-## 6. Cloud balance reset to 100 (not run on Cloud)
-Tool is ready: `python scripts/reset_paper_balance_to_target.py` (dry-run by default; `--apply` to run; `--allow-cloud` required for Postgres). It archives closed trades into `paper_trade_history_archive`, keeps Wilson/Evolution counters, deletes nothing. Proven on the local DB copy (58 books -> exactly 100, 1,132 trades archived, counters unchanged). Run it on Cloud only after you have confirmed signals flow, and take a Neon backup first (a verified export is at `D:\sindhu_backup_phase0\cloud_export_2026-11-03`).
-
-## 7. Decisions
-- Pause the 18 consistently losing strategies? List in `docs/PERFORMANCE_RECONCILIATION.md` (they are all in the "Losing" group already: they trade on paper but send no signals).
-- The "+$270.05 over 1,856 trades" figure could not be reproduced from the local or Neon data (both contain the same 1,132 trades). Where did it come from?
-- Strategies that use support/resistance or break-of-structure behave differently after the `concepts.py` fix (BOS events about 43% fewer; levels now equal the real pivot). Re-run their backtests before trusting old numbers.
-- Real-phone check and one real `/menu` in the Telegram group after step 1.
-
-## 8. Not done in this recovery (honest list)
-Full Playwright click-through of every page at desktop and 375 px, an end-to-end import->backtest->paper->signal run with per-stage counts, and real-engine old-vs-new backtests of the top strategies (only a concept-level before/after on BTC/ETH/BNB/XRP 1h was run). Node.js is not installed (no longer needed after the cleanup). Post-17-Sep confidence calibration needs Cloud trades.
-
-## 9. Signal-start prep status (3 Nov, second session)
-- Code: combined filter `profitable_challenge`, delivery-readiness tests, optional keep-alive (`SINDHU_KEEPALIVE_URL`, `SINDHU_KEEPALIVE_MINUTES`) - see git log on `recovery/clean`.
-- Cloud settings written to Neon `cloud_settings.telegram_settings` (only these keys, no token): DONE on 3 Nov: `channel_group_filter=profitable_challenge`, `master_send_enabled=true`, `auto_send_enabled=true` (pre-change backup in `D:\sindhu_backup_phase0`).
-- Local app: safe mode on port 8420 (`D:\sindhu_runtime\start_local.cmd`, stop with `stop_local.cmd`). Paper engine is OFF on purpose; Cloud is the only publisher.
-- The manager must still: change the Render env vars (section 1), confirm token/channel env vars, turn on `auto_send_high_confidence_only` if wanted, ping `/health` or enable keep-alive, then watch the log for `Public signal delivery: READY`.
+1. **Rotate secrets** (only you can): proxy user/password, Neon database password, strategy-sync secret, Telegram bot token if it was ever shared. Keep them in Render env vars, not in `data/config/*.json`.
+2. **Old Render services**: `Trading-best`, `Trading-best--1`, `Trading-best--2` (all `python bot.py`), `alpha-signal-bot`, `Trading-main future`, `sindhu-agency`, old `Sindhu-cloud-` (tracks main). If any uses the same Telegram bot token you get 409 conflicts / duplicate messages, and the free instance-hours (750/month) are shared by all free services. Suspend the ones you do not use.
+3. **Keep Cloud awake**: the free plan sleeps after ~15 min. The workflow `.github/workflows/keepalive.yml` is in the repo - open GitHub -> Actions -> enable workflows for the repo (and keep the cron). Or use a paid plan. While asleep there are no scans and no signals.
+4. **Check the first real signal** in the Telegram channel and send `/menu` once in the group; check the dashboard on a real phone. (I never send to the public channel.)
+5. **Decide on pauses**: see `docs/SCORECARD_2026-11-03.md` and `docs/PERFORMANCE_RECONCILIATION.md` (Wilson-aware list; nothing is paused automatically).
+6. **Settings page**: manually try a negative / empty number in Settings (my browser test could not exercise numeric validation).
+7. **Where did "+$270.05 over 1,856 trades" come from?** Local and Neon both contain the same 1,132 trades (-87.96); the figure could not be reproduced.
+8. **Balance reset to 100 on Cloud** (tool ready, archive-not-delete, `scripts/reset_paper_balance_to_target.py --allow-cloud --apply`): run only after you see signals flowing; take a Neon backup first.
+9. **Stale-candle problem on Cloud** - status in `docs/DECISIONS.md` (D6/D7): if the log still shows `candle frame rejected (...)` lines after the latest deploy, send me/the manager those lines (they now name exchange:symbol, last candle and age).
