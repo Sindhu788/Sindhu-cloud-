@@ -47,3 +47,9 @@ Method: Render API (list services, last deploy, logs since 5 Oct). **Environment
 | zaiqa-royale-portfolio | static site | n/a | n/a | no | NONE |
 
 Recommendation: in the Render dashboard open each non-Sindhu service -> Environment -> look for `TELEGRAM_BOT_TOKEN` / `BOT_TOKEN`; if the same bot appears, suspend that service (Render allows resume later). Two processes calling `getUpdates` for one bot cause HTTP 409 and lost commands; two senders cause duplicate messages. Also remember the 750 free instance-hours/month are shared by every free service.
+
+## M. CI and branch protection (Step 19)
+`.github/workflows/tests.yml` runs the whole test suite on every push and pull request (GitHub -> Actions tab; the `push` trigger works from this branch, unlike the scheduled keep-alive). Check the green/red mark after each push.
+Render deploys every push to `codex/trading-intelligence` **without waiting for CI**. To make a red test block a deploy, do ONE of:
+1. Render dashboard -> Sindhu-cloud--1 -> Settings -> Build & Deploy -> **Auto-Deploy: "After CI Checks Pass"** (recommended; no GitHub setting needed).
+2. GitHub -> Settings -> Branches -> Add rule for `codex/trading-intelligence` -> "Require status checks to pass" -> select `pytest` (then push through pull requests instead of directly).

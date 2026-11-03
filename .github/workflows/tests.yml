@@ -1,0 +1,28 @@
+# Runs the full test suite on every push and pull request. A red run means: do not trust that commit.
+# NOTE: Render auto-deploys every push to codex/trading-intelligence regardless of this result. To BLOCK a deploy on a red test,
+# enable "Require status checks" in a branch protection rule, or set the Render service's auto-deploy to "After CI checks pass"
+# (Render dashboard -> Sindhu-cloud--1 -> Settings -> Build & Deploy -> Auto-Deploy: "After CI Checks Pass"). See docs/OWNER_TODO.md.
+name: tests
+on:
+  push:
+  pull_request:
+  workflow_dispatch: {}
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install dependencies (GUI-only packages are not needed by the server or the tests)
+        run: |
+          python -m pip install --upgrade pip
+          grep -viE 'PySide6|pyqtgraph' requirements.txt > /tmp/req.txt
+          pip install -r /tmp/req.txt pytest httpx "psycopg[binary]"
+      - name: Run the suite
+        env:
+          PYTHONIOENCODING: utf-8
+        run: python -m pytest -q -p no:cacheprovider --no-header --maxfail=15
