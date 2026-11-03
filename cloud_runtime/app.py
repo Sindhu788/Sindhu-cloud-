@@ -177,6 +177,8 @@ async def _lifespan(app: FastAPI):
     storage.init_db()
     from data_engine import db_size_guard
     db_size_guard.check_and_warn(log)
+    from cloud_runtime import keepalive as _keepalive
+    _keepalive.start_if_configured(log)
     from paper_trading import signal_ownership as _own, telegram_bot as _tgb
     for _line in _own.delivery_report(_tgb.load_settings()):
         log(_line)
