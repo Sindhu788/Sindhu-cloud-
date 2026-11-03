@@ -4,9 +4,11 @@ Cloud owns public delivery by default; Main remains the research interface.
 Private notifications (the personal chat) are never blocked by this guard.
 
 Configuration (environment variable NAMES; values are not secrets):
-  SINDHU_PUBLIC_SIGNAL_OWNER  'cloud' (default) | 'main' | 'any'
+  SINDHU_PUBLIC_SIGNAL_OWNER  'cloud' (default) | 'main' | 'any' | 'disabled'
       cloud -> only a process started with SINDHU_CLOUD_MODE=1 may publish
       main  -> only a process WITHOUT SINDHU_CLOUD_MODE may publish
+      disabled -> nobody publishes (used by the Cloud shared-paper mode, which also
+               requires SINDHU_SHARED_PAPER_ENABLED=1 and SINDHU_TELEGRAM_DRY_RUN=1)
       any   -> this process may publish (explicit opt-in; if both Main and Cloud
                run with 'any', every signal is sent twice)
   SINDHU_CLOUD_MODE           1/true/yes/on marks the process role as 'cloud'
@@ -18,7 +20,7 @@ reason is returned by public_delivery_decision() and logged by the caller.
 import os
 
 _TRUE = ('1', 'true', 'yes', 'on')
-_OWNERS = ('main', 'cloud', 'any')
+_OWNERS = ('main', 'cloud', 'any', 'disabled')
 
 
 def process_role(environ=None):
@@ -38,6 +40,8 @@ def public_delivery_decision(settings, channel_id, *, environ=None):
     if owner not in _OWNERS:
         return False, (f"SINDHU_PUBLIC_SIGNAL_OWNER={owner!r} is not one of {'/'.join(_OWNERS)}; "
                        f"public signal withheld (fail closed)")
+    if owner == 'disabled':
+        return False, "SINDHU_PUBLIC_SIGNAL_OWNER='disabled': public delivery is switched off for every process"
     if owner == 'any' or owner == role:
         return True, ''
     return False, (f"this process has role '{role}' but the configured public signal publisher is '{owner}' "

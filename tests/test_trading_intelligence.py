@@ -300,3 +300,21 @@ def test_withheld_signal_is_logged_not_silent(monkeypatch):
     ok, msg = telegram_bot._raw_send('hello')
     assert ok is False and 'Public delivery blocked' in msg
     assert any('signal NOT sent' in m for m in lines)
+
+
+def test_disabled_owner_withholds_everywhere_with_a_clear_reason():
+    from paper_trading.signal_ownership import public_delivery_decision
+    for env in ({'SINDHU_PUBLIC_SIGNAL_OWNER': 'disabled'},
+                {'SINDHU_PUBLIC_SIGNAL_OWNER': 'disabled', 'SINDHU_CLOUD_MODE': '1'}):
+        ok, why = public_delivery_decision({'channel_id': 'public'}, 'public', environ=env)
+        assert not ok and "'disabled'" in why
+
+
+def test_missed_signal_sweep_runs_every_60s_inside_the_freshness_window():
+    # The 60 s missed-signal recheck exists in main (changed from hourly on 2026-09-14);
+    # it must stay far inside the 15-minute freshness window, which must NOT be widened.
+    from paper_trading import engine, telegram_bot
+    assert engine.TELEGRAM_SWEEP_INTERVAL_SECONDS == 60
+    assert telegram_bot._DEFAULTS["signal_freshness_minutes"] == 15
+    assert telegram_bot._DEFAULTS["signal_price_drift_pct"] == 0.5
+    assert engine.TELEGRAM_SWEEP_INTERVAL_SECONDS < telegram_bot._DEFAULTS["signal_freshness_minutes"] * 60
