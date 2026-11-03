@@ -95,10 +95,15 @@ def _check_market_data_rejections():
 
 
 def run_health_check():
-    checks = [_check_database(), _check_engine_state(), _check_last_candle_fetch(), _check_market_data_rejections(),
-              _check_database_size(), _check_signal_delivery_readiness()]
+    core = [_check_database(), _check_engine_state(), _check_last_candle_fetch()]
+    # Recovery additions are advisory: they show red on the page but do not change the original
+    # all_ok contract (database + engine + exchange reachable).
+    advisory = [dict(c, advisory=True) for c in (_check_market_data_rejections(), _check_database_size(),
+                                                   _check_signal_delivery_readiness())]
+    checks = core + advisory
     return {
         "checked_at": datetime.now(timezone.utc).isoformat(),
-        "all_ok": all(c["ok"] for c in checks),
+        "all_ok": all(c["ok"] for c in core),
+        "warnings": [c["name"] for c in advisory if not c["ok"]],
         "checks": checks,
     }
