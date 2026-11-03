@@ -541,7 +541,9 @@ def group_filter_check(position):
         return True, None
     from paper_trading import strategy_groups
     group = strategy_groups.get_group(strategy_id) if strategy_id else None
-    if group == group_filter:
+    # "profitable_challenge" = the owner-requested combined filter (Profitable OR Challenge group).
+    allowed_groups = ("profitable", "challenge") if group_filter == "profitable_challenge" else (group_filter,)
+    if group in allowed_groups:
         return True, None
     return False, (
         f"default channel is filtered to \"{group_filter}\" group signals only "
