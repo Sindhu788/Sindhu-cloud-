@@ -43,6 +43,7 @@ from data_engine.resample import _OUT_COLUMNS, _rows_to_df
 # explicitly here since this module's correctness (the pagination loop
 # below) depends on it, not just performance.
 _PAGE_LIMIT = 1000
+_MAX_PAGES = 400  # safety bound: 28,800 one-minute rows at 100 rows/page is 288 pages
 
 # However much history a caller ever asks for, the in-memory cache only
 # ever retains this many most-recent days per (exchange, symbol, interval)
@@ -91,15 +92,21 @@ def _fetch_range(client, symbol, interval, start_ms, end_ms):
     interval_ms = _INTERVAL_MS[interval]
     all_rows = []
     cursor = start_ms
-    while cursor < end_ms:
+    pages = 0
+    while cursor < end_ms and pages < _MAX_PAGES:
+        pages += 1
         rows = _fetch_page(client, symbol, interval, cursor)
         if not rows:
             break
         all_rows.extend(rows)
         last_open_time = rows[-1][0]
-        cursor = last_open_time + interval_ms
-        if len(rows) < _PAGE_LIMIT:
+        next_cursor = last_open_time + interval_ms
+        # Do NOT stop just because a page is shorter than _PAGE_LIMIT: OKX/Bitget/Gate cap a request at 100-300 rows,
+        # so a short page is normal and stopping there left the cache ~a week behind (every frame then failed the
+        # stale-candle guard on Cloud). Stop only when the data reaches the end or the cursor stops advancing.
+        if next_cursor <= cursor:
             break
+        cursor = next_cursor
         time.sleep(REQUEST_DELAY_SECONDS)
     return all_rows
 
