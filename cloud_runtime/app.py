@@ -68,6 +68,7 @@ from sindhu_web.api import project_meta as project_meta_api
 from sindhu_web.api import timeline_compare as timeline_compare_api
 from sindhu_web.api import report_builder as report_builder_api
 from sindhu_web.api import activity as activity_api
+from sindhu_web.api import ops_checks as ops_checks_api
 # 2026-09-16 audit: the CEO Control Room (this deployment's default landing
 # page) has a Settings card that reads/writes /api/settings -- never mounted
 # here, so every field showed blank/default values and every Save failed
@@ -361,7 +362,7 @@ def create_app():
     for router in (paper_trading_api.router, ws.router, auth_api.router, system_api.router, strategy_lifecycle_api.router,
                    risk_department_api.router, memory_core_api.router, dashboard_scores_api.router,
                    project_meta_api.router, timeline_compare_api.router, report_builder_api.router,
-                   activity_api.router, settings_api.router):
+                   activity_api.router, settings_api.router, ops_checks_api.router):
         app.include_router(router)
 
     @app.get("/api/token")

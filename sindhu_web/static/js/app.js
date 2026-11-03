@@ -9142,6 +9142,9 @@
   }
 
   function sharedAccountHtml(s) {
+    // Recovery: the Codex shared $100 wallet card was removed with its backend; nothing to show.
+    return "";
+    /* eslint-disable no-unreachable */
     if (!s) return `<section class="card" id="shared-account"><b>Fresh shared $100 paper account</b><p role="status">Shared account unavailable. Archived strategy balances below are separate.</p><a href="/how-to-trade">Shared account controls</a></section>`;
     const metric = (name, v) => `<div><b>${esc(name)}</b><br>${esc(v == null ? "N/A" : typeof v === "number" ? v.toFixed(2) : String(v))}</div>`;
     const totals = (label, m) => `<h3>${esc(label)}</h3><div class="stat-grid">${Object.entries(m).map(([k,v])=>metric(k,v)).join("")}</div>`;
@@ -9156,7 +9159,7 @@
   async function renderPaperTrading() {
     const myToken = activeRouteToken;
     let sharedSnapshot = null;
-    const loadShared = async () => { sharedSnapshot = await apiGet("/api/intelligence/shared-wallet").catch(() => null); };
+    const loadShared = async () => { sharedSnapshot = null; }; // shared wallet endpoint was removed (recovery)
     let activePtTab = "overview";
     // Unsaved Engine Settings edits ({inputId: raw value}) -- kept outside
     // render() so the 30s auto-refresh can't wipe a half-finished edit.

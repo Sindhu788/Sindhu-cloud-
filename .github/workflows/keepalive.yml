@@ -1,0 +1,21 @@
+# Keeps the Render free-plan service awake (it sleeps after ~15 min without inbound requests, which stops the
+# paper engine and Telegram signals). GitHub's scheduler can lag by a few minutes, so a 10-minute cron is safe.
+# /health is a cheap endpoint (no database read). Change the URL if the Render service URL changes.
+name: keepalive
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {}
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping /health (3 tries, 60 s each, to survive a cold start)
+        run: |
+          for i in 1 2 3; do
+            code=$(curl -s -o /dev/null -m 60 -w "%{http_code}" https://sindhu-cloud-1.onrender.com/health || true)
+            echo "attempt $i -> HTTP $code"
+            [ "$code" = "200" ] && exit 0
+            sleep 10
+          done
+          exit 1

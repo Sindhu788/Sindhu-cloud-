@@ -52,6 +52,7 @@ _LOGIN_EXEMPT_PATHS = {"/login", "/api/auth/status", "/api/auth/setup", "/api/au
                         # same reasoning as strategy-sync/push above -- gated by the SAME
                         # X-Sindhu-Sync-Secret header/secret instead of a login session.
                         "/api/paper-trading/cloud-status-for-auto-stop",
+                        "/api/ops/settings-snapshot-sync",
                         # Phase 7 Item 25: the LOCAL machine's dashboard-load sync health
                         # check fetches this to diff against its own strategy library --
                         # same X-Sindhu-Sync-Secret gate as strategy-sync/push above, no
