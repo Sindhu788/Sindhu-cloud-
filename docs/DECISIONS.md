@@ -1,0 +1,7 @@
+# Decisions log (autonomous mode, owner unavailable)
+
+## 2026-11-03 - Master prompt, Part A (Cloud signals ON)
+- D1 Root cause of "groups 0/0/0": NOT empty. Neon `paper_strategy_groups` has 62 rows (12 profitable, 46 losing, 4 challenge) and 42 enabled+unpaused strategies (9 profitable, 2 challenge, 31 losing; 20 more are enabled but paused by the existing guards). The log line `assigned={'losing': 0, ...} first_run=False` means "0 NEW assignments this start", not "no groups". No hand assignment was made; nothing to sync (strategy library ships with the repo, frozen hashes untouched).
+- D2 Real blocker was `engine_enabled=false` in Neon `paper_trading_settings` ("Staying OFF -- it was off when the server last stopped"). Persisted `engine_enabled=true` via the same settings store the app uses (backup of all 5 cloud_settings rows first: `D:\sindhu_backup_phase0\cloud_settings_backup_*_before_engine_on.json`). Takes effect at the next process start (restart/redeploy/wake).
+- D3 Coins: legacy engine uses `coin_filter_top_n` (top coins by exchange volume). Was 50 (heavy for the free plan); set to 10 => the 10 most liquid USDT pairs (normally BTC, ETH, SOL, XRP, BNB, DOGE, ADA, ... exact list depends on the exchange ranking at scan time). The earlier BTC+ETH-only scan was the removed Codex shared scanner.
+- D4 Telegram gate settings untouched in this part.

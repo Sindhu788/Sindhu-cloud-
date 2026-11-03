@@ -15,3 +15,6 @@
 - LOGS PROVE: Cloud runs the Codex shared scanner: lines like {"scanner":"RUNNING","cycle":N,"results":[BTCUSDT,ETHUSDT]} - only 2 symbols, opened 0, no Telegram. One cycle error 'Stale closed market candles rejected.' (ETHUSDT 03:00Z).
 - Free plan sleeps: instance shut down 03:09Z, new instance started on request 04:07Z -> signals stop while asleep.
 - Other services on the same account: Trading-best / -1 / -2 (python bot.py, repo Trading-best-), alpha-signal-bot, Trading-main future, sindhu-agency, Sindhu-cloud- (main). Several `bot.py` services may poll the same Telegram bot token.
+
+## 2026-11-03 MASTER PROMPT - Part A
+- Neon read: engine_enabled was false; groups populated (62); 42 enabled+unpaused strategies; kill switch inactive; 1132 closed trades, 0 open. Wrote engine_enabled=true, coin_filter_top_n=10 (backup first). Needs restart to take effect.

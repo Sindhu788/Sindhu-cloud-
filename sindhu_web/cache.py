@@ -86,3 +86,20 @@ def invalidate(key):
 def clear_all():
     with _lock:
         _store.clear()
+
+
+def cached_endpoint(key, ttl_seconds):
+    """Decorator for PARAMETERLESS read-only GET handlers that scan big tables (3-5 s each): serves the last result
+    immediately and refreshes it in the background (stale-while-revalidate, same as cached()). Calls that pass any
+    argument bypass the cache so filtered views are never served a wrong cached result."""
+    import functools
+
+    def deco(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            if args:
+                return fn(*args, **kwargs)
+            full_key = key + ":" + repr(sorted(kwargs.items()))
+            return cached(full_key, ttl_seconds, lambda: fn(**kwargs))
+        return wrapper
+    return deco
