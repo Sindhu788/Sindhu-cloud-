@@ -90,6 +90,7 @@ _DEFAULTS = {
     # load_or_seed only ever applies a default once, before the file
     # exists).
     "coin_filter_top_n": 50,
+    "coin_filter_mode": "activity",  # activity (volume+volatility+trend rank-sum) | liquidity (USD turnover only = majors)
     "tick_interval_seconds": 60,
     "lookback_days": 20,
     "lesson_default_timeframe": "1h",
@@ -247,6 +248,8 @@ def validate_update(fields):
                 errors[key] = f"must be {'at least' if lo_inclusive else 'greater than'} {lo}"
             elif hi is not None and value > hi:
                 errors[key] = f"must be at most {hi}"
+        elif key == "coin_filter_mode" and value not in ("activity", "liquidity"):
+            errors[key] = "must be 'activity' or 'liquidity'"
         elif key == "priority_rule" and value not in _PRIORITY_RULES:
             errors[key] = f"must be one of: {', '.join(sorted(_PRIORITY_RULES))}"
         elif key == "opposite_signal_policy" and value not in _OPPOSITE_POLICIES:
