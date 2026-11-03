@@ -13,8 +13,9 @@ See `docs/RENDER_ENV_CHANGES.md`. Until this is done the app starts the legacy e
 - remove `SINDHU_SAFE_START` (CONFIRMED SET in the 3 Nov logs; while set, no engine and no delivery)
 Then check the service log for `[telegram] Public signal delivery: READY`. If it says BLOCKED it lists every reason.
 
-## 2. Telegram settings (Settings page on the Cloud app)
-`master_send_enabled` ON, `auto_send_enabled` ON, bot token + channel id set, **channel_group_filter = Profitable + Challenge only** (the key was missing = "all", which would also send Losing-group signals), decide `auto_send_high_confidence_only`.
+## 2. Telegram settings
+CORRECTION to earlier advice: `channel_group_filter` only routes channels (values all / profitable / losing / challenge). The rule "only Profitable + Challenge signals are sent" is a SEPARATE always-on gate in the code, so nothing needs to be set for it. A new value `profitable_challenge` (Settings dropdown: "Profitable + Challenge groups only") was added as a second layer; Cloud's saved value is written after the code is live (see section 9).
+There is no saved Telegram settings row in Neon - Cloud runs on defaults + env vars: `master_send_enabled` ON by default, **`auto_send_enabled` OFF by default** (it must be turned on), `auto_send_high_confidence_only` OFF by default (your local file had it ON = stricter, Wilson 25-trade gate required; recommended to turn ON on Cloud too). Bot token + channel id come from the env vars `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHANNEL_ID`; I could not read env values, so the manager must confirm both are set.
 
 ## 3. Security - rotate (I could not and must not do this)
 Proxy credentials (telegram_settings.json), Neon database password (connection string is stored in plain text in `data/config/neon_runtime_connection.json`), strategy-sync secret, Telegram bot token if it was ever pasted anywhere. Move secrets to Render env vars.
@@ -36,3 +37,9 @@ Tool is ready: `python scripts/reset_paper_balance_to_target.py` (dry-run by def
 
 ## 8. Not done in this recovery (honest list)
 Full Playwright click-through of every page at desktop and 375 px, an end-to-end import->backtest->paper->signal run with per-stage counts, and real-engine old-vs-new backtests of the top strategies (only a concept-level before/after on BTC/ETH/BNB/XRP 1h was run). Node.js is not installed (no longer needed after the cleanup). Post-17-Sep confidence calibration needs Cloud trades.
+
+## 9. Signal-start prep status (3 Nov, second session)
+- Code: combined filter `profitable_challenge`, delivery-readiness tests, optional keep-alive (`SINDHU_KEEPALIVE_URL`, `SINDHU_KEEPALIVE_MINUTES`) - see git log on `recovery/clean`.
+- Cloud settings written to Neon `cloud_settings.telegram_settings` (only these keys, no token): see PROJECT_DOCUMENTATION.md "Cloud settings state" for whether this step completed.
+- Local app: safe mode on port 8420 (`D:\sindhu_runtime\start_local.cmd`, stop with `stop_local.cmd`). Paper engine is OFF on purpose; Cloud is the only publisher.
+- The manager must still: change the Render env vars (section 1), confirm token/channel env vars, turn on `auto_send_high_confidence_only` if wanted, ping `/health` or enable keep-alive, then watch the log for `Public signal delivery: READY`.
