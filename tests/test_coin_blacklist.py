@@ -51,7 +51,7 @@ def test_engine_never_offers_a_blacklisted_symbol_to_coin_filter(test_db, monkey
     coin_blacklist.add("DOGEUSDT")
     captured = {}
 
-    def fake_shortlist(exchange, symbols, top_n, log=None):
+    def fake_shortlist(exchange, symbols, top_n, log=None, mode="activity"):
         captured["symbols"] = symbols
         return []
 
