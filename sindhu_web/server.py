@@ -144,6 +144,12 @@ def _warm_caches():
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
+    if os.environ.get("SINDHU_SAFE_START") == "1":
+        # Pages and manual backtests only: no schedulers, no paper engine, no Telegram polling or reports.
+        storage.init_db()
+        log("[server] Safe startup: database ready; background trading, schedulers and delivery remain disabled.")
+        yield
+        return
     storage.init_db()
     # Automation Pipeline crash recovery: job_manager's in-memory Job
     # registry is always empty right after a restart, so this is the one
@@ -348,6 +354,12 @@ def create_app():
 
 
 app = create_app()
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok", "safe_start": os.environ.get("SINDHU_SAFE_START") == "1"}
+
 
 
 def _dual_stack_socket(port):
