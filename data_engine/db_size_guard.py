@@ -17,7 +17,7 @@ from datetime import datetime, timedelta, timezone
 
 from data_engine import db_backend
 
-_PRUNABLE = {"paper_scan_log": "completed_at"}
+_PRUNABLE = {"paper_scan_log": "completed_at", "paper_decision_trace": "ts"}
 
 
 def _int_env(name, default):

@@ -907,6 +907,10 @@ class PaperTradingEngine:
             "timeframe": candidate.get("timeframe"), "position_id": position_id,
             "market_snapshot": snapshot, "created_at": _now_iso(),
         })
+        # A scan can take many minutes on the free plan and the instance can sleep mid-scan: flush in small batches
+        # so decisions are not lost (they used to be written only when the whole scan ended).
+        if len(self._pending_decisions) >= 10:
+            self._flush_decisions()
 
     def _flush_decisions(self):
         """Writes every decision buffered since the last flush in ONE
@@ -919,6 +923,8 @@ class PaperTradingEngine:
         pending, self._pending_decisions = self._pending_decisions, []
         try:
             storage.log_paper_decisions_batch(pending)
+            from paper_trading import decision_trace
+            decision_trace.record(pending)  # compact per-gate trace for the "why" endpoint
         except Exception as e:
             self._log(f"[paper-trading] decision log flush error: {e!r}")
 
