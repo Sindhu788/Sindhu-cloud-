@@ -21,3 +21,9 @@ def test_non_critical_polling_is_slowed_and_waking_state_replaces_offline():
     assert "refreshNotifications(false), 45000)" in app
     assert "server waking up, retrying" in app and '"\u25cf offline"' not in app
     assert "timeoutMs = 40000" in app
+
+
+def test_version_history_handler_survives_leaving_the_page_while_loading():
+    app = _read("js/app.js")
+    i = app.index('document.getElementById("versionHistoryTitle").textContent')
+    assert 'if (!document.getElementById("versionHistoryTitle")' in app[i - 400:i]

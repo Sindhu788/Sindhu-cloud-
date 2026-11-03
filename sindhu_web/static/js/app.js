@@ -4548,6 +4548,8 @@
       document.querySelectorAll(".strat-versions").forEach(btn => btn.onclick = async () => {
         const strategyId = btn.dataset.id;
         const v = await apiGet(`/api/backtesting/strategies/${strategyId}/versions`).catch(() => ({ versions: [] }));
+        // The page may have been left while the (slow, queued) request was running: the panel is gone then.
+        if (!document.getElementById("versionHistoryTitle") || !document.getElementById("versionHistoryBody")) return;
         document.getElementById("versionHistoryTitle").textContent = `Version History -- ${btn.dataset.name}`;
         const versions = v.versions || [];
         const currentVersion = versions.length ? Math.max(...versions.map(ver => ver.version)) : null;
