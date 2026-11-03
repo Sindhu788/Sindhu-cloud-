@@ -7,3 +7,4 @@
 - 2026-11-04 Step 17: decision trace and /api/ops/why; decisions flushed in batches of 10.
 - 2026-11-04 Step 21: reconciliation (local and Cloud clean). Step 20: backup/restore scripts (45 tables ok). Step 19: CI workflow.
 - 2026-11-04 QA fixes: version-history handler and four Settings loaders no longer throw after navigating away.
+- 2026-11-04 Step 26: balance reset to $100 on Cloud and Local (archive 1,132 trades, counters kept, reconciliation OK after).

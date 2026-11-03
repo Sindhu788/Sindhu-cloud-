@@ -16,6 +16,7 @@ This function is dry-run by default (apply=False) and refuses to run against
 Postgres (the Cloud database) unless allow_cloud=True is passed explicitly.
 """
 import json
+import uuid
 from datetime import datetime, timezone
 
 from data_engine import db_backend, storage
@@ -24,7 +25,7 @@ _ARCHIVE_SQL = (
     "CREATE TABLE IF NOT EXISTS paper_trade_history_archive AS "
     "SELECT * FROM paper_positions WHERE 1=0",
     "CREATE TABLE IF NOT EXISTS paper_balance_reset_archive ("
-    "id INTEGER PRIMARY KEY AUTOINCREMENT, reset_at TEXT NOT NULL, target_balance REAL NOT NULL, "
+    "id TEXT PRIMARY KEY, reset_at TEXT NOT NULL, target_balance REAL NOT NULL, "
     "previous_initial_balance REAL, snapshot_json TEXT NOT NULL)",
 )
 
@@ -64,8 +65,8 @@ def reset_to_target(target=100.0, *, apply=False, allow_cloud=False, set_initial
             "INSERT INTO paper_trade_history_archive SELECT * FROM paper_positions "
             "WHERE status != 'open' AND id NOT IN (SELECT id FROM paper_trade_history_archive)")
         conn.execute(
-            "INSERT INTO paper_balance_reset_archive (reset_at, target_balance, previous_initial_balance, snapshot_json) "
-            "VALUES (?, ?, ?, ?)", (now, target, previous_initial, json.dumps(before)))
+            "INSERT INTO paper_balance_reset_archive (id, reset_at, target_balance, previous_initial_balance, snapshot_json) "
+            "VALUES (?, ?, ?, ?, ?)", (uuid.uuid4().hex, now, target, previous_initial, json.dumps(before)))
     storage.reset_paper_balance(now)
     if set_initial_balance and previous_initial != target:
         pt_config.update(initial_balance=target)
