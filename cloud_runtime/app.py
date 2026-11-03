@@ -421,8 +421,18 @@ def create_app():
         from sindhu_web.security import CLOUD_MODE
         from data_engine import db_backend
         from sindhu_web.api.system import _SERVER_START_ISO
+        # In-memory flags only (no database, no network): commit from the Render env, engine flag from the engine object.
+        try:
+            from paper_trading.engine import engine as _eng
+            engine_running = bool(getattr(_eng, "_running", False))
+        except Exception:
+            engine_running = None
+        commit = (os.environ.get("RENDER_GIT_COMMIT") or "")[:7] or None
         return {
             "status": "ok",
+            "version": APP_VERSION,
+            "commit": commit,
+            "engine_running": engine_running,
             "cloud_mode": CLOUD_MODE,
             "live_candles_only": LIVE_CANDLES_ONLY,
             "db_backend": "postgres" if db_backend.IS_POSTGRES else "local_file (ephemeral on most hosts)",
