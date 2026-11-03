@@ -18,19 +18,28 @@ def run(conn, tolerance=TOLERANCE):
         t = trades.setdefault(sid, [0.0, 0, 0])
         t[0] += float(pnl); t[1] += 1; t[2] += 1 if float(pnl) > 0 else 0
     groups = dict(conn.execute("SELECT strategy_id, group_key FROM paper_strategy_groups").fetchall())
+    # A balance reset zeroes realized_pnl_total but keeps every trade; paper_balance_resets records the PnL that was zeroed.
+    # So the expected stored value is: sum(closed trade PnL) - sum(PnL zeroed by earlier resets).
+    zeroed = {}
+    try:
+        for sid, prev in conn.execute("SELECT strategy_id, previous_realized_pnl_total FROM paper_balance_resets").fetchall():
+            zeroed[sid] = zeroed.get(sid, 0.0) + float(prev or 0.0)
+    except Exception:
+        zeroed = {}
     mismatches, per_group = [], {}
     for sid in sorted(set(books) | set(trades)):
         stored = books.get(sid, (0.0, 0, 0))
         real = trades.get(sid, [0.0, 0, 0])
-        d_pnl = round(stored[0] - real[0], 4)
+        expected = real[0] - zeroed.get(sid, 0.0)
+        d_pnl = round(stored[0] - expected, 4)
         if abs(d_pnl) > tolerance or stored[1] != real[1] or stored[2] != real[2]:
-            mismatches.append({"strategy_id": sid, "group": groups.get(sid), "stored_pnl": round(stored[0], 4), "trades_pnl": round(real[0], 4),
+            mismatches.append({"strategy_id": sid, "group": groups.get(sid), "stored_pnl": round(stored[0], 4), "trades_pnl": round(real[0], 4), "zeroed_by_resets": round(zeroed.get(sid, 0.0), 4),
                                "pnl_diff": d_pnl, "stored_closed": stored[1], "trade_closed": real[1], "stored_wins": stored[2], "trade_wins": real[2]})
         g = per_group.setdefault(groups.get(sid) or "unclassified", [0.0, 0.0])
-        g[0] += stored[0]; g[1] += real[0]
+        g[0] += stored[0]; g[1] += expected
     group_rows = {k: {"stored_pnl": round(v[0], 2), "trades_pnl": round(v[1], 2), "diff": round(v[0] - v[1], 4)} for k, v in per_group.items()}
     return {"ok": not mismatches, "books_checked": len(set(books) | set(trades)), "mismatches": mismatches, "groups": group_rows,
-            "total_stored_pnl": round(sum(b[0] for b in books.values()), 2), "total_trades_pnl": round(sum(t[0] for t in trades.values()), 2)}
+            "total_stored_pnl": round(sum(b[0] for b in books.values()), 2), "total_trades_pnl": round(sum(t[0] for t in trades.values()) - sum(zeroed.values()), 2)}
 
 
 def summary_line(result):

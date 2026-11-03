@@ -38,3 +38,18 @@ def test_open_trades_do_not_count_and_alert_goes_to_owner_once_a_day(test_db):
     res = rc.maybe_alert(send=lambda t: sent.append(t) or True, limiter=lim, now=now)
     assert res["ok"] is False and len(sent) == 1 and sent[0].startswith("[SINDHU monitor] ALERT")
     assert rc.maybe_alert(send=lambda t: sent.append(t) or True, limiter=lim, now=now) is None and len(sent) == 1
+
+
+def test_balance_reset_does_not_cause_a_false_mismatch(test_db):
+    from paper_trading import balance_reset
+    with storage.get_conn() as c:
+        _seed(c, 1.5)
+    assert balance_reset.reset_to_target(100.0, apply=True)["ok"]
+    with storage.get_conn() as c:
+        res = rc.run(c)
+        assert res["ok"], res["mismatches"]
+        # new trade after the reset is counted on top of the zeroed balance
+        c.execute("UPDATE paper_account_state SET realized_pnl_total = realized_pnl_total + 4.0, closed_count = closed_count + 1, win_count = win_count + 1")
+        c.execute("INSERT INTO paper_positions (exchange, symbol, direction, entry_price, stop_loss, take_profit, size, risk_amount, entry_time, "
+                  "strategy_id, status, pnl, created_at) VALUES ('okx','BTCUSDT','long',1,0.9,1.2,1,1,5000,'s1','closed',4.0,'2026-01-01')")
+        assert rc.run(c)["ok"]
