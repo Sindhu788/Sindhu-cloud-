@@ -32,6 +32,11 @@ def month_path(exchange, symbol, month, base=None):
     return os.path.join(base or root(), "candles", exchange, symbol, "1m", f"{month}.parquet")
 
 
+def native_path(exchange, symbol, interval, month, base=None):
+    """Native candles downloaded from the exchange for another interval (validation only; never used as backtest input unless decided in DATA_QUALITY)."""
+    return os.path.join(base or root(), "candles_native", exchange, symbol, interval, f"{month}.parquet")
+
+
 def day_path(exchange, symbol, day, base=None):
     return os.path.join(base or root(), "candles", exchange, symbol, "1m_daily", f"{day}.parquet")
 

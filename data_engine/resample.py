@@ -62,6 +62,12 @@ def get_ohlcv(exchange, symbol, interval="1m", start_ms=None, end_ms=None):
         from data_engine.live_candles import get_ohlcv_live
         return get_ohlcv_live(exchange, symbol, interval, start_ms, end_ms)
 
+    # Day 5: backtests can read the protected Parquet dataset (data_platform) instead of the old klines_1m table. OFF unless
+    # SINDHU_BACKTEST_SOURCE=dataplatform; the sealed holdout and "closed candles only" rules are enforced inside the loader.
+    if os.environ.get("SINDHU_BACKTEST_SOURCE") == "dataplatform":
+        from data_platform.backtest_source import get_ohlcv_dp
+        return get_ohlcv_dp(symbol, interval, start_ms, end_ms)
+
     if interval == "1m":
         rows = storage.get_klines_range(exchange, symbol, start_ms, end_ms)
         if not rows:

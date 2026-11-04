@@ -192,7 +192,11 @@ class Downloader:
 
     # ---- one task
     def run_task(self, kind, symbol, period):
-        key = f"{symbol}/{period}"
+        """kind: "month" | "day" (1-minute files) or "month:5m" etc. (NATIVE candles of another interval, used only to validate the resampler)."""
+        iv = "1m"
+        if ":" in kind:
+            kind, iv = kind.split(":")
+        key = f"{symbol}/{period}" if iv == "1m" else f"{symbol}/{iv}/{period}"
         ent = self.manifest.get(key)
         if ent and ent.get("status") in ("ok", "absent"):
             with self.lock:
@@ -204,9 +208,11 @@ class Downloader:
             self.stop.set()
             raise InterruptedError(self.stop_reason)
         folder = "monthly" if kind == "month" else "daily"
-        name = f"{symbol}-1m-{period}.zip"
-        url = f"{self.base_url}/data/spot/{folder}/klines/{symbol}/1m/{name}"
+        name = f"{symbol}-{iv}-{period}.zip"
+        url = f"{self.base_url}/data/spot/{folder}/klines/{symbol}/{iv}/{name}"
         path = (store.month_path if kind == "month" else store.day_path)(self.exchange, symbol, period, self.root)
+        if iv != "1m":
+            path = store.native_path(self.exchange, symbol, iv, period, self.root)
         if os.path.exists(path):                       # finished file from an earlier run whose manifest line was lost: re-verify, never overwrite
             rows, sha = _verify_existing(path)
             self.manifest.put(key, {"status": "ok", "rows": rows, "sha256": sha, "note": "adopted existing file", "checked_at": _now()})
