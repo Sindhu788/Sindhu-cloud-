@@ -38,6 +38,8 @@ from data_engine.logging_setup import log as default_log
 LIVE_CANDLES_ONLY = env_flag("SINDHU_LIVE_CANDLES")
 
 from paper_trading import config as pt_config
+from backtest_engine import concepts
+from paper_trading import memory_guard
 from paper_trading import coin_filter, coin_blacklist, coin_priority, live_feed, market_state, strategy_matcher, lesson_matcher
 from paper_trading import signal_generator, confidence, risk_manager, guards, position_manager
 from paper_trading import auto_avoid, drawdown_guard, kill_switch, lesson_auto_apply, telegram_bot, capital_allocation
@@ -379,7 +381,7 @@ class PaperTradingEngine:
             workers = int(os.environ.get('SINDHU_PREFETCH_WORKERS', '4'))
         except ValueError:
             workers = 4
-        if workers <= 0 or not LIVE_CANDLES_ONLY or len(symbols) < 2:
+        if workers <= 0 or not LIVE_CANDLES_ONLY or len(symbols) < 2 or not memory_guard.optional_work_allowed():
             return
         from concurrent.futures import ThreadPoolExecutor
         from data_engine.resample import get_ohlcv
@@ -481,6 +483,7 @@ class PaperTradingEngine:
                                   coins_scanned=0, candidates=0, rejected=0, accepted=0,
                                   no_trade=0, errors=0)
         self._scan_id = uuid.uuid4().hex
+        concepts.memo_enable(memory_guard.optional_work_allowed())      # share swing/S-R/BOS/order-block results between strategies for the duration of this scan only
         self._scan_t0 = time.monotonic()
         self._beat('start', force=True)
         try:
@@ -492,6 +495,12 @@ class PaperTradingEngine:
             self._current_scan['errors'] += 1
             raise
         finally:
+            try:
+                ms = concepts.memo_stats()
+                self._log(f"[paper-trading] concept memo this scan: {ms['hits']} hits, {ms['misses']} misses, {ms['mb']} MB")
+            except Exception:
+                pass
+            concepts.memo_enable(False)
             self._scan_progress.update(in_progress=False, current_symbol=None)
             self._flush_decisions()
             if self._current_scan['outcome']=='complete' and self._current_scan['errors']:
@@ -653,6 +662,7 @@ class PaperTradingEngine:
         and these duties (above all the 60 s fresh-signal sweep and the owner watchdog) must not wait for it. Same thread, so no new
         concurrency. Never raises."""
         self._last_housekeeping_at = time.monotonic()
+        memory_guard.check(self._log)
         t0 = time.monotonic()
         try:
             self._housekeeping_impl(light)

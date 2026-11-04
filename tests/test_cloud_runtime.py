@@ -233,7 +233,7 @@ def test_health_endpoint_exists_and_is_trivial(cloud_app):
     reach the dashboard" (see the endpoint's own docstring for the real
     incident that motivated exposing these)."""
     route = next(r for r in cloud_app.app.routes if getattr(r, "path", None) == "/health")
-    body = route.endpoint()
+    body = _call(route.endpoint)
     assert body["status"] == "ok"
     assert set(body) == {"status", "cloud_mode", "live_candles_only", "db_backend", "started_at", "version", "commit", "engine_running"}
     assert isinstance(body["cloud_mode"], bool)
@@ -252,10 +252,10 @@ def test_health_endpoint_reports_db_backend_honestly(cloud_app, monkeypatch):
     route = next(r for r in cloud_app.app.routes if getattr(r, "path", None) == "/health")
 
     monkeypatch.setattr(db_backend, "IS_POSTGRES", False)
-    assert route.endpoint()["db_backend"] == "local_file (ephemeral on most hosts)"
+    assert _call(route.endpoint)["db_backend"] == "local_file (ephemeral on most hosts)"
 
     monkeypatch.setattr(db_backend, "IS_POSTGRES", True)
-    assert route.endpoint()["db_backend"] == "postgres"
+    assert _call(route.endpoint)["db_backend"] == "postgres"
 
 
 def test_health_endpoint_is_exempt_from_the_login_gate():
@@ -322,3 +322,11 @@ def test_index_html_response_defaults_to_paper_trading_not_home(cloud_app, tmp_p
 
     response = index_route.endpoint(_FakeRequest())
     assert b"location.hash='#paper_trading'" in response.body
+
+
+def _call(endpoint):
+    """/health is an async def (it must not need a free worker thread); tests call it the way the server does."""
+    import asyncio
+    import inspect
+    r = endpoint()
+    return asyncio.run(r) if inspect.isawaitable(r) else r

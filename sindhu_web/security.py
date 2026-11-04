@@ -143,6 +143,9 @@ def get_or_create_token():
     return token
 
 
+from starlette.concurrency import run_in_threadpool
+
+
 async def token_guard_middleware(request: Request, call_next):
     path = request.url.path
 
@@ -176,7 +179,9 @@ async def token_guard_middleware(request: Request, call_next):
     # and the login page needs this same static mount available too).
     if path != "/" and path not in _LOGIN_EXEMPT_PATHS and not path.startswith("/static"):
         session_token = request.cookies.get(auth.SESSION_COOKIE)
-        if not auth.is_valid_session(session_token):
+        # Blocking DB lookup: run it in the thread pool. Called directly it froze the WHOLE event loop (so /health too) whenever the
+        # database was slow or waking up (Day 4 finding).
+        if not await run_in_threadpool(auth.is_valid_session, session_token):
             if request.method in _SAFE_METHODS and not path.startswith("/api/") and not path.startswith("/ws"):
                 return RedirectResponse(url="/login")
             return JSONResponse({"detail": "login required"}, status_code=401)
@@ -186,7 +191,7 @@ async def token_guard_middleware(request: Request, call_next):
             or path.startswith("/static") or path.startswith("/ws"):
         return await call_next(request)
 
-    expected = get_or_create_token()
+    expected = await run_in_threadpool(get_or_create_token)
     provided = request.headers.get("x-sindhu-token")
     if provided != expected:
         return JSONResponse({"detail": "missing or invalid X-Sindhu-Token header"}, status_code=401)

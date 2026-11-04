@@ -2123,3 +2123,102 @@ def lwti(df, period=25, smoothing=20):
     rolling_std = momentum.rolling(period).std().replace(0, np.nan)
     normalized = (momentum / rolling_std).clip(-2, 2) * 50
     return normalized.ewm(span=smoothing, adjust=False).mean()
+
+
+# ------------------------------------------------------------------------------------------------------------------------------
+# Scan-time memo (Day 4). A live scan evaluates ~60 strategies per coin and every one of them used to recompute the same swing points,
+# support/resistance, BOS/CHoCH, order blocks, ATR ... on its own copy of the SAME candles (profiled: ~40 % of the CPU time of a cold
+# scan, which is CPU-bound on the 0.15-CPU free plan). The functions listed in _MEMO_FUNCS read only open/high/low/close/volume and the
+# index (checked by scripts/ AST audit, tests/test_concepts_memo.py), so their result is a pure function of those arrays plus the
+# arguments. When the memo is switched ON (the paper engine does that for the duration of one scan only; backtests never do) the result
+# is looked up by a fingerprint of the input arrays and a COPY is returned, so no caller can corrupt the cache.
+import hashlib as _hashlib
+from collections import OrderedDict as _OrderedDict
+
+_MEMO_ON = False
+_MEMO_BUDGET_BYTES = 48 * 1024 * 1024
+_MEMO_MAX_ROWS = 60_000
+_memo_store = _OrderedDict()
+_memo_bytes = [0]
+_memo_stats = {"hits": 0, "misses": 0, "skipped": 0}
+import threading as _threading
+_memo_lock = _threading.Lock()
+_RAW_COLS = ("open", "high", "low", "close", "volume")
+
+
+def memo_enable(on=True):
+    """Switch the memo on/off; switching off also empties it (frees the memory)."""
+    global _MEMO_ON
+    _MEMO_ON = bool(on)
+    if not on:
+        _memo_store.clear(); _memo_bytes[0] = 0
+
+
+def memo_stats():
+    return dict(_memo_stats, entries=len(_memo_store), mb=round(_memo_bytes[0] / 1e6, 1))
+
+
+def _fingerprint(df):
+    h = _hashlib.blake2b(digest_size=16)
+    h.update(str(len(df)).encode()); h.update(str(getattr(df.index, "tz", None)).encode())
+    h.update(np.asarray(df.index.asi8 if hasattr(df.index, "asi8") else df.index.values).tobytes())
+    for c in _RAW_COLS:
+        if c in df.columns:
+            h.update(c.encode()); h.update(np.ascontiguousarray(df[c].to_numpy(dtype="float64", na_value=np.nan)).tobytes())
+    return h.digest()
+
+
+def _copy_result(r):
+    if isinstance(r, tuple):
+        return tuple(_copy_result(x) for x in r)
+    return r.copy() if hasattr(r, "copy") else r
+
+
+def _size_of(r):
+    if isinstance(r, tuple):
+        return sum(_size_of(x) for x in r)
+    try:
+        return int(r.memory_usage(index=False))
+    except Exception:
+        return 0
+
+
+def _memoized(fn):
+    import functools
+
+    @functools.wraps(fn)
+    def wrapper(df, *args, **kwargs):
+        if not _MEMO_ON or not hasattr(df, "columns") or len(df) > _MEMO_MAX_ROWS or len(df) == 0:
+            _memo_stats["skipped"] += 1
+            return fn(df, *args, **kwargs)
+        try:
+            key = (fn.__name__, _fingerprint(df), args, tuple(sorted(kwargs.items())))
+            hash(key)
+        except Exception:
+            _memo_stats["skipped"] += 1
+            return fn(df, *args, **kwargs)
+        with _memo_lock:
+            hit = _memo_store.get(key)
+            if hit is not None:
+                _memo_store.move_to_end(key); _memo_stats["hits"] += 1
+        if hit is not None:
+            return _copy_result(hit)
+        _memo_stats["misses"] += 1
+        result = fn(df, *args, **kwargs)
+        size = _size_of(result)
+        stored = _copy_result(result)
+        with _memo_lock:
+            _memo_store[key] = stored; _memo_bytes[0] += size
+            while _memo_bytes[0] > _MEMO_BUDGET_BYTES and _memo_store:
+                _k, _v = _memo_store.popitem(last=False); _memo_bytes[0] -= _size_of(_v)
+        return result
+    wrapper.__wrapped_pure__ = fn
+    return wrapper
+
+
+# Only functions whose body reads nothing but the raw OHLCV columns / index (see the module-level audit in tests/test_concepts_memo.py).
+_MEMO_FUNCS = ("swing_points", "support_resistance", "break_of_structure", "change_of_character", "fair_value_gap", "fvg_zone",
+               "order_blocks", "breaker_blocks", "atr", "valid_structure_trend", "equal_highs_lows", "consolidation_impulse_zones",
+               "liquidity_sweep", "level_sweep_reclaim", "trend_regime", "premium_discount_zone")
+for _name in _MEMO_FUNCS:
+    globals()[_name] = _memoized(globals()[_name])

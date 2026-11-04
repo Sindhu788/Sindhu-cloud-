@@ -383,7 +383,7 @@ def create_app():
         return {"version": APP_VERSION, "system_health": "OK"}
 
     @app.get("/health")
-    def health_check(request: Request = None):
+    async def health_check(request: Request = None):
         """For an external uptime pinger (e.g. cron-job.org) to keep a
         free-tier host from sleeping the app after ~15 minutes idle.
         Exempt from the login gate (see sindhu_web/security.py's
