@@ -28,3 +28,5 @@
 - D18 Monitoring alerts go only through telegram_bot.send_private_message (personal_chat_id); with no owner chat they are silently skipped and the dashboard shows a warning. Limiter state persisted (Neon cloud_settings key owner_alert_state; local json).
 - D19 Did not push the keep-alive workflow to main (main auto-deploys the old Render service).
 - D20 Backtest comparison (Step 14) uses 3 coins and 60 days with assumed costs and no tuning; it shows no regression and no profitable strategy. Not proof of live performance.
+
+- D21 OPEN ISSUE (4 Nov): no paper_scan_log receipt since 3 Nov 20:18Z although decisions and trades continue. Receipts are written only when a whole scan ends; on the free plan a cold full scan (10 coins x frames at 100-300 rows/page) does not finish before the instance sleeps or restarts. Impact: the watchdog "scanner_stalled" check (no scan finished for 20 min, engine._last_tick_at) may alert falsely once personal_chat_id is set; go-live gate "scanner uptime" has no data. Next step: write a receipt per N coins (partial) or measure scan duration on a paid always-on instance.
