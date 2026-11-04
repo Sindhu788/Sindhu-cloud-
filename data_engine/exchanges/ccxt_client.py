@@ -1,3 +1,6 @@
+import os
+import random
+import threading
 import time
 
 import ccxt
@@ -18,6 +21,56 @@ def _log_retry(exchange_id, attempt, err, sleep_s):
     print(f"[exchange-retry] {exchange_id} attempt {attempt}/{MAX_RETRIES} {type(err).__name__}: {str(err)[:200]!r} - sleeping {sleep_s}s", flush=True)
 
 
+# ------------------------------------------------------------------ circuit breaker (Day 5)
+# Root cause of the Cloud scan stalls (Render log, 4 Nov 2026): Bybit answers every request from Render with HTTP 403 "The Amazon
+# CloudFront distribution is configured to block access from your country". ccxt reports that as RateLimitExceeded, so the old
+# retry loop slept 2+4+6+8+10 s (30 s) for EVERY call to Bybit, and the confluence gate (telegram_bot, exchanges.json "default" =
+# bybit on Cloud) made such calls for every signal, one after the other. A geo-block is not temporary: fail at once and remember it.
+GEO_BLOCK_MARKERS = ("block access from your country", "restricted location", " 451 ", "451 unavailable", "geo")
+BREAKER_GEO_SECONDS = int(os.environ.get("SINDHU_BREAKER_GEO_SECONDS", "900"))
+BREAKER_FAIL_SECONDS = int(os.environ.get("SINDHU_BREAKER_FAIL_SECONDS", "120"))
+BREAKER_AFTER_FAILURES = 3
+REQUEST_TIMEOUT_MS = int(os.environ.get("SINDHU_EXCHANGE_TIMEOUT_MS", "10000"))
+CALL_BUDGET_S = float(os.environ.get("SINDHU_EXCHANGE_CALL_BUDGET_S", "45"))
+_breaker_lock = threading.Lock()
+_breaker = {}          # exchange id -> {"open_until": ts, "fails": n, "why": str}
+
+
+class ExchangeUnavailable(RuntimeError):
+    """Raised at once (no waiting) while an exchange's circuit is open."""
+
+
+def breaker_state(exchange_id):
+    with _breaker_lock:
+        st = _breaker.get(exchange_id)
+        return dict(st) if st else {"open_until": 0.0, "fails": 0, "why": ""}
+
+
+def breaker_reset(exchange_id=None):
+    with _breaker_lock:
+        if exchange_id is None:
+            _breaker.clear()
+        else:
+            _breaker.pop(exchange_id, None)
+
+
+def _breaker_open(exchange_id, seconds, why):
+    with _breaker_lock:
+        st = _breaker.setdefault(exchange_id, {"open_until": 0.0, "fails": 0, "why": ""})
+        st["open_until"] = time.time() + seconds
+        st["why"] = why
+    print(f"[exchange-breaker] {exchange_id} OPEN for {seconds}s: {why[:160]}", flush=True)
+
+
+def _is_geo_block(err):
+    t = str(err).lower()
+    return any(m in t for m in GEO_BLOCK_MARKERS if m != "geo") or ("403" in t and "forbidden" in t and "country" in t)
+
+
+def _jitter(seconds):
+    return seconds * (1.0 + random.uniform(0.0, 0.25))
+
+
 class CCXTClient(ExchangeClient):
     """Generic exchange client backed by the ccxt library. Works for any
     ccxt exchange id (okx, bybit, bitget, gate, ...) using only public
@@ -34,27 +87,71 @@ class CCXTClient(ExchangeClient):
 
     def __init__(self, exchange_id):
         self.id = exchange_id
-        self._exchange = getattr(ccxt, exchange_id)({"enableRateLimit": True})
+        self._tl = threading.local()       # one ccxt instance per thread: a ccxt object (session, rate-limit clock) is not thread-safe
+        self._override = None              # tests / callers may inject a fake exchange object
+        self._shared_markets = None
         self._markets_loaded = False
+
+    @property
+    def _exchange(self):
+        if self._override is not None:
+            return self._override
+        ex = getattr(self._tl, "ex", None)
+        if ex is None:
+            ex = getattr(ccxt, self.id)({"enableRateLimit": True, "timeout": REQUEST_TIMEOUT_MS})
+            if self._shared_markets:
+                try:
+                    ex.set_markets(self._shared_markets)
+                except Exception:
+                    pass
+            self._tl.ex = ex
+        return ex
+
+    @_exchange.setter
+    def _exchange(self, value):
+        self._override = value
 
     def _ensure_markets(self):
         if not self._markets_loaded:
             self._retry(self._exchange.load_markets)
+            try:
+                self._shared_markets = self._exchange.markets
+            except Exception:
+                pass
             self._markets_loaded = True
 
     def _retry(self, fn, *args, **kwargs):
+        st = breaker_state(self.id)
+        if st["open_until"] > time.time():
+            raise ExchangeUnavailable(f"{self.id}: circuit open for another {int(st['open_until'] - time.time())}s ({st['why'][:80]})")
         last_err = None
+        started = time.monotonic()
+        waited = 0.0
         for attempt in range(1, MAX_RETRIES + 1):
             try:
-                return fn(*args, **kwargs)
-            except (ccxt.NetworkError, ccxt.ExchangeNotAvailable, ccxt.RequestTimeout) as e:
+                result = fn(*args, **kwargs)
+                with _breaker_lock:
+                    if self.id in _breaker:
+                        _breaker[self.id]["fails"] = 0
+                return result
+            except (ccxt.NetworkError, ccxt.ExchangeNotAvailable, ccxt.RequestTimeout, ccxt.RateLimitExceeded) as e:
                 last_err = e
-                _log_retry(self.id, attempt, e, 2 * attempt)
-                time.sleep(2 * attempt)
-            except ccxt.RateLimitExceeded as e:
-                last_err = e
-                _log_retry(self.id, attempt, e, 5 * attempt)
-                time.sleep(5 * attempt)
+                if _is_geo_block(e):            # permanent for this IP: no retries, remember it
+                    _breaker_open(self.id, BREAKER_GEO_SECONDS, f"geo-block: {str(e)[:120]}")
+                    raise ExchangeUnavailable(f"{self.id}: blocked from this location ({str(e)[:80]!r})")
+                base = 5 * attempt if isinstance(e, ccxt.RateLimitExceeded) else 2 * attempt
+                wait = _jitter(base)
+                if max(time.monotonic() - started, waited) + wait > CALL_BUDGET_S:        # bounded total time per call
+                    break
+                _log_retry(self.id, attempt, e, round(wait, 1))
+                time.sleep(wait)
+                waited += wait
+        with _breaker_lock:
+            stt = _breaker.setdefault(self.id, {"open_until": 0.0, "fails": 0, "why": ""})
+            stt["fails"] += 1
+            tripped = stt["fails"] >= BREAKER_AFTER_FAILURES
+        if tripped:
+            _breaker_open(self.id, BREAKER_FAIL_SECONDS, f"{BREAKER_AFTER_FAILURES} calls in a row failed: {last_err!r}")
         raise RuntimeError(f"{self.id}: request failed after {MAX_RETRIES} retries: {last_err!r}")
 
     def get_tradeable_symbols(self, quote):
