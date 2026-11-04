@@ -888,6 +888,16 @@ def validate_chat_id(value):
     return True, ""
 
 
+def _gate_exchange(pos, exchanges_cfg):
+    """Exchange whose candles/positions the confluence gate reads. DEFAULT (unchanged behaviour): exchanges.json "default" - which is
+    'bybit' on Cloud, an exchange that blocks Render, while the positions and candles are on OKX (Day 5 finding: the regime factor is then
+    never computed and the 'crowding' factor looks at the wrong exchange, so it always passes). With SINDHU_GATE_USE_POSITION_EXCHANGE=1 the
+    gate uses the exchange the position actually trades on. OFF by default because it changes gate inputs (owner decision)."""
+    if str(os.environ.get("SINDHU_GATE_USE_POSITION_EXCHANGE", "")).strip().lower() in ("1", "true", "yes", "on") and pos.get("exchange"):
+        return pos["exchange"]
+    return exchanges_cfg["default"]
+
+
 def send_private_message(text):
     """Master 15-Item task, Items 6 & 10: sends to the CEO's own private
     `personal_chat_id` (a DM with the bot) instead of the shared/public
@@ -1587,7 +1597,7 @@ def send_signal_for_position(position_id, trigger_type="manual", high_confidence
             return {"ok": False, "error": sanity_reason}
 
     exchanges_cfg = base_config.load_or_seed("exchanges.json", base_config.DEFAULTS["exchanges.json"])
-    exchange = exchanges_cfg["default"]
+    exchange = _gate_exchange(pos, exchanges_cfg)
     try:
         conf = confluence_mod.score_confluence(
             pos.get("strategy_id"), pos["symbol"], exchange,
@@ -1702,7 +1712,7 @@ def evaluate_auto_send(position_id):
         return False, f"strategy is paused by Drawdown Protection: {pause_reason}"
 
     exchanges_cfg = base_config.load_or_seed("exchanges.json", base_config.DEFAULTS["exchanges.json"])
-    exchange = exchanges_cfg["default"]
+    exchange = _gate_exchange(pos, exchanges_cfg)
     conf = confluence_mod.score_confluence(
         strategy_id, pos["symbol"], exchange, pos.get("market_state"), pos.get("session"), pos["direction"],
     )
@@ -1779,7 +1789,7 @@ def evaluate_auto_send_low_tier(position_id):
         return False, f"strategy is paused by Drawdown Protection: {pause_reason}"
 
     exchanges_cfg = base_config.load_or_seed("exchanges.json", base_config.DEFAULTS["exchanges.json"])
-    exchange = exchanges_cfg["default"]
+    exchange = _gate_exchange(pos, exchanges_cfg)
     conf = confluence_mod.score_confluence(
         strategy_id, pos["symbol"], exchange, pos.get("market_state"), pos.get("session"), pos["direction"],
     )
@@ -1857,7 +1867,7 @@ def _record_near_miss(position_id, reason):
             return
         strategy_id = pos.get("strategy_id")
         exchanges_cfg = base_config.load_or_seed("exchanges.json", base_config.DEFAULTS["exchanges.json"])
-        exchange = exchanges_cfg["default"]
+        exchange = _gate_exchange(pos, exchanges_cfg)
         conf = confluence_mod.score_confluence(
             strategy_id, pos["symbol"], exchange, pos.get("market_state"), pos.get("session"), pos["direction"],
         )
