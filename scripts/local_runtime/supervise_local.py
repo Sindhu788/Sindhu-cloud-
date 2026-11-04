@@ -11,6 +11,7 @@ PY = r"D:\sindhu_venv_stable\Scripts\python.exe"
 APP_DIR = r"D:\sindhu_clean"
 URL = "http://127.0.0.1:8420/health"
 STOP = os.path.join(ROOT, "supervisor.stop")
+LOCK = os.path.join(ROOT, "supervisor.pid")
 SLOG = os.path.join(ROOT, "supervisor.log")
 ALOG = os.path.join(ROOT, "server.log")
 ARCH = os.path.join(ROOT, "logs_archive")
@@ -34,6 +35,14 @@ def rotate(path):
             shutil.move(path, dst)
     except Exception:
         pass
+
+
+def pid_alive(pid):
+    try:
+        out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, text=True).stdout
+        return "python" in out.lower()
+    except Exception:
+        return False
 
 
 def health():
@@ -61,11 +70,34 @@ def kill(p):
 
 
 def main():
+    # one supervisor at a time: a second one would fight the first over port 8420
+    try:
+        old = int(open(LOCK).read().strip())
+        if old != os.getpid() and pid_alive(old):
+            log(f"another supervisor (pid {old}) is already running - exiting")
+            return
+    except Exception:
+        pass
+    with open(LOCK, "w") as f:
+        f.write(str(os.getpid()))
     if os.path.exists(STOP):
         os.remove(STOP)
+    try:
+        run()
+    finally:
+        try:
+            os.remove(LOCK)
+        except Exception:
+            pass
+
+
+def run():
     log("supervisor started")
     proc, fails, unsafe = start(), 0, False
-    time.sleep(40)
+    for _ in range(20):
+        if os.path.exists(STOP):
+            break
+        time.sleep(2)
     while not os.path.exists(STOP):
         h = health()
         if h and h.get("status") == "ok":
@@ -81,8 +113,14 @@ def main():
         if fails >= 3:
             kill(proc); time.sleep(3)
             proc = start(); fails = 0
-            time.sleep(40)
-        time.sleep(30)
+            for _ in range(20):
+                if os.path.exists(STOP):
+                    break
+                time.sleep(2)
+        for _ in range(15):                 # 30 s between health checks, but notice a stop request within 2 s
+            if os.path.exists(STOP):
+                break
+            time.sleep(2)
     kill(proc)
     log("supervisor stopped" + (" (unsafe app)" if unsafe else ""))
 

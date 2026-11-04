@@ -188,9 +188,10 @@ def get_ohlcv_live(exchange, symbol, interval, start_ms=None, end_ms=None):
             else:
                 df = cached
 
-        df = _trim(df, now, keep)
-        with _lock:
-            _cache[key] = df
+        if df is not cached:                  # nothing new -> nothing to trim or store (was 5 ms x 1,100 calls per scan)
+            df = _trim(df, now, keep)
+            with _lock:
+                _cache[key] = df
 
     if df.empty:
         return df

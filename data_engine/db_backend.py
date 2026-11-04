@@ -146,7 +146,106 @@ class _PGConnection:
         self._conn.rollback()
 
     def close(self):
-        self._conn.close()
+        """Hand the connection back to the pool (or really close it when the pool is full / disabled / the connection is broken)."""
+        _pool_release(self._conn)
+
+
+# ------------------------------------------------------------------ connection pool (Day 4)
+# Profiled: one cold scan opened 3,310 separate database connections (every storage.get_conn() call opened and closed one). Against
+# Neon each new connection costs a TCP + TLS + auth round trip, which on the 0.15-CPU free plan is a large part of the 15-minute scan.
+# The pool keeps a few idle connections and reuses them. A connection is used by ONE caller at a time, rolled back when returned (so
+# nothing leaks between callers), checked with SELECT 1 if it sat idle for more than 30 s, and dropped when broken or older than 4 min
+# (Neon suspends idle computes). SINDHU_PG_POOL=0 switches the pool off (every call opens and closes a connection, as before).
+import threading as _threading
+import time as _time
+
+_POOL_MAX_IDLE = 4
+_POOL_MAX_AGE_S = 240
+_POOL_CHECK_AFTER_S = 30
+_pool_lock = _threading.Lock()
+_pool_idle = []                      # list of (raw_conn, created_at, idle_since)
+_pool_stats = {"opened": 0, "reused": 0, "dropped": 0}
+_CREATED = {}
+
+
+def _pool_enabled():
+    return os.environ.get("SINDHU_PG_POOL", "1") != "0"
+
+
+def pool_stats():
+    with _pool_lock:
+        return dict(_pool_stats, idle=len(_pool_idle))
+
+
+def _pool_close_all():
+    with _pool_lock:
+        items = list(_pool_idle)
+        _pool_idle.clear()
+    for raw, _c, _i in items:
+        try:
+            raw.close()
+        except Exception:
+            pass
+
+
+def _pool_release(raw):
+    created = _CREATED.pop(id(raw), _time.monotonic())
+    try:
+        broken = bool(getattr(raw, "closed", 0))
+        if not broken:
+            raw.rollback()               # a finished transaction is a no-op; an aborted one is reset
+    except Exception:
+        broken = True
+    now = _time.monotonic()
+    keep = _pool_enabled() and not broken and (now - created) < _POOL_MAX_AGE_S
+    if keep:
+        with _pool_lock:
+            if len(_pool_idle) < _POOL_MAX_IDLE:
+                _pool_idle.append((raw, created, now))
+                return
+    with _pool_lock:
+        _pool_stats["dropped"] += 1
+    try:
+        raw.close()
+    except Exception:
+        pass
+
+
+def _pool_checkout():
+    if _pool_enabled():
+        while True:
+            with _pool_lock:
+                item = _pool_idle.pop() if _pool_idle else None
+            if item is None:
+                break
+            raw, created, idle_since = item
+            now = _time.monotonic()
+            try:
+                if getattr(raw, "closed", 0) or now - created > _POOL_MAX_AGE_S:
+                    raise RuntimeError("stale")
+                if now - idle_since > _POOL_CHECK_AFTER_S:
+                    cur = raw.cursor()
+                    cur.execute("SELECT 1")
+                    cur.fetchone()
+                    raw.rollback()
+            except Exception:
+                with _pool_lock:
+                    _pool_stats["dropped"] += 1
+                try:
+                    raw.close()
+                except Exception:
+                    pass
+                continue
+            _CREATED[id(raw)] = created
+            with _pool_lock:
+                _pool_stats["reused"] += 1
+            return raw
+    import psycopg2
+    raw = psycopg2.connect(os.environ["DATABASE_URL"], connect_timeout=10)
+    _CREATED[id(raw)] = _time.monotonic()
+    with _pool_lock:
+        _pool_stats["opened"] += 1
+    return raw
 
 
 def get_postgres_conn():
@@ -167,10 +266,7 @@ def get_postgres_conn():
     to bypass all other checks. Failing fast after 10s means a genuinely
     unreachable database surfaces as a clear, loggable connection error
     instead of an indefinite, silent hang."""
-    import psycopg2
-
-    raw = psycopg2.connect(os.environ["DATABASE_URL"], connect_timeout=10)
-    return _PGConnection(raw)
+    return _PGConnection(_pool_checkout())
 
 
 # --------------------------------------------------------------- schema
