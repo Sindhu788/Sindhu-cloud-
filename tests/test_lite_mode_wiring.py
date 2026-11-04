@@ -44,3 +44,10 @@ def test_requests_of_a_page_that_was_left_are_dropped_but_global_polls_are_not()
     for must_stay in ("activity", "home", "ops", "paper-trading\/status", "dashboard-badge-status", "health"):
         assert must_stay in glob
     assert "system" not in glob and "alert" not in glob      # page data must be droppable
+
+
+def test_owner_alert_ui_has_validation_and_an_owner_only_test_button():
+    app = _read("js/app.js")
+    for needle in ('id="btnTestOwnerAlert"', "/api/ops/test-owner-alert", "Send test alert to my chat", "plainApiError", r"/^-?\d{5,16}$/"):
+        assert needle in app
+    assert app.count("/api/ops/test-owner-alert") == 1            # only the button's handler calls it

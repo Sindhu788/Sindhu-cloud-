@@ -233,6 +233,11 @@
     return res.json();
   }
   const apiPost = (path, body, timeoutMs) => apiSend("POST", path, body, timeoutMs);
+  // apiSend throws Error(JSON text of the response body); show just the human sentence ({"error": ...} or FastAPI's {"detail": ...}).
+  function plainApiError(e) {
+    const m = String((e && e.message) || e);
+    try { const j = JSON.parse(m); return String(j.error || j.detail || m); } catch (x) { return m; }
+  }
   const apiDelete = (path) => apiSend("DELETE", path);
 
   async function apiUpload(path, formData, timeoutMs = 180000, _retried = false) {
@@ -11457,8 +11462,10 @@
         <p class="muted" style="font-size:11.5px;margin:-6px 0 0;">Grand Master Batch, Phase 4 Item 8: this is now also the BACKUP alert channel for whenever Telegram itself is genuinely unreachable (network-blocked, not just a withheld/gated signal) -- you'll still get a push here even when nothing can reach Telegram. What you need to provide: nothing to sign up for -- just pick any topic name above (an arbitrary string only you know) and install the free ntfy app (Android/iOS) subscribed to that same name.</p>
         <div class="btn-row">
           <button class="btn" id="btnSavePrivateAlerts">Save</button>
+          <button class="btn-ghost" id="btnTestOwnerAlert" title="Sends ONE short message to your private chat (max one every 5 minutes). Only you can trigger this.">Send test alert to my chat</button>
           <span id="tgPersonalStatus" class="muted"></span>
         </div>
+        <p class="muted" style="font-size:11.5px;margin:4px 0 0;">Digits only (5-16), e.g. 123456789. Not the bot token, not a @username. Step-by-step: docs/OWNER_ALERTS_SETUP.md.</p>
         <div class="btn-row" style="margin-top:6px;">
           <button class="btn-ghost" id="btnSendWeeklyReportNow">Send Weekly Report Now</button>
           <button class="btn-ghost" id="btnSendMonthlyReportNow">Send Monthly Report Now</button>
@@ -12022,17 +12029,36 @@
     };
     document.getElementById("btnSavePrivateAlerts").onclick = async () => {
       const status = document.getElementById("tgPersonalStatus");
+      const chatIdValue = document.getElementById("tgPersonalChatId").value.trim();
+      if (chatIdValue && !/^-?\d{5,16}$/.test(chatIdValue)) {
+        status.textContent = /:/.test(chatIdValue) ? "That looks like a bot token. Enter your numeric chat id instead."
+          : "Enter the numeric chat id (digits only, 5-16 digits, e.g. 123456789).";
+        document.getElementById("tgPersonalChatId").classList.add("input-invalid");
+        return;
+      }
+      document.getElementById("tgPersonalChatId").classList.remove("input-invalid");
       status.textContent = "Saving...";
       try {
         await apiPost("/api/paper-trading/telegram/settings", {
-          personal_chat_id: document.getElementById("tgPersonalChatId").value.trim(),
+          personal_chat_id: chatIdValue,
         });
         await apiPost("/api/paper-trading/settings", {
           ntfy_topic: document.getElementById("ntfyTopic").value.trim(),
         });
         status.textContent = "Saved.";
       } catch (e) {
-        status.textContent = `Failed: ${e.message}`;
+        status.textContent = `Failed: ${plainApiError(e)}`;
+      }
+    };
+    document.getElementById("btnTestOwnerAlert").onclick = async () => {
+      // Owner-triggered only. One short message to the PRIVATE chat; the server enforces the 5-minute cooldown.
+      const status = document.getElementById("tgPersonalStatus");
+      status.textContent = "Sending test alert...";
+      try {
+        const r = await apiPost("/api/ops/test-owner-alert", {}, 60000);
+        status.textContent = r && r.ok ? "Test alert sent - check your private Telegram chat." : `Failed: ${(r && r.error) || "unknown error"}`;
+      } catch (e) {
+        status.textContent = `Failed: ${plainApiError(e)}`;
       }
     };
     document.getElementById("btnSendWeeklyReportNow").onclick = async () => {

@@ -2040,6 +2040,10 @@ def get_telegram_settings():
 
 @router.post("/api/paper-trading/telegram/settings")
 def update_telegram_settings(req: TelegramSettingsUpdate):
+    if req.personal_chat_id is not None:
+        ok, msg = telegram_bot.validate_chat_id(req.personal_chat_id)
+        if not ok:
+            raise HTTPException(status_code=422, detail=msg)
     telegram_bot.save_settings(**req.dict(exclude_unset=True))
     note = ""
     if req.master_send_enabled is not None:
