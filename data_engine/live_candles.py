@@ -58,7 +58,8 @@ _INTERVAL_MS = {
     "12h": 12 * 3_600_000, "1d": 86_400_000, "1w": 7 * 86_400_000,
 }
 
-_lock = threading.Lock()
+_lock = threading.Lock()          # guards the dicts below only; it is NOT held while talking to the exchange
+_key_locks = {}                   # (exchange, symbol, interval) -> Lock: one fetch per series at a time, different series in parallel
 _cache = {}  # (exchange, symbol, interval) -> DataFrame, _OUT_COLUMNS, sorted by time ascending
 
 
@@ -135,7 +136,11 @@ def get_ohlcv_live(exchange, symbol, interval, start_ms=None, end_ms=None):
     client = get_exchange_client(exchange)
 
     with _lock:
-        cached = _cache.get(key)
+        klock = _key_locks.setdefault(key, threading.Lock())
+
+    with klock:
+        with _lock:
+            cached = _cache.get(key)
 
         if cached is None or cached.empty or cached.index.min() > pd.to_datetime(start, unit="ms", utc=True):
             # No cache yet, or the cache doesn't reach far enough back to
@@ -158,7 +163,8 @@ def get_ohlcv_live(exchange, symbol, interval, start_ms=None, end_ms=None):
                 df = cached
 
         df = _trim(df, now)
-        _cache[key] = df
+        with _lock:
+            _cache[key] = df
 
     if df.empty:
         return df

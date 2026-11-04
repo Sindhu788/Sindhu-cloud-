@@ -367,6 +367,46 @@ class PaperTradingEngine:
         except Exception:
             pass
 
+    def _prefetch_candles(self, exchange, symbols, settings):
+        """Cold-start speed-up for the free plan. After a restart the in-memory candle cache is empty and the first scan downloads
+        20 days of candles for every (coin, timeframe) one request at a time (measured 15-17 min on Render, 3 Nov). This warms the SAME
+        series the coin loop will ask for, a few coins at a time, so the loop finds them in the cache. It only fills the cache: every
+        decision is still made in the loop, by the same code, on the same data, with the same gates. Bounded (SINDHU_PREFETCH_WORKERS,
+        default 4, 0 = off; OKX allows ~10 candle requests/s and each worker needs ~1.3/s) and best effort: any error is ignored and the
+        loop simply fetches that series itself, as before."""
+        try:
+            workers = int(os.environ.get('SINDHU_PREFETCH_WORKERS', '4'))
+        except ValueError:
+            workers = 4
+        if workers <= 0 or not LIVE_CANDLES_ONLY or len(symbols) < 2:
+            return
+        from concurrent.futures import ThreadPoolExecutor
+        from data_engine.resample import get_ohlcv
+        start_ms = signal_generator._lookback_start_ms(settings)
+        t0 = time.monotonic()
+        done = [0]
+
+        def one(sym):
+            try:
+                snap = market_state.classify(exchange, sym)
+                if not snap:
+                    return
+                wanted = set()
+                for st in strategy_matcher.relevant_strategies(sym, snap['market_state']):
+                    wanted.update(st['config'].timeframes.values())
+                for tf in sorted(wanted):          # each series once; the loop then finds it in the cache
+                    get_ohlcv(exchange, sym, tf, start_ms, None)
+            except Exception:
+                pass
+            finally:
+                done[0] += 1
+                self._beat('prefetch', idx=done[0], total=len(symbols), symbol=sym)
+
+        self._beat('prefetch', force=True, total=len(symbols))
+        with ThreadPoolExecutor(max_workers=min(workers, len(symbols)), thread_name_prefix='candle-prefetch') as pool:
+            list(pool.map(one, symbols))
+        self._log(f"[paper-trading] scan phase prefetch: {len(symbols)} coins warmed with {min(workers, len(symbols))} workers in {time.monotonic() - t0:.0f}s")
+
     def _recover_interrupted_scan(self):
         try:
             from paper_trading import scan_telemetry
@@ -501,6 +541,7 @@ class PaperTradingEngine:
         if not LIVE_CANDLES_ONLY:
             live_feed.refresh_coins(client, shortlisted_symbols, log=self._log)
 
+        self._prefetch_candles(exchange, shortlisted_symbols, settings)
         opened, closed, rejected = 0, 0, 0
         self._guards.release_all()
 
@@ -512,7 +553,7 @@ class PaperTradingEngine:
             self._scan_progress["current_symbol"] = symbol
             self._beat('coins', idx=self._scan_progress["index"], total=len(shortlist), symbol=symbol)
             if self._last_housekeeping_at is None or time.monotonic() - self._last_housekeeping_at >= 60:
-                self._housekeeping()   # do not make the 60 s signal sweep / watchdog wait for the whole scan
+                self._housekeeping(light=True)   # do not make the 60 s signal sweep / watchdog wait for the whole scan
             try:
                 snapshot = market_state.classify(exchange, symbol)
             except Exception as e:
@@ -582,18 +623,24 @@ class PaperTradingEngine:
         }
         self._emit({"type": "tick", "summary": self._last_summary, "at": self._last_tick_at})
 
-    def _housekeeping(self):
+    def _housekeeping(self, light=False):
         """Periodic duties (Telegram sweep, watchdog, reconciliation, DB guard, ...). Each has its own throttle. Called at the end of
         every scan AND at most once a minute from inside the coin loop, because a cold scan on the free plan can take many minutes
         and these duties (above all the 60 s fresh-signal sweep and the owner watchdog) must not wait for it. Same thread, so no new
         concurrency. Never raises."""
         self._last_housekeeping_at = time.monotonic()
+        t0 = time.monotonic()
         try:
-            self._housekeeping_impl()
+            self._housekeeping_impl(light)
+            if time.monotonic() - t0 > 5:
+                self._log(f"[paper-trading] housekeeping({'light' if light else 'full'}) took {time.monotonic() - t0:.0f}s")
         except Exception as e:
             self._log(f"[paper-trading] housekeeping error: {e!r}")
 
-    def _housekeeping_impl(self):
+    def _housekeeping_impl(self, light=False):
+        """light=True (called from inside the coin loop): only the time-critical duties - Telegram fresh-signal sweep, retry sweep,
+        owner watchdog/daily summary/reconciliation. The slow hourly jobs (backtest-vs-paper divergence, DB guard, win-rate decay,
+        custom alert rules) wait for the end of the scan, as before, so they can never hold up scanning."""
         # Task 4 (Batch 2): Telegram fresh-signal sweep -- throttled to
         # TELEGRAM_SWEEP_INTERVAL_SECONDS (see that constant's own comment
         # for why this now runs roughly once per tick rather than hourly).
@@ -612,7 +659,7 @@ class PaperTradingEngine:
 
         # Grand Feature Expansion, Phase 1 Feature 8: hourly Backtest-vs-
         # Paper Divergence check -- see DIVERGENCE_CHECK_INTERVAL_SECONDS.
-        if self._last_divergence_check_at is None or (now - self._last_divergence_check_at) >= DIVERGENCE_CHECK_INTERVAL_SECONDS:
+        if not light and (self._last_divergence_check_at is None or (now - self._last_divergence_check_at) >= DIVERGENCE_CHECK_INTERVAL_SECONDS):
             self._last_divergence_check_at = now
             try:
                 alerted = signal_tracker.check_and_alert_divergence()
@@ -646,7 +693,7 @@ class PaperTradingEngine:
                 self._log(f"[paper-trading] watchdog error: {e!r}")
 
         # Recovery: hourly database-size warning and bounded pruning of the scan-receipt log.
-        if self._last_db_guard_at is None or (now - self._last_db_guard_at) >= 3600:
+        if not light and (self._last_db_guard_at is None or (now - self._last_db_guard_at) >= 3600):
             self._last_db_guard_at = now
             try:
                 from data_engine import db_size_guard
@@ -657,7 +704,7 @@ class PaperTradingEngine:
 
         # Grand Feature Expansion, Phase 3 Feature 11: hourly Win-Rate
         # Decay Detection sweep -- see WIN_RATE_DECAY_SWEEP_INTERVAL_SECONDS.
-        if self._last_decay_sweep_at is None or (now - self._last_decay_sweep_at) >= WIN_RATE_DECAY_SWEEP_INTERVAL_SECONDS:
+        if not light and (self._last_decay_sweep_at is None or (now - self._last_decay_sweep_at) >= WIN_RATE_DECAY_SWEEP_INTERVAL_SECONDS):
             self._last_decay_sweep_at = now
             try:
                 decayed = insights.sweep_win_rate_decay_alerts()
@@ -668,7 +715,7 @@ class PaperTradingEngine:
 
         # Grand Feature Expansion, Phase 4 Feature 25: hourly Custom Alert
         # Rules sweep -- see CUSTOM_ALERT_RULES_SWEEP_INTERVAL_SECONDS.
-        if self._last_custom_alerts_sweep_at is None or (now - self._last_custom_alerts_sweep_at) >= CUSTOM_ALERT_RULES_SWEEP_INTERVAL_SECONDS:
+        if not light and (self._last_custom_alerts_sweep_at is None or (now - self._last_custom_alerts_sweep_at) >= CUSTOM_ALERT_RULES_SWEEP_INTERVAL_SECONDS):
             self._last_custom_alerts_sweep_at = now
             try:
                 triggered = custom_alerts.sweep_custom_alert_rules()
