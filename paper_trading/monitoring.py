@@ -19,6 +19,7 @@ SCAN_STALL_MIN = int(os.environ.get("SINDHU_SCAN_STALL_MIN", "20"))
 SEND_FAIL_THRESHOLD = 3
 ERROR_SPIKE_SCANS = 3
 _STATE_KEY = "owner_alert_state"
+CODE_INTERVAL_MIN = {"restarted": 360}   # a free instance restarts on every wake: tell the owner at most every 6 h
 
 
 class Limiter:
@@ -71,30 +72,47 @@ class Watchdog:
                 self.active.discard(code)
                 out.append(("recovery", code, msg))
 
+        # Free-plan instances are stopped when idle and started fresh on the next request. For WAKE_GRACE seconds after a (re)start,
+        # or after the process was frozen, empty live-candle caches and a first cold scan are EXPECTED, so the stale-data and
+        # scanner-stalled alerts neither fire nor count. Real problems outlive the grace period and then alert as usual.
+        grace = bool(snap.get("in_wake_grace"))
+
         # --- stale data (needs N consecutive checks; recovery needs M clean ones)
-        if snap.get("stale_rejections_recent", 0) > 0:
+        if grace:
+            pass
+        elif snap.get("stale_rejections_recent", 0) > 0:
             self.stale_streak += 1
             self.clean_streak = 0
         else:
             self.clean_streak += 1
             if self.clean_streak >= RECOVER_STREAK:
                 self.stale_streak = 0
-        if self.stale_streak >= STALE_STREAK_TO_ALERT and snap.get("stale_rejections_recent", 0) > 0:
+        if grace:
+            pass
+        elif self.stale_streak >= STALE_STREAK_TO_ALERT and snap.get("stale_rejections_recent", 0) > 0:
             raise_("stale_data", f"Live market data has been stale/empty for {self.stale_streak} checks in a row. "
                                  "New signals are blocked until it is fresh again.")
         elif self.stale_streak == 0:
             clear("stale_data", "Market data is fresh again. Signals can resume.")
 
         # --- scanner stalled / engine stopped
-        age = snap.get("seconds_since_last_scan")
+        # "age" = time since the scanner last showed ANY sign of life (a finished scan, or progress inside a running scan, or the
+        # process start). A long cold scan that is still moving is slow, not stalled.
+        age = snap.get("seconds_since_activity", snap.get("seconds_since_last_scan"))
         if snap.get("engine_enabled") and not snap.get("engine_running"):
             raise_("engine_stopped", "Paper trading engine is enabled but NOT running.")
         else:
             clear("engine_stopped", "Paper trading engine is running again.")
-        if snap.get("engine_running") and age is not None and age > SCAN_STALL_MIN * 60:
-            raise_("scanner_stalled", f"No market scan has finished for {int(age // 60)} min (limit {SCAN_STALL_MIN}).")
-        else:
-            clear("scanner_stalled", "Scanner is completing scans again.")
+        if grace:
+            pass
+        elif snap.get("engine_running") and age is not None and age > SCAN_STALL_MIN * 60:
+            ping = snap.get("seconds_since_external_ping")
+            ping_txt = ("no external pinger seen since this restart" if ping is None
+                        else f"last external ping {int(ping // 60)} min ago")
+            raise_("scanner_stalled", f"The engine is running but showed no scan progress for {int(age // 60)} min "
+                                      f"(limit {SCAN_STALL_MIN}); {ping_txt}.")
+        elif age is not None and age <= SCAN_STALL_MIN * 60:
+            clear("scanner_stalled", "Scanner is making progress again.")
 
         # --- Telegram send failures
         if snap.get("telegram_failures_recent", 0) >= SEND_FAIL_THRESHOLD:
@@ -126,7 +144,7 @@ def deliver(events, limiter, send, prefix="SINDHU monitor"):
     results = []
     for kind, code, msg in events:
         key = code if kind == "alert" else f"recovery:{code}"
-        if kind == "alert" and not limiter.allow(code):
+        if kind == "alert" and not limiter.allow(code, CODE_INTERVAL_MIN.get(code, DEFAULT_INTERVAL_MIN)):
             results.append((code, False))
             continue
         if kind == "recovery" and limiter.allow(code, DEFAULT_INTERVAL_MIN * 24 * 365):
@@ -212,7 +230,36 @@ def collect_snapshot(engine_obj, started_recently=False):
         except Exception:
             pass
     snap["just_restarted"] = started_recently
+    # Sleep-awareness (see Watchdog.check): sign-of-life age, wake grace, external pinger.
+    try:
+        from paper_trading import instance_state
+        now = time.time()
+        marks = [now - instance_state.PROCESS_STARTED_AT]
+        if snap["seconds_since_last_scan"] is not None:
+            marks.append(snap["seconds_since_last_scan"])
+        act = getattr(engine_obj, "_scan_activity_ts", None)
+        if act:
+            marks.append(now - act)
+        snap["seconds_since_activity"] = min(marks)
+        snap["in_wake_grace"] = instance_state.in_wake_grace(now) or _frozen_recently(now)
+        snap["seconds_since_external_ping"] = instance_state.ping_summary(now)["seconds_since_last_external_ping"]
+    except Exception:
+        pass
     return snap
+
+
+_last_check_wall = None
+FROZEN_GAP_SECONDS = 180      # the watchdog runs about once a minute; a much longer gap means the process was frozen/suspended
+_grace_until = 0.0
+
+
+def _frozen_recently(now):
+    """True while inside a wake grace opened by a long gap between watchdog runs (process was suspended, e.g. a sleeping host)."""
+    global _last_check_wall, _grace_until
+    if _last_check_wall is not None and now - _last_check_wall > FROZEN_GAP_SECONDS:
+        _grace_until = now + 600
+    _last_check_wall = now
+    return now < _grace_until
 
 
 _watchdog = Watchdog()

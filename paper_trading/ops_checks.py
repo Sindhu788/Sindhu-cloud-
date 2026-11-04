@@ -86,6 +86,17 @@ def collect_warnings(now=None):
                 out.append({"level": "warning", "code": "no_owner_chat", "message": "Owner alerts are OFF: set your private chat id in Settings > Telegram (personal_chat_id) to receive watchdog alerts and the daily health summary."})
         except Exception:
             pass
+    if cloud:
+        try:
+            from paper_trading import instance_state
+            ps = instance_state.ping_summary(now)
+            if not ps["pinger_active"] and ps["process_age_seconds"] > 900:
+                seen = ps["seconds_since_last_external_ping"]
+                out.append({"level": "warning", "code": "no_pinger",
+                            "message": "No external pinger seen on /health" + ("" if seen is None else f" (last ping {int(seen // 60)} min ago)")
+                                       + ": the free Render instance will sleep when idle and scans stop. See docs/PINGER_SETUP.md."})
+        except Exception:
+            pass
     summary = market_data_guard.rejection_summary()
     if summary["rejected_in_window"]:
         out.append({"level": "warning", "code": "market_data_rejected",

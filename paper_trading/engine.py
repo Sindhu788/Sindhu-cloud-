@@ -135,6 +135,7 @@ class PaperTradingEngine:
         self._last_tick_at = None
         self._last_housekeeping_at = None
         self._scan_id = None
+        self._scan_activity_ts = None
         self._last_summary = {"shortlisted": [], "opened": 0, "closed": 0, "rejected": 0}
         self._tick_count = 0
         self._started_at = None
@@ -354,6 +355,7 @@ class PaperTradingEngine:
     # ------------------------------------------------------------ loop
     def _beat(self, phase, force=False, **kw):
         """Best-effort scan heartbeat (see scan_telemetry.beat). Never raises, never blocks the scan for long."""
+        self._scan_activity_ts = time.time()      # in-memory sign of life, read by the watchdog (no DB needed)
         cs = self._current_scan
         if cs is None:
             return
