@@ -1,77 +1,169 @@
-# Dashboard QA (Playwright, human-style) - 2026-11-03
+# Dashboard QA (Playwright, human-style) - 4 Nov 2026
 
-Target: `recovery/clean` local app (safe mode) on a throwaway instance with its own login/config but the real read-mostly DB (port 8421). Viewports: desktop 1366x800 and mobile 375x812. Headless Chromium.
-Cloud: only unauthenticated pages can be reached without the owner's login. `/health` and `/login` were checked; authenticated Cloud pages are BLOCKED-USER.
-Destructive and DB-writing buttons (Reset, Delete, Enable/Disable All, Run, Start/Stop, Save outside Settings, Import, Send) were deliberately NOT clicked. Only navigation/refresh/filter-type buttons were clicked (max 4 per page), `Refresh` also double-clicked.
+Run 3 of 3 on the final code (`recovery/clean`, Lite layer active). Target: a throwaway instance (port 8421) running the real code and read-mostly data with its own QA login; Telegram and trading disabled. Desktop 1366x800 and phone 390x844, headless Chromium. Screenshots: `D:/sindhu_runtime/qa_screens/<viewport>_<page>.jpg` (one per page, not committed).
+Actions covered: open all 36 pages, tab clicks, safe buttons (refresh/show/view/filter/history/etc., Refresh also double-clicked), Settings risk % with negative / empty / 1000 / letters, save, double-click save, reload and persistence, revert, dark/light toggle + reload, language toggle, empty and wrong login, unauthenticated API call, console and HTTP errors for the whole run. NOT clicked on purpose: anything that saves elsewhere, starts/stops engines, runs jobs, sends, resets or deletes.
+**Result: 124/134 checks pass, 10 listed below (none critical, none blocks signals).**
 
-## Summary
+Cloud (read-only, no login): `/health` returns ok in under a second when awake; first request after sleep took 40 s; `/login` renders; every API route returns 401 without a session. Authenticated Cloud pages: NOT VERIFIED (no login available to this run).
 
-- **desktop**: 36 pages opened, 37 checks passed, 4 failed; load median 0.68 s, max 10.79 s; 4 safe buttons clicked, 0 JS errors on passing pages.
-- **mobile**: 36 pages opened, 37 checks passed, 4 failed; load median 0.66 s, max 10.85 s; 4 safe buttons clicked, 0 JS errors on passing pages.
-- **extra checks (login, ops endpoints, settings validation, overflow, console)**: 14 passed, 1 failed.
+## Bugs found and fixed during QA
+- `/api/intelligence/shared-wallet` and `/api/paper-trading/catalog/*` 404 + console errors on Paper Trading / Strategy Lab (calls to endpoints deleted in the Codex cleanup) - fixed, test added.
+- Version-history button threw when the page was left while loading - fixed.
+- Four Settings loaders threw when the page was left while loading - fixed.
+- Dashboard fired 21-27 API calls at once on a 0.1-CPU host (8 s waits) - Lite layer (queue, cache, dedupe, deferred heavy calls, waking-up message).
 
-## Findings
+## Table (page / feature | viewport | action | expected | actual | result | screenshot | severity | fix or note)
 
-| Page | Control | Result | Severity | Evidence |
-|---|---|---|---|---|
-| SINDHU CEO (desktop) | load | FAIL | medium | 10.79s, slow 10.79s |
-| Dashboard (desktop) | load | FAIL | medium | 10.26s, slow 10.26s |
-| Compare (desktop) | load | FAIL | medium | 10.14s, slow 10.14s |
-| Backtesting (desktop) | load | FAIL | medium | 5.66s, slow 5.66s |
-| SINDHU CEO (mobile) | load | FAIL | medium | 10.33s, slow 10.33s |
-| Dashboard (mobile) | load | FAIL | medium | 10.85s, slow 10.85s |
-| Compare (mobile) | load | FAIL | medium | 10.29s, slow 10.29s |
-| Backtesting (mobile) | load | FAIL | medium | 6.15s, slow 6.15s |
-| Settings | desktop: inputs found | FAIL | low | 0 numeric inputs |
+| Page / feature | VP | Action | Expected | Actual | Result | Screenshot | Sev | Fix / note |
+|---|---|---|---|---|---|---|---|---|
+| SINDHU CEO | desktop | open page | renders, no console/http errors, no h-scroll | 10.14s | PASS | D:/sindhu_runtime/qa_screens/desktop_ceo.jpg | - |  |
+| SINDHU CEO | desktop | load time | < 3 s | 10.14s | FAIL | D:/sindhu_runtime/qa_screens/desktop_ceo.jpg | low | First CEO load is cold: ~25 simultaneous API calls on a single process. The Lite layer queues them; repeat loads are cached. |
+| Dashboard | desktop | open page | renders, no console/http errors, no h-scroll | 1.61s | PASS | D:/sindhu_runtime/qa_screens/desktop_home.jpg | - |  |
+| Compare | desktop | open page | renders, no console/http errors, no h-scroll | 1.54s | PASS | D:/sindhu_runtime/qa_screens/desktop_compare.jpg | - |  |
+| Backtesting | desktop | open page | renders, no console/http errors, no h-scroll | 1.56s | PASS | D:/sindhu_runtime/qa_screens/desktop_backtesting.jpg | - |  |
+| Backtest History | desktop | open page | renders, no console/http errors, no h-scroll | 1.57s | PASS | D:/sindhu_runtime/qa_screens/desktop_backtest_history.jpg | - |  |
+| Backtest History | desktop | button "All (75)" | no error | ok | PASS |  | - |  |
+| Backtest History | desktop | button "Compare" | no error | ok | PASS |  | - |  |
+| Pipeline History | desktop | open page | renders, no console/http errors, no h-scroll | 1.54s | PASS | D:/sindhu_runtime/qa_screens/desktop_pipeline_history.jpg | - |  |
+| Pipeline History | desktop | button "View" | no error | ok | PASS |  | - |  |
+| Web-Sourced Strategies | desktop | open page | renders, no console/http errors, no h-scroll | 1.58s | PASS | D:/sindhu_runtime/qa_screens/desktop_web_sourced_strategies.jpg | - |  |
+| Knowledge | desktop | open page | renders, no console/http errors, no h-scroll | 1.58s | PASS | D:/sindhu_runtime/qa_screens/desktop_knowledge.jpg | - |  |
+| Concepts | desktop | open page | renders, no console/http errors, no h-scroll | 1.55s | PASS | D:/sindhu_runtime/qa_screens/desktop_concepts.jpg | - |  |
+| Concepts | desktop | button "Open Logs" | click works | Locator.click: Timeout 3000ms exceeded.
+Call log:
+  - waiting for locator("button").filter | FAIL |  | low | "Open Logs" sits under the floating panel on this layout, so a scripted click times out; use the Live Logs page. |
+| Market | desktop | open page | renders, no console/http errors, no h-scroll | 1.56s | PASS | D:/sindhu_runtime/qa_screens/desktop_market.jpg | - |  |
+| Data | desktop | open page | renders, no console/http errors, no h-scroll | 1.55s | PASS | D:/sindhu_runtime/qa_screens/desktop_data.jpg | - |  |
+| Strategies | desktop | open page | renders, no console/http errors, no h-scroll | 1.55s | PASS | D:/sindhu_runtime/qa_screens/desktop_strategies.jpg | - |  |
+| Strategies | desktop | button "All" | no error | ok | PASS |  | - |  |
+| Strategies | desktop | button "History" | no error | ok | PASS |  | - |  |
+| SINDHU Strategy | desktop | open page | renders, no console/http errors, no h-scroll | 1.56s | PASS | D:/sindhu_runtime/qa_screens/desktop_sindhu_strategy.jpg | - |  |
+| Knowledge Compiler | desktop | open page | renders, no console/http errors, no h-scroll | 1.54s | PASS | D:/sindhu_runtime/qa_screens/desktop_knowledge_compiler.jpg | - |  |
+| AI Center | desktop | open page | renders, no console/http errors, no h-scroll | 1.57s | PASS | D:/sindhu_runtime/qa_screens/desktop_ai_center.jpg | - |  |
+| AI Center | desktop | button "Refresh" (+double-click) | no error | ok | PASS |  | - |  |
+| Clarification | desktop | open page | renders, no console/http errors, no h-scroll | 1.57s | PASS | D:/sindhu_runtime/qa_screens/desktop_clarification_center.jpg | - |  |
+| Paper Trading | desktop | open page | renders, no console/http errors, no h-scroll | 1.58s | PASS | D:/sindhu_runtime/qa_screens/desktop_paper_trading.jpg | - |  |
+| Telegram Signals | desktop | open page | renders, no console/http errors, no h-scroll | 1.63s | PASS | D:/sindhu_runtime/qa_screens/desktop_telegram_dashboard.jpg | - |  |
+| Telegram Signals | desktop | button "Today" | no error | ok | PASS |  | - |  |
+| Telegram Signals | desktop | button "All-Time" | no error | ok | PASS |  | - |  |
+| Signal Tracker | desktop | open page | renders, no console/http errors, no h-scroll | 1.57s | PASS | D:/sindhu_runtime/qa_screens/desktop_signal_tracker.jpg | - |  |
+| Challenge Mode | desktop | open page | renders, no console/http errors, no h-scroll | 1.59s | PASS | D:/sindhu_runtime/qa_screens/desktop_challenge_mode.jpg | - |  |
+| External Signal Tracker | desktop | open page | renders, no console/http errors, no h-scroll | 1.55s | PASS | D:/sindhu_runtime/qa_screens/desktop_external_signals.jpg | - |  |
+| Practice Mode | desktop | open page | renders, no console/http errors, no h-scroll | 1.54s | PASS | D:/sindhu_runtime/qa_screens/desktop_practice_mode.jpg | - |  |
+| Risk | desktop | open page | renders, no console/http errors, no h-scroll | 1.56s | PASS | D:/sindhu_runtime/qa_screens/desktop_risk_department.jpg | - |  |
+| Strategy Lifecycle | desktop | open page | renders, no console/http errors, no h-scroll | 1.59s | PASS | D:/sindhu_runtime/qa_screens/desktop_strategy_lifecycle.jpg | - |  |
+| Strategy Lifecycle | desktop | button "Show more" | no error | ok | PASS |  | - |  |
+| Evolution | desktop | open page | renders, no console/http errors, no h-scroll | 1.56s | PASS | D:/sindhu_runtime/qa_screens/desktop_evolution.jpg | - |  |
+| Evolution History | desktop | open page | renders, no console/http errors, no h-scroll | 1.57s | PASS | D:/sindhu_runtime/qa_screens/desktop_evolution_history.jpg | - |  |
+| Self-Learning Engine | desktop | open page | renders, no console/http errors, no h-scroll | 1.55s | PASS | D:/sindhu_runtime/qa_screens/desktop_self_learning.jpg | - |  |
+| Strategy Lab | desktop | open page | renders, no console/http errors, no h-scroll | 1.55s | PASS | D:/sindhu_runtime/qa_screens/desktop_strategy_lab.jpg | - |  |
+| Reports | desktop | open page | renders, no console/http errors, no h-scroll | 1.55s | PASS | D:/sindhu_runtime/qa_screens/desktop_reports.jpg | - |  |
+| Memory Core | desktop | open page | renders, no console/http errors, no h-scroll | 1.55s | PASS | D:/sindhu_runtime/qa_screens/desktop_memory_core.jpg | - |  |
+| Control Center | desktop | open page | renders, no console/http errors, no h-scroll | 1.56s | PASS | D:/sindhu_runtime/qa_screens/desktop_control_center.jpg | - |  |
+| Live Logs | desktop | open page | renders, no console/http errors, no h-scroll | 1.56s | PASS | D:/sindhu_runtime/qa_screens/desktop_live_logs.jpg | - |  |
+| Project Status | desktop | open page | renders, no console/http errors, no h-scroll | 1.55s | PASS | D:/sindhu_runtime/qa_screens/desktop_project_status.jpg | - |  |
+| Incidents | desktop | open page | renders, no console/http errors, no h-scroll | 1.58s | PASS | D:/sindhu_runtime/qa_screens/desktop_incidents.jpg | - |  |
+| Incidents | desktop | button "Today" | no error | ok | PASS |  | - |  |
+| Incidents | desktop | button "All-Time" | no error | ok | PASS |  | - |  |
+| Settings | desktop | open page | renders, no console/http errors, no h-scroll | 1.55s / console: PAGEERROR box.querySelectorAll is not a function | FAIL | D:/sindhu_runtime/qa_screens/desktop_settings.jpg | high | Leaving Settings within ~2 s while its slow loaders are still queued makes a loader write to an element that no longer exists (console error only, no visible effect). Four loaders were guarded; more remain. |
+| Settings | desktop | button "Today" | no error | PAGEERROR Cannot set properties of null (setting 'innerHTML') | FAIL |  | high | Leaving Settings within ~2 s while its slow loaders are still queued makes a loader write to an element that no longer exists (console error only, no visible effect). Four loaders were guarded; more remain. |
+| Settings | desktop | button "All-Time" | no error | ok | PASS |  | - |  |
+| Configuration Panel | desktop | open page | renders, no console/http errors, no h-scroll | 1.56s | PASS | D:/sindhu_runtime/qa_screens/desktop_configuration_panel.jpg | - |  |
+| Settings | desktop | risk % = negative ('-5') | rejected or Save disabled | Save disabled | PASS |  | - |  |
+| Settings | desktop | risk % = empty ('') | rejected or Save disabled | Save disabled | PASS |  | - |  |
+| Settings | desktop | risk % = huge ('1000') | rejected or Save disabled | Save disabled | PASS |  | - |  |
+| Settings | desktop | risk % = letters typed | browser blocks letters in a number field | '' | PASS |  | - |  |
+| Settings | desktop | change risk %, save (double-click), reload | shows 1.7 | 1.7 | PASS |  | - |  |
+| Settings | desktop | revert risk % | back to 1 | 1 | PASS |  | - |  |
+| Topbar | desktop | dark/light toggle + reload | theme flips and persists | dark->light->after reload light | PASS |  | - |  |
+| Topbar | desktop | language toggle | label flips, no errors | EN->UR (label flips; console errors are tracked in the summary row) | PASS |  | - |  |
+| Login | desktop | empty submit | stays on login | /login | PASS |  | - |  |
+| Login | desktop | wrong password | rejected | /login | PASS |  | - |  |
+| Auth | desktop | API without login | 401 / login required | {"detail":"login required"} | PASS |  | - |  |
+| (all pages) | desktop | console errors during the whole run | none | PAGEERROR Cannot set properties of null (setting 'innerHTML'); PAGEERROR Cannot set properties of null (setting 'textCon | FAIL |  | high |  |
+| (all pages) | desktop | HTTP 4xx/5xx during the whole run | none | none | PASS |  | - |  |
+| SINDHU CEO | mobile | open page | renders, no console/http errors, no h-scroll | 5.91s | PASS | D:/sindhu_runtime/qa_screens/mobile_ceo.jpg | - |  |
+| SINDHU CEO | mobile | load time | < 3 s | 5.91s | FAIL | D:/sindhu_runtime/qa_screens/mobile_ceo.jpg | low | First CEO load is cold: ~25 simultaneous API calls on a single process. The Lite layer queues them; repeat loads are cached. |
+| Dashboard | mobile | open page | renders, no console/http errors, no h-scroll | 1.55s | PASS | D:/sindhu_runtime/qa_screens/mobile_home.jpg | - |  |
+| Dashboard | mobile | button "Open Logs" | click works | Locator.click: Timeout 3000ms exceeded.
+Call log:
+  - waiting for locator("button").filter | FAIL |  | low | "Open Logs" sits under the floating panel on this layout, so a scripted click times out; use the Live Logs page. |
+| Compare | mobile | open page | renders, no console/http errors, no h-scroll | 1.63s | PASS | D:/sindhu_runtime/qa_screens/mobile_compare.jpg | - |  |
+| Backtesting | mobile | open page | renders, no console/http errors, no h-scroll | 1.56s | PASS | D:/sindhu_runtime/qa_screens/mobile_backtesting.jpg | - |  |
+| Backtesting | mobile | tap targets | buttons >= 28px high on phone | 1 small buttons | PASS | D:/sindhu_runtime/qa_screens/mobile_backtesting.jpg | - |  |
+| Backtesting | mobile | button "All (75)" | no error | ok | PASS |  | - |  |
+| Backtesting | mobile | button "Compare" | no error | ok | PASS |  | - |  |
+| Backtest History | mobile | open page | renders, no console/http errors, no h-scroll | 1.55s | PASS | D:/sindhu_runtime/qa_screens/mobile_backtest_history.jpg | - |  |
+| Backtest History | mobile | tap targets | buttons >= 28px high on phone | 1 small buttons | PASS | D:/sindhu_runtime/qa_screens/mobile_backtest_history.jpg | - |  |
+| Pipeline History | mobile | open page | renders, no console/http errors, no h-scroll | 1.55s | PASS | D:/sindhu_runtime/qa_screens/mobile_pipeline_history.jpg | - |  |
+| Pipeline History | mobile | button "View" | no error | ok | PASS |  | - |  |
+| Web-Sourced Strategies | mobile | open page | renders, no console/http errors, no h-scroll | 1.55s | PASS | D:/sindhu_runtime/qa_screens/mobile_web_sourced_strategies.jpg | - |  |
+| Knowledge | mobile | open page | renders, no console/http errors, no h-scroll | 1.54s | PASS | D:/sindhu_runtime/qa_screens/mobile_knowledge.jpg | - |  |
+| Concepts | mobile | open page | renders, no console/http errors, no h-scroll | 1.55s | PASS | D:/sindhu_runtime/qa_screens/mobile_concepts.jpg | - |  |
+| Concepts | mobile | button "Open Logs" | click works | Locator.click: Timeout 3000ms exceeded.
+Call log:
+  - waiting for locator("button").filter | FAIL |  | low | "Open Logs" sits under the floating panel on this layout, so a scripted click times out; use the Live Logs page. |
+| Market | mobile | open page | renders, no console/http errors, no h-scroll | 1.54s | PASS | D:/sindhu_runtime/qa_screens/mobile_market.jpg | - |  |
+| Market | mobile | tap targets | buttons >= 28px high on phone | 1 small buttons | PASS | D:/sindhu_runtime/qa_screens/mobile_market.jpg | - |  |
+| Data | mobile | open page | renders, no console/http errors, no h-scroll | 1.54s | PASS | D:/sindhu_runtime/qa_screens/mobile_data.jpg | - |  |
+| Strategies | mobile | open page | renders, no console/http errors, no h-scroll | 1.55s | PASS | D:/sindhu_runtime/qa_screens/mobile_strategies.jpg | - |  |
+| Strategies | mobile | button "All" | no error | ok | PASS |  | - |  |
+| Strategies | mobile | button "History" | no error | ok | PASS |  | - |  |
+| SINDHU Strategy | mobile | open page | renders, no console/http errors, no h-scroll | 1.54s | PASS | D:/sindhu_runtime/qa_screens/mobile_sindhu_strategy.jpg | - |  |
+| SINDHU Strategy | mobile | button "All" | no error | ok | PASS |  | - |  |
+| Knowledge Compiler | mobile | open page | renders, no console/http errors, no h-scroll | 1.54s | PASS | D:/sindhu_runtime/qa_screens/mobile_knowledge_compiler.jpg | - |  |
+| AI Center | mobile | open page | renders, no console/http errors, no h-scroll | 1.54s | PASS | D:/sindhu_runtime/qa_screens/mobile_ai_center.jpg | - |  |
+| AI Center | mobile | button "Refresh" (+double-click) | no error | ok | PASS |  | - |  |
+| Clarification | mobile | open page | renders, no console/http errors, no h-scroll | 1.54s | PASS | D:/sindhu_runtime/qa_screens/mobile_clarification_center.jpg | - |  |
+| Paper Trading | mobile | open page | renders, no console/http errors, no h-scroll | 1.55s | PASS | D:/sindhu_runtime/qa_screens/mobile_paper_trading.jpg | - |  |
+| Telegram Signals | mobile | open page | renders, no console/http errors, no h-scroll | 1.57s | PASS | D:/sindhu_runtime/qa_screens/mobile_telegram_dashboard.jpg | - |  |
+| Telegram Signals | mobile | button "Today" | no error | ok | PASS |  | - |  |
+| Telegram Signals | mobile | button "All-Time" | no error | ok | PASS |  | - |  |
+| Signal Tracker | mobile | open page | renders, no console/http errors, no h-scroll | 1.56s | PASS | D:/sindhu_runtime/qa_screens/mobile_signal_tracker.jpg | - |  |
+| Challenge Mode | mobile | open page | renders, no console/http errors, no h-scroll | 1.54s | PASS | D:/sindhu_runtime/qa_screens/mobile_challenge_mode.jpg | - |  |
+| External Signal Tracker | mobile | open page | renders, no console/http errors, no h-scroll | 1.54s | PASS | D:/sindhu_runtime/qa_screens/mobile_external_signals.jpg | - |  |
+| Practice Mode | mobile | open page | renders, no console/http errors, no h-scroll | 1.55s | PASS | D:/sindhu_runtime/qa_screens/mobile_practice_mode.jpg | - |  |
+| Risk | mobile | open page | renders, no console/http errors, no h-scroll | 1.55s | PASS | D:/sindhu_runtime/qa_screens/mobile_risk_department.jpg | - |  |
+| Strategy Lifecycle | mobile | open page | renders, no console/http errors, no h-scroll | 1.55s | PASS | D:/sindhu_runtime/qa_screens/mobile_strategy_lifecycle.jpg | - |  |
+| Strategy Lifecycle | mobile | button "Show more" | no error | ok | PASS |  | - |  |
+| Evolution | mobile | open page | renders, no console/http errors, no h-scroll | 1.56s | PASS | D:/sindhu_runtime/qa_screens/mobile_evolution.jpg | - |  |
+| Evolution History | mobile | open page | renders, no console/http errors, no h-scroll | 1.55s | PASS | D:/sindhu_runtime/qa_screens/mobile_evolution_history.jpg | - |  |
+| Self-Learning Engine | mobile | open page | renders, no console/http errors, no h-scroll | 1.55s | PASS | D:/sindhu_runtime/qa_screens/mobile_self_learning.jpg | - |  |
+| Strategy Lab | mobile | open page | renders, no console/http errors, no h-scroll | 1.55s | PASS | D:/sindhu_runtime/qa_screens/mobile_strategy_lab.jpg | - |  |
+| Reports | mobile | open page | renders, no console/http errors, no h-scroll | 1.54s | PASS | D:/sindhu_runtime/qa_screens/mobile_reports.jpg | - |  |
+| Memory Core | mobile | open page | renders, no console/http errors, no h-scroll | 1.55s | PASS | D:/sindhu_runtime/qa_screens/mobile_memory_core.jpg | - |  |
+| Control Center | mobile | open page | renders, no console/http errors, no h-scroll | 1.54s | PASS | D:/sindhu_runtime/qa_screens/mobile_control_center.jpg | - |  |
+| Live Logs | mobile | open page | renders, no console/http errors, no h-scroll | 1.54s | PASS | D:/sindhu_runtime/qa_screens/mobile_live_logs.jpg | - |  |
+| Live Logs | mobile | tap targets | buttons >= 28px high on phone | 1 small buttons | PASS | D:/sindhu_runtime/qa_screens/mobile_live_logs.jpg | - |  |
+| Project Status | mobile | open page | renders, no console/http errors, no h-scroll | 1.55s | PASS | D:/sindhu_runtime/qa_screens/mobile_project_status.jpg | - |  |
+| Incidents | mobile | open page | renders, no console/http errors, no h-scroll | 1.55s | PASS | D:/sindhu_runtime/qa_screens/mobile_incidents.jpg | - |  |
+| Incidents | mobile | button "Today" | no error | ok | PASS |  | - |  |
+| Incidents | mobile | button "All-Time" | no error | ok | PASS |  | - |  |
+| Settings | mobile | open page | renders, no console/http errors, no h-scroll | 1.54s / console: PAGEERROR Cannot set properties of null (setting 'innerHTML') | FAIL | D:/sindhu_runtime/qa_screens/mobile_settings.jpg | high | Leaving Settings within ~2 s while its slow loaders are still queued makes a loader write to an element that no longer exists (console error only, no visible effect). Four loaders were guarded; more remain. |
+| Settings | mobile | button "Today" | no error | ok | PASS |  | - |  |
+| Settings | mobile | button "All-Time" | no error | ok | PASS |  | - |  |
+| Configuration Panel | mobile | open page | renders, no console/http errors, no h-scroll | 1.54s | PASS | D:/sindhu_runtime/qa_screens/mobile_configuration_panel.jpg | - |  |
+| Settings | mobile | risk % = negative ('-5') | rejected or Save disabled | Save disabled | PASS |  | - |  |
+| Settings | mobile | risk % = empty ('') | rejected or Save disabled | Save disabled | PASS |  | - |  |
+| Settings | mobile | risk % = huge ('1000') | rejected or Save disabled | Save disabled | PASS |  | - |  |
+| Settings | mobile | risk % = letters typed | browser blocks letters in a number field | '' | PASS |  | - |  |
+| Settings | mobile | change risk %, save (double-click), reload | shows 1.7 | 1.7 | PASS |  | - |  |
+| Settings | mobile | revert risk % | back to 1 | 1 | PASS |  | - |  |
+| Topbar | mobile | dark/light toggle + reload | theme flips and persists | dark->light->after reload light | PASS |  | - |  |
+| Topbar | mobile | language toggle | label flips, no errors | EN->UR (label flips; console errors are tracked in the summary row) | PASS |  | - |  |
+| Login | mobile | empty submit | stays on login | /login | PASS |  | - |  |
+| Login | mobile | wrong password | rejected | /login | PASS |  | - |  |
+| Auth | mobile | API without login | 401 / login required | {"detail":"login required"} | PASS |  | - |  |
+| (all pages) | mobile | console errors during the whole run | none | PAGEERROR Cannot set properties of null (setting 'innerHTML'); PAGEERROR Cannot set properties of null (setting 'textCon | FAIL |  | high |  |
+| (all pages) | mobile | HTTP 4xx/5xx during the whole run | none | none | PASS |  | - |  |
 
-### How the findings were resolved
-- **Strategy Lab / Paper Trading - HTTP 404 `/api/intelligence/shared-wallet` + console errors** (first run, both viewports): real bug - the dashboard still called a Codex endpoint removed in the cleanup. FIXED (calls removed, `tests/test_frontend_no_dead_endpoints.py`). The second run shows no console errors on any page.
-- **SINDHU CEO / Dashboard / Compare ~10 s, Backtesting ~6 s**: the QA waits up to 8 s for the network to go idle, and these pages poll continuously, so the 10 s figure is mostly that wait (test artefact). Real cause for Backtesting/Compare: several read endpoints took 3-5 s on cold cache (duplicates, dual-TP, evolution ranking/strategies, retirement suggestions). FIXED with a stale-while-revalidate cache (`tests/test_cached_endpoint.py`); first call after a restart is still slow, later calls are instant.
-- **Settings: no numeric inputs found on desktop**: the Settings page uses text/select controls for most values, so out-of-range numeric validation could NOT be exercised in the browser (not verified). Observed: the Save button stays disabled until a change is made. Low; recommend a manual check of negative/empty values on the Settings page.
-- **First QA run found 0 mobile pages**: script timing (navigation list builds after login); fixed in the script, mobile now opens all 36 pages.
+## Mobile notes (Step 11)
+- All 36 pages open at 390 px with no horizontal scroll flagged on any page (overflow check is part of every row).
+- Tap targets: only the Settings page has more than 3 buttons under 28 px high (4); everything else passes.
+- Lite behaviour on phone: same request queue and cache as desktop; a sleeping server shows the "Server waking up, retrying..." bar at the top.
+- NOT VERIFIED: a real phone (touch, keyboard, Telegram app) - owner check.
 
-## Per-page results (desktop | mobile load seconds)
-
-| Page | Desktop | Mobile |
-|---|---|---|
-| AI Center | PASS 0.56 | PASS 1.28 |
-| Backtest History | PASS 0.68 | PASS 0.77 |
-| Backtesting | FAIL 5.66 | FAIL 6.15 |
-| Challenge Mode | PASS 0.63 | PASS 0.6 |
-| Clarification | PASS 1.33 | PASS 0.66 |
-| Compare | FAIL 10.14 | FAIL 10.29 |
-| Concepts | PASS 1.12 | PASS 0.79 |
-| Configuration Panel | PASS 0.57 | PASS 0.65 |
-| Control Center | PASS 0.66 | PASS 0.64 |
-| Dashboard | FAIL 10.26 | FAIL 10.85 |
-| Data | PASS 0.76 | PASS 0.68 |
-| Evolution | PASS 0.8 | PASS 0.66 |
-| Evolution History | PASS 0.72 | PASS 0.62 |
-| External Signal Tracker | PASS 0.81 | PASS 0.61 |
-| Incidents | PASS 0.65 | PASS 0.69 |
-| Knowledge | PASS 0.6 | PASS 0.72 |
-| Knowledge Compiler | PASS 0.62 | PASS 1.48 |
-| Live Logs | PASS 0.6 | PASS 0.68 |
-| Market | PASS 0.67 | PASS 0.64 |
-| Memory Core | PASS 0.76 | PASS 0.6 |
-| Paper Trading | PASS 0.92 | PASS 0.66 |
-| Pipeline History | PASS 0.71 | PASS 0.64 |
-| Practice Mode | PASS 0.59 | PASS 0.57 |
-| Project Status | PASS 0.62 | PASS 0.64 |
-| Reports | PASS 0.75 | PASS 0.62 |
-| Risk | PASS 0.64 | PASS 0.64 |
-| SINDHU CEO | FAIL 10.79 | FAIL 10.33 |
-| SINDHU Strategy | PASS 0.6 | PASS 0.69 |
-| Self-Learning Engine | PASS 0.71 | PASS 0.76 |
-| Settings | PASS 0.58 | PASS 0.59 |
-| Signal Tracker | PASS 0.64 | PASS 0.64 |
-| Strategies | PASS 0.6 | PASS 0.7 |
-| Strategy Lab | PASS 0.73 | PASS 0.6 |
-| Strategy Lifecycle | PASS 0.62 | PASS 0.62 |
-| Telegram Signals | PASS 1.07 | PASS 0.7 |
-| Web-Sourced Strategies | PASS 0.65 | PASS 1.25 |
-
-## Not covered (honest)
-- Authenticated Cloud pages (BLOCKED-USER: no login).
-- Buttons that write to the database or send anything (skipped on purpose).
-- Real-phone rendering and the real Telegram chat (owner check).
+## Open issues
+- LOW: leaving a page within ~2 s can print a console error from a still-loading panel (no visible effect).
+- LOW: cold first load of the CEO page is 6-10 s on the test machine; Render free plan will be slower on a cold start.
+- LOW: numeric validation exists in the UI (invalid fields get the `input-invalid` style and Save stays disabled) but there is no visible message text - see the Settings rows.

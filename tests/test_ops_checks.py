@@ -38,3 +38,9 @@ def test_keepalive_workflow_pings_health_every_ten_minutes():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     text = open(os.path.join(root, ".github", "workflows", "keepalive.yml"), encoding="utf-8").read()
     assert '*/10 * * * *' in text and "/health" in text
+
+
+def test_ci_workflow_runs_the_suite_on_push_and_pull_request():
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    text = open(os.path.join(root, ".github", "workflows", "tests.yml"), encoding="utf-8").read()
+    assert "push:" in text and "pull_request:" in text and "python -m pytest" in text and "timeout-minutes" in text

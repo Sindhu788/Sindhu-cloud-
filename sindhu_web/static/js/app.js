@@ -148,7 +148,7 @@
     return apiToken;
   }
 
-  async function apiGet(path, timeoutMs = 15000, _retried = false) {
+  async function apiGet(path, timeoutMs = 40000, _retried = false) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -627,6 +627,7 @@
     const proto = location.protocol === "https:" ? "wss" : "ws";
     const ws = new WebSocket(`${proto}://${location.host}/ws/logs?device_id=${encodeURIComponent(getDeviceId())}`);
     ws.onopen = () => {
+      window.__wsRetry = 1;
       connStatus.textContent = "● online"; connStatus.className = "conn-status conn-online";
       flushPending();
     };
@@ -640,8 +641,10 @@
         });
         return; // do not auto-reconnect -- the newer tab is now the live session
       }
-      connStatus.textContent = "● offline"; connStatus.className = "conn-status conn-offline";
-      setTimeout(connectWs, 2000);
+      connStatus.textContent = "● server waking up, retrying..."; connStatus.className = "conn-status conn-offline";
+      // Backoff 2 s -> 4 -> 8 -> ... capped at 30 s (a sleeping free-plan server needs ~30-60 s to wake).
+      window.__wsRetry = Math.min((window.__wsRetry || 1) * 2, 30);
+      setTimeout(connectWs, window.__wsRetry * 1000);
     };
     ws.onerror = () => ws.close();
     ws.onmessage = (event) => {
@@ -1042,7 +1045,7 @@
     healthPill.className = `pill ${h.system_health === "OK" ? "pill-completed" : "pill-error"}`;
   }
   refreshTopbarStatus();
-  setInterval(refreshTopbarStatus, 20000);
+  setInterval(refreshTopbarStatus, 30000);  // Lite: non-critical poll, 30 s
 
   // Investigation Batch 2026-09-17, item 1.7: Session-Expiry Warning -- a
   // login session (sindhu_web/auth.py's 30-day SESSION_LIFETIME_DAYS)
@@ -1149,7 +1152,7 @@
     }
   }
   refreshNotifications(false);
-  setInterval(() => refreshNotifications(false), 20000);
+  setInterval(() => refreshNotifications(false), 45000);  // Lite: non-critical poll, 45 s
   onGlobalLive((msg) => { if (msg.channel === "sync" || msg.channel === "job") refreshNotifications(false); });
 
   const notifBtn = document.getElementById("notifBtn");
@@ -4545,6 +4548,8 @@
       document.querySelectorAll(".strat-versions").forEach(btn => btn.onclick = async () => {
         const strategyId = btn.dataset.id;
         const v = await apiGet(`/api/backtesting/strategies/${strategyId}/versions`).catch(() => ({ versions: [] }));
+        // The page may have been left while the (slow, queued) request was running: the panel is gone then.
+        if (!document.getElementById("versionHistoryTitle") || !document.getElementById("versionHistoryBody")) return;
         document.getElementById("versionHistoryTitle").textContent = `Version History -- ${btn.dataset.name}`;
         const versions = v.versions || [];
         const currentVersion = versions.length ? Math.max(...versions.map(ver => ver.version)) : null;
@@ -9267,8 +9272,8 @@
              coinBlacklistRes, riskPctRecsRes, dupExposureRes, cloudSyncStatusRes, patternSharingRes] = await Promise.all([
         apiGet("/api/paper-trading/strategy-performance").catch(() => null),
         apiGet("/api/paper-trading/lesson-performance").catch(() => ({ performance: [] })),
-        apiGet("/api/paper-trading/catalog/strategies").catch(() => ({ strategies: [] })),
-        apiGet("/api/paper-trading/catalog/lessons").catch(() => ({ lessons: [] })),
+        Promise.resolve({ strategies: [] }),  // catalog endpoint was removed with the Codex cleanup (was a 404 on every load)
+        Promise.resolve({ lessons: [] }),
         apiGet("/api/paper-trading/session-stats").catch(() => ({ sessions: [] })),
         apiGet("/api/paper-trading/hour-of-day-stats").catch(() => ({ hours: [] })),
         apiGet("/api/paper-trading/lesson-candidates").catch(() => ({ candidates: [] })),
@@ -11556,9 +11561,10 @@
         apiGet("/api/system/restart-analytics").catch(() => null),
         apiGet("/api/system/api-monitor").catch(() => null),
       ]);
+      if (!document.getElementById("healthRestartCount")) return;  // page was left while the request was queued
       if (restarts) {
-        document.getElementById("healthRestartCount").textContent = restarts.restart_count;
-        document.getElementById("healthLastRestart").textContent = (restarts.last_restart_at || "-").replace("T", " ").slice(0, 19);
+        (document.getElementById("healthRestartCount") || {}).textContent = restarts.restart_count;
+        (document.getElementById("healthLastRestart") || {}).textContent = (restarts.last_restart_at || "-").replace("T", " ").slice(0, 19);
       }
       if (apiStats) {
         document.getElementById("healthApiRequests").textContent =
@@ -11705,7 +11711,7 @@
       } catch (e) { listEl.innerHTML = `<p class="muted">Couldn't load: ${esc(e.message)}</p>`; }
     }
     async function loadSyncBandwidth() {
-      const el = document.getElementById("syncBandwidthStats");
+      const el = document.getElementById("syncBandwidthStats") || {};  // page may have been left while loading
       try {
         const b = await apiGet("/api/paper-trading/strategy-sync/bandwidth");
         el.textContent = `${b.push_count} successful push(es), ${b.total_bytes_sent.toLocaleString()} bytes sent in total (avg ${b.average_bytes_per_push} bytes/push).`;
@@ -11921,7 +11927,7 @@
       ]);
       const overrides = s.strategy_channel_overrides || {};
       const strategies = stratsRes.strategies || [];
-      const box = document.getElementById("tgChannelOverridesBox");
+      const box = document.getElementById("tgChannelOverridesBox") || {};  // page may have been left while loading
       box.innerHTML = `<table>
         <thead><tr><th>Strategy</th><th>Channel ID</th><th></th></tr></thead>
         <tbody>${strategies.map(st => `
@@ -11976,7 +11982,7 @@
     };
     async function loadTelegramLog() {
       const r = await apiGet("/api/paper-trading/telegram/log").catch(() => ({ messages: [] }));
-      document.getElementById("tgLogBody").innerHTML = r.messages.map(m => `
+      (document.getElementById("tgLogBody") || {}).innerHTML = r.messages.map(m => `
         <tr>
           <td>${esc((m.sent_at||"").slice(0,19))}</td>
           <td>${esc(m.trigger_type)}</td>

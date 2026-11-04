@@ -140,6 +140,7 @@ class PaperTradingEngine:
         self._last_divergence_check_at = None  # Grand Feature Expansion, Phase 1 Feature 8
         self._last_retry_sweep_at = None  # Grand Feature Expansion, Phase 2 Feature 11
         self._last_db_guard_at = None  # recovery: hourly DB size warning + scan-log pruning
+        self._last_watchdog_at = None  # recovery: 60 s owner-chat watchdog
         self._last_decay_sweep_at = None  # Grand Feature Expansion, Phase 3 Feature 11
         self._last_custom_alerts_sweep_at = None  # Grand Feature Expansion, Phase 4 Feature 25
         # Grand Master Prompt, Phase 3.12/3.14: Scan Timer + Scanner
@@ -568,6 +569,18 @@ class PaperTradingEngine:
             except Exception as e:
                 self._log(f"[paper-trading] Telegram retry sweep error: {e!r}")
 
+        # Recovery: 60 s watchdog -> owner chat only (stale data, stalled scanner, engine stopped, send failures, ...).
+        if self._last_watchdog_at is None or (now - self._last_watchdog_at) >= 60:
+            self._last_watchdog_at = now
+            try:
+                from paper_trading import monitoring
+                monitoring.watchdog_tick(self)
+                monitoring.maybe_send_daily_summary()
+                from paper_trading import reconciliation
+                reconciliation.maybe_alert()
+            except Exception as e:
+                self._log(f"[paper-trading] watchdog error: {e!r}")
+
         # Recovery: hourly database-size warning and bounded pruning of the scan-receipt log.
         if self._last_db_guard_at is None or (now - self._last_db_guard_at) >= 3600:
             self._last_db_guard_at = now
@@ -862,8 +875,12 @@ class PaperTradingEngine:
         try:
             tier, reason = telegram_bot.evaluate_auto_send_tier(pos["id"])
             if tier is not None:
-                telegram_bot.send_signal_for_position(pos["id"], trigger_type="automatic", high_confidence=(tier == "high"))
-                self._log(f"[paper-trading] Telegram auto-signal sent for {pos['id']} (tier={tier}): {reason}")
+                _res = telegram_bot.send_signal_for_position(pos["id"], trigger_type="automatic", high_confidence=(tier == "high")) or {}
+                # The old line said "sent" even when a later gate withheld the message (duplicate / stale / drift / group).
+                if _res.get("ok"):
+                    self._log(f"[paper-trading] Telegram auto-signal sent for {pos['id']} (tier={tier}): {reason}")
+                else:
+                    self._log(f"[paper-trading] Telegram auto-signal NOT sent for {pos['id']} (tier={tier}): {_res.get('error') or _res.get('reason') or 'withheld'}")
         except Exception as e:
             self._log(f"[paper-trading] Telegram auto-send check failed: {e!r}")
 
@@ -892,6 +909,10 @@ class PaperTradingEngine:
             "timeframe": candidate.get("timeframe"), "position_id": position_id,
             "market_snapshot": snapshot, "created_at": _now_iso(),
         })
+        # A scan can take many minutes on the free plan and the instance can sleep mid-scan: flush in small batches
+        # so decisions are not lost (they used to be written only when the whole scan ended).
+        if len(self._pending_decisions) >= 10:
+            self._flush_decisions()
 
     def _flush_decisions(self):
         """Writes every decision buffered since the last flush in ONE
@@ -904,6 +925,8 @@ class PaperTradingEngine:
         pending, self._pending_decisions = self._pending_decisions, []
         try:
             storage.log_paper_decisions_batch(pending)
+            from paper_trading import decision_trace
+            decision_trace.record(pending)  # compact per-gate trace for the "why" endpoint
         except Exception as e:
             self._log(f"[paper-trading] decision log flush error: {e!r}")
 

@@ -13,7 +13,7 @@ def _api_paths_called_by_frontend():
 
 def test_frontend_does_not_call_removed_endpoints():
     called = _api_paths_called_by_frontend()
-    removed = [p for p in called if p.startswith(("/api/intelligence", "/api/quality"))]
+    removed = [p for p in called if p.startswith(("/api/intelligence", "/api/quality", "/api/paper-trading/catalog"))]
     assert removed == []
 
 
