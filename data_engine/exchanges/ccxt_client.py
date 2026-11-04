@@ -90,6 +90,7 @@ class CCXTClient(ExchangeClient):
         self._tl = threading.local()       # one ccxt instance per thread: a ccxt object (session, rate-limit clock) is not thread-safe
         self._override = None              # tests / callers may inject a fake exchange object
         self._shared_markets = None
+        self._markets_lock = threading.Lock()
         self._markets_loaded = False
 
     @property
@@ -98,12 +99,22 @@ class CCXTClient(ExchangeClient):
             return self._override
         ex = getattr(self._tl, "ex", None)
         if ex is None:
-            ex = getattr(ccxt, self.id)({"enableRateLimit": True, "timeout": REQUEST_TIMEOUT_MS})
-            if self._shared_markets:
-                try:
-                    ex.set_markets(self._shared_markets)
-                except Exception:
-                    pass
+            cfg = {"enableRateLimit": True, "timeout": REQUEST_TIMEOUT_MS}
+            if self.id == "okx":
+                cfg["options"] = {"fetchMarkets": {"types": ["spot"]}}      # we only trade spot: OKX otherwise also loads swaps/futures/options (~100 MB per instance)
+            ex = getattr(ccxt, self.id)(cfg)
+            with self._markets_lock:                              # ONE thread loads the market list; the others reuse it (Day 5: 4 prefetch
+                if self._shared_markets is None:                  # threads each loading their own copy pushed Cloud memory to 464 of 512 MB)
+                    try:
+                        ex.load_markets()
+                        self._shared_markets = ex.markets
+                    except Exception:
+                        pass
+                elif self._shared_markets:
+                    try:
+                        ex.set_markets(self._shared_markets)
+                    except Exception:
+                        pass
             self._tl.ex = ex
         return ex
 

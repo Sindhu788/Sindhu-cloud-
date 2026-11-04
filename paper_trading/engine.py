@@ -136,6 +136,7 @@ class PaperTradingEngine:
         self._on_event = None
         self._last_tick_at = None
         self._last_housekeeping_at = None
+        self._hk_lock = threading.Lock()
         self._scan_id = None
         self._scan_activity_ts = None
         self._last_summary = {"shortlisted": [], "opened": 0, "closed": 0, "rejected": 0}
@@ -196,6 +197,7 @@ class PaperTradingEngine:
             self._thread = threading.Thread(target=self._loop, daemon=True)
             self._thread.start()
             threading.Thread(target=self._stall_reporter, args=(self._thread,), daemon=True, name='scan-stall-reporter').start()
+            threading.Thread(target=self._housekeeper_loop, args=(self._thread,), daemon=True, name='engine-housekeeper').start()
         return True
 
     def stop(self):
@@ -601,8 +603,6 @@ class PaperTradingEngine:
             self._scan_progress["index"] += 1
             self._scan_progress["current_symbol"] = symbol
             self._beat('coins', idx=self._scan_progress["index"], total=len(shortlist), symbol=symbol)
-            if self._last_housekeeping_at is None or time.monotonic() - self._last_housekeeping_at >= 60:
-                self._housekeeping(light=True)   # do not make the 60 s signal sweep / watchdog wait for the whole scan
             try:
                 snapshot = market_state.classify(exchange, symbol)
             except Exception as e:
@@ -672,20 +672,33 @@ class PaperTradingEngine:
         }
         self._emit({"type": "tick", "summary": self._last_summary, "at": self._last_tick_at})
 
+    def _housekeeper_loop(self, engine_thread, every=60):
+        """Day 5: the time-critical duties (Telegram fresh-signal sweep, owner watchdog, reconciliation) run on THEIR OWN thread once a minute.
+        Measured on Render: housekeeping(light) took up to 108 s per run; run inside the scan loop it consumed more than half of the 26-minute
+        cold scan, and while a scan stalled the 60 s sweep stalled with it. A lock keeps light and full runs from overlapping."""
+        while engine_thread.is_alive() and not self._stop_flag.wait(every):
+            if self._hk_lock.locked():
+                continue
+            try:
+                self._housekeeping(light=True)
+            except Exception:
+                pass
+
     def _housekeeping(self, light=False):
         """Periodic duties (Telegram sweep, watchdog, reconciliation, DB guard, ...). Each has its own throttle. Called at the end of
         every scan AND at most once a minute from inside the coin loop, because a cold scan on the free plan can take many minutes
         and these duties (above all the 60 s fresh-signal sweep and the owner watchdog) must not wait for it. Same thread, so no new
         concurrency. Never raises."""
-        self._last_housekeeping_at = time.monotonic()
-        memory_guard.check(self._log)
-        t0 = time.monotonic()
-        try:
-            self._housekeeping_impl(light)
-            if time.monotonic() - t0 > 5:
-                self._log(f"[paper-trading] housekeeping({'light' if light else 'full'}) took {time.monotonic() - t0:.0f}s")
-        except Exception as e:
-            self._log(f"[paper-trading] housekeeping error: {e!r}")
+        with self._hk_lock:
+            self._last_housekeeping_at = time.monotonic()
+            memory_guard.check(self._log)
+            t0 = time.monotonic()
+            try:
+                self._housekeeping_impl(light)
+                if time.monotonic() - t0 > 5:
+                    self._log(f"[paper-trading] housekeeping({'light' if light else 'full'}) took {time.monotonic() - t0:.0f}s")
+            except Exception as e:
+                self._log(f"[paper-trading] housekeeping error: {e!r}")
 
     def _housekeeping_impl(self, light=False):
         """light=True (called from inside the coin loop): only the time-critical duties - Telegram fresh-signal sweep, retry sweep,

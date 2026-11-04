@@ -25,7 +25,7 @@ def clean(monkeypatch):
 def _client(exchange_id="bybit"):
     c = cc.CCXTClient.__new__(cc.CCXTClient)
     c.id = exchange_id
-    c._tl = threading.local(); c._override = None; c._shared_markets = None; c._markets_loaded = False
+    c._tl = threading.local(); c._override = None; c._shared_markets = None; c._markets_lock = threading.Lock(); c._markets_loaded = False
     return c
 
 
@@ -123,3 +123,27 @@ def test_each_thread_gets_its_own_ccxt_instance_and_injected_fakes_still_work(mo
     fake = object()
     c._exchange = fake
     assert c._exchange is fake
+
+
+def test_market_list_is_loaded_once_and_shared_between_threads(monkeypatch):
+    loads = []
+
+    class FakeEx:
+        def __init__(self, cfg):
+            self.cfg = cfg
+            self.markets = None
+
+        def load_markets(self):
+            loads.append(1)
+            self.markets = {"BTC/USDT": {"symbol": "BTC/USDT"}}
+
+        def set_markets(self, m):
+            self.markets = m
+
+    monkeypatch.setattr(cc.ccxt, "okx", FakeEx, raising=False)
+    c = cc.CCXTClient("okx")
+    seen = []
+    ts = [threading.Thread(target=lambda: seen.append(c._exchange)) for _ in range(4)]
+    [t.start() for t in ts]; [t.join() for t in ts]
+    assert len(loads) == 1 and all(o.markets is not None for o in seen)
+    assert seen[0].cfg["options"] == {"fetchMarkets": {"types": ["spot"]}}            # OKX: spot only (memory)

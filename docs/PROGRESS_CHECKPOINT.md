@@ -1,23 +1,25 @@
-[PROGRESS 88% | steps 24/27 done | now: Step 27 closeout (full suite, CI, final push) | status: RUNNING | elapsed ~5h | blockers: Cloud scans still do not complete]
+[PROGRESS 40% | steps 12/30 done | now: Step 18 - protocol run of the 42 strategies (background) + push 2 prep | status: RUNNING | elapsed ~4h | data download: 100% complete (700 files, 24.3 M rows) | blockers: none]
 
-# Day 4 checkpoint (4 Nov 2026, ~17:45 UTC)
-Pushes used: 2 of 3 (`06d2051`, `ab5b297`); the third is the closeout push.
+# Day 5 checkpoint (5 Nov 2026 ~01:55 PKT / 20:55 UTC)
+NOTE: the Day 5 prompt was cut off in the middle of Step 18, so Steps 19-30 are unknown to me and cannot be done or counted.
 | Step | State | Evidence |
 |---|---|---|
-| 1-2 baseline, inventory | DONE | docs/DAY4_BASELINE.md |
-| 3-4 profile, attribution | DONE | docs/SCAN_PROFILE.md sections 1-5 (CPU-bound locally 85 %; Render waits on the exchange) |
-| 5 throttle A/B | DONE - removed | SCAN_PROFILE section 7, D32 |
-| 6 less work, identical output | DONE | golden check PASS (4 coins, 62 strategies, 49 candidates); pool 3,310 -> ~4 connections; memo -10 % local time |
-| 7 memory | PARTIAL (not counted) | guard + 5 tests; local peak 187 -> 200 MB with memo; Render 322-338 MB (target under 300 MB NOT met) |
-| 8 /health under load | DONE | tests/test_health_under_load.py fails on the old code, passes now |
-| 9 push + Cloud measurement | DONE as "still not completing" | SCAN_PROFILE section 9: prefetch 197 s, coin 1 about 20 min, 0 complete scans |
-| 10-14, 16 signal quality | DONE | docs/SIGNAL_QUALITY.md |
-| 15 token/service conflict | DONE with NOT VERIFIED parts | OWNER_TODO "Token/service conflict check" |
-| 17-22 strategy forensics | DONE | docs/STRATEGY_FORENSICS.md |
-| 23 CEO page load | NOT DONE (dropped for time) | - |
-| 24 owner readiness | DONE | OWNER_TODO "Owner readiness table" |
-| 25 backup + restore | DONE | 51 tables exported, 49 restored, 0 mismatched, 11,909 rows |
-| 26 security review | DONE | docs/SECURITY_REVIEW.md; fixes: login throttle, Secure cookie, security headers |
-| 27 closeout | IN PROGRESS | |
-Test results so far: 2,419 passed / 2 skipped / 0 failed (4 shards) on the tree of push 1; the final full run is in progress.
-Open problems: Cloud scans do not complete (waits on the exchange inside one small candle request, cause not yet known; retry logging ships in the final push); no external pinger; owner chat id not set; memory 322-338 MB.
+| 1 baseline | DONE | docs/DAY5_BASELINE.md |
+| 2 local app | DONE (sleep/wake NOT VERIFIED) | detached launcher, OPEN_SINDHU.cmd, recovery 52 s, no duplicate; docs/RUNBOOK.md 11c |
+| 3 inventory | DONE | DAY5_BASELINE.md |
+| 4 root cause | DONE | docs/SCAN_PROFILE.md section 10: Bybit geo-block, 30 s retry per call, confluence gate reads the wrong exchange |
+| 5 fix | DONE | exchange circuit breaker, per-thread ccxt, tests (8 + 2); pushed `5ad081b` |
+| 6 push + Cloud measurement | PARTIAL | first COMPLETE Cloud scan since 3 Nov: 20:12:39 -> 20:45:00 UTC = 32 min 21 s cold, 10 coins, 0 errors. A second complete scan and peak memory (483 MB!) still open; fixes ready for push 2 |
+| 7 data plan | DONE | docs/DATA_PLAN.md, universe v2 (50 coins) |
+| 8 downloader | DONE | 12 tests incl. kill/resume, 429 storms, disk guard, checksum |
+| 9 launch pilot | DONE | ran independently, pilot PASS (109/110 files ok) then expansion COMPLETE 100% |
+| 10 quality pipeline | DONE | docs/DATA_QUALITY.md (700 files re-hashed, 0 mismatches; 552/556 monthly files ok, 0 OHLC violations) |
+| 11 resampler + native check | DONE | 5 tests; native vs resampled 99.92-100 % identical OHLC; decision: resample for all timeframes |
+| 12 loader | DONE | 7 tests: closed candles only, sealed holdout (Sep-Oct 2026), audited final exam |
+| 13 expansion + exchange comparison | PARTIAL | expansion complete; Binance-vs-Bybit comparison running (OKX unreachable from this PC); daily updater = re-run `run_download` (scheduling is an owner step) |
+| 14 engine speed | PARTIAL | profile done; day-change boxing fix, golden output identical; before/after timing pending a quiet machine |
+| 15 cost model | DONE | data_platform/cost_model.py, 3 tests, x1/x1.5/x2 sensitivity by exact re-pricing |
+| 16 experiment tracker | DONE | experiments.db, 4 tests, real-data reproducibility check identical hash |
+| 17 protocol doc + enforcement | DONE | docs/BACKTEST_PROTOCOL.md; loader enforces the holdout |
+| 18 run 42 strategies | RUNNING | 420 runs (42 x 10 coins, Nov 2025 - Aug 2026), started 20:41 UTC |
+Open: memory on Cloud 449-483 MB of 512 (fix written, not deployed); housekeeping(light) took up to 108 s inside the scan (moved to its own thread, not deployed); warm Cloud scans still take ~3 min per coin because every new 15m candle re-evaluates 62 strategies on 0.15 CPU.
