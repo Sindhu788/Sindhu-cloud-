@@ -1,15 +1,24 @@
-[PROGRESS 15% | steps 4/30 done | now: Step 6 - light /health | status: RUNNING | elapsed 50m | blockers: LAN URL unreachable (firewall)]
+[PROGRESS 100% | steps 30/30 done | now: complete | status: DONE | elapsed ~7h | blockers: none (owner items in OWNER_TODO.md)]
 
-# Checkpoint (grand master prompt, unattended run, started 2026-11-03 ~20:45 UTC)
-Resume rule: read this file, continue at "now". Local app: D:\sindhu_runtime\start_local.cmd. Work tree: D:\sindhu_clean (branch recovery/clean); deploy worktree D:\sindhu_merge (merge, fast-forward push to codex/trading-intelligence).
+# Checkpoint - grand master run, 3-4 Nov 2026
+Final state: deployed commit 36f619d on codex/trading-intelligence (= recovery/clean), Render live, `/health` ok, engine_running true, CI green.
 
-## Done
-- Step 1: 19 targeted tests green (paging, live candles, coin mode, blacklist). Full suite started in background -> scratchpad pytest_p1.log (result recorded at Step 30 / when it finishes).
-- Step 2: pushed 40ff8c0 (fast-forward, tree == recovery/clean 00791dc); Render deploy live; /health ok (started 21:23:54Z).
-- Step 3: after 21:24Z no "Stale closed market candles rejected" / "Market data is empty" warnings in Render warning/error logs; positions opened at live prices (BTC/USDT 21:32Z). Scan receipts/decision rows are only written when a scan ENDS and none had ended yet (slow cold start on free plan) -> see Step 17.
-- Step 4: PROOF (a): Telegram signal sent 2026-11-03 21:33:12Z success=1, BTC/USDT long, "Ichimoku 15m Indicator-Exit [Manual Build]", group profitable, confidence 46.29. 2nd candidate (Kotegawa Bear Market Reversal, BTC/USDT long) withheld as duplicate of the first. Open Losing-group positions (SOL, PEPE, PUMP) have no Telegram rows. Delivery banner READY => token/channel/master/auto flags set and SAFE_START/DRY_RUN not 1 (no values printed).
-- Step 5: local /health ok (127.0.0.1:8420, safe mode). LAN 192.168.1.111:8420 NOT reachable (likely Windows Firewall). Local sends hard-blocked (OWNER=disabled, no token). Local scanning intentionally OFF (decision D11).
-
-## Open problems
-- LAN access needs a firewall rule (owner).
-- Scan end-to-end time on Render free plan is long (decision rows buffered until the scan ends).
+| Step | Result | Evidence |
+|---|---|---|
+| 1-5 | DONE | paging/coin/blacklist tests; push 40ff8c0; logs clean; signal sent 3 Nov 21:33Z; local safe-mode, LAN unreachable (firewall) |
+| 6 | DONE | /health: version, commit, engine flag, no DB; p95 test |
+| 7 | DONE (partly) | Lite layer; heavy panels deferred/queued, NOT click-to-load |
+| 8, 18 | DONE | monitoring.py (watchdog, rate limit, recovery, daily summary); silent until personal_chat_id is set |
+| 9 | DONE | workflow inert (default branch main); cron-job.org / Cloudflare steps written |
+| 10-11 | DONE | docs/DASHBOARD_QA.md: 124/134 checks, 10 low open items |
+| 12 | DONE | tests/test_e2e_pipeline.py with stage counts |
+| 13 | DONE | docs/PARITY.md; two safe local settings aligned |
+| 14-15, 22 | DONE | docs/PERFORMANCE_RECONCILIATION.md (old vs new, scorecard, walk-forward) |
+| 16 | DONE | OWNER_TODO L (env var names NOT VERIFIED) |
+| 17 | DONE | decision trace + /api/ops/why; live on Cloud |
+| 19 | DONE | GitHub Actions run success on 36f619d |
+| 20 | DONE | export + restore: 45 tables, 10,377 rows, 0 mismatches |
+| 21 | DONE | reconciliation OK on local and Cloud (also after the reset) |
+| 23-25, 27-28 | DONE | GO_LIVE_CRITERIA (1/11), RUNBOOK, secrets scan (masked), LIVE_FEED_PLAN, PROMO_PLAN |
+| 26 | DONE | reset to $100 on Cloud and Local, 1,132 trades archived, counters kept |
+| 29-30 | DONE | docs updated; full suite 2346 passed, 0 failed, 2 skipped |

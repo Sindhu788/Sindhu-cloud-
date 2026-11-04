@@ -13,8 +13,9 @@ Do these in order (most important first):
 8. **Strategy pauses** - docs/PERFORMANCE_RECONCILIATION.md (Step 15): 8 recommended pauses, 8 on watch, 38 with too few trades. Nothing is paused automatically. Backtests of the 10 most-traded strategies (Step 14) are all below PF 1 over 60 days.
 9. **Real-world checks only you can do:** look at the Telegram channel for the signal format, send `/menu` once in the group, open the dashboard on your phone, open Windows Firewall for TCP port 8420 if you want `http://192.168.1.111:8420` to work from the phone.
 10. **The "+$270.05 over 1,856 trades, 40-43 % win" figure** could not be reproduced: both databases hold the same 1,132 trades (-87.96). Where did it come from?
-11. **Balance reset to $100** - see the Step 26 note in docs/FIX_LOG.md (done or skipped, with the reason).
-12. **Go-live:** `docs/GO_LIVE_CRITERIA.md` - 1 of 11 gates met. Paper only; not financial advice.
+11. **Balance reset to $100** - DONE 4 Nov on Cloud and Local (archive kept; docs/FIX_LOG.md). Nothing for you to do.
+12. **Daily report in the channel:** the existing "Roz Ki Report" scheduler sends one message per UTC day to the Telegram channel (first check after each restart, e.g. 03:13 UTC on 4 Nov). It is not a signal; decide whether you want it public or private.
+13. **Go-live:** `docs/GO_LIVE_CRITERIA.md` - 1 of 11 gates met. Paper only; not financial advice.
 
 
 ## K. Keep Cloud awake (no signals while it sleeps)
