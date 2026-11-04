@@ -757,3 +757,10 @@ Verified facts only; details and evidence are in docs/ (INVESTIGATION_REPORT, DE
 - Paper engine: left OFF. To run it locally you would have to drop safe mode, which also starts ~25 schedulers (auto-generation, 11 GB DB backups, strategy lab, evolution) - not recommended while Cloud publishes signals.
 
 
+
+## STATUS 4 Nov 2026 - Day 3 (stabilise, harden, hand over)
+- **Why no scan receipts since 3 Nov 20:18Z:** a receipt is written only when a whole scan ends, and a cold scan on the Render free plan took 15-17 min (measured) because (a) candles are downloaded one request at a time after every restart and (b) the higher-timeframe filter asks for 30-365 days of candles while the cache kept only 25 days, so it re-downloaded the range on every call. The free instance is also restarted whenever it has been idle 15 min. Details: docs/INVESTIGATION_REPORT.md ("Day 3" and "addendum").
+- **Changes:** scan heartbeat + `interrupted` receipts + phase timing logs; the 60 s Telegram sweep / watchdog also run inside the coin loop ("light" housekeeping); bounded candle prefetch (4 workers); candle cache keeps long lookbacks; read-only stall reporter; sleep-aware owner alerts (10 min wake grace, progress-based stall check, restart alert max every 6 h); in-memory external-ping tracker (`/api/ops/pinger`); Lite layer drops answers of pages already left; chat-id validation and an owner-only "Send test alert" button. No gate, threshold or coin rule was changed.
+- **Local app:** permanent venv `D:\sindhu_venv_stable` + supervisor (`D:\sindhu_runtime\start_supervised.cmd`), no Windows security setting touched (docs/RUNBOOK.md 11b).
+- **Owner kit:** docs/PINGER_SETUP.md, OWNER_ALERTS_SETUP.md, SECRETS_ROTATION.md, OWNER_DECISIONS.md, OWNER_TODO.md "DAY 3 ORDER".
+- **Still true:** paper trading only; strategies are weak (old sample PF 0.75; no strategy profitable in both Sept and Oct); confidence calibration after 17 Sep NOT VERIFIED (8 closed trades since the restart, all losses); authenticated Cloud pages NOT VERIFIED (no login available).
