@@ -112,3 +112,22 @@ D:\sindhu_venv_stable\Scripts\python.exe scripts\restore_export_to_sqlite.py D:\
 - Candle prefetch: `SINDHU_PREFETCH_WORKERS` (default 4; use 2 or 0 if the log shows `[exchange-retry]` lines with RateLimitExceeded).
 - Memory guard: `SINDHU_MEM_SOFT_MB` (400) and `SINDHU_MEM_HARD_MB` (450); log lines start with `[memory-guard]`.
 - Log lines to read after a deploy: `scan phase ...`, `concept memo this scan: N hits`, `scan finished: ... Ns`, `[exchange-retry] ...`, `[live-candles] REFETCH ...`, `scan shows no progress for Ns; engine thread is at: ...`.
+
+
+## 11c. Local app "not opening" - plain-language guide (Day 5, 4 Nov 2026)
+**Quick fix: double-click `D:\sindhu_runtime\OPEN_SINDHU.cmd`.** It starts SINDHU if it is not running, waits up to 3 minutes (the first start takes 40-80 s because it loads the data libraries) and opens http://127.0.0.1:8420 in your browser. Running it twice is safe: it says "already running".
+
+**Why it stopped opening (found on 4 Nov):**
+1. *The app died when the Claude/terminal session that started it ended.* Programs started from a session are closed with it. The new launcher `launch_detached.py` starts the supervisor detached, so closing the terminal no longer stops it. (Verified: the supervisor's parent process is gone and the supervisor keeps running. A computer RESTART still stops it - see "start automatically" below.)
+2. *The address you used changed.* The laptop's WiFi address is given out by the router and changed from 192.168.1.111 to 192.168.1.113. Use `http://127.0.0.1:8420` on the laptop itself. From a phone you need the CURRENT address (`ipconfig` -> IPv4) AND a Windows Firewall rule for TCP port 8420 (none exists; I did not add one - it is a security setting).
+3. *Slow start looks like "not opening".* Ready after 56 s on 4 Nov; the supervisor now waits for the app instead of counting a failure during start-up.
+
+| Symptom | Check | Fix |
+|---|---|---|
+| Page does not open | `curl http://127.0.0.1:8420/health` or open it in the browser | double-click OPEN_SINDHU.cmd |
+| Still not after 3 minutes | last lines of `D:\sindhu_runtime\supervisor.log` and `server.log` | "another supervisor is already running" = it IS running, wait; "UNSAFE" = the app refused to run (local must stay in safe mode) |
+| Port in use by something else | `netstat -ano | findstr :8420` | close that program, or run `D:\sindhu_runtime\stop_local.cmd` and start again |
+| Want to stop it | - | `D:\sindhu_runtime\stop_local.cmd` |
+
+**Tested 4 Nov:** normal start 56 s; forced kill of the app -> back in 52 s (supervisor restarts it); starting a second time -> "already running", no duplicate supervisor, one listener; start from the documented command works. **Laptop sleep/wake: NOT VERIFIED** (I cannot suspend the laptop from here; the supervisor only loops on timers, so it should simply carry on after wake - check once yourself by closing the lid for a minute).
+**Start automatically at Windows login (owner step, not done by me):** press Win+R, type `shell:startup`, and put a shortcut to `D:\sindhu_runtime\OPEN_SINDHU.cmd` in that folder. This is a normal per-user setting; I left it to you because it is a persistent system change.

@@ -62,6 +62,17 @@ def start():
     return p
 
 
+def wait_ready(proc, seconds=150):
+    """Wait until the app answers /health (it needs 40-60 s to import pandas and open the database), or stop/exit/timeout."""
+    t0 = time.time()
+    while time.time() - t0 < seconds and not os.path.exists(STOP) and proc.poll() is None:
+        if health():
+            log(f"app ready after {time.time() - t0:.0f}s")
+            return True
+        time.sleep(3)
+    return False
+
+
 def kill(p):
     try:
         subprocess.run(["taskkill", "/PID", str(p.pid), "/T", "/F"], capture_output=True)
@@ -94,10 +105,7 @@ def main():
 def run():
     log("supervisor started")
     proc, fails, unsafe = start(), 0, False
-    for _ in range(20):
-        if os.path.exists(STOP):
-            break
-        time.sleep(2)
+    wait_ready(proc)
     while not os.path.exists(STOP):
         h = health()
         if h and h.get("status") == "ok":
@@ -113,10 +121,7 @@ def run():
         if fails >= 3:
             kill(proc); time.sleep(3)
             proc = start(); fails = 0
-            for _ in range(20):
-                if os.path.exists(STOP):
-                    break
-                time.sleep(2)
+            wait_ready(proc)
         for _ in range(15):                 # 30 s between health checks, but notice a stop request within 2 s
             if os.path.exists(STOP):
                 break
