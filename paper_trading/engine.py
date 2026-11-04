@@ -193,6 +193,7 @@ class PaperTradingEngine:
             self._started_at = _now_iso()
             self._thread = threading.Thread(target=self._loop, daemon=True)
             self._thread.start()
+            threading.Thread(target=self._stall_reporter, args=(self._thread,), daemon=True, name='scan-stall-reporter').start()
         return True
 
     def stop(self):
@@ -406,6 +407,29 @@ class PaperTradingEngine:
         with ThreadPoolExecutor(max_workers=min(workers, len(symbols)), thread_name_prefix='candle-prefetch') as pool:
             list(pool.map(one, symbols))
         self._log(f"[paper-trading] scan phase prefetch: {len(symbols)} coins warmed with {min(workers, len(symbols))} workers in {time.monotonic() - t0:.0f}s")
+
+    def _stall_reporter(self, engine_thread, check_every=30, stall_after=180, repeat_after=600):
+        """Diagnosis only. If a scan shows no sign of life for `stall_after` seconds, log WHERE the engine thread is waiting (its stack,
+        innermost frames) at most once per `repeat_after` seconds. Read-only: it never interrupts or changes the scan. Exists because a
+        hung network call on the free plan is otherwise invisible (idle CPU, no log line)."""
+        import sys, traceback
+        last_report = 0.0
+        while engine_thread.is_alive():
+            time.sleep(check_every)
+            try:
+                act = self._scan_activity_ts
+                if self._current_scan is None or not act:
+                    continue
+                idle = time.time() - act
+                if idle >= stall_after and time.time() - last_report >= repeat_after:
+                    last_report = time.time()
+                    frame = sys._current_frames().get(engine_thread.ident)
+                    if frame is not None:
+                        lines = traceback.format_stack(frame)[-6:]
+                        where = " <- ".join(" ".join(l.strip().splitlines()[0].split()) for l in reversed(lines))
+                        self._log(f"[paper-trading] scan shows no progress for {idle:.0f}s; engine thread is at: {where}")
+            except Exception:
+                pass
 
     def _recover_interrupted_scan(self):
         try:

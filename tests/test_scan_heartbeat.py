@@ -76,3 +76,22 @@ def test_light_housekeeping_skips_the_slow_hourly_jobs_but_full_runs_them(test_d
     assert "sweep" in seen and not {"divergence", "decay", "custom"} & set(seen)
     e._housekeeping()
     assert {"divergence", "decay", "custom"} <= set(seen)
+
+
+def test_stall_reporter_logs_where_a_stuck_scan_is_waiting(test_db):
+    import threading, time
+    from paper_trading import engine as eng
+    e = eng.PaperTradingEngine()
+    logs = []
+    e._log = logs.append
+    release = threading.Event()
+
+    def stuck_function():
+        release.wait(5)               # the "hung network call"
+
+    e._current_scan = {"kind": "k", "started_at": "t", "coins_scanned": 0, "errors": 0}
+    e._scan_activity_ts = time.time() - 1000
+    t = threading.Thread(target=stuck_function, daemon=True); t.start()
+    r = threading.Thread(target=e._stall_reporter, args=(t,), kwargs=dict(check_every=0.05, stall_after=1, repeat_after=60), daemon=True)
+    r.start(); time.sleep(0.4); release.set(); t.join(); r.join(2)
+    assert len(logs) == 1 and "no progress" in logs[0] and "stuck_function" in logs[0]
