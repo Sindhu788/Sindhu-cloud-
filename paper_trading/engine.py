@@ -432,6 +432,12 @@ class PaperTradingEngine:
                         # what exactly is it downloading? (names only: symbol/interval/pages/cursor age - no secrets)
                         f = frame
                         while f is not None:
+                            if f.f_code.co_name == "_retry" and "attempt" in f.f_locals:
+                                where += f" | retry attempt {f.f_locals.get('attempt')} last_error {type(f.f_locals.get('last_err')).__name__}"
+                                break
+                            f = f.f_back
+                        f = frame
+                        while f is not None:
                             if f.f_code.co_name == "_fetch_range":
                                 lv = f.f_locals
                                 where += (f" | downloading {lv.get('symbol')} {lv.get('interval')} page {lv.get('pages')} "

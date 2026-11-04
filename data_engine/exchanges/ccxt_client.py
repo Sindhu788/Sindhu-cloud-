@@ -6,6 +6,18 @@ from data_engine.exchanges.base import ExchangeClient
 from data_engine.config import MAX_RETRIES
 
 
+_retry_log_count = [0]
+
+
+def _log_retry(exchange_id, attempt, err, sleep_s):
+    """Diagnosis (Day 4): every retry used to be silent, so a scan stuck in backoff looked like 'nothing happens'. One short line per
+    retry (first 200 chars of the public exchange error, no credentials are ever in these errors), at most 300 lines per process."""
+    if _retry_log_count[0] >= 300:
+        return
+    _retry_log_count[0] += 1
+    print(f"[exchange-retry] {exchange_id} attempt {attempt}/{MAX_RETRIES} {type(err).__name__}: {str(err)[:200]!r} - sleeping {sleep_s}s", flush=True)
+
+
 class CCXTClient(ExchangeClient):
     """Generic exchange client backed by the ccxt library. Works for any
     ccxt exchange id (okx, bybit, bitget, gate, ...) using only public
@@ -37,9 +49,11 @@ class CCXTClient(ExchangeClient):
                 return fn(*args, **kwargs)
             except (ccxt.NetworkError, ccxt.ExchangeNotAvailable, ccxt.RequestTimeout) as e:
                 last_err = e
+                _log_retry(self.id, attempt, e, 2 * attempt)
                 time.sleep(2 * attempt)
             except ccxt.RateLimitExceeded as e:
                 last_err = e
+                _log_retry(self.id, attempt, e, 5 * attempt)
                 time.sleep(5 * attempt)
         raise RuntimeError(f"{self.id}: request failed after {MAX_RETRIES} retries: {last_err!r}")
 

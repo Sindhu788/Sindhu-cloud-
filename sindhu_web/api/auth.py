@@ -20,11 +20,57 @@ class ChangePasswordPayload(BaseModel):
     new_password: str
 
 
-def _set_session_cookie(response: Response, token: str):
+def _set_session_cookie(response: Response, token: str, secure: bool = False):
     response.set_cookie(
-        auth.SESSION_COOKIE, token, httponly=True, samesite="lax",
+        auth.SESSION_COOKIE, token, httponly=True, samesite="lax", secure=secure,
         max_age=60 * 60 * 24 * auth.SESSION_LIFETIME_DAYS,
     )
+
+
+def _is_https(request: Request) -> bool:
+    # Render terminates TLS in front of the app and says so in X-Forwarded-Proto; the cookie may then be marked Secure.
+    return request.headers.get("x-forwarded-proto", request.url.scheme) == "https"
+
+
+# ---- login throttle (Day 4 security review): in memory, per client address and overall; slows password guessing without a lockout
+# that an attacker could use against the owner (a block expires by itself after WINDOW seconds).
+import threading as _threading
+import time as _time
+
+_LOGIN_WINDOW_S = 600
+_LOGIN_MAX_PER_CLIENT = 8
+_LOGIN_MAX_TOTAL = 40
+_fail_lock = _threading.Lock()
+_fails = {}          # key -> [timestamps of recent failures]
+
+
+def _client_key(request: Request) -> str:
+    fwd = request.headers.get("x-forwarded-for", "")
+    return (fwd.split(",")[0].strip() or (request.client.host if request.client else "?"))
+
+
+def _recent(key, now):
+    lst = [t for t in _fails.get(key, []) if now - t < _LOGIN_WINDOW_S]
+    _fails[key] = lst
+    return lst
+
+
+def _login_blocked(request: Request) -> bool:
+    now = _time.time()
+    with _fail_lock:
+        return len(_recent(_client_key(request), now)) >= _LOGIN_MAX_PER_CLIENT or len(_recent("*", now)) >= _LOGIN_MAX_TOTAL
+
+
+def _login_failed(request: Request):
+    now = _time.time()
+    with _fail_lock:
+        for k in (_client_key(request), "*"):
+            _recent(k, now).append(now)
+
+
+def _login_ok(request: Request):
+    with _fail_lock:
+        _fails.pop(_client_key(request), None)
 
 
 @router.get("/api/auth/status")
@@ -63,11 +109,15 @@ def auth_setup(req: AuthPayload, response: Response):
 
 
 @router.post("/api/auth/login")
-def auth_login(req: AuthPayload, response: Response):
+def auth_login(req: AuthPayload, response: Response, request: Request):
+    if _login_blocked(request):
+        raise HTTPException(429, "Too many failed sign-in attempts. Wait 10 minutes and try again.")
     if not auth.verify_password(req.username.strip(), req.password):
+        _login_failed(request)
         raise HTTPException(401, "Incorrect username or password.")
+    _login_ok(request)
     token = auth.create_session()
-    _set_session_cookie(response, token)
+    _set_session_cookie(response, token, _is_https(request))
     return {"ok": True}
 
 

@@ -203,3 +203,23 @@ def test_keep_window_never_exceeds_the_hard_bound(monkeypatch):
     live_candles.get_ohlcv_live("binance", "OLDUSDT", "1d", start_ms=now - 700 * interval_ms, end_ms=now)
     cached = live_candles._cache[("binance", "OLDUSDT", "1d")]
     assert (cached.index.max() - cached.index.min()).days <= live_candles._MAX_KEEP_DAYS
+
+
+def test_exchange_retries_are_logged_with_the_error_type(monkeypatch, capsys):
+    import ccxt
+    from data_engine.exchanges import ccxt_client
+    ccxt_client._retry_log_count[0] = 0
+    c = ccxt_client.CCXTClient.__new__(ccxt_client.CCXTClient)
+    c.id = "okx"
+    monkeypatch.setattr(ccxt_client.time, "sleep", lambda s: None)
+    calls = []
+
+    def flaky():
+        calls.append(1)
+        if len(calls) < 3:
+            raise ccxt.RateLimitExceeded("okx 50011 Too Many Requests")
+        return "ok"
+
+    assert c._retry(flaky) == "ok"
+    out = capsys.readouterr().out
+    assert out.count("[exchange-retry] okx attempt") == 2 and "RateLimitExceeded" in out and "Too Many Requests" in out
