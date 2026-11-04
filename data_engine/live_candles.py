@@ -63,6 +63,8 @@ _key_locks = {}                   # (exchange, symbol, interval) -> Lock: one fe
 _keep_from = {}                   # key -> earliest start_ms ever requested (the cache keeps rows back to it, up to _MAX_KEEP_DAYS)
 _covered_from = {}                # key -> start_ms from which the cache holds everything the exchange has (see get_ohlcv_live)
 _MAX_KEEP_DAYS = 400              # hard bound: the longest lookback any caller uses is 365 days (1d candles, htf_confluence_filter)
+_last_refresh = {}                # key -> monotonic time of the last exchange request for the newest candles
+_REFRESH_MIN_SECONDS = 15         # do not ask the exchange for 'newer candles' again within 15 s (a scan calls the same series dozens of times)
 _cache = {}  # (exchange, symbol, interval) -> DataFrame, _OUT_COLUMNS, sorted by time ascending
 
 
@@ -180,7 +182,10 @@ def get_ohlcv_live(exchange, symbol, interval, start_ms=None, end_ms=None):
             # just kept in memory instead of in klines_1m.
             last_open_ms = int(cached.index.max().timestamp() * 1000)
             since = last_open_ms + _INTERVAL_MS[interval]
-            new_rows = _fetch_range(client, symbol, interval, since, now) if since < now else []
+            recent = time.monotonic() - _last_refresh.get(key, -1e9) < _REFRESH_MIN_SECONDS
+            new_rows = _fetch_range(client, symbol, interval, since, now) if (since < now and not recent) else []
+            if since < now and not recent:
+                _last_refresh[key] = time.monotonic()
             if new_rows:
                 new_df = _rows_to_df(new_rows)[_OUT_COLUMNS]
                 df = pd.concat([cached, new_df])
@@ -205,4 +210,5 @@ def clear_cache():
     with _lock:
         _cache.clear()
         _keep_from.clear()
+        _last_refresh.clear()
         _covered_from.clear()

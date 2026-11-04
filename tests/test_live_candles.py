@@ -203,3 +203,17 @@ def test_keep_window_never_exceeds_the_hard_bound(monkeypatch):
     live_candles.get_ohlcv_live("binance", "OLDUSDT", "1d", start_ms=now - 700 * interval_ms, end_ms=now)
     cached = live_candles._cache[("binance", "OLDUSDT", "1d")]
     assert (cached.index.max() - cached.index.min()).days <= live_candles._MAX_KEEP_DAYS
+
+
+def test_same_series_is_not_re_requested_within_15_seconds(monkeypatch):
+    interval_ms = 60_000
+    now = 1_800_000_000_000
+    candles = _make_candles(now - 30 * interval_ms, 31, interval_ms)
+    client = _FakeClient({"BTCUSDT": candles})
+    monkeypatch.setattr(live_candles, "get_exchange_client", lambda ex: client)
+    calls = []
+    real = live_candles._fetch_range
+    monkeypatch.setattr(live_candles, "_fetch_range", lambda c, s, i, st, en: calls.append(st) or real(c, s, i, st, en))
+    for _ in range(6):
+        live_candles.get_ohlcv_live("binance", "BTCUSDT", "1m", start_ms=now - 30 * interval_ms, end_ms=now)
+    assert len(calls) <= 2          # 1 full download (+ at most 1 refresh), not 6 requests
