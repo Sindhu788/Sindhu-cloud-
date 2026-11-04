@@ -9,7 +9,10 @@
      4. Known-heavy endpoints are started a moment later than the shell so the page frame renders first.
      5. If the caller gives up (its own timeout) the request keeps running and fills the cache, so the next
         poll is instant instead of starting from scratch.
-     6. A 502/503/504 or network error on a critical call shows "Server waking up, retrying..." until it recovers.
+     6. A page-scoped GET whose page has already been left is dropped (its promise never settles), so a slow loader of the
+        page you just left can no longer write into the next page (this caused console errors such as "Cannot set
+        properties of null"). Global polls (notifications, status, health, ops) are never dropped.
+     7. A 502/503/504 or network error on a critical call shows "Server waking up, retrying..." until it recovers.
    Disable with localStorage.setItem("sindhu_lite", "off") (or ?lite=off once). */
 (function () {
   "use strict";
@@ -27,6 +30,12 @@
                /backtesting\/strategies/, /risk-metrics/, /retirement-suggestions/, /coin-priority/, /correlation/,
                /backtest-history/, /compare-strategies/, /project-status/, /risk-department/, /telegram\/log/,
                /signal-tracker/, /best-worst/, /strategy-summary/];
+
+  // Exactly the endpoints the always-on pollers in app.js use (topbar, notifications, engine banner, session warning, badge).
+  var GLOBAL_POLL = [/^\/api\/activity/, /^\/api\/home/, /^\/api\/token/, /^\/api\/auth\//, /^\/api\/ops\//,
+                     /^\/api\/paper-trading\/status/, /^\/api\/paper-trading\/dashboard-badge-status/, /^\/health/];
+  var pageEpoch = 0;
+  window.addEventListener("hashchange", function () { pageEpoch++; });
 
   var origFetch = window.fetch.bind(window);
   var cache = Object.create(null);      // url -> {t, status, statusText, headers, body}
@@ -88,6 +97,7 @@
     if (method !== "GET") { cache = Object.create(null); return origFetch(input, init); }
     var signal = init && init.signal;
     var critical = matches(CRITICAL, p);
+    var epoch = pageEpoch, pageScoped = !critical && !matches(GLOBAL_POLL, p);
     var hit = cache[p];
     var pending;
     if (hit && Date.now() - hit.t < (critical ? 3000 : TTL_MS)) pending = Promise.resolve(hit);
@@ -109,7 +119,10 @@
         if (signal.aborted) return abort();
         signal.addEventListener("abort", abort, { once: true });
       }
-      pending.then(function (e) { resolve(toResponse(e)); }, reject);
+      pending.then(function (e) {
+        if (pageScoped && epoch !== pageEpoch) return;     // the page that asked is gone: never settle (see point 6)
+        resolve(toResponse(e));
+      }, function (err) { if (pageScoped && epoch !== pageEpoch) return; reject(err); });
     });
   };
 })();

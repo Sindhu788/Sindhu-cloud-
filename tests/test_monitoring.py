@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 from paper_trading import monitoring as m
+monitoring = m
 
 
 class Clock:
@@ -102,3 +103,71 @@ def test_engine_loop_calls_the_watchdog_and_the_owner_chat_warning_exists():
     src = inspect.getsource(engine)
     assert "monitoring.watchdog_tick(self)" in src and "_last_watchdog_at" in src
     assert "no_owner_chat" in inspect.getsource(ops_checks)
+
+
+# ---------------------------------------------------------------- Day 3: sleep-aware alerts
+def _s3(**kw):
+    base = dict(db_ok=True, engine_enabled=True, engine_running=True, stale_rejections_recent=0, telegram_failures_recent=0,
+                consecutive_failed_scans=0, seconds_since_last_scan=60, seconds_since_activity=60, in_wake_grace=False)
+    base.update(kw)
+    return base
+
+
+def test_asleep_then_woke_raises_no_stall_or_stale_alert():
+    wd = monitoring.Watchdog()
+    for _ in range(8):   # just woke: huge nominal age, empty caches => stale rejections, but inside the wake grace
+        ev = wd.check(_s3(in_wake_grace=True, seconds_since_activity=5, seconds_since_last_scan=None, stale_rejections_recent=10))
+        assert not [e for e in ev if e[1] in ("scanner_stalled", "stale_data")]
+    assert wd.stale_streak == 0
+
+
+def test_running_but_stalled_alerts_with_pinger_hint():
+    wd = monitoring.Watchdog()
+    ev = wd.check(_s3(seconds_since_activity=25 * 60, seconds_since_external_ping=None))
+    stalled = [e for e in ev if e[1] == "scanner_stalled"]
+    assert stalled and "no scan progress for 25 min" in stalled[0][2] and "no external pinger" in stalled[0][2]
+    ev = wd.check(_s3(seconds_since_activity=10))
+    assert [e for e in ev if e[0] == "recovery" and e[1] == "scanner_stalled"]
+
+
+def test_slow_but_moving_cold_scan_is_not_stalled():
+    wd = monitoring.Watchdog()
+    ev = wd.check(_s3(seconds_since_last_scan=40 * 60, seconds_since_activity=30))   # no scan FINISHED for 40 min, but progress 30 s ago
+    assert not [e for e in ev if e[1] == "scanner_stalled"]
+
+
+def test_stale_data_still_alerts_after_grace_and_recovers():
+    wd = monitoring.Watchdog()
+    codes = []
+    for _ in range(monitoring.STALE_STREAK_TO_ALERT):
+        codes += [e for e in wd.check(_s3(stale_rejections_recent=4)) if e[1] == "stale_data"]
+    assert codes and codes[-1][0] == "alert"
+    out = []
+    for _ in range(monitoring.RECOVER_STREAK + 1):
+        out += wd.check(_s3())
+    assert [e for e in out if e[0] == "recovery" and e[1] == "stale_data"]
+
+
+def test_restart_alert_is_rate_limited_to_six_hours_and_owner_only():
+    sent = []
+    t = [1000.0]
+    lim = monitoring.Limiter(clock=lambda: t[0])
+    ev = [("alert", "restarted", "restarted")]
+    assert monitoring.deliver(ev, lim, lambda m: sent.append(m) or True) == [("restarted", True)]
+    t[0] += 3 * 3600
+    assert monitoring.deliver(ev, lim, lambda m: sent.append(m) or True) == [("restarted", False)]
+    t[0] += 4 * 3600
+    assert monitoring.deliver(ev, lim, lambda m: sent.append(m) or True) == [("restarted", True)]
+    assert len(sent) == 2
+
+
+def test_wake_grace_after_long_gap_between_watchdog_runs(monkeypatch):
+    monitoring._last_check_wall, monitoring._grace_until = None, 0.0
+    assert monitoring._frozen_recently(1000.0) is False
+    assert monitoring._frozen_recently(1060.0) is False
+    assert monitoring._frozen_recently(1060.0 + 400) is True      # process was frozen ~400 s
+    t = 1460.0
+    while t < 1460.0 + 520:                                       # normal 60 s cadence resumes: still inside the 600 s grace
+        t += 60
+        assert monitoring._frozen_recently(t) is True
+    assert monitoring._frozen_recently(1460.0 + 660) is False

@@ -383,7 +383,7 @@ def create_app():
         return {"version": APP_VERSION, "system_health": "OK"}
 
     @app.get("/health")
-    def health_check():
+    def health_check(request: Request = None):
         """For an external uptime pinger (e.g. cron-job.org) to keep a
         free-tier host from sleeping the app after ~15 minutes idle.
         Exempt from the login gate (see sindhu_web/security.py's
@@ -421,6 +421,11 @@ def create_app():
         from sindhu_web.security import CLOUD_MODE
         from data_engine import db_backend
         from sindhu_web.api.system import _SERVER_START_ISO
+        try:   # in-memory only: lets the dashboard / watchdog show whether an external pinger really reaches this service
+            from paper_trading import instance_state
+            instance_state.note_health_ping(request.headers.get("user-agent") if request is not None else None)
+        except Exception:
+            pass
         # In-memory flags only (no database, no network): commit from the Render env, engine flag from the engine object.
         try:
             from paper_trading.engine import engine as _eng

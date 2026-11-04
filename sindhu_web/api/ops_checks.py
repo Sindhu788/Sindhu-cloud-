@@ -61,3 +61,10 @@ def why(coin: Optional[str] = None, strategy: Optional[str] = None, outcome: Opt
 def why_summary(hours: int = 24):
     from paper_trading import decision_trace
     return decision_trace.summary(hours=hours)
+
+
+@router.get("/api/ops/pinger")
+def pinger():
+    """Proof that an external pinger reaches /health: in-memory counters of this process only (reset on every restart)."""
+    from paper_trading import instance_state
+    return instance_state.ping_summary()

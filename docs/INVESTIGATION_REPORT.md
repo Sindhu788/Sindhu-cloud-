@@ -136,3 +136,30 @@ Phases 8-9 functional/UI clicking, 13 gate-by-gate triggering, 10 live end-to-en
 | Monitoring | none | scan receipts | watchdog, daily summary, reconciliation, /api/ops/why | owner alerts need personal_chat_id |
 | Backups | none tested | none | export + restore verified | Neon export 4 Nov |
 | Performance evidence | PF 0.75 (29 Aug - 16 Sep) | - | all 10 most-traded strategies PF < 1 in 60-day backtest; none profitable in both IS and OOS | no closed trade since 17 Sep |
+
+
+---
+# Day 3 - why no full scan receipt since 3 Nov 20:18 UTC (4 Nov 2026)
+
+## What is certain (evidence)
+1. A receipt (`paper_scan_log`) is written ONLY when a whole scan ends (`engine._run_scan`, `finally:` block). A scan that is cut off by a restart, or is still running, leaves no trace.
+2. The 60-second duties (Telegram fresh-signal sweep, owner watchdog, reconciliation, DB guard) ran only at the END of a scan (`_tick_impl`, after the coin loop). While a scan runs they did not run.
+3. Render log: the process is restarted all the time on the free plan (new instance id each time): 3 Nov 18:08, 18:46 x2, 19:20, 19:39, 20:18 x2, 21:23, 21:24; 4 Nov 03:13, 03:14, 03:32, 08:18. After each restart the in-memory candle cache is empty.
+4. Receipts that did get written: 19:03-19:08 (partial, every ~1.6 min, all 10 coins errored = stale data, fast failure), then 19:39 and 20:18 (complete, 10 coins). After 20:18: none.
+5. Between 08:18 and 08:42 the same process stayed up (dashboard requests at 08:22-08:37 and my own /health) and Render metrics show CPU of only 0.007-0.075 (limit 0.15) from 08:26 on. No receipt, no new decision-trace rows, no warning or error in the log. So the engine was NOT computing; it was waiting (network or sleeps), and it was not crashing.
+6. The decision trace shows bursts only (03h 20 rows, 04h 20, 06h 9, 07h 10), matching the times the instance was awake.
+
+## What is the most likely cause (code reading; the duration is NOT VERIFIED until the new timing logs exist)
+- `lookback_days` is 20. A cold process must download 20 days of candles per (coin, timeframe, interval): 15m ~ 1,920 rows (7 pages of 300 on OKX), 5m ~ 5,760 rows (20 pages), 1m ~ 28,800 rows (~96 pages). The decision trace shows strategies on 1m, 5m, 15m, 1h and 4h. Every page costs one OKX round trip plus a fixed 0.25 s pause (`REQUEST_DELAY_SECONDS`). On top of that `coin_filter.shortlist` first scores all 50 tracked coins (one 72 h fetch each).
+- That adds up to well over a thousand sequential requests for the first scan after every restart, i.e. many minutes of mostly waiting (matches the idle CPU), while the instance is restarted again whenever it is idle 15 min.
+- Local measurement is NOT comparable: an isolated probe with an empty strategy library finished a cold 10-coin tick in 60-116 s, of which about 90 s was exchange fail-over from this PC (OKX unreachable from here). It proves nothing about the Render timing.
+
+## Cause vs consequence
+- Cause: the first (cold) scan after each restart is long and sequential, and the instance is restarted/stopped by the free plan before or while it runs; nothing recorded progress of an unfinished scan.
+- Consequence: no receipt (written at the end only), a late first Telegram sweep and no watchdog during the scan, and a possible false "scanner stalled" alert because the stall check measured the time since the last FINISHED scan.
+
+## What was changed (Day 3, Steps 3-4)
+Progress heartbeat row, interrupted-scan receipts, phase timing log lines, the 60 s housekeeping moved so it also runs inside the coin loop, sleep-aware watchdog. Details: docs/FIX_LOG.md and docs/RUNBOOK.md section 12. Gates, freshness window and coin-mode rules are unchanged.
+
+## What to measure next (after the deploy)
+Log lines `scan phase exchange+symbols`, `scan phase shortlist`, `scan finished: ... Ns` give the real duration of a cold scan on Render; table `paper_scan_heartbeat` shows where an interrupted scan stopped; `paper_scan_log.outcome='interrupted'` counts the cut-off scans.

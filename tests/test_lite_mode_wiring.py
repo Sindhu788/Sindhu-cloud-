@@ -34,3 +34,13 @@ def test_settings_loaders_tolerate_the_page_being_left_while_loading():
     for needle in ('(document.getElementById("tgLogBody") || {}).innerHTML', 'getElementById("tgChannelOverridesBox") || {}',
                    'getElementById("syncBandwidthStats") || {}', 'if (!document.getElementById("healthRestartCount")) return;'):
         assert needle in app
+
+
+def test_requests_of_a_page_that_was_left_are_dropped_but_global_polls_are_not():
+    js = _read("js/lite_mode.js")
+    for needle in ("pageEpoch", 'addEventListener("hashchange"', "GLOBAL_POLL", "epoch !== pageEpoch", "never settle"):
+        assert needle in js
+    glob = js[js.index("var GLOBAL_POLL"):js.index("var pageEpoch")]
+    for must_stay in ("activity", "home", "ops", "paper-trading\/status", "dashboard-badge-status", "health"):
+        assert must_stay in glob
+    assert "system" not in glob and "alert" not in glob      # page data must be droppable

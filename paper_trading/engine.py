@@ -133,6 +133,9 @@ class PaperTradingEngine:
         self._log = default_log
         self._on_event = None
         self._last_tick_at = None
+        self._last_housekeeping_at = None
+        self._scan_id = None
+        self._scan_activity_ts = None
         self._last_summary = {"shortlisted": [], "opened": 0, "closed": 0, "rejected": 0}
         self._tick_count = 0
         self._started_at = None
@@ -350,8 +353,33 @@ class PaperTradingEngine:
                 "opened": opened, "rejected": rejected}
 
     # ------------------------------------------------------------ loop
+    def _beat(self, phase, force=False, **kw):
+        """Best-effort scan heartbeat (see scan_telemetry.beat). Never raises, never blocks the scan for long."""
+        self._scan_activity_ts = time.time()      # in-memory sign of life, read by the watchdog (no DB needed)
+        cs = self._current_scan
+        if cs is None:
+            return
+        try:
+            from paper_trading import scan_telemetry
+            with storage.get_conn() as conn:
+                scan_telemetry.beat(conn, self._scan_id, cs['kind'], cs['started_at'], phase, coins_scanned=cs['coins_scanned'],
+                                    errors=cs['errors'], force=force, **kw)
+        except Exception:
+            pass
+
+    def _recover_interrupted_scan(self):
+        try:
+            from paper_trading import scan_telemetry
+            with storage.get_conn() as conn:
+                r = scan_telemetry.recover_interrupted(conn)
+            if r:
+                self._log(f"[paper-trading] previous scan was interrupted: {r['reason']}")
+        except Exception as e:
+            self._log(f"[paper-trading] interrupted-scan check failed: {e!r}")
+
     def _loop(self):
         self._log("[paper-trading] engine started")
+        self._recover_interrupted_scan()
         self._emit({"type": "engine_started", "dry_run": pt_config.load().get("dry_run")})
         while not self._stop_flag.is_set():
             try:
@@ -388,6 +416,9 @@ class PaperTradingEngine:
         self._current_scan = dict(started_at=utc_now(), kind=kind, outcome='complete', reason='',
                                   coins_scanned=0, candidates=0, rejected=0, accepted=0,
                                   no_trade=0, errors=0)
+        self._scan_id = uuid.uuid4().hex
+        self._scan_t0 = time.monotonic()
+        self._beat('start', force=True)
         try:
             if kill_switch.is_active():
                 self._current_scan.update(outcome='blocked', reason='Kill switch is active.')
@@ -405,6 +436,9 @@ class PaperTradingEngine:
             try:
                 with storage.get_conn() as conn:
                     write_receipt(conn, self._current_scan)
+                    conn.execute("UPDATE paper_scan_heartbeat SET phase='idle', updated_at=? WHERE id='current'", (utc_now(),))
+                self._log(f"[paper-trading] scan finished: {self._current_scan['outcome']}, {self._current_scan['coins_scanned']} coins, "
+                          f"{self._current_scan['errors']} errors, {time.monotonic() - self._scan_t0:.0f}s")
             except Exception:
                 self._log('[paper-trading] Scan receipt could not be persisted; diagnostics coverage is incomplete.')
             self._current_scan = None
@@ -433,8 +467,10 @@ class PaperTradingEngine:
             candidates = list(base_config.load_or_seed("exchanges.json", base_config.DEFAULTS["exchanges.json"])["enabled"])
             if env_flag("SINDHU_CLOUD_MODE") and "binance" in candidates:
                 candidates.remove("binance")
+            self._beat('exchange', force=True)
             exchange, client, tradeable = get_working_exchange_client(candidates, coins_cfg["quote_asset"], log=self._log)
             symbols = pick_top_symbols(client, n=coins_cfg["num_coins"], quote=coins_cfg["quote_asset"], tradeable=tradeable)
+            self._log(f"[paper-trading] scan phase exchange+symbols: {exchange}, {len(symbols)} symbols, {time.monotonic() - tick_started_monotonic:.0f}s")
         else:
             exchange = _default_exchange()
             client = get_exchange_client(exchange)
@@ -456,10 +492,12 @@ class PaperTradingEngine:
         # AFTER ranking, on top of whatever coin_filter.shortlist() already
         # picked, never instead of it.
         symbols = coin_priority.filter_out_demoted(symbols)
+        self._beat('shortlist', force=True, total=len(symbols))
         shortlist = coin_filter.shortlist(exchange, symbols, settings.get("coin_filter_top_n", 20),
                                           log=self._log, mode=settings.get("coin_filter_mode", "activity"))
         shortlist = coin_priority.ensure_pinned_included(shortlist, symbols, log=self._log)
         shortlisted_symbols = [s["symbol"] for s in shortlist]
+        self._log(f"[paper-trading] scan phase shortlist: {len(shortlist)} of {len(symbols)} coins, {time.monotonic() - tick_started_monotonic:.0f}s since scan start")
         if not LIVE_CANDLES_ONLY:
             live_feed.refresh_coins(client, shortlisted_symbols, log=self._log)
 
@@ -472,6 +510,9 @@ class PaperTradingEngine:
             self._current_scan['coins_scanned'] += 1
             self._scan_progress["index"] += 1
             self._scan_progress["current_symbol"] = symbol
+            self._beat('coins', idx=self._scan_progress["index"], total=len(shortlist), symbol=symbol)
+            if self._last_housekeeping_at is None or time.monotonic() - self._last_housekeeping_at >= 60:
+                self._housekeeping()   # do not make the 60 s signal sweep / watchdog wait for the whole scan
             try:
                 snapshot = market_state.classify(exchange, symbol)
             except Exception as e:
@@ -505,6 +546,7 @@ class PaperTradingEngine:
 
         self._scan_progress["in_progress"] = False
         self._scan_progress["current_symbol"] = None
+        self._beat('finishing', force=True)
 
         # One batched write for every decision the whole coin-scan loop
         # above just buffered -- see _flush_decisions' own docstring.
@@ -530,6 +572,28 @@ class PaperTradingEngine:
         except Exception as e:
             self._log(f"[paper-trading] capital allocation error: {e!r}")
 
+        self._housekeeping()
+
+        self._tick_count += 1
+        self._last_tick_at = _now_iso()
+        self._last_tick_duration_seconds = round(time.monotonic() - tick_started_monotonic, 2)
+        self._last_summary = {
+            "shortlisted": shortlisted_symbols, "opened": opened, "closed": closed, "rejected": rejected,
+        }
+        self._emit({"type": "tick", "summary": self._last_summary, "at": self._last_tick_at})
+
+    def _housekeeping(self):
+        """Periodic duties (Telegram sweep, watchdog, reconciliation, DB guard, ...). Each has its own throttle. Called at the end of
+        every scan AND at most once a minute from inside the coin loop, because a cold scan on the free plan can take many minutes
+        and these duties (above all the 60 s fresh-signal sweep and the owner watchdog) must not wait for it. Same thread, so no new
+        concurrency. Never raises."""
+        self._last_housekeeping_at = time.monotonic()
+        try:
+            self._housekeeping_impl()
+        except Exception as e:
+            self._log(f"[paper-trading] housekeeping error: {e!r}")
+
+    def _housekeeping_impl(self):
         # Task 4 (Batch 2): Telegram fresh-signal sweep -- throttled to
         # TELEGRAM_SWEEP_INTERVAL_SECONDS (see that constant's own comment
         # for why this now runs roughly once per tick rather than hourly).
@@ -612,14 +676,6 @@ class PaperTradingEngine:
                     self._log(f"[paper-trading] Custom alert rule(s) triggered: {triggered}")
             except Exception as e:
                 self._log(f"[paper-trading] Custom alert rules sweep error: {e!r}")
-
-        self._tick_count += 1
-        self._last_tick_at = _now_iso()
-        self._last_tick_duration_seconds = round(time.monotonic() - tick_started_monotonic, 2)
-        self._last_summary = {
-            "shortlisted": shortlisted_symbols, "opened": opened, "closed": closed, "rejected": rejected,
-        }
-        self._emit({"type": "tick", "summary": self._last_summary, "at": self._last_tick_at})
 
     def _monitor_orphaned_positions(self, exchange, client, shortlisted_symbols):
         """Trade Monitor must keep watching a coin's open position even if

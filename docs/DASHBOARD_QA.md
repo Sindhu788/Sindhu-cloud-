@@ -167,3 +167,19 @@ Call log:
 - LOW: leaving a page within ~2 s can print a console error from a still-loading panel (no visible effect).
 - LOW: cold first load of the CEO page is 6-10 s on the test machine; Render free plan will be slower on a cold start.
 - LOW: numeric validation exists in the UI (invalid fields get the `input-invalid` style and Save stays disabled) but there is no visible message text - see the Settings rows.
+
+---
+## Day 3 re-test (4 Nov 2026) - the 10 listed items
+Method: Playwright (headless Chromium) against the throwaway Local instance on port 8421 (own QA login, safe mode, no Telegram, no trading). Scripts re-ran: 45 fast page switches (Settings + 14 pages, 250 ms apart, 3 rounds), Settings left after 1.2 s, numeric validation, Quick-actions menu, CEO cold load. Desktop 1366x800 and phone 390x844.
+
+| # | Item (before) | After | Status | Evidence |
+|---|---|---|---|---|
+| 1-2 | Settings: `box.querySelectorAll is not a function` / `Cannot set properties of null (innerHTML)` (desktop and mobile) | Lite layer now drops the answers of page-scoped requests whose page was already left (point 6 in lite_mode.js), so a slow loader can no longer write into the next page. Settings left after 1.2 s: 0 page errors on desktop and mobile; Settings still fills in (102 fields) | FIXED | scripts above; tests/test_lite_mode_wiring.py |
+| 3 | Settings button "Today": `Cannot set properties of null` | same fix; 0 errors | FIXED | |
+| 4-5 | "(all pages) console errors during the whole run" desktop / mobile (aggregates of 1-3 plus `loadHealth` writing `healthUptime` after leaving Settings) | After tightening the global-poll list so `/api/system/health` is dropped when its page is left: 45 fast switches, 0 page errors on desktop and 0 on mobile (final run) | FIXED | |
+| 6-8 | "Open Logs" click times out (Concepts desktop, two on mobile) | NOT a product bug: the old script clicked the first button with that text, which is `#qaLogs` inside the closed Quick-actions menu (not visible). Opening the menu first and clicking it opens the log panel. Only one visible "Open Logs" exists on Concepts. | FALSE ALARM (script) | D:/sindhu_runtime/qa_screens/day3_open_logs.jpg |
+| 9-10 | CEO load time < 3 s: 10.1 s desktop, 5.9 s mobile | Measured again: 7.8-8.2 s desktop cold new tab (33 API calls; slowest `clarification/all` 4.8 s, `ai/dashboard` 3.0 s, `project-score` 2.7 s). Mobile run on the same busy PC: 17 s. | KEPT (not fixed): load time depends on the size of the data behind those endpoints and on the host CPU; reducing it means rewriting those endpoints, out of scope and risky. The Lite queue already shows the shell first. On Render free plan expect slower after every wake-up. | |
+| extra | "no visible message text" for invalid numbers | The message was already there: invalid input shows `Must be greater than 0.` in red under the field and Save stays disabled (the old check searched the wrong words) | FALSE ALARM (check) | D:/sindhu_runtime/qa_screens/day3_settings_validation.jpg |
+
+Not re-tested: authenticated Cloud pages (see Step 6 in docs/OWNER_TODO.md), a real phone.
+Open (low): CEO cold load time; benign console noise if a user leaves a page while a request started by a button on that page is still running.
