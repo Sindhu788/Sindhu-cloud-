@@ -84,3 +84,15 @@ UPDATE 4 Nov: a second fresh venv at C:\Users\sindh\sindhu_venv was blocked the 
 Alerts need `personal_chat_id` (docs/OWNER_ALERTS_SETUP.md); nothing is ever sent to a public channel.
 
 **Is the external pinger working?** `GET /api/ops/pinger` (logged in) shows `pinger_active`, `seconds_since_last_external_ping`, `average_gap_seconds`. Counters live in memory and restart with the process. Render's own health probe is counted separately (it does not keep the service awake). `/api/ops/warnings` shows a `no_pinger` warning when none is seen after the process has been up 15 min.
+
+## 11b. Local app: permanent venv and supervisor (Day 3, 4 Nov 2026)
+What was tried, in order: (a) COPY of the working venv to a permanent path -> **works**: `D:\sindhu_venv_stable\Scripts\python.exe` imports pandas/numpy/fastapi without the Application Control block (Windows judged the already-trusted files the same at the new path; a freshly pip-installed venv is still blocked, see section 11). Backup of the original: `D:\sindhu_backup_venv_20261104`. (b) signed Python distribution: not needed. (c) WSL2/Docker: not installed (WSL says "not installed", docker not found) - not used. No Smart App Control / Defender setting was touched. Limits: the copy has no `psycopg2` (not needed for the local SQLite app); `pip install` of NEW packages into it may be blocked again.
+Commands (copies of the scripts are in `scripts/local_runtime/`):
+```bat
+D:\sindhu_runtime\start_supervised.cmd   rem start app under the supervisor (health check every 30 s, restart after 3 failures)
+D:\sindhu_runtime\start_local.cmd         rem start without supervisor (foreground)
+D:\sindhu_runtime\stop_local.cmd          rem stop supervisor and app
+```
+Logs: `D:\sindhu_runtime\server.log` (app), `supervisor.log`. Above 20 MB a log is moved to `logs_archive\` (archived, never deleted).
+Safety: the local app can never publish public signals - four independent blocks (checked 4 Nov): `SINDHU_PUBLIC_SIGNAL_OWNER=disabled`, `SINDHU_SAFE_START=1`, `SINDHU_TELEGRAM_DRY_RUN=1`, and the local Telegram settings have no bot token, no channel id and master send OFF. The supervisor kills (and does not restart) an app whose /health does not say `safe_start: true`.
+Forced-restart test (4 Nov 14:32 local): listener killed -> supervisor log `health check failed (1/3)`, `app exited with code 1`, `started app pid ...` -> /health ok again ~3 min later.

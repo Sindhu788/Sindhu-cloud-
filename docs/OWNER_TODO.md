@@ -2,6 +2,14 @@
 
 **Live state:** Cloud (Render `Sindhu-cloud--1`) runs the legacy engine on 10 liquid coins (OKX feed), Telegram delivery READY, and has already sent live signals (first: 3 Nov 21:33 UTC). Local is safe-mode only and can never send. Rollback: docs/RUNBOOK.md section 7.
 
+## DAY 3 ORDER (4 Nov 2026) - do these first, each takes minutes
+1. **Pinger** (5 min) - docs/PINGER_SETUP.md. Without it the free Render instance sleeps, restarts, and every restart costs a 15-17 minute cold scan (measured). After 10 minutes open `/api/ops/pinger` while logged in: `pinger_active` must be true.
+2. **Owner alerts** (5 min) - docs/OWNER_ALERTS_SETUP.md: get your chat id, paste it in Settings > Telegram > Private Alerts, Save, then click "Send test alert to my chat" yourself (I never clicked it).
+3. **Three decisions** (10 min) - docs/OWNER_DECISIONS.md: (a) `auto_send_high_confidence_only`, (b) strategy pauses (8 recommended), (c) opposite-direction signal policy (needs a small code change if you say yes).
+4. **Secrets rotation** (30 min, one secret at a time) - docs/SECRETS_ROTATION.md: Groq key, proxy login, sync secret, Neon password.
+5. **Authenticated Cloud page check** (10 min, I could NOT do it: no login available to me) - log in to https://sindhu-cloud-1.onrender.com and check, read-only: (a) the yellow/red warning bar at the top reads sensibly (it should mention the missing pinger/chat id until you do 1-2); (b) Paper Trading page: positions list loads, balances start near 100, no red error toast; (c) Settings > Telegram: chat id field present and the new "Send test alert" button; (d) CEO page loads in under ~60 s after a sleep; (e) Live Logs shows `scan finished: complete` lines; (f) `/api/ops/warnings`, `/api/ops/pinger`, `/api/ops/why-summary` return JSON, not an error.
+6. **Local app on your PC:** it now runs from the permanent venv `D:\sindhu_venv_stable`; start it supervised with `D:\sindhu_runtime\start_supervised.cmd` (docs/RUNBOOK.md section 11). No Windows security setting was changed. Item 14 below is therefore only needed if you want a freshly built venv.
+
 Do these in order (most important first):
 1. **Set your private chat id** (Dashboard -> Settings -> Telegram -> "Personal chat id"). Until then the watchdog alerts, the daily health summary and the reconciliation alert are SILENT (the dashboard shows a yellow "Owner alerts are OFF" bar).
 2. **Keep Cloud awake** - section K: sign up for the free 1-minute pinger (cron-job.org). The GitHub keep-alive workflow cannot run from this branch. Decide on a paid plan if you want signals 24/7 (free plan: sleeps after 15 min, 750 shared hours/month).
@@ -77,4 +85,4 @@ Method: regex scan (Telegram bot tokens, database URLs with passwords, URL crede
 
 Rotation needs the provider dashboards (owner task). After rotating Neon, update DATABASE_URL on Render, then edit or delete neon_runtime_connection.json.
 
-14. **Local app venv blocked by Windows (Smart App Control):** newly installed pandas DLLs are rejected ("Application Control policy has blocked this file"). Turn Smart App Control off or allow Python packages, then recreate the venv (docs/RUNBOOK.md section 11). Until then the local app runs from a temporary-folder venv that may disappear.
+14. **(Resolved by a copy on 4 Nov, see Day 3 item 6) Local app venv blocked by Windows (Smart App Control):** newly installed pandas DLLs are rejected ("Application Control policy has blocked this file"). Turn Smart App Control off or allow Python packages, then recreate the venv (docs/RUNBOOK.md section 11). Until then the local app runs from a temporary-folder venv that may disappear.

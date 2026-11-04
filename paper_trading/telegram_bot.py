@@ -870,6 +870,24 @@ def send_test_signal():
     return {"ok": ok, "error": err}
 
 
+_CHAT_ID_RE = re.compile(r"^-?\d{5,16}$")
+
+
+def validate_chat_id(value):
+    """Format check only (never contacts Telegram). A private chat id is 5-16 digits (group ids may start with '-').
+    Rejects bot tokens (contain ':'), @usernames, links and free text. Returns (ok, message)."""
+    v = str(value or "").strip()
+    if not v:
+        return True, ""          # empty = clear the setting
+    if ":" in v:
+        return False, "That looks like a bot token (it contains ':'). Enter your numeric chat id instead."
+    if v.startswith("@") or not v.lstrip("-").isdigit():
+        return False, "Enter the numeric chat id (digits only, e.g. 123456789), not a @username or text."
+    if not _CHAT_ID_RE.match(v):
+        return False, "A chat id has 5 to 16 digits."
+    return True, ""
+
+
 def send_private_message(text):
     """Master 15-Item task, Items 6 & 10: sends to the CEO's own private
     `personal_chat_id` (a DM with the bot) instead of the shared/public

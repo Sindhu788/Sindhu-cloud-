@@ -68,3 +68,25 @@ def pinger():
     """Proof that an external pinger reaches /health: in-memory counters of this process only (reset on every restart)."""
     from paper_trading import instance_state
     return instance_state.ping_summary()
+
+
+_TEST_ALERT_COOLDOWN_MIN = 5
+
+
+@router.post("/api/ops/test-owner-alert")
+def test_owner_alert():
+    """Owner-triggered ONLY (a button in Settings > Telegram > Private Alerts): sends one short test message to the owner's private
+    chat. Rate limited (one per 5 minutes, persisted). Never touches a public channel; never called by the system itself."""
+    from datetime import datetime, timezone
+    from paper_trading import monitoring, telegram_bot
+    if not telegram_bot.load_settings().get("personal_chat_id"):
+        return JSONResponse(status_code=400, content={"ok": False, "error": "Save your personal chat id first (Settings > Telegram > Private Alerts)."})
+    limiter = monitoring._limiter or monitoring._persistent_limiter()
+    if not limiter.allow("test_owner_alert", _TEST_ALERT_COOLDOWN_MIN):
+        return JSONResponse(status_code=429, content={"ok": False, "error": f"A test alert was sent less than {_TEST_ALERT_COOLDOWN_MIN} minutes ago. Please wait."})
+    res = telegram_bot.send_private_message("[SINDHU test alert] If you can read this, owner alerts reach this chat. "
+                                            + datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"))
+    if res.get("ok"):
+        limiter.mark("test_owner_alert")
+        return {"ok": True}
+    return JSONResponse(status_code=502, content={"ok": False, "error": res.get("error") or "Telegram did not accept the message."})

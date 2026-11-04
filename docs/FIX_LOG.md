@@ -9,3 +9,8 @@
 - 2026-11-04 QA fixes: version-history handler and four Settings loaders no longer throw after navigating away.
 - 2026-11-04 Step 26: balance reset to $100 on Cloud and Local (archive 1,132 trades, counters kept, reconciliation OK after).
 - 2026-11-04 Step 22: walk-forward report added to PERFORMANCE_RECONCILIATION.md (no strategy profitable in both periods).
+- 2026-11-04 Day 3 Steps 2-4: scan heartbeat + interrupted receipts, light in-loop housekeeping, sleep-aware watchdog, /health ping tracker (commits aa325fa, 3b6ead4; deployed 92f06b7).
+- 2026-11-04 Day 3 Step 5: Lite layer drops answers of pages already left; QA re-test table in DASHBOARD_QA.md.
+- 2026-11-04 Day 3 Steps 7-8: permanent local venv copy + supervisor with forced-kill test (recovered in ~3 min).
+- 2026-11-04 Day 3 Step 9: chat-id validation, owner-only test-alert button.
+- 2026-11-04 Day 3 follow-up to Step 3: first deployed build (92f06b7) showed the first coin of a cold scan stuck >10 min while the full housekeeping ran inside the loop; fixed by a light mode (D23) and a bounded candle prefetch (D26).

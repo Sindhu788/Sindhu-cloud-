@@ -30,6 +30,6 @@ Three decisions are yours. Each section: current value, how to change it, eviden
   |---|---|---|
   | all positions (1,161) | 180 | 236 |
   | signal-eligible groups only, profitable + challenge (325 positions) | **14** | **20** |
-  A "pair" is two positions on one coin with opposite directions whose entries are that close; one position can be in several pairs. Whether any of the 6 sent signals formed such a pair: NOT VERIFIED (not checked per message).
+  A "pair" is two positions on one coin with opposite directions whose entries are that close; one position can be in several pairs. Among the 6 signals actually sent there is **one** such pair: BTC/USDT long at 21:33 UTC and short at 21:38 UTC on 3 Nov (Ichimoku 15m vs Daily Liquidity Scalping; docs/OWNER_TODO.md item 7). Whether the other 4 had an opposite signal on the same coin within 30 min: NOT VERIFIED.
 - **Pros of blocking (public signals only):** followers never see "long BTC" and "short BTC" minutes apart; less confusion and fees. **Cons:** the paper trades still happen, so the public record and the paper record differ; a real reversal could be missed.
 - **Recommendation:** block the **second, opposite** public signal on the same coin for **30 minutes** (paper trading unchanged). The 14-20 pairs in 325 signal-eligible positions (about 4-6 %) show it is rare, so the cost is small. I will implement it as an off-by-default setting if you say yes.
