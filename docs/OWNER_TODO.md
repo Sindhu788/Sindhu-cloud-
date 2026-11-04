@@ -86,3 +86,35 @@ Method: regex scan (Telegram bot tokens, database URLs with passwords, URL crede
 Rotation needs the provider dashboards (owner task). After rotating Neon, update DATABASE_URL on Render, then edit or delete neon_runtime_connection.json.
 
 14. **(Resolved by a copy on 4 Nov, see Day 3 item 6) Local app venv blocked by Windows (Smart App Control):** newly installed pandas DLLs are rejected ("Application Control policy has blocked this file"). Turn Smart App Control off or allow Python packages, then recreate the venv (docs/RUNBOOK.md section 11). Until then the local app runs from a temporary-folder venv that may disappear.
+
+
+## DAY 4 ADDITIONS (4 Nov 2026)
+**Top priority (unchanged, now backed by numbers):** 1. Pinger (docs/PINGER_SETUP.md). Without it a complete scan is impossible on the free plan (docs/SCAN_PROFILE.md section 9). 2. Owner chat id (docs/OWNER_ALERTS_SETUP.md): still not set on Cloud (settings read 4 Nov: personal chat id NOT set). 3. Decisions (docs/OWNER_DECISIONS.md, updated with Day 4 evidence).
+
+### Token/service conflict check (Step 15) - read-only, partly NOT VERIFIED
+The Render API lists 9 services in your workspace and does not show environment variable values, so token fingerprints could NOT be compared and the bot's webhook state could not be read (the token is not available to me). What can be seen:
+| Service | Branch / start command | Auto-deploy | Risk |
+|---|---|---|---|
+| Sindhu-cloud--1 (the live one) | codex/trading-intelligence, `cloud_runtime.app` | yes | the only one that should hold the bot token |
+| **Sindhu-cloud-** | **main**, `python cloud_runtime/app.py`, same GitHub repo | yes, not suspended | **medium**: an older SINDHU build on the same repo. If it still has `TELEGRAM_BOT_TOKEN` and the legacy engine ON, it could send duplicate or old-style signals when it wakes. Its last deploy was 1 Sep. |
+| Trading-best, Trading-best-1, Trading-best-2 | main, `python bot.py` | yes | unknown: older bots; if one polls Telegram with the same token you would see 409 Conflict; none showed 409 in the Sindhu-cloud--1 log |
+| Trading-main future, alpha-signal-bot, sindhu-agency | main | mixed | unknown / low |
+| zaiqa-royale-portfolio | static site | - | none |
+Render log search on Sindhu-cloud--1 for "409", "Conflict" and "getUpdates" over 4 Nov found nothing (log service was partly unavailable for the other services: their logs could not be read). **Owner action (5 min):** in the Render dashboard open Sindhu-cloud- and each Trading-best service > Environment: if `TELEGRAM_BOT_TOKEN` exists, either delete that variable there or suspend the service you do not use. I did not suspend anything.
+
+### Owner readiness table (Step 24)
+| Item | State on 4 Nov ~17:30 UTC |
+|---|---|
+| External pinger | not seen in the log |
+| Private chat id / owner alerts | not set (Cloud settings read) -> alerts, daily summary and the memory alert stay silent |
+| `auto_send_high_confidence_only` | not stored = default OFF (unchanged) |
+| Strategy pauses | none applied (8 recommended, see docs/STRATEGY_FORENSICS.md) |
+| Opposite-direction policy | none (2 opposite pairs in the 6 sent signals) |
+| False alerts after my changes | none possible: no owner chat is configured, so nothing was sent; alert log empty |
+
+### Backup and restore (Step 25) - done on 4 Nov
+New backup folder `D:\sindhu_backup_day4\cloud_export_20261104_222811` (51 tables exported, 0 mismatched). Throwaway restore to `D:\sindhu_runtime\restore_test\restored_day4.db`: **49 tables restored OK, 0 mismatched, 2 skipped (login tables, deliberately), 11,909 rows**; e.g. paper_trade_history_archive 1,132 = 1,132, paper_scan_log 95 = 95. Commands: docs/RUNBOOK.md section 13.
+
+### Other owner items from Day 4
+- Security: docs/SECURITY_REVIEW.md items 5, 11, 12 (CORS origin, rate limit at Cloudflare, Content-Security-Policy).
+- The dashboard CEO page load time (Step 23) was NOT worked on this run.

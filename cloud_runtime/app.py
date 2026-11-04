@@ -320,6 +320,16 @@ def create_app():
     # server.py's identical middleware for the reasoning; each deployment
     # tracks its own in-memory counters.
     @app.middleware("http")
+    async def _security_headers(request: Request, call_next):
+        # Day 4 security review: basic hardening headers on every response (no CSP: the dashboard uses inline scripts/styles).
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "same-origin")
+        response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        return response
+
+    @app.middleware("http")
     async def _api_monitor_middleware(request: Request, call_next):
         import time as _time
         from sindhu_web import api_monitor

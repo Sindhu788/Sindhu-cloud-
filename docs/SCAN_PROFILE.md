@@ -59,3 +59,16 @@ The Day 3 idea (do not ask the exchange for newer candles again within 15 s) was
 ## 8. Not done / limits
 - Render-side numbers after these changes: see "Cloud measurement" below (filled after the deploy).
 - Further CPU savings that were not attempted (risk of changing outputs): share the merged frame between strategies with the same timeframes; avoid object-dtype `~` inversions (13 s per scan); cache `closed_recent_frame`.
+
+## 9. Cloud measurement after the Day 4 changes (Step 9) - STILL NOT COMPLETING
+Builds measured: `06d2051` (pool + memo + memory guard + health fix) and `ab5b297` (adds diagnostics). Evidence is the Render log and the Neon heartbeat/receipt tables, 4 Nov 16:24-17:08 UTC.
+| What | Measured |
+|---|---|
+| exchange + symbols | 81 s (16:26), 120 s earlier (CoinGecko/OKX retries) |
+| shortlist of 50 coins | 21-28 s |
+| prefetch of 10 coins, 4 workers | **197 s** (was 263 s) |
+| coin loop | **coin 1 took about 20 minutes**: scan started 16:43, reached coin 2 of 10 at about 17:07, then the instance stopped; CPU was 0.003-0.005 of 0.15 the whole time (idle: waiting), RSS flat at 322-338 MB |
+| complete scans | **0** (receipts since the pool push: all `interrupted`) |
+| /health | 29 of 30 answers within 4 s on Day 3; after the fix NOT re-measured under a live scan (the wake-up request at 17:25 took longer than 60 s because the instance was asleep) |
+What the diagnostics found: the engine thread sits inside ONE small candle request (stall sample 16:50:39: "downloading PEPE/USDT 1h page 1 window 3.0d", inside `ccxt_client._retry`) for minutes while the CPU is idle. Every long wait seen so far is a wait on the exchange, not computation. It happens after the burst of the prefetch (about 5 requests/s from 4 threads sharing one ccxt client). Possible causes, **not yet distinguished**: OKX rate-limit back-off (`_retry` sleeps 5 s x attempt on a rate-limit error and 2 s x attempt on network errors, up to `max_retries`), slow responses from OKX to Render, or an unsafe shared ccxt session across threads. The next deployment (Day 4 push 3) logs every retry (`[exchange-retry] okx attempt n/N <ErrorType>`) and names the exact stuck call in the stall report (`retry attempt n last_error <type>`), so the next measurement can decide.
+Free-plan limits as measured (numbers only): 0.15 CPU share, 512 MB RAM (322-338 MB in use with 10 coins warmed, soft guard at 400 MB), instance stopped after ~15 min without a request, restart on every wake (cold caches). A scan needs about 3.5 min of prefetch + 1.5 min of symbol/shortlist work before any coin is evaluated, plus local-equivalent CPU of ~18 s per coin (about 2 min per coin at 0.15 CPU) = roughly 25-30 minutes for 10 coins on this plan even if the exchange waits disappear. That is longer than the 15-minute idle limit, so without an external pinger a complete scan will never finish; with a pinger the process stays warm (cache kept) and later scans take seconds (warm scan 2.5 s locally). A plan with at least 0.5 CPU would cut the CPU part by 3x; NOT bought, NOT recommended before the pinger is tested. I did not tune further because the remaining wait is on the exchange side and could not be reproduced locally (OKX is blocked from this PC).

@@ -15,3 +15,4 @@
 - 2026-11-04 Day 3 Step 9: chat-id validation, owner-only test-alert button.
 - 2026-11-04 Day 3 follow-up to Step 3: first deployed build (92f06b7) showed the first coin of a cold scan stuck >10 min while the full housekeeping ran inside the loop; fixed by a light mode (D23) and a bounded candle prefetch (D26).
 - 2026-11-04 Day 3 closeout: supervisor fixed after a real test exposed two supervisors fighting over port 8420 (lock file, stop waits for exit). Refresh throttle written + tested locally, NOT deployed (D31).
+- 2026-11-04 Day 4: scan profiler + memo + connection pool; /health event-loop fix; memory guard; signal quality, strategy forensics, security review docs; login throttle, secure cookie, security headers; exchange retry logging.

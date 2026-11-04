@@ -96,3 +96,19 @@ D:\sindhu_runtime\stop_local.cmd          rem stop supervisor and app
 Logs: `D:\sindhu_runtime\server.log` (app), `supervisor.log`. Above 20 MB a log is moved to `logs_archive\` (archived, never deleted).
 Safety: the local app can never publish public signals - four independent blocks (checked 4 Nov): `SINDHU_PUBLIC_SIGNAL_OWNER=disabled`, `SINDHU_SAFE_START=1`, `SINDHU_TELEGRAM_DRY_RUN=1`, and the local Telegram settings have no bot token, no channel id and master send OFF. The supervisor kills (and does not restart) an app whose /health does not say `safe_start: true`.
 Forced-restart test (4 Nov 14:32 local): listener killed -> supervisor log `health check failed (1/3)`, `app exited with code 1`, `started app pid ...` -> /health ok again ~3 min later.
+
+## 13. Backup and restore commands (verified 4 Nov 2026)
+```bat
+rem 1. read-only export of the Cloud database into a NEW timestamped folder (login tables and candle tables are skipped)
+D:\sindhu_venv_stable\Scripts\python.exe scripts\backup_cloud_export.py D:\sindhu_backup_day4
+rem 2. throwaway restore test (refuses to overwrite; exit code 0 only if every row count matches)
+D:\sindhu_venv_stable\Scripts\python.exe scripts\restore_export_to_sqlite.py D:\sindhu_backup_day4\cloud_export_<stamp> D:\sindhu_runtime\restore_test\restored_<stamp>.db
+```
+(The scripts need the `psycopg` package; on 4 Nov they were run with the scratch venv, which has it. The Neon connection string is read from `data/config/neon_runtime_connection.json` on this PC; it is never printed or committed.) Result 4 Nov: 51 tables exported, 49 restored, 0 mismatches, 11,909 rows.
+**Automating it safely:** a weekly Windows Task Scheduler job (user level, no admin) that runs step 1 into `D:\sindhu_backup_<date>` and then step 2; keep the connection string only in that one local file (never in the task, a script argument or the repo); keep at least the last 4 backups; check that the restore step exits with code 0. Neon also keeps its own point-in-time history (plan limits NOT VERIFIED).
+
+## 14. Day 4 operational notes
+- Postgres connections are pooled (max 4 idle, rolled back on return, checked after 30 s idle, retired after 4 min). Switch off with the Render env var `SINDHU_PG_POOL=0`. Counters: `db_backend.pool_stats()`.
+- Candle prefetch: `SINDHU_PREFETCH_WORKERS` (default 4; use 2 or 0 if the log shows `[exchange-retry]` lines with RateLimitExceeded).
+- Memory guard: `SINDHU_MEM_SOFT_MB` (400) and `SINDHU_MEM_HARD_MB` (450); log lines start with `[memory-guard]`.
+- Log lines to read after a deploy: `scan phase ...`, `concept memo this scan: N hits`, `scan finished: ... Ns`, `[exchange-retry] ...`, `[live-candles] REFETCH ...`, `scan shows no progress for Ns; engine thread is at: ...`.
