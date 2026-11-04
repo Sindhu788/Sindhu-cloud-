@@ -105,3 +105,24 @@ too few trades after 2026-09-17 (0 < 100) - no calibration claim. All stored clo
 ## The unreproducible "+$270.05 over 1,856 trades, 40-43 % win" claim
 
 Both databases hold exactly 1,132 closed trades with net -87.96. No grouping, period or filter of these trades yields +270.05 or 1,856 trades. The figure came from a source that is not in these databases (a different dataset or a backtest). Treat it as unverified.
+
+---
+# Step 22 - Walk-forward (in-sample vs out-of-sample), 4 Nov 2026
+
+Same 10 strategies, same 3 coins, same costs, **no re-tuning**. In-sample (IS) = 2026-09-01 .. 2026-10-01, out-of-sample (OOS) = 2026-10-01 .. 2026-11-01, current engine, backtest accounts of 1000. Report only.
+
+| Strategy | IS trades | IS win % | IS PF | IS net | OOS trades | OOS win % | OOS PF | OOS net | Verdict |
+|---|---|---|---|---|---|---|---|---|---|
+| Previous High/Low Reversal [Manual Build] | 88 | 47.7 | 0.67 | -127.3 | 105 | 42.9 | 0.64 | -184.12 | holds / improves - still PF<1 |
+| Candlestick Pattern Reversal Strategy [Manua | 132 | 43.2 | 0.5 | -399.72 | 112 | 40.2 | 0.46 | -389.33 | holds / improves - still PF<1 |
+| Liquidity Sweep + CISD (Pure Swing Variant)  | 57 | 33.3 | 0.4 | -239.1 | 70 | 42.9 | 0.45 | -234.29 | holds / improves - still PF<1 |
+| Liquidity Sweep Multi-Confirmation [Manual B | 43 | 41.9 | 1.34 | 82.51 | 52 | 25.0 | 0.4 | -261.89 | collapse (PF fell >0.15) - still PF<1 |
+| Daily Liquidity Scalping Strategy [Manual Bu | 82 | 54.9 | 1.0 | -0.98 | 82 | 47.6 | 0.72 | -129.16 | collapse (PF fell >0.15) - still PF<1 |
+| Market Structure Shift Reversal [Manual Buil | 100 | 49.0 | 0.48 | -210.95 | 87 | 41.4 | 0.57 | -162.83 | holds / improves - still PF<1 |
+| HTF-LTF FVG/OB Confluence Entry [Manual Buil | 182 | 37.4 | 0.35 | -492.49 | 107 | 37.4 | 0.51 | -228.81 | holds / improves - still PF<1 |
+| Candle Range Theory (Loose) [Manual Build] | 102 | 25.5 | 0.42 | -470.35 | 95 | 46.3 | 1.12 | 64.24 | holds / improves |
+| Support/Resistance + Liquidity Sweep (Fixed- | 33 | 51.5 | 0.71 | -49.43 | 42 | 45.2 | 0.37 | -174.2 | collapse (PF fell >0.15) - still PF<1 |
+| FVG Pure + Inverse FVG (Structure) [Manual B | 112 | 28.6 | 0.24 | -472.82 | 90 | 48.9 | 1.13 | 49.42 | holds / improves |
+TOTAL net IS -2380.63 OOS -1650.97 PF>=1 count IS 2 OOS 2
+
+Reading: **no strategy is profitable in both periods.** Two had PF >= 1 in IS (Liquidity Sweep Multi-Confirmation 1.34, Daily Liquidity Scalping 1.00) and both are below 1 OOS (0.40 and 0.72: collapse, a classic overfitting sign). Two other strategies (Candle Range Theory Loose, FVG Pure + Inverse FVG) are above 1 OOS only after being very poor IS (0.42, 0.24), so neither is evidence of an edge. Total net improved (-2,381 IS vs -1,651 OOS) only because several strategies traded less. Limits: 3 coins, 30-day windows, one regime, assumed costs. Flagged for the owner: Multi-Confirmation and Daily Liquidity Scalping, which the live paper record also lists among the better four, should be watched closely rather than trusted.
