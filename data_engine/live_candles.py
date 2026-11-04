@@ -165,6 +165,11 @@ def get_ohlcv_live(exchange, symbol, interval, start_ms=None, end_ms=None):
         # returned everything the exchange has (a coin listed 40 days ago can never fill a 90-day window; do not retry forever).
         reaches_back = (not (cached is None or cached.empty)) and (
             cached.index.min() <= pd.to_datetime(start, unit="ms", utc=True) or (covered is not None and start >= covered))
+        if not reaches_back and not (cached is None or cached.empty):
+            # a series we already hold is being downloaded AGAIN: say why (diagnosis for the slow-scan investigation)
+            print(f"[live-candles] REFETCH {symbol} {interval}: needs {(now - start) / 86_400_000:.1f}d, cache starts "
+                  f"{(now - int(cached.index.min().timestamp() * 1000)) / 86_400_000:.1f}d ago, covered_from "
+                  f"{'-' if covered is None else format((now - covered) / 86_400_000, '.1f') + 'd ago'}", flush=True)
         if not reaches_back:
             # No cache yet, or the cache doesn't reach far enough back to
             # cover what's being asked for -- one full paginated fetch.

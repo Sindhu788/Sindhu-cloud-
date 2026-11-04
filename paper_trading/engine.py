@@ -429,6 +429,16 @@ class PaperTradingEngine:
                     if frame is not None:
                         lines = traceback.format_stack(frame)[-6:]
                         where = " <- ".join(" ".join(l.strip().splitlines()[0].split()) for l in reversed(lines))
+                        # what exactly is it downloading? (names only: symbol/interval/pages/cursor age - no secrets)
+                        f = frame
+                        while f is not None:
+                            if f.f_code.co_name == "_fetch_range":
+                                lv = f.f_locals
+                                where += (f" | downloading {lv.get('symbol')} {lv.get('interval')} page {lv.get('pages')} "
+                                          f"window {(lv.get('end_ms', 0) - lv.get('start_ms', 0)) / 86_400_000:.1f}d "
+                                          f"cursor {(lv.get('end_ms', 0) - (lv.get('cursor') or 0)) / 86_400_000:.1f}d from end")
+                                break
+                            f = f.f_back
                         self._log(f"[paper-trading] scan shows no progress for {idle:.0f}s; engine thread is at: {where}")
             except Exception:
                 pass
