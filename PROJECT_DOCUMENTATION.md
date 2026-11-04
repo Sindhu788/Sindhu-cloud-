@@ -764,3 +764,10 @@ Verified facts only; details and evidence are in docs/ (INVESTIGATION_REPORT, DE
 - **Local app:** permanent venv `D:\sindhu_venv_stable` + supervisor (`D:\sindhu_runtime\start_supervised.cmd`), no Windows security setting touched (docs/RUNBOOK.md 11b).
 - **Owner kit:** docs/PINGER_SETUP.md, OWNER_ALERTS_SETUP.md, SECRETS_ROTATION.md, OWNER_DECISIONS.md, OWNER_TODO.md "DAY 3 ORDER".
 - **Still true:** paper trading only; strategies are weak (old sample PF 0.75; no strategy profitable in both Sept and Oct); confidence calibration after 17 Sep NOT VERIFIED (8 closed trades since the restart, all losses); authenticated Cloud pages NOT VERIFIED (no login available).
+
+## STATUS 4 Nov 2026 - Day 4 (scan speed, signal quality, strategy forensics, hardening)
+- **Scan speed:** locally a cold scan is CPU-bound (185 s, 85 % strategy evaluation); on Render the 15-30 minute scan is dominated by waits on the exchange plus the 0.15 CPU share. Changes: Postgres connection pool, indicator memo (golden-checked identical output), memory guard, `/health` off the event loop, exchange retry logging. Cloud still completes NO scan; see docs/SCAN_PROFILE.md section 9.
+- **Signal quality:** docs/SIGNAL_QUALITY.md - 6 signals sent, none from the Losing group, 2 opposite pairs, 2 with unrealistic targets; confidence does not predict wins (AUC 0.47 over 1,142 trades); 95 % of non-sent trades fail the 3-factor confluence.
+- **Strategy forensics:** docs/STRATEGY_FORENSICS.md - no strategy robust over four 17-day windows; losses concentrate on long trades and 18-23 UTC; strategies are not redundant.
+- **Security:** docs/SECURITY_REVIEW.md - login throttle, Secure cookie, security headers added; dependency scan clean.
+- **Owner kit:** OWNER_TODO.md "DAY 4 ADDITIONS" (pinger, chat id, token/service conflict check of the other Render services incl. an old `main` build still deployed).
