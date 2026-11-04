@@ -14,3 +14,9 @@
 | Decision-trace activity per hour (UTC, 4 Nov) | 03h 20 rows, 04h 20, 05h 1, 06h 9, 07h 10, nothing after 07:56 | read-only SQL |
 
 Reading: the process is restarted often (13 starts in 15 h), and between 08:18 and 08:40 it was awake with almost no CPU use but wrote no receipt and no decisions. See the root-cause analysis in docs/INVESTIGATION_REPORT.md (Day 3 section).
+
+## Latency of /health (4 Nov 2026 ~09:15 UTC, from the owner's PC, awake instance)
+| Sample | Result |
+|---|---|
+| 30 requests (10 + 20) | 28 x 200 within 2.5 s (20 requests: min 0.60 s, median ~0.7 s, max 2.4 s); first batch: 9 x 200 (0.60-3.95 s) and **1 x timeout at 60 s** |
+Cause of the single timeout: NOT VERIFIED (shared 0.1-0.15 CPU, a concurrent scan, or the network path). Pinger timeout should be 30 s.
