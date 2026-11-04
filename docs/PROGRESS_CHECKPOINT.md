@@ -1,24 +1,20 @@
-[PROGRESS 100% | steps 30/30 done | now: complete | status: DONE | elapsed ~7h | blockers: none (owner items in OWNER_TODO.md)]
+[PROGRESS 64% | steps 9/14 done | now: Step 3 verification (2 complete scans after deploy) + Step 9 button | status: RUNNING | elapsed ~1h30m | blockers: none]
 
-# Checkpoint - grand master run, 3-4 Nov 2026
-Final state: deployed commit 36f619d on codex/trading-intelligence (= recovery/clean), Render live, `/health` ok, engine_running true, CI green.
-
-| Step | Result | Evidence |
+# Day 3 checkpoint (updated 4 Nov 2026 ~09:45 UTC)
+| Step | State | Evidence |
 |---|---|---|
-| 1-5 | DONE | paging/coin/blacklist tests; push 40ff8c0; logs clean; signal sent 3 Nov 21:33Z; local safe-mode, LAN unreachable (firewall) |
-| 6 | DONE | /health: version, commit, engine flag, no DB; p95 test |
-| 7 | DONE (partly) | Lite layer; heavy panels deferred/queued, NOT click-to-load |
-| 8, 18 | DONE | monitoring.py (watchdog, rate limit, recovery, daily summary); silent until personal_chat_id is set |
-| 9 | DONE | workflow inert (default branch main); cron-job.org / Cloudflare steps written |
-| 10-11 | DONE | docs/DASHBOARD_QA.md: 124/134 checks, 10 low open items |
-| 12 | DONE | tests/test_e2e_pipeline.py with stage counts |
-| 13 | DONE | docs/PARITY.md; two safe local settings aligned |
-| 14-15, 22 | DONE | docs/PERFORMANCE_RECONCILIATION.md (old vs new, scorecard, walk-forward) |
-| 16 | DONE | OWNER_TODO L (env var names NOT VERIFIED) |
-| 17 | DONE | decision trace + /api/ops/why; live on Cloud |
-| 19 | DONE | GitHub Actions run success on 36f619d |
-| 20 | DONE | export + restore: 45 tables, 10,377 rows, 0 mismatches |
-| 21 | DONE | reconciliation OK on local and Cloud (also after the reset) |
-| 23-25, 27-28 | DONE | GO_LIVE_CRITERIA (1/11), RUNBOOK, secrets scan (masked), LIVE_FEED_PLAN, PROMO_PLAN |
-| 26 | DONE | reset to $100 on Cloud and Local, 1,132 trades archived, counters kept |
-| 29-30 | DONE | docs updated; full suite 2346 passed, 0 failed, 2 skipped |
+| 1 Baseline | DONE | docs/DAY3_BASELINE.md |
+| 2 Scan receipt RCA | DONE | docs/INVESTIGATION_REPORT.md "Day 3" (cause = long cold scan + free-plan restarts + receipt only at scan end; duration of a cold scan on Render measured after deploy, see below) |
+| 3 Fix + push 1 | CODE DONE, deployed `92f06b7` (09:31 UTC); verification of 2 complete scans pending | commits aa325fa, 3b6ead4; log lines `scan phase exchange+symbols: okx, 50 symbols, 56s`, `scan phase shortlist: 10 of 50 coins, 77s since scan start` |
+| 4 Sleep-aware alerts | DONE | tests/test_monitoring.py (+6), tests/test_instance_state.py; RUNBOOK section 12 |
+| 5 QA leftovers | DONE | docs/DASHBOARD_QA.md "Day 3 re-test" |
+| 6 Authenticated Cloud pages | pending | |
+| 7 Local venv | DONE | permanent venv D:\sindhu_venv_stable works (pandas imports); backup D:\sindhu_backup_venv_20261104 |
+| 8 Local supervision | DONE | supervise_local.py; forced-kill test recovered in ~3 min; four independent blocks on public sending |
+| 9 Owner alerts doc + button | doc DONE, button pending | docs/OWNER_ALERTS_SETUP.md |
+| 10 Pinger doc | DONE | docs/PINGER_SETUP.md, latency in DAY3_BASELINE |
+| 11 Secrets guide | DONE | docs/SECRETS_ROTATION.md |
+| 12 Decisions pack | DONE | docs/OWNER_DECISIONS.md |
+| 13 Parity | pending | |
+| 14 Closeout | pending | full suite so far (4 shards, before push 1): 2363 passed, 2 skipped, 0 failed |
+Open problems: single 60 s /health timeout seen once (cause NOT VERIFIED); CEO page load time (kept, see QA doc).
