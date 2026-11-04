@@ -118,3 +118,9 @@ New backup folder `D:\sindhu_backup_day4\cloud_export_20261104_222811` (51 table
 ### Other owner items from Day 4
 - Security: docs/SECURITY_REVIEW.md items 5, 11, 12 (CORS origin, rate limit at Cloudflare, Content-Security-Policy).
 - The dashboard CEO page load time (Step 23) was NOT worked on this run.
+## DAY 5 ADDITIONS TO THE OWNER LIST (5 Nov 2026)
+1. **Local app:** double-click `D:\sindhu_runtime\OPEN_SINDHU.cmd`. To start it at Windows login put a shortcut to it in the folder opened by Win+R `shell:startup` (not done by me: persistent setting). The laptop's WiFi address changes (it was .111, now .113): use http://127.0.0.1:8420 on the laptop.
+2. **Keep the data fresh (daily, 1 minute):** run `cd D:\sindhu_clean` then `D:\sindhu_venv_data\Scripts\python.exe -m data_platform.run_download --detach --no-expand` ... (it adds yesterday's closed day for every coin; finished files are skipped). To schedule it daily use Windows Task Scheduler (Create Basic Task, daily, action = that command) - a persistent change, so left to you. Check progress with `type D:\sindhu_data\manifest\progress.json`.
+3. **Back up `D:\sindhu_data`:** it is the only copy of the rebuilt dataset (about 1.0 GB). Copy the folder to another drive or cloud storage once a month; it was lost once before. The downloader can rebuild it in about 30 minutes from Binance's public archive if needed.
+4. **Cloud memory / gate exchange:** after the next deploy check the Render log line `[memory-guard]`; and decide `SINDHU_GATE_USE_POSITION_EXCHANGE=1` (docs/SCAN_PROFILE.md section 10, D41).
+5. **Read docs/BACKTEST_RESULTS.md** when the 42-strategy run finishes; the sealed holdout (Sep-Oct 2026) must be opened only once, for strategies that pass.

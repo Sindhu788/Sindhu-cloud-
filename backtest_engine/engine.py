@@ -335,6 +335,10 @@ def run_backtest(df, strategy, settings, control=None, on_trade=None, knowledge_
     lows = df["low"].values
     opens = df["open"].values
     times = df.index
+    # Day-change detection used to box a pandas Timestamp for every bar (22 % of a 10-month run, profiled 5 Nov 2026). Same UTC-day boundaries as
+    # Timestamp.date() for UTC / naive indexes, computed once as integers; any other timezone keeps the original path.
+    _tzname = str(getattr(times, "tz", None))
+    _bar_days = (times.as_unit("ns").asi8 // 86_400_000_000_000).tolist() if _tzname in ("None", "UTC") and hasattr(times, "as_unit") else None
     atr_col = df["entry_atr_14"].values if "entry_atr_14" in df.columns else None
     # For trailing_stop.type == "structure" -- see _update_trailing_stop's
     # docstring. Precomputed once here, same pattern as atr_col above.
@@ -560,7 +564,7 @@ def run_backtest(df, strategy, settings, control=None, on_trade=None, knowledge_
         high = highs[i]
         low = lows[i]
         open_ = opens[i]
-        bar_date = times[i].date()
+        bar_date = _bar_days[i] if _bar_days is not None else times[i].date()
         if current_day != bar_date:
             current_day = bar_date
             daily_pnl = 0.0  # Requirement 11: daily loss limit resets at each new UTC day

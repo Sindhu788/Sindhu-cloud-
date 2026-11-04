@@ -102,3 +102,20 @@ Reading: no window exists in only one of the two sets (so the window rules and a
 
 ## What this dataset cannot tell you
 Survivorship (delisted pairs absent); Binance prices differ slightly from OKX (the venue Cloud trades on; OKX history is not reachable from this PC); 12 months is one market regime; the universe is ranked on the last 30 days of volume.
+
+## Binance vs another exchange (Step 13): how much do venues differ?
+OKX (where Cloud trades) cannot be reached from this PC (its history endpoint fails at connection level), so Bybit's public spot klines are the stand-in. 1h candles, October 2026 (744 hours), top 10 coins of the universe, close prices of the same hour:
+| Coin | common 1h candles | mean abs close diff (bps) | max (bps) | mean range diff (bps) | return correlation | median volume Binance/Bybit |
+|---|---|---|---|---|---|---|
+| BTCUSDT | 744 | 0.85 | 9.2 | 1.06 | 0.99975 | 1.77 |
+| ETHUSDT | 744 | 0.77 | 7.9 | 1.23 | 0.99983 | 2.8 |
+| SOLUSDT | 744 | 1.32 | 11.5 | 1.27 | 0.99962 | 5.69 |
+| ZECUSDT | 0 | not listed on Bybit spot | | | | |
+| NEARUSDT | 744 | 3.01 | 23.1 | 4.47 | 0.99953 | 5.67 |
+| XRPUSDT | 744 | 1.21 | 8.0 | 1.85 | 0.99958 | 4.93 |
+| BNBUSDT | 744 | 1.92 | 17.6 | 1.82 | 0.99858 | 26.99 |
+| PEPEUSDT | 744 | 15.89 | 238.2 | 17.49 | 0.9885 | 4.96 |
+| DOGEUSDT | 744 | 1.48 | 7.7 | 2.81 | 0.99942 | 7.09 |
+| UNIUSDT | 744 | 4.35 | 45.1 | 4.06 | 0.99899 | 12.55 |
+Reading: for the large coins the venues agree to about 1 basis point (0.01 %) on average, far below the 0.1 % commission; for thin coins (PEPE) the mean close difference is 16 bps with a worst hour of 238 bps and return correlation 0.9885, i.e. signals on thin coins will not transfer one-to-one between venues. This is a Binance-vs-Bybit number; the Binance-vs-OKX difference is NOT VERIFIED (not reachable from here) and should be measured once from Render (the Cloud process can fetch OKX candles) before trusting thin-coin results.
+Daily incremental updates: `python -m data_platform.run_download --detach --no-expand` adds the newly closed days (finished files are skipped via the manifest); scheduling it is an owner step (docs/OWNER_TODO.md).
