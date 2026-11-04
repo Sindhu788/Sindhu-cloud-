@@ -59,3 +59,8 @@ Restoring INTO Neon is deliberately not scripted (needs a human decision). Reset
 
 ## 10. Weekly routine
 docs/WEEKLY_REVIEW.md. Quick health: `/api/ops/warnings`, `/api/ops/settings-parity`, `scripts/weekly_scorecard.py`.
+
+## 11. Local app will not start: "DLL load failed ... Application Control policy has blocked this file"
+Seen 4 Nov 2026: Windows blocked a pandas DLL inside D:\sindhu_venv (a force-reinstall did not help; a venv under C:\Users\sindh\AppData\Local\Temp worked). Short-term: D:\sindhu_runtime\start_local_tmpvenv.cmd starts the app with the working venv (that venv lives in a temporary folder and may disappear). Permanent fix: create a new venv under C:\Users\sindh\sindhu_venv (python -m venv, then pip install -r requirements.lock.txt) and point start_local.cmd at it, or ask Windows Security > App & browser control (Smart App Control) to allow the folder.
+
+UPDATE 4 Nov: a second fresh venv at C:\Users\sindh\sindhu_venv was blocked the same way ("DLL load failed ... Application Control policy"), so the cause is Windows Smart App Control / App Control reputation blocking newly installed unsigned DLLs, not the folder. Only the venv created earlier in the session temp folder still loads. Owner action: Windows Security > App & browser control > Smart App Control (set to Off or Evaluation) or add an allow rule, then recreate the venv and use start_local.cmd. Until then the local app depends on start_local_tmpvenv.cmd (temporary folder, may vanish after a reboot or cleanup).
