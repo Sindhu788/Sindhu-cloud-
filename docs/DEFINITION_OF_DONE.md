@@ -16,7 +16,7 @@ PASS = verified with evidence in this repo's docs/tests/logs. OPEN = not true ye
 |---|---|---|---|
 | B1 | Cloud healthy on the current branch | PASS | `/health` ok (also reports commit and engine flag) |
 | B2 | Paper Trading persisted ON | PASS | Neon `engine_enabled=true`; log `Restoring to ON` / `engine started` after every restart |
-| B3 | Fresh data on all scanned coins | PASS (sample) | no `Stale closed market candles` warnings after the 3 Nov paging fix; trades opened at live prices |
+| B3 | Fresh data on all scanned coins | PASS (sample) | no stale-candle warnings after the paging fix; decision trace on 36f619d shows newest-candle age 21.6 s |
 | B4 | Groups populated | PASS | 12 profitable / 46 losing / 4 challenge; 42 enabled and unpaused |
 | B5 | Delivery READY | PASS | log `Public signal delivery: READY` |
 | B6 | Real signal sent to the channel | PASS | 3 Nov 21:33 UTC BTC/USDT long (format: pair, direction, entry, stop-loss, take-profit, duration, confidence) |
@@ -36,12 +36,12 @@ PASS = verified with evidence in this repo's docs/tests/logs. OPEN = not true ye
 ## D. Engineering
 | # | Item | Status | Evidence |
 |---|---|---|---|
-| D1 | Full test suite green | see PROGRESS_CHECKPOINT.md (final run) | |
+| D1 | Full test suite green | PASS | 2346 passed, 0 failed, 2 skipped on the deployed tree (local, 4 Nov) |
 | D2 | Dashboard QA | PASS with 10 low items | docs/DASHBOARD_QA.md (124/134 checks, desktop + phone) |
 | D3 | Local and Cloud match except by design | PASS | docs/PARITY.md; `/api/ops/settings-parity` |
 | D4 | Accounting reconciles | PASS | local and Cloud: 58 books, stored PnL == trades PnL (-87.96) |
 | D5 | Backup restore tested | PASS | 45 tables, 10,377 rows, 0 mismatches |
-| D6 | CI on every push | OPEN until the first GitHub run is seen | `.github/workflows/tests.yml` |
+| D6 | CI on every push | PASS | GitHub Actions `tests` run on commit 36f619d: success (suite step 99 s; test count NOT VERIFIED from the unauthenticated log). Deploys are still NOT blocked by a red run (OWNER_TODO M) |
 | D7 | Secrets out of config files and rotated | OPEN | OWNER_TODO N |
 | D8 | One code line + rollback | PASS | `codex/trading-intelligence` = tested `recovery/clean`; tag `pre-recovery-backup`; docs/RUNBOOK.md |
 | D9 | Go-live gates | OPEN (1 of 11) | docs/GO_LIVE_CRITERIA.md |

@@ -122,3 +122,17 @@ Phases 8-9 functional/UI clicking, 13 gate-by-gate triggering, 10 live end-to-en
 | Tests | 2254 pass / 2 fail | 2392 / 55 (my env) | 2287 / 0 | - |
 | Slow endpoints | backtest-history ~24 s | same | ~1 s (others 0.6-1.6 s) | - |
 | DB | SQLite 10.4 GB / 83 tables | + Neon shared journal tables | no new schema except archive tables on reset | Neon 18.6 MB, 47 tables |
+
+---
+# Final status after the grand master run (4 Nov 2026)
+| Item | Original main (17 Sep) | Codex c223070 | Now: recovery/clean 36f619d | Cloud now |
+|---|---|---|---|---|
+| Signals | sent by legacy engine | none (shared scanner, delivery off, BTC/ETH only) | engine ON, 10 liquid coins, delivery READY | live signals since 3 Nov 21:33Z; Losing-group signals withheld (2 seen) |
+| Candle feed | Binance REST (1000/page) | same | OKX paged correctly (fix 3 Nov) | data age ~22 s in the decision trace |
+| Safety gates | present | unchanged | unchanged, trigger tests | same code |
+| Tests | 2254 pass / 2 fail | 2392 / 55 (my env) | 2346 / 0 | CI green on 36f619d |
+| Dashboard | 0.5-26 s endpoints | same | Lite layer, cached slow endpoints | not tested authenticated |
+| Balance | $100 start, -87.96 | shared wallet | reset to $100 (archive kept) | 58 books at $100 |
+| Monitoring | none | scan receipts | watchdog, daily summary, reconciliation, /api/ops/why | owner alerts need personal_chat_id |
+| Backups | none tested | none | export + restore verified | Neon export 4 Nov |
+| Performance evidence | PF 0.75 (29 Aug - 16 Sep) | - | all 10 most-traded strategies PF < 1 in 60-day backtest; none profitable in both IS and OOS | no closed trade since 17 Sep |
