@@ -76,3 +76,5 @@ Method: regex scan (Telegram bot tokens, database URLs with passwords, URL crede
 | Logs (server_*.log, data/logs) | no tokens found | NO | none |
 
 Rotation needs the provider dashboards (owner task). After rotating Neon, update DATABASE_URL on Render, then edit or delete neon_runtime_connection.json.
+
+14. **Local app venv blocked by Windows (Smart App Control):** newly installed pandas DLLs are rejected ("Application Control policy has blocked this file"). Turn Smart App Control off or allow Python packages, then recreate the venv (docs/RUNBOOK.md section 11). Until then the local app runs from a temporary-folder venv that may disappear.
