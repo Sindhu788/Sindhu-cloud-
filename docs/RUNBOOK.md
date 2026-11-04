@@ -64,3 +64,23 @@ docs/WEEKLY_REVIEW.md. Quick health: `/api/ops/warnings`, `/api/ops/settings-par
 Seen 4 Nov 2026: Windows blocked a pandas DLL inside D:\sindhu_venv (a force-reinstall did not help; a venv under C:\Users\sindh\AppData\Local\Temp worked). Short-term: D:\sindhu_runtime\start_local_tmpvenv.cmd starts the app with the working venv (that venv lives in a temporary folder and may disappear). Permanent fix: create a new venv under C:\Users\sindh\sindhu_venv (python -m venv, then pip install -r requirements.lock.txt) and point start_local.cmd at it, or ask Windows Security > App & browser control (Smart App Control) to allow the folder.
 
 UPDATE 4 Nov: a second fresh venv at C:\Users\sindh\sindhu_venv was blocked the same way ("DLL load failed ... Application Control policy"), so the cause is Windows Smart App Control / App Control reputation blocking newly installed unsigned DLLs, not the folder. Only the venv created earlier in the session temp folder still loads. Owner action: Windows Security > App & browser control > Smart App Control (set to Off or Evaluation) or add an allow rule, then recreate the venv and use start_local.cmd. Until then the local app depends on start_local_tmpvenv.cmd (temporary folder, may vanish after a reboot or cleanup).
+
+## 12. Scans, receipts and the sleep-aware alerts (added 4 Nov 2026, Day 3)
+**Where to look when "no scan receipts"**
+- Log lines (Render -> Logs): `scan phase exchange+symbols`, `scan phase shortlist`, `scan finished: <outcome>, N coins, E errors, Ns`, and after a cut-off `previous scan was interrupted: ...`.
+- DB (Neon): `paper_scan_log` (one row per scan; `outcome` = complete / partial / error / blocked / **interrupted**), `paper_scan_heartbeat` (ONE row `current`: phase, coin i/N, last update; `phase='idle'` means no scan is running). Receipts older than 7 days are pruned.
+- `interrupted` = the process was stopped, slept or redeployed in the middle of a scan. It is not an error count and does not trigger the "error spike" alert.
+
+**Housekeeping during long scans.** The 60 s Telegram fresh-signal sweep, the owner watchdog, reconciliation and the DB guard now also run from inside the coin loop (at most once a minute), not only after a whole scan. Their intervals and gates are unchanged.
+
+**Owner alerts are sleep-aware** (owner chat only, rate limited):
+| Situation | Behaviour |
+|---|---|
+| Instance was asleep and just woke (process age < 10 min, or a gap > 3 min between watchdog runs = process was frozen) | `scanner_stalled` and `stale_data` stay quiet during the 10 min grace; cold caches are expected |
+| Engine running, no scan progress (no finished scan, no coin progress, no start) for > 20 min (`SINDHU_SCAN_STALL_MIN`) | ALERT "engine is running but showed no scan progress for N min", with "no external pinger seen" or "last external ping N min ago" |
+| A long cold scan that is still moving coin by coin | NOT an alert (progress counts) |
+| Stale candles for 5 checks in a row after the grace | ALERT, then one RECOVERED message after 2 clean checks |
+| "Server restarted" | at most once every 6 h (a free instance restarts on every wake) |
+Alerts need `personal_chat_id` (docs/OWNER_ALERTS_SETUP.md); nothing is ever sent to a public channel.
+
+**Is the external pinger working?** `GET /api/ops/pinger` (logged in) shows `pinger_active`, `seconds_since_last_external_ping`, `average_gap_seconds`. Counters live in memory and restart with the process. Render's own health probe is counted separately (it does not keep the service awake). `/api/ops/warnings` shows a `no_pinger` warning when none is seen after the process has been up 15 min.
