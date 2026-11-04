@@ -8,7 +8,10 @@ import subprocess
 import threading
 import time
 
-from data_platform import store
+
+
+def _root():
+    return os.environ.get("SINDHU_DATA_ROOT", r"D:\sindhu_data")      # not imported from store: store needs pyarrow, the tracker must work without it
 
 _lock = threading.Lock()
 DDL = """CREATE TABLE IF NOT EXISTS runs (
@@ -18,7 +21,7 @@ DDL = """CREATE TABLE IF NOT EXISTS runs (
 
 
 def db_path(root=None):
-    d = os.path.join(root or store.root(), "experiments")
+    d = os.path.join(root or _root(), "experiments")
     os.makedirs(d, exist_ok=True)
     return os.path.join(d, "experiments.db")
 
