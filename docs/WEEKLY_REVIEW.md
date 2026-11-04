@@ -8,3 +8,4 @@
 6. **Confidence check:** once >= 100 trades exist after 17 Sep, read the calibration table. AUC near 0.5 = the score is noise; do not trust high-confidence labels.
 7. **Housekeeping:** DB size warning, Render free hours (shared across all free services), pending secret rotations, Definition-of-Done table (`docs/DEFINITION_OF_DONE.md`).
 8. **Write down** any change you made in `docs/DECISIONS.md` (date, what, why).
+9. **Pinger and scans (added Day 3):** `GET /api/ops/pinger` -> `pinger_active` true; Render log has `scan finished: complete` lines; `paper_scan_log` has `complete` rows and few `interrupted` ones; `/api/ops/warnings` has no `no_pinger` or `no_owner_chat`.

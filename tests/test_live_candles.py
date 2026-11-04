@@ -149,7 +149,57 @@ def test_old_rows_are_trimmed_beyond_max_retention(monkeypatch):
     monkeypatch.setattr(live_candles, "get_exchange_client", lambda ex: client)
 
     end = start + 40 * interval_ms
-    live_candles.get_ohlcv_live("binance", "BTCUSDT", "1d", start_ms=start, end_ms=end)
+    live_candles.get_ohlcv_live("binance", "BTCUSDT", "1d", start_ms=None, end_ms=end)    # default window = _MAX_RETENTION_DAYS
     cached = live_candles._cache[("binance", "BTCUSDT", "1d")]
     span_days = (cached.index.max() - cached.index.min()).days
     assert span_days <= live_candles._MAX_RETENTION_DAYS
+
+
+def test_a_long_lookback_is_kept_and_downloaded_only_once(monkeypatch):
+    """The higher-timeframe filter asks for 90 days of 1h candles on every candidate: that must not re-download 90 days each time."""
+    interval_ms = 3_600_000
+    now = 1_800_000_000_000
+    first = now - 90 * 86_400_000
+    candles = _make_candles(first, 90 * 24 + 1, interval_ms)
+    client = _FakeClient({"BTCUSDT": candles})
+    monkeypatch.setattr(live_candles, "get_exchange_client", lambda ex: client)
+    full_fetches = []
+    real = live_candles._fetch_range
+
+    def spy(c, symbol, interval, start, end):
+        full_fetches.append(start)
+        return real(c, symbol, interval, start, end)
+
+    monkeypatch.setattr(live_candles, "_fetch_range", spy)
+    for _ in range(4):
+        df = live_candles.get_ohlcv_live("binance", "BTCUSDT", "1h", start_ms=first, end_ms=now)
+        assert len(df) >= 90 * 24
+    assert full_fetches.count(first) == 1                 # one full download; the other three calls only look for newer candles
+    span_days = (live_candles._cache[("binance", "BTCUSDT", "1h")].index.max() - live_candles._cache[("binance", "BTCUSDT", "1h")].index.min()).days
+    assert 85 <= span_days <= live_candles._MAX_KEEP_DAYS
+
+
+def test_a_coin_with_less_history_than_asked_is_not_re_downloaded_forever(monkeypatch):
+    interval_ms = 86_400_000
+    now = 1_800_000_000_000
+    candles = _make_candles(now - 40 * interval_ms, 41, interval_ms)       # listed 40 days ago
+    client = _FakeClient({"NEWUSDT": candles})
+    monkeypatch.setattr(live_candles, "get_exchange_client", lambda ex: client)
+    starts = []
+    real = live_candles._fetch_range
+    monkeypatch.setattr(live_candles, "_fetch_range", lambda c, s, i, st, en: starts.append(st) or real(c, s, i, st, en))
+    ask = now - 365 * interval_ms
+    for _ in range(3):
+        live_candles.get_ohlcv_live("binance", "NEWUSDT", "1d", start_ms=ask, end_ms=now)
+    assert starts.count(ask) == 1
+
+
+def test_keep_window_never_exceeds_the_hard_bound(monkeypatch):
+    interval_ms = 86_400_000
+    now = 1_800_000_000_000
+    candles = _make_candles(now - 700 * interval_ms, 701, interval_ms)
+    client = _FakeClient({"OLDUSDT": candles})
+    monkeypatch.setattr(live_candles, "get_exchange_client", lambda ex: client)
+    live_candles.get_ohlcv_live("binance", "OLDUSDT", "1d", start_ms=now - 700 * interval_ms, end_ms=now)
+    cached = live_candles._cache[("binance", "OLDUSDT", "1d")]
+    assert (cached.index.max() - cached.index.min()).days <= live_candles._MAX_KEEP_DAYS

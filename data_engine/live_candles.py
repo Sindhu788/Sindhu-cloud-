@@ -60,6 +60,9 @@ _INTERVAL_MS = {
 
 _lock = threading.Lock()          # guards the dicts below only; it is NOT held while talking to the exchange
 _key_locks = {}                   # (exchange, symbol, interval) -> Lock: one fetch per series at a time, different series in parallel
+_keep_from = {}                   # key -> earliest start_ms ever requested (the cache keeps rows back to it, up to _MAX_KEEP_DAYS)
+_covered_from = {}                # key -> start_ms from which the cache holds everything the exchange has (see get_ohlcv_live)
+_MAX_KEEP_DAYS = 400              # hard bound: the longest lookback any caller uses is 365 days (1d candles, htf_confluence_filter)
 _cache = {}  # (exchange, symbol, interval) -> DataFrame, _OUT_COLUMNS, sorted by time ascending
 
 
@@ -94,6 +97,7 @@ def _fetch_range(client, symbol, interval, start_ms, end_ms):
     all_rows = []
     cursor = start_ms
     pages = 0
+    t_begin = time.monotonic()
     while cursor < end_ms and pages < _MAX_PAGES:
         pages += 1
         rows = _fetch_page(client, symbol, interval, cursor)
@@ -109,16 +113,27 @@ def _fetch_range(client, symbol, interval, start_ms, end_ms):
             break
         cursor = next_cursor
         time.sleep(REQUEST_DELAY_SECONDS)
+    took = time.monotonic() - t_begin
+    if took > 20:   # diagnosis only: shows in the Render log which series make a scan slow
+        print(f"[live-candles] slow download {symbol} {interval}: {len(all_rows)} rows, {pages} pages, {took:.0f}s, "
+              f"window {(end_ms - start_ms) / 86_400_000:.0f} days", flush=True)
     return all_rows
 
 
-def _trim(df, end_ms):
+def _trim(df, end_ms, keep_from_ms=None):
+    """Drop rows older than the retention window. The window is _MAX_RETENTION_DAYS, widened (never beyond _MAX_KEEP_DAYS) to the
+    earliest start any caller has asked for on this series. Before this, a caller that wants more than 25 days (the higher-timeframe
+    trend filter asks for 30 days of 15m, 90 of 1h, 180 of 4h, 365 of 1d) found the cache "not far enough back" on EVERY call and
+    re-downloaded the whole range each time, which is what made a cold scan take 15+ minutes on the free plan."""
     if df.empty:
         # An empty frame from pd.DataFrame(columns=...) has a plain
         # RangeIndex, not a DatetimeIndex -- comparing it to a Timestamp
         # raises, and there is nothing to trim anyway.
         return df
-    cutoff = pd.to_datetime(end_ms - _MAX_RETENTION_DAYS * 86_400_000, unit="ms", utc=True)
+    cutoff_ms = end_ms - _MAX_RETENTION_DAYS * 86_400_000
+    if keep_from_ms is not None:
+        cutoff_ms = min(cutoff_ms, max(keep_from_ms, end_ms - _MAX_KEEP_DAYS * 86_400_000))
+    cutoff = pd.to_datetime(cutoff_ms, unit="ms", utc=True)
     return df[df.index >= cutoff]
 
 
@@ -142,11 +157,22 @@ def get_ohlcv_live(exchange, symbol, interval, start_ms=None, end_ms=None):
         with _lock:
             cached = _cache.get(key)
 
-        if cached is None or cached.empty or cached.index.min() > pd.to_datetime(start, unit="ms", utc=True):
+        with _lock:
+            covered = _covered_from.get(key)
+            keep = min(_keep_from.get(key, start), start)
+            _keep_from[key] = keep
+        # "Far enough back" = the cache starts at or before `start`, OR an earlier full download from a start at least that old already
+        # returned everything the exchange has (a coin listed 40 days ago can never fill a 90-day window; do not retry forever).
+        reaches_back = (not (cached is None or cached.empty)) and (
+            cached.index.min() <= pd.to_datetime(start, unit="ms", utc=True) or (covered is not None and start >= covered))
+        if not reaches_back:
             # No cache yet, or the cache doesn't reach far enough back to
             # cover what's being asked for -- one full paginated fetch.
             rows = _fetch_range(client, symbol, interval, start, now)
             df = _rows_to_df(rows)[_OUT_COLUMNS] if rows else pd.DataFrame(columns=_OUT_COLUMNS)
+            if rows:
+                with _lock:
+                    _covered_from[key] = min(_covered_from.get(key, start), start)
         else:
             # Cache already covers the requested start -- only fetch
             # candles newer than what's already held, exactly the
@@ -162,7 +188,7 @@ def get_ohlcv_live(exchange, symbol, interval, start_ms=None, end_ms=None):
             else:
                 df = cached
 
-        df = _trim(df, now)
+        df = _trim(df, now, keep)
         with _lock:
             _cache[key] = df
 
@@ -178,3 +204,5 @@ def clear_cache():
     guaranteed cold fetch."""
     with _lock:
         _cache.clear()
+        _keep_from.clear()
+        _covered_from.clear()

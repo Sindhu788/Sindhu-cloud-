@@ -20,8 +20,8 @@ PASS = verified with evidence in this repo's docs/tests/logs. OPEN = not true ye
 | B4 | Groups populated | PASS | 12 profitable / 46 losing / 4 challenge; 42 enabled and unpaused |
 | B5 | Delivery READY | PASS | log `Public signal delivery: READY` |
 | B6 | Real signal sent to the channel | PASS | 3 Nov 21:33 UTC BTC/USDT long (format: pair, direction, entry, stop-loss, take-profit, duration, confidence) |
-| B7 | Cloud stays awake | OPEN | needs the external pinger or a paid plan (OWNER_TODO K) |
-| B8 | Owner alerts reach the owner | OPEN | `personal_chat_id` not set (OWNER_TODO 1) |
+| B7 | Cloud stays awake | OPEN | needs the external pinger (steps ready: docs/PINGER_SETUP.md; the dashboard shows `no_pinger` until one is seen) |
+| B8 | Owner alerts reach the owner | OPEN | `personal_chat_id` not set; steps + owner-only test button ready (docs/OWNER_ALERTS_SETUP.md) |
 | B9 | Every decision explainable | PASS | `/api/ops/why`, decision trace table, tests |
 
 ## C. Quality of results
@@ -30,14 +30,14 @@ PASS = verified with evidence in this repo's docs/tests/logs. OPEN = not true ye
 | C1 | Profitable+Challenge expectancy > 0 over >= 100 trades | PASS (old sample) | +0.170 per trade, PF 1.52, 310 trades (Aug-Sep); re-check on fresh trades |
 | C2 | Whole-book profit factor > 1 | OPEN | PF 0.75 |
 | C3 | Strategies profitable in an independent backtest | OPEN | all 10 most-traded strategies PF < 1 over 60 days (Step 14) |
-| C4 | Confidence predicts wins on post-17-Sep trades | NOT VERIFIED | no closed trade after 17 Sep exists yet |
+| C4 | Confidence predicts wins on post-17-Sep trades | NOT VERIFIED | only 8 trades closed since the 3 Nov restart (all losses); the 25-trade rule is not met |
 | C5 | Conclusive losers paused or in the Losing group | OPEN | 8 recommended pauses (Step 15), owner decides |
 
 ## D. Engineering
 | # | Item | Status | Evidence |
 |---|---|---|---|
-| D1 | Full test suite green | PASS | 2346 passed, 0 failed, 2 skipped on the deployed tree (local, 4 Nov) |
-| D2 | Dashboard QA | PASS with 10 low items | docs/DASHBOARD_QA.md (124/134 checks, desktop + phone) |
+| D1 | Full test suite green | PASS | Day 3 final tree: see docs/PROGRESS_CHECKPOINT.md (4 parallel shards, 0 failed); earlier 2346 passed, 0 failed, 2 skipped |
+| D2 | Dashboard QA | PASS; the 10 items re-tested on Day 3: 8 fixed or false alarms, 2 kept (CEO load time) | docs/DASHBOARD_QA.md (124/134 checks, desktop + phone) |
 | D3 | Local and Cloud match except by design | PASS | docs/PARITY.md; `/api/ops/settings-parity` |
 | D4 | Accounting reconciles | PASS | local and Cloud: 58 books, stored PnL == trades PnL (-87.96) |
 | D5 | Backup restore tested | PASS | 45 tables, 10,377 rows, 0 mismatches |

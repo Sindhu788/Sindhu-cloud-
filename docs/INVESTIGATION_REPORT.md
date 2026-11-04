@@ -163,3 +163,11 @@ Progress heartbeat row, interrupted-scan receipts, phase timing log lines, the 6
 
 ## What to measure next (after the deploy)
 Log lines `scan phase exchange+symbols`, `scan phase shortlist`, `scan finished: ... Ns` give the real duration of a cold scan on Render; table `paper_scan_heartbeat` shows where an interrupted scan stopped; `paper_scan_log.outcome='interrupted'` counts the cut-off scans.
+
+## Day 3 addendum - measured on Render (4 Nov, builds 92f06b7 and 240f414) and the real cause
+Evidence (Render log + Neon `paper_scan_heartbeat`, `paper_scan_log`):
+- Earlier complete scans (3 Nov): 19:39:28 -> 19:56:20 (16.9 min) and 20:18:55 -> 20:33:52 (15.0 min).
+- Build 92f06b7 (deployed 09:31): `scan phase exchange+symbols: okx, 50 symbols, 56s`, `shortlist: 10 of 50 coins, 77s since scan start`, then coin 1 (BTC) took > 20 min; the scan was cut off at coin 2 (receipt `interrupted`, "coin 2/10 ETH/USDT"). CPU 0.006-0.009 of 0.15 and flat memory the whole time = waiting on the network, not computing.
+- Build 240f414 (deployed 10:03): `exchange+symbols 40s`, `shortlist 60s`; **prefetch warmed all 10 coins with 4 workers in 263 s** (the new code works), yet coin 1 still did not finish after 9 min. The stall reporter (read-only stack sample) at 10:11:40 showed the engine thread inside `live_candles._fetch_range -> ccxt_client.get_ohlcv`, i.e. DOWNLOADING candles inside the coin loop although the series had just been warmed.
+Cause found in code: `live_candles` trimmed every series to 25 days, but `htf_confluence_filter` asks for 30 days of 15m, 90 of 1h, 180 of 4h and 365 of 1d on every candidate. "Cache does not reach back far enough" was therefore true on every call, so the whole range was downloaded again each time (and a coin listed less than 365 days ago could never be satisfied). That, not CPU, is why one cold scan needs 15+ minutes.
+Fix (Day 3, D30): the cache keeps rows back to the earliest start ever requested (hard bound 400 days) and remembers when the exchange has no older data; tests added (`tests/test_live_candles.py`). NOT VERIFIED on Render until the new build has finished two scans (see docs/PROGRESS_CHECKPOINT.md for the result).
