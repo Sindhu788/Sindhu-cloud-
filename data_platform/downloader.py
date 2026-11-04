@@ -71,9 +71,23 @@ def expected_minutes_month(month):
 
 
 # ---------------------------------------------------------------- manifest
+def replace_with_retry(tmp, path, tries=20):
+    """os.replace can fail on Windows while another process (a reader, antivirus) has the target open: retry briefly."""
+    for i in range(tries):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            time.sleep(0.1 * (i + 1))
+    os.replace(tmp, path)
+
+
 class Manifest:
-    def __init__(self, root):
-        self.path = os.path.join(root, "manifest", "manifest.json")
+    """One JSON file with one WRITER process. A second process must use its own file (name=...), otherwise each would overwrite the
+    other's entries (found on 4 Nov when a validation job and the main download shared manifest.json)."""
+
+    def __init__(self, root, name="manifest.json"):
+        self.path = os.path.join(root, "manifest", name)
         self.lock = threading.Lock()
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
         self.data = {}
@@ -98,7 +112,7 @@ class Manifest:
             json.dump(self.data, f)
             f.flush()
             os.fsync(f.fileno())
-        os.replace(tmp, self.path)
+        replace_with_retry(tmp, self.path)
         if self._n % 100 == 0:                      # rolling backup copy
             try:
                 import shutil
@@ -148,12 +162,12 @@ def clean_and_check(arrs):
 
 # ---------------------------------------------------------------- downloader
 class Downloader:
-    def __init__(self, root=None, workers=4, base_url=None, exchange=EXCHANGE, sleep=time.sleep):
+    def __init__(self, root=None, workers=4, base_url=None, exchange=EXCHANGE, sleep=time.sleep, manifest_name="manifest.json"):
         self.root = root or store.root()
         self.workers = workers
         self.base_url = (base_url or BASE_URL).rstrip("/")
         self.exchange = exchange
-        self.manifest = Manifest(self.root)
+        self.manifest = Manifest(self.root, manifest_name)
         self.sleep = sleep
         self.stop = threading.Event()
         self.stop_reason = None
@@ -296,7 +310,7 @@ class Downloader:
         tmp = path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(p, f, indent=1)
-        os.replace(tmp, path)
+        replace_with_retry(tmp, path)
         return p
 
 

@@ -45,7 +45,7 @@ def main(argv):
     end_month = (today.replace(day=1) - dt.timedelta(days=1)).strftime("%Y-%m")
     months = downloader.month_list(end_month, n_months)
     syms = uni["symbols"][:n_coins]
-    d = downloader.Downloader(root=root, workers=3)
+    d = downloader.Downloader(root=root, workers=3, manifest_name="native_manifest.json")   # own manifest: never share a manifest between processes
     d.run([(f"month:{tf}", s, m) for s in syms for m in months for tf in TFS], "native")
     rows = {}
     for tf in TFS:

@@ -90,5 +90,6 @@ def save_report(report, name, base=None):
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(report, f)
-    os.replace(tmp, path)
+    from data_platform.downloader import replace_with_retry
+    replace_with_retry(tmp, path)
     return path

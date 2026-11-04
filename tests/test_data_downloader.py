@@ -83,8 +83,9 @@ class Mock:
                 parts = self.path.split("/")
                 fname = parts[-1]
                 base = fname.replace(".CHECKSUM", "")
-                sym = base.split("-1m-")[0]
-                period = base.split("-1m-")[1][:-4]
+                import re
+                mm = re.match(r"^(.+?)-(\d+[mhdw])-(\d{4}-\d{2}(?:-\d{2})?)\.zip$", base)
+                sym, period = mm.group(1), mm.group(3)
                 if period[:7] < mock.listed_from.get(sym, "0000-00"):
                     self.send_response(404); self.end_headers(); return
                 opt = mock.options.get(sym, {})
@@ -261,3 +262,25 @@ def test_failed_pilot_blocks_the_expansion(root, mock):
     assert gate["verdict"] == "FAIL" and prog["phase"] == "pilot_done_no_expansion"
     man = json.load(open(os.path.join(root, "manifest", "manifest.json")))
     assert "BBBUSDT/" + downloader.month_list(dt.datetime.now(dt.timezone.utc).strftime("%Y-%m"), 2)[0] not in man
+
+
+def test_two_processes_must_not_share_one_manifest_and_replace_retries_on_windows_locks(root, mock, monkeypatch):
+    a = downloader.Downloader(root=root, workers=1, base_url=mock.url, sleep=lambda s: None)
+    b = downloader.Downloader(root=root, workers=1, base_url=mock.url, sleep=lambda s: None, manifest_name="native_manifest.json")
+    a.run_task("month", "AAAUSDT", "2026-02")
+    b.run_task("month:5m", "AAAUSDT", "2026-02")
+    assert os.path.exists(os.path.join(root, "manifest", "manifest.json")) and os.path.exists(os.path.join(root, "manifest", "native_manifest.json"))
+    assert "AAAUSDT/5m/2026-02" not in json.load(open(os.path.join(root, "manifest", "manifest.json")))
+    calls = []
+    real = os.replace
+
+    def flaky(src, dst):
+        calls.append(1)
+        if len(calls) < 3:
+            raise PermissionError("[WinError 32] file in use")
+        return real(src, dst)
+
+    monkeypatch.setattr(downloader.os, "replace", flaky)
+    monkeypatch.setattr(downloader.time, "sleep", lambda s: None)
+    a.manifest.put("X/2026-01", {"status": "absent"})
+    assert len(calls) == 3 and a.manifest.get("X/2026-01")["status"] == "absent"

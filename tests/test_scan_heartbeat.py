@@ -95,3 +95,35 @@ def test_stall_reporter_logs_where_a_stuck_scan_is_waiting(test_db):
     r = threading.Thread(target=e._stall_reporter, args=(t,), kwargs=dict(check_every=0.05, stall_after=1, repeat_after=60), daemon=True)
     r.start(); time.sleep(0.4); release.set(); t.join(); r.join(2)
     assert len(logs) == 1 and "no progress" in logs[0] and "stuck_function" in logs[0]
+
+
+def test_housekeeper_runs_on_its_own_thread_every_interval_without_overlapping(test_db, monkeypatch):
+    import threading, time
+    from paper_trading import engine as eng
+    e = eng.PaperTradingEngine()
+    calls, active, overlap = [], [0], [False]
+
+    def fake(light=False):
+        with e._hk_lock:
+            active[0] += 1
+            overlap[0] = overlap[0] or active[0] > 1
+            calls.append(light)
+            time.sleep(0.12)                                   # slower than the interval: the loop must skip, not pile up
+            active[0] -= 1
+
+    monkeypatch.setattr(e, "_housekeeping", fake)
+    alive = threading.Event()
+    t = threading.Thread(target=alive.wait, daemon=True); t.start()          # stands for the engine thread
+    h = threading.Thread(target=e._housekeeper_loop, args=(t,), kwargs=dict(every=0.05), daemon=True); h.start()
+    time.sleep(0.6)
+    e._stop_flag.set(); alive.set(); h.join(2)
+    assert 2 <= len(calls) <= 6 and all(c is True for c in calls) and not overlap[0]
+    assert not h.is_alive()
+
+
+def test_the_coin_loop_no_longer_runs_housekeeping_itself():
+    import pathlib
+    from paper_trading import engine as eng
+    src = pathlib.Path(eng.__file__).read_text(encoding="utf-8")
+    loop = src[src.index("for entry in shortlist:"):src.index("self._beat('finishing'")]
+    assert "_housekeeping(" not in loop
