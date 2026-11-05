@@ -62,3 +62,44 @@ Reconciliation (stored P&L vs closed trades, tolerance 0.01):
 - Local books: 58, realized since reset min 0.00 / max 0.00; initial balance setting 100.0
 
 Reading: every difference is by design except `auto_send_high_confidence_only` (Local TRUE, Cloud FALSE = default), which is the owner decision in docs/OWNER_DECISIONS.md section 1. Balances: all 58 books restarted at $100 on 4 Nov (initial_balance 100); Cloud books are between -2.21 and 0.00 realized since then. The archive of 1,132 pre-reset trades is intact on both. Reconciliation is clean on both databases.
+
+
+# Day 7 re-check (2026-11-05, scripts/parity_check.py, read-only)
+Only one setting differs and it is not "by design": **`auto_send_high_confidence_only` is True on Local and False on Cloud**, which is why standard-tier ("tier=low") signals reached the public groups (docs/SIGNAL_QUALITY.md D7-1). Owner decision, not touched. Cloud now holds 1,166 closed trades (34 since the 3 Nov reset, net -11.26) and 61 open positions; the 1,132-trade archive is intact on both sides. Reconciliation is clean on both databases.
+
+| Item | Local | Cloud | Match | Note |
+|---|---|---|---|---|
+| Enabled strategies | 62 | 62 | yes |  |
+| Enabled and not paused | 42 | 42 | yes |  |
+| Groups (key:count) | {'challenge': 4, 'losing': 46, 'profitable': 12} | {'challenge': 4, 'losing': 46, 'profitable': 12} | yes |  |
+| Closed trades / total P&L (history kept) | (1132, -87.96) | (1166, -99.22) | by design | by design: Cloud keeps trading after the 3 Nov copy, Local is frozen; difference = trades closed on Cloud since |
+| Books / realized P&L since reset / closed counter / wins counter | (58, 0.0, 1132, 409) | (58, -11.26, 1166.0, 416.0) | by design | by design: counters (closed, wins) stay across the $100 reset; Cloud has new trades since, Local is frozen |
+| Archive of trades before the $100 reset | 1132 | 1132 | yes | archive intact = no data deleted |
+| Open positions | 65 | 61 | by design | by design: local engine is off, Cloud trades live |
+| paper setting initial_balance | 100.0 | 100.0 | yes |  |
+| paper setting coin_filter_mode | liquidity | liquidity | yes |  |
+| paper setting coin_filter_top_n | 10 | 10 | yes |  |
+| paper setting engine_enabled | True | True | yes | by design: local engine runs in safe mode |
+| paper setting dry_run | False | False | yes |  |
+| paper setting risk_pct | (default) | (default) | yes |  |
+| paper setting lookback_days | 20 | 20 | yes |  |
+| paper setting tick_interval_seconds | 30 | 30 | yes |  |
+| telegram channel_group_filter | profitable_challenge | profitable_challenge | yes |  |
+| telegram auto_send_enabled | True | True | yes |  |
+| telegram auto_send_high_confidence_only | True | False | NO | owner decision pending |
+| telegram signal_freshness_minutes | 15 | 15 | yes |  |
+| telegram signal_price_drift_pct | 0.5 | 0.5 | yes |  |
+| telegram auto_send_min_confluence_ratio | 1.0 | 1.0 | yes |  |
+| telegram rate_limit_per_hour | 10 | 10 | yes |  |
+| telegram silent_hours_enabled | False | False | yes |  |
+| telegram master_send_enabled | False | True | by design | by design: Cloud is the single publisher |
+| telegram bot_token set? | False | False | yes | by design: Local must NOT have a token (Cloud's comes from the Render env var, not visible here) |
+| telegram channel_id set? | False | False | yes | by design: Local must NOT have a channel (Cloud's comes from the Render env var) |
+| telegram personal_chat_id set? | False | False | yes |  |
+| telegram proxy_url set? | True | False | by design | by design: Local uses a proxy for Telegram tests; Cloud needs none |
+
+Reconciliation (stored P&L vs closed trades, tolerance 0.01):
+- Local: Reconciliation OK: 58 books, stored PnL 0.0 == trades PnL 0.0.
+- Cloud: Reconciliation OK: 58 books, stored PnL -11.26 == trades PnL -11.26.
+- Cloud books: 58, realized since reset min -2.21 / max 1.57; initial balance setting 100.0
+- Local books: 58, realized since reset min 0.00 / max 0.00; initial balance setting 100.0
