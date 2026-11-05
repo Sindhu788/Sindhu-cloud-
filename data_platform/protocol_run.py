@@ -19,6 +19,9 @@ os.environ.setdefault("SINDHU_STRATEGY_LIBRARY_DIR", r"D:\sindhu_runtime\strateg
 
 
 def _init_worker():
+    if os.environ.get("SINDHU_SANDBOX") == "1":          # candidate evaluation: workers cannot reach any network either
+        from data_platform import sandbox
+        sandbox.lock_network()
     import ctypes
     try:
         ctypes.windll.kernel32.SetPriorityClass(ctypes.windll.kernel32.GetCurrentProcess(), 0x00004000)     # below normal: the laptop stays usable

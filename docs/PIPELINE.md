@@ -30,3 +30,11 @@
 
 ## 5. Research-only flag (prepared, OFF)
 `SINDHU_RESEARCH_ONLY_TIMEFRAMES` (comma list, for example `1m,3m`) on the **live service**: strategies whose ENTRY timeframe is in the list are not evaluated by the live scan (no candles loaded, no candidates). They stay enabled and fully backtestable locally. With the variable unset (the default) nothing changes. Code: `paper_trading/research_only.py`, hook at the top of the strategy loop in `paper_trading/signal_generator.py`; tests: `tests/test_research_only.py` (3).
+
+## 6. Evaluating a NEW candidate strategy (Step 19)
+1. Owner fills `docs/templates/CANDIDATE_CLAIM_TEMPLATE.md` (what is the claimed edge, and WHY should it exist).
+2. Import the strategy with the normal import mechanism, but with `SINDHU_DATA_DIR` and `SINDHU_STRATEGY_LIBRARY_DIR` pointing at scratch folders (a LOCAL sandbox database that is never synced).
+3. Run: `python -m data_platform.candidate_eval --library-dir <scratch library> --strategy-id <id> --claim <claim file> [--coins 50] [--workers 2]` (venv with pandas + pyarrow, e.g. `D:\sindhu_venv_bt`).
+4. Result: `D:\sindhu_data\candidates\<id>_<time>\DOSSIER.md` (claim, one-page verdict, rules and timeframe, costs, walk-forward results, comparison with the random-entry null model and the baselines, fee sensitivity x1 / x1.5 / x2, label).
+**Isolation (tested, `tests/test_candidate_sandbox.py`, 7 tests):** the tool removes every credential-like environment variable (token, secret, password, API key, database URL, chat id) before importing anything, and blocks every outgoing non-local connection, including in the worker processes; so it cannot reach Cloud, Neon or Telegram. It reads the strategy from a COPY and writes only into its own folder. The sealed holdout and the forward window are never read.
+**Proof run (5 Nov 2026):** existing strategy Ichimoku 1d Trailing-SL (`8d94d5ee403f`), 10 coins, 1 worker: finished in under a minute, 21 positions, PF 1.93, label INSUFFICIENT_DATA (same numbers as the 42-strategy run).
