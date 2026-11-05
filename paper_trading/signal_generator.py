@@ -59,8 +59,11 @@ def _apply_lessons(df, i, direction, lessons):
 def strategy_candidates(exchange, symbol, strategies, lessons, settings):
     candidates = []
     start_ms = _lookback_start_ms(settings)
+    from paper_trading import research_only
     for s in strategies:
         cfg = s["config"]
+        if research_only.is_research_only(cfg.timeframes.get("entry")):      # Day 6: OFF unless SINDHU_RESEARCH_ONLY_TIMEFRAMES is set
+            continue
         try:
             ctx = MultiTimeframeContext(exchange, symbol, cfg.timeframes, start_ms=start_ms)
         except ValueError:
