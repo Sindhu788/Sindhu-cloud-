@@ -1305,6 +1305,9 @@ _GROUP_MARKER_EMOJI = {"profitable": "\U0001F535", "losing": "\U0001F534", "chal
 _UNCLASSIFIED_MARKER_EMOJI = "\U000026AA"
 
 
+SIGNAL_DISCLAIMER = "Paper-trading test signal, educational only. Not financial advice."
+
+
 def format_signal_message(position, confluence_result=None, reliability_result=None, high_confidence=False,
                            live_price=_UNSET, lang=None, explanation_text=None, grade_result=None):
     """Grand Master Batch, Phase 2.4 reduced this to exactly 5 things --
@@ -1373,6 +1376,9 @@ def format_signal_message(position, confluence_result=None, reliability_result=N
     # Day 6 Step 16: SINDHU_HIDE_CONFIDENCE=1 hides the confidence figure (it did not predict wins out of sample, docs/SIGNAL_QUALITY.md). OFF by default.
     if confidence is not None and str(os.environ.get("SINDHU_HIDE_CONFIDENCE", "")).strip().lower() not in ("1", "true", "yes", "on"):
         lines.append(f"{L['confidence']}: {confidence:g}%")
+    # Day 7: SINDHU_SIGNAL_DISCLAIMER=1 adds one closing line saying this is a paper-trading test signal, not advice. OFF by default (messages unchanged).
+    if str(os.environ.get("SINDHU_SIGNAL_DISCLAIMER", "")).strip().lower() in ("1", "true", "yes", "on"):
+        lines.append(SIGNAL_DISCLAIMER)
     return "\n".join(lines)
 
 
