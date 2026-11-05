@@ -1519,6 +1519,18 @@ def send_signal_for_position(position_id, trigger_type="manual", high_confidence
         )
         return {"ok": False, "error": cong_reason}
 
+    # Day 6 Step 17: prepared signal rules, OFF unless their environment flags are set (paper_trading/signal_rules.py).
+    from paper_trading import signal_rules
+    rule_ok, rule_reason = signal_rules.check_target_stop_cap(pos)
+    if rule_ok:
+        rule_ok, rule_reason = signal_rules.check_opposite_direction(pos, storage.find_recent_telegram_signal_for_symbol)
+    if not rule_ok:
+        storage.log_telegram_message(
+            position_id, pos.get("strategy_id"), pos.get("strategy_name"), trigger_type,
+            "", False, rule_reason, now,
+        )
+        return {"ok": False, "error": rule_reason}
+
     # Phase 3.4: Minimum Confidence % Filter (additional layer, off by default).
     conf_ok, conf_reason = min_confidence_check(pos)
     if not conf_ok:
