@@ -1,3 +1,17 @@
+[PROGRESS 14% | steps 4/28 done | now: Step 6 - statistical rigour layer | status: RUNNING | elapsed ~1h | blockers: none]
+
+# Day 6 checkpoint (5 Nov 2026)
+NOTE: the Day 6 prompt is cut off inside Step 21; Steps 22-28 and the final-report format are unknown and cannot be done or counted.
+| Step | State | Evidence |
+|---|---|---|
+| 1 baseline | DONE | docs/DAY6_BASELINE.md (local app was found dead; dataset 24.52 M rows, not 24.3 M; pinger endpoint NOT VERIFIED - login) |
+| 2 local app | PARTIAL | normal start 14 s, duplicate refused, kill recovery 22 s; sleep/wake NOT VERIFIED; docs/RUNBOOK.md 11d |
+| 3 plan | DONE | mapping table in DAY6_BASELINE.md |
+| 4 metrics audit | DONE | cause: legs counted as trades + per-leg R; tools/recompute_metrics.py; docs/BACKTEST_RESULTS.md "Metrics audit" |
+| 5 metrics fix | DONE | data_platform/metrics.py, tests/test_metrics.py (9, one fails on old code); labels unchanged |
+| 6 rigour layer | NEXT | |
+
+---- Day 5 checkpoint (kept below) ----
 [PROGRESS 60% | steps 16/30 done (Steps 19-30 unknown: prompt truncated) | now: closeout (full tests, push 3, report) | status: RUNNING | elapsed ~5h | data download: 100% | blockers: none]
 
 # Day 5 checkpoint (5 Nov 2026 ~01:55 PKT / 20:55 UTC)

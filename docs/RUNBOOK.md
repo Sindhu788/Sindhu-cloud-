@@ -131,3 +131,12 @@ D:\sindhu_venv_stable\Scripts\python.exe scripts\restore_export_to_sqlite.py D:\
 
 **Tested 4 Nov:** normal start 56 s; forced kill of the app -> back in 52 s (supervisor restarts it); starting a second time -> "already running", no duplicate supervisor, one listener; start from the documented command works. **Laptop sleep/wake: NOT VERIFIED** (I cannot suspend the laptop from here; the supervisor only loops on timers, so it should simply carry on after wake - check once yourself by closing the lid for a minute).
 **Start automatically at Windows login (owner step, not done by me):** press Win+R, type `shell:startup`, and put a shortcut to `D:\sindhu_runtime\OPEN_SINDHU.cmd` in that folder. This is a normal per-user setting; I left it to you because it is a persistent system change.
+
+## 11d. Local app resilience test (Day 6, 5 Nov 2026) - what was actually tried
+| Scenario | Result |
+|---|---|
+| Normal start with the documented launcher (`OPEN_SINDHU.cmd` = `launch_detached.py --wait`) | ready in **14 s** (app had been dead since the previous work session) |
+| Start it a second time while it runs | prints "already running", **no second instance** (process tree: one supervisor, one server) |
+| Forced kill of the server process | the supervisor restarted it; healthy again after **22 s** |
+| Laptop sleep and wake | **NOT VERIFIED** - not tested unattended (it would suspend this session and the downloads). When the laptop wakes, just double-click `OPEN_SINDHU.cmd`; it starts the app only if it is not running |
+| The app after the working session / PC restart | it does NOT start by itself after a PC restart (no scheduled task by design); double-click `OPEN_SINDHU.cmd` |
