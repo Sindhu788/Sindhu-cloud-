@@ -1,3 +1,20 @@
+[PROGRESS 11% | steps 2/18 done | now: Step 2 three green full runs, then Step 6 push 1 | status: RUNNING | elapsed ~4h | blockers: none]
+
+# Day 8 checkpoint ("FINAL MASTER PROMPT", started 5 Nov 2026 evening, now 6 Nov)
+| Step | State | Evidence |
+|---|---|---|
+| 1 close Day 7 | DONE with caveat | docs/DAY7_FINAL_REPORT.md; c035ca3 deployed + CI green; NO complete scan on c035ca3 (keep-alive lost at a session restart) - carried to Step 6/17 |
+| 2 deterministic flaky tests | IN PROGRESS | health-under-load rewritten (real socket, separate client process); ntfy live test replaced by a local fake server (live check opt-in); needs 3 consecutive green full runs on the final tree |
+| 3 memory | CODE DONE, Cloud effect pending | paper_trading/memory_trim.py (gc + malloc_trim + arena cap, SINDHU_MEMORY_TRIM=0 off-switch); engine frozen-clock golden IDENTICAL (149 decisions, same digests); local peak 206 -> 191 MB (single run); Linux effect can only be measured on Cloud (no WSL/Docker) |
+| 4 stage timing | CODE DONE, Cloud logs pending | [scan-coin] and [scan-stages] lines, DB counters; overhead test < 50 us per stage; 13 tests |
+| 5 uptime study | DONE | docs/SCAN_PROFILE.md section 14: awake 22 %, 6 complete scans (7.4 % of time), ~5 % of possible scans |
+| 6 push 1 + Cloud measurement | NEXT | after Step 2 |
+| 7-10 dashboard | tools written (tools/qa_server.py, tools/dashboard_qa.py); CEO profile not yet usable (see notes) | |
+| 11-13 benchmark | NOT STARTED | |
+| 14-18 owner/closeout | NOT STARTED | |
+Notes: the Playwright profile of #ceo on the isolated QA server showed 1 API call and 0.04 s (only /api/auth/status): the page redirects/gates before loading data, so the profile needs the authenticated or SAFE-start flow (to investigate in Step 7).
+
+---- Day 7 checkpoint (kept below) ----
 [PROGRESS 72% | steps 16/22 done (+Step 18 just written) | now: Step 18 commit, then closeout Steps 19-22 | status: RUNNING | elapsed ~7h | blockers: none]
 
 # Day 7 checkpoint (5 Nov 2026)
