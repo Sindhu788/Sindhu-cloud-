@@ -165,7 +165,7 @@ def _candle_fetch_summary(before):
             return "candles: n/a"
         d = live_candles.fetch_stats_delta(before)
         return (f"candles: {d['requests']} requests, {d['rows']:,} rows, {d['seconds']:.1f}s "
-                f"(cold {d['cold']}, backfill {d['backfill']}, incremental {d['incremental']})")
+                f"(cold {d['cold']}, backfill {d['backfill']}, incremental {d['incremental']}, slow series >20s {d.get('slow_series', 0)})")
     except Exception:
         return "candles: n/a"
 

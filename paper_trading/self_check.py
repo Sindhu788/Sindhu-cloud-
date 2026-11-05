@@ -176,5 +176,11 @@ def details():
         breaker = None
     with _lock:
         sc = _state["self_check"]
-    return {"trading": trading_state(), "config_errors": config_errors(), "self_check": sc, "config_hash": h,
+    try:
+        from data_engine.resample import LIVE_CANDLES_ONLY
+        from data_engine import live_candles
+        candles = live_candles.freshness_counts() if LIVE_CANDLES_ONLY else None     # master plan A20 (local reads its own database)
+    except Exception:
+        candles = None
+    return {"candles": candles, "trading": trading_state(), "config_errors": config_errors(), "self_check": sc, "config_hash": h,
             "config_summary": summary, "db_breaker": breaker}
