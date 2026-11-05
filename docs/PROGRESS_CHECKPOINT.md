@@ -1,3 +1,28 @@
+[PROGRESS 72% | steps 16/22 done (+Step 18 just written) | now: Step 18 commit, then closeout Steps 19-22 | status: RUNNING | elapsed ~7h | blockers: none]
+
+# Day 7 checkpoint (5 Nov 2026)
+| Step | State | Evidence |
+|---|---|---|
+| 1 baseline | DONE | docs/DAY7_BASELINE.md (12 signals not 11; memory not a regression; paper P&L since reset known) |
+| 2 local app | DONE (sleep/wake NOT VERIFIED) | docs/RUNBOOK.md 11e: start, duplicate refused, kill recovery 34 s, app never survives a session end |
+| 3 data upkeep | DONE | incremental update run; full re-hash 748 files / 24,587,700 rows PASS; second copy C:\sindhu_data_copy_20261105 PASS; dry run; downloader fix (unpublished files = pending, not absent); owner steps RUNBOOK section 12 |
+| 4 backups | DONE | new Cloud export cloud_export_20261105_172207 (51 tables, 14,817 rows) + throwaway restore: 49 ok, 0 mismatched; export script made resilient |
+| 5 owner readiness | DONE | docs/OWNER_TODO.md "DAY 7 OWNER READINESS" |
+| 6 security review | DONE | docs/SECURITY_REVIEW.md Day 7: 15 findings; backups now redact secrets, path-name validation, ignore rules |
+| 7 scan time | DONE | docs/SCAN_PROFILE.md section 12: identical candidates proven; warm Cloud coin loop ~670 s not explained by CPU/candles; DB round trips hypothesis (NOT VERIFIED) |
+| 8 memory | DONE | section 13: no regression; same code varies 389-459 MB across instances; local 192-202 MB all builds |
+| 9 Strong 2/2 | DONE | docs/SIGNAL_QUALITY.md D7-1: gate reads bybit; 9 of 12 would be withheld with the real exchange |
+| 10 signal audit | DONE | D7-2: 12 signals, all FAILED strategies, 10 from 1m/5m |
+| 11 decision pack | DONE | docs/OWNER_DECISIONS.md Day 7; new OFF flag SINDHU_SIGNAL_DISCLAIMER (no message had a disclaimer) |
+| 12 Ichimoku | DONE | STRATEGY_FORENSICS.md: FRAGILE stays FRAGILE (one window, period-sensitive, worse than random shorts) |
+| 13 INSUFFICIENT_DATA | DONE | STRATEGY_FORENSICS.md table; need more history (warm-up gap) |
+| 15 forward report | DONE | tools/forward_report.py + forward_register.py, 10 tests, first report 0 positions; BACKTEST_PROTOCOL section 11 |
+| 16 health page | DROPPED (NICE) | time given to measurements and docs |
+| 17 weekly review + gates | DONE | docs/WEEKLY_REVIEW.md (appended), GO_LIVE_CRITERIA Day 7 table: 0 of 15 gates met |
+| 18 promo plan | DONE | docs/PROMO_PLAN.md rewritten (7 days, scripts, prompts, compliance checklist) |
+| 14 candidate tool | DONE | demo run FAILED PF 0.76 in ~2 min; isolation tests 7 green; docs/NEW_STRATEGY_HOWTO.md |
+
+---- Day 6 checkpoint (kept below) ----
 [PROGRESS 64% | steps 18/28 done | now: closeout (final docs push) | status: DONE after push | elapsed ~6h40m | blockers: none]
 
 # Day 6 checkpoint (5 Nov 2026)

@@ -304,3 +304,54 @@ Count on 1m-5m (research-only candidates for `SINDHU_RESEARCH_ONLY_TIMEFRAMES`):
 - The only strategy with a pooled PF above 1 is **Ichimoku 1d Indicator-Exit** (576 positions, PF 1.09, 95 % interval 0.71-1.61, PF 0.98 at 1.5x costs, 2 of 6 qualifying windows): that is indistinguishable from 1.0 and disappears with slightly higher costs.
 - **Two strategies (Candle Range Theory Loose; FVG Pure + Inverse FVG Fixed 1:2) beat random entries significantly** (p = 0.002, survives false-discovery control): their entries are slightly better than luck (-0.37 % vs -0.43 % per position). **Both still lose money after costs** (PF interval 0.56-0.67). Better than random is not the same as profitable; the cost of roughly 0.3 % per round trip is larger than the edge.
 - The entries of the other 40 strategies are not distinguishable from random entries with the same holding times.
+
+
+---
+## Day 7 dossier: Ichimoku 1d Indicator-Exit (sid d781b37694ef) - FRAGILE stays FRAGILE (Step 12)
+Analysis only. Nothing was promoted or changed: the variants live in a scratch library (`D:\sindhu_data\candidates\ichimoku_sensitivity`), the Ichimoku periods were changed only inside the test process. Tool: `tools/ichimoku_sensitivity.py` (47 coins, 1 Nov 2025 - 31 Aug 2026, same costs as the main protocol, positions as the unit). 13 variants x 50 coins = 650 runs.
+
+**Rules (from the stored file):** daily timeframe; long when the Ichimoku system is bullish, short when bearish; exit when the Ichimoku cross turns; stop = structure + 0.65 buffer; take-profit 10 R; 1 % risk. The only numbers in the file are the stop buffer (0.65), the take-profit multiple (10) and the risk; the Ichimoku periods (9 / 26 / 52 / 26) are fixed inside the indicator code, so they were perturbed through the indicator's defaults.
+
+### 1. Sensitivity (one parameter at a time, x0.8 / x0.9 / x1.1 / x1.2; sample 445-661 positions per variant)
+| Parameter | Scale | Value | Positions | PF x1 [95 % CI] | PF x1.5 | PF x2 | PF gross | Win % | Windows ok | Label |
+|---|---|---|---|---|---|---|---|---|---|---|
+| base | x1.0 | base | 576 | 1.09 [0.72-1.57] | 0.98 | 0.89 | 1.37 | 30.4 | 2/6 | FRAGILE |
+| ichimoku periods (9/26/52/26) | x0.8 | (7, 21, 42, 21) | 661 | 1.23 [0.85-1.65] | 1.11 | 1.01 | 1.54 | 34.0 | 3/6 | FRAGILE |
+| ichimoku periods (9/26/52/26) | x0.9 | (8, 23, 47, 23) | 614 | 0.94 [0.60-1.34] | 0.84 | 0.76 | 1.19 | 30.8 | 1/6 | FAILED |
+| ichimoku periods (9/26/52/26) | x1.1 | (10, 29, 57, 29) | 506 | 0.79 [0.54-1.10] | 0.70 | 0.63 | 1.01 | 27.9 | 3/6 | FAILED |
+| ichimoku periods (9/26/52/26) | x1.2 | (11, 31, 62, 31) | 445 | 0.65 [0.40-0.96] | 0.58 | 0.52 | 0.84 | 27.9 | 2/6 | FAILED |
+| stop buffer (0.65) | x0.8 | 0.52 | 582 | 1.06 [0.70-1.53] | 0.96 | 0.87 | 1.34 | 29.9 | 2/6 | FRAGILE |
+| stop buffer (0.65) | x0.9 | 0.585 | 580 | 1.09 [0.72-1.53] | 0.98 | 0.89 | 1.36 | 30.0 | 2/6 | FRAGILE |
+| stop buffer (0.65) | x1.1 | 0.715 | 574 | 1.10 [0.72-1.61] | 1.00 | 0.90 | 1.38 | 30.7 | 2/6 | FRAGILE |
+| stop buffer (0.65) | x1.2 | 0.78 | 572 | 1.11 [0.72-1.61] | 1.00 | 0.91 | 1.38 | 30.8 | 2/6 | FRAGILE |
+| take-profit multiple (10 R) | x0.8 | 8.0 | 582 | 1.00 [0.66-1.41] | 0.90 | 0.82 | 1.26 | 30.2 | 2/6 | FRAGILE |
+| take-profit multiple (10 R) | x0.9 | 9.0 | 579 | 1.03 [0.66-1.52] | 0.93 | 0.85 | 1.30 | 30.2 | 2/6 | FRAGILE |
+| take-profit multiple (10 R) | x1.1 | 11.0 | 574 | 1.13 [0.75-1.67] | 1.02 | 0.93 | 1.41 | 30.5 | 2/6 | FRAGILE |
+| take-profit multiple (10 R) | x1.2 | 12.0 | 571 | 1.16 [0.80-1.68] | 1.04 | 0.95 | 1.45 | 30.8 | 2/6 | FRAGILE |
+
+**Reading:** the stop buffer and the take-profit multiple hardly matter (PF 1.00-1.16). **The Ichimoku periods matter a lot: -10 % periods gives PF 0.94 (FAILED), +10 % gives 0.79, +20 % 0.65, while -20 % gives 1.23.** An edge that flips sign for a 10 % change of the central parameter is a sign of luck in the choice of (9, 26, 52), not of a robust idea. No variant is ROBUST; every variant interval contains 1 except +20 % periods (0.40-0.96, a clear loser).
+
+### 2. Base case in detail (576 positions, 46 coins with trades, net +327.6 on the test account)
+- **Cost sensitivity:** PF 1.37 before costs, 1.09 at x1, 0.98 at x1.5, 0.89 at x2: the profit disappears with 50 % higher costs.
+- **Interval:** profit factor 95 % interval 0.71-1.61 (days as clusters, 189 day-clusters); mean per position +0.57 with interval -1.90 to +3.58: not different from zero.
+- **Per period (8 windows by entry time):** windows 1-2 have 0 positions (the indicator needs about 78 daily candles to warm up, so the first signals appear in January 2026); **window 3 (16 Jan - 23 Feb 2026): 62 positions, PF 22.3, net +1,700**; windows 4-8: PF 0.49, 0.10, 1.45, 0.77, 0.56, net -516, -730, +256, -127, -256 (sum -1,373). **The whole profit comes from one 5-week episode**; outside it the strategy loses.
+- **Per coin:** 25 of 46 coins with trades have positive net; the five best coins (UNI, ERA, SOL, NEAR, LTC, 11-18 positions each) account for 182 % of the total net (the other coins together are negative). Leave-one-coin-out PF: 1.05 / 1.09 / 1.12 (min / median / max): not driven by a single coin, but by a small group.
+- **Long / short:** 85 long positions PF 0.83 (net -98.7); **491 short positions PF 1.14** (net +426). The average coin fell 43 % over the window, so a short bias paid.
+- **Trade size:** median holding 1.0 day, mean 8.7 days, longest 94 days; average win 22.5, average loss -9.0, largest win 98 (2 % of gross profit): no single trade decides the result.
+- **Comparison with luck and baselines (same costs):** strategy +0.18 % net per position; **random entries with the same side mix and holding times: +1.06 % (95th percentile +1.86 %), p = 0.96**: the strategy is no better than random shorts held for the same time in a falling market. Baselines: SMA-4h crossover -1.44 % per trade (951 trades), RSI-1h reversion -0.36 % (2,430 trades); buy-and-hold lost 42.7 % on average. So the strategy beats two long-only baselines in a bear market, which a short bias explains.
+
+### 3. Verdict
+**FRAGILE, and I would not trust it.** The pooled profit factor is above 1 only at the base cost level; the interval includes 1; the gain comes from one 5-week window and from shorting a falling market; the central parameter is unstable (a 10 % change makes it lose); random entries do better. It cannot be called ROBUST, and the 8-window rule is not met (2 of 6 qualifying windows). **Not promoted, nothing changed.** To learn more: more history (a second market regime), the forward test from 6 Nov 2026 (it must be registered first), and a long/short symmetric test on a rising period.
+
+---
+## Day 7: why the 5 INSUFFICIENT_DATA strategies cannot be judged, and what each needs (Step 13)
+Rule: a strategy needs at least 300 positions AND at least 6 of the 8 walk-forward windows with at least 30 positions each. "Windows" below are the 8 windows of about 38 days from 1 Nov 2025 to 31 Aug 2026 (positions per window, profit factor per window). 47 coins were run for each. Sample sizes are the positions shown.
+| Strategy | TF | Positions | PF x1 | Positions per window (1 -> 8) | Windows with >= 30 | Why it is INSUFFICIENT_DATA | What it needs |
+|---|---|---|---|---|---|---|---|
+| Ichimoku 1d Trailing-SL | 1d | 121 | 1.79 | 0, 0, 47, 11, 13, 26, 16, 8 | 1 | **Timeframe + warm-up:** a daily system needs about 78 daily candles before its first signal (windows 1-2 are empty) and then trades about 12 times a month over 47 coins; the only strong window is window 3 (PF 6.0, 47 positions), the later windows are below 1 | about 2 years more history (to reach 300 positions in 6 windows), or about 120 coins; the PF > 1 is carried by one window and cannot be trusted |
+| SAR + SMC (CISD Entry) | 5m | 254 | 0.36 | 27, 38, 14, 22, 47, 24, 32, 50 | 4 | **Too few trades**, but every window is a loss (PF 0.15-0.60) | 46 more positions would already label it FAILED; about 12 months of the same rate; nothing suggests an edge |
+| Ichimoku 1h Trailing-SL | 1h | 299 | 1.28 | 155, 57, 26, 20, 15, 12, 4, 10 | 2 | **Too few trades, and bunched at the start:** 52 % of all positions are in window 1 (PF 1.66), then PF 0.6 and falling; one position short of 300 | months of new data (the recent months show only 4-12 positions per window); the early profit looks like one episode |
+| Ichimoku 15m Trailing-SL | 15m | 509 | 1.44 | 294, 56, 54, 3, 5, 46, 24, 27 | 4 | **Bunched in too few windows:** 58 % in window 1 (PF 2.02); windows 4-8 are PF 12.6 (3 positions), 0.5, 0.35, 0.17, 0.33 | a longer history with trades in other periods; the PF of 1.44 is one early episode, recent windows lose |
+| SMA-Alignment (approximate, ZIP indicator excluded) | 1h | 1,696 | 0.74 | 0, 0, 0, 0, 0, 585, 553, 558 | 3 | **Warm-up gap, not lack of signals:** zero positions in the first five windows, then about 560 per window from window 6 (10 May 2026). That is what a long-timeframe indicator (about 26 weeks) produces when the data starts in Nov 2025; this reading is an inference, I did not open its indicator list | about 2 more years of history BEFORE Nov 2025 for the first window to be usable; in the three windows it can trade it loses (PF 0.90, 0.61, 0.70) |
+**Common need:** more history than 12 months. The Binance archive reaches back years; extending the 20 most liquid coins by 24 months would cost about 0.8 GB and the existing downloader (`python -m data_platform.run_download --months 36` after a decision; it only adds files, never deletes). It would also add a second market regime (the 10 months tested are a falling market: the average coin lost 43 %). I did not download anything for this today.
+**Do not conclude anything either way from these five.** Three of the five (the two Ichimoku trailing variants and the 1d one) show PF above 1 only because of one early window.

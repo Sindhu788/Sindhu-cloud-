@@ -130,3 +130,57 @@ Code: `paper_trading/signal_rules.py`, wired into `send_signal_for_position` rig
 4. *Leakage:* none found; the strategy running win rate is backward-looking at decision time. Regression to the mean of that term is NOT tested.
 5. *Scaling / labels:* the score is clipped to 0-100 and the display after 17 Sep is replaced by the bucket's real win rate once a bucket has 25 trades (`confidence_calibration.py`); that cannot add information that the inputs do not contain. Label used here: win = position pnl > 0.
 **Prepared (not enabled):** `SINDHU_HIDE_CONFIDENCE=1` removes the "Confidence: x %" line from outgoing Telegram messages (default OFF, so messages are unchanged); `tests/test_hide_confidence.py` (3 tests). Recommendation for the owner: until a calibrated model beats the base rate in the forward test, do not rely on the number; hiding it is an owner decision.
+
+---
+# Day 7 additions (5 Nov 2026)
+
+## D7-1. Why every public signal says "Strong, 2/2 factors" (Step 9) - root cause, with evidence
+**Evidence 1 (Cloud database export, `telegram_message_log`):** all 12 automatic signals sent so far say "2/2 confluence factors match", the two being "Strategy not paused for safety" and "No other strategy already crowding this coin". The regime factor ("Market condition supports this signal") and the pattern-history factor ("0/25 trades so far") are in none of them.
+**Evidence 2 (same export, `confluence_score_log` = the engine's own score when the position was opened, using the real trading exchange OKX):** for the SAME 12 positions the engine logged ratio **1.0 for 3**, **0.667 for 7** and **0.333 for 2**. So at open time the regime factor WAS counted (and was against the signal in 9 of 12), but the message sent about a minute later said 2/2. (Positions: a89fdb35 1.0, df69e9f9 1.0, 3d47a044 0.667, 50f02d29 0.667, 62e68847 0.333, 61f19ceb 0.667, 268bb395 0.667, 476e7aba 0.667, f11c5d5d 0.333, 90d82276 1.0, 9f464453 0.667, 40df27e7 0.667.)
+**Code path (file and function):**
+1. `paper_trading/telegram_bot.py::_gate_exchange(pos, exchanges_cfg)` (line 891) returns `exchanges.json "default"`, which is `bybit` in Cloud mode; the position itself is stored under `okx`.
+2. It is used by the send gates `evaluate_auto_send` (~1729), the standard-tier gate (~1806), the near-miss logger (~1884) and `send_signal_for_position` (~1615) when they call `paper_trading/confluence.py::score_confluence(strategy, symbol, exchange, ...)`.
+3. `score_confluence` lines 36-41: `regime_mod.classify_regime(exchange, symbol)` sits inside `try / except Exception: r = None`. For `bybit` on Cloud the chain `regime.classify_regime -> data_engine.resample.get_ohlcv -> live_candles.get_ohlcv_live -> get_exchange_client("bybit")` raises (Bybit answers HTTP 403 to Render; the Day 5 circuit breaker logs `[exchange-breaker] bybit OPEN for 900s: geo-block ... 403`). The exception is swallowed, `regime_ok = None` = "neutral, not counted".
+4. Factor 3 ("no other strategy crowding") calls `storage.get_open_paper_positions("bybit", symbol)`; positions are stored under `okx`, so it finds none and is always True.
+5. Factors 2 (not paused) and 4 (pattern memory, neutral below 5 samples, none yet) do not depend on the exchange. Result: only 2 of 4 factors are ever counted, both pass, ratio = 1.0.
+**Why it matters:** the standard-tier gate (`evaluate_auto_send_standard`, line ~1812) sends when `ratio >= auto_send_min_confluence_ratio` (default 1.0 = every counted factor must pass). Because the regime factor is invisible to the gate, the bar is much easier to pass than designed. The engine's own number at open time (OKX) shows how much easier.
+**Cloud setting that lets the standard tier reach the public:** Cloud `telegram_settings` holds only `master_send_enabled=True` and `auto_send_enabled=True`; `auto_send_high_confidence_only` is not set there, so the default **False** applies (the local copy has True). That is why signals labelled "tier=low" (not statistically confirmed by the 25-trade gate) were sent.
+**The fix already exists, OFF:** `SINDHU_GATE_USE_POSITION_EXCHANGE=1` makes `_gate_exchange` return `pos["exchange"]` (OKX). No new code was needed and nothing was changed today.
+**Simulated effect of that flag on the 12 sent signals (using the engine's OKX-based ratio as the stand-in for what the gate would compute with the flag ON; the gate runs about 70 s after the engine, so this is close, not exact):** the standard gate would still have passed **3 of 12** (ratio 1.0); **9 of 12 would have been withheld** (7 at 0.667, 2 at 0.333) because the ratio is below 1.0. Across all positions the engine scored since the Day 5 restart (3-5 Nov, 95 scores) only 10 (10.5 %) had ratio 1.0. Limits: n = 12 sent / 95 scored; ratios of 2/2 versus 3/3 cannot be told apart in the log; other gates (Losing group, target distance, duplicate guard) are unchanged.
+**Not done, on purpose:** no gate was changed. A visible warning when the regime check fails (instead of silent "neutral") would help the owner, but it would live inside `score_confluence`; it is listed as a recommendation in docs/OWNER_DECISIONS.md.
+
+## D7-2. Audit of every public signal sent so far (Step 10)
+Source: Cloud database export of 5 Nov 2026 (`telegram_message_log` automatic + success, joined to `paper_positions`, `paper_strategy_groups`, `confluence_score_log`) and the Day 6 labels (`protocol_results.json` + `protocol_rigor.json`). Generated by `tools/signal_audit.py`. "Fresh" = seconds between position open and send. "Engine score at open" = confluence ratio the engine logged with the real exchange (OKX). "Regime tag shown" = what the message displayed about the market regime: nothing (the factor was not counted, see D7-1).
+
+| # | Sent (UTC) | Coin | Side | Strategy | TF | Day 6 label | Group | Conf. | Target/stop | Fresh (s) | Engine score at open | Opposite signal same coin | Regime tag shown | Outcome so far |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | 2026-11-03 19:12 | PUMP/USDT | long | Ichimoku 15m Indicator-Exit [Manua | 15m | FAILED | profitable | 37.3 | 9.9 | 72 | 1.000 | - | none (not counted) | open |
+| 2 | 2026-11-03 21:33 | BTC/USDT | long | Ichimoku 15m Indicator-Exit [Manua | 15m | FAILED | profitable | 46.29 | 9.6 | 73 | 1.000 | short 0.1 h later | none (not counted) | closed stop_loss -0.62 |
+| 3 | 2026-11-03 21:38 | BTC/USDT | short | Daily Liquidity Scalping Strategy  | 1m | FAILED | profitable | 44.7 | 2.8 | 73 | 0.667 | long 0.1 h earlier | none (not counted) | closed stop_loss -0.70 |
+| 4 | 2026-11-04 03:46 | ETH/USDT | long | Laxman Rekha 5-EMA Trigger-Candle  | 5m | FAILED | challenge | 44.7 | 2.8 | 73 | 0.667 | short 4.9 h later | none (not counted) | closed take_profit +1.57 |
+| 5 | 2026-11-04 08:42 | ETH/USDT | short | Daily Liquidity Scalping Strategy  | 1m | FAILED | profitable | 44.7 | 2.8 | 72 | 0.333 | long 4.9 h earlier | none (not counted) | closed stop_loss -0.67 |
+| 6 | 2026-11-04 08:55 | ZEC/USDT | short | Daily Liquidity Scalping Strategy  | 1m | FAILED | profitable | 44.7 | 2.8 | 73 | 0.667 | - | none (not counted) | closed stop_loss -0.66 |
+| 7 | 2026-11-04 19:44 | SOL/USDT | long | Laxman Rekha 5-EMA Trigger-Candle  | 5m | FAILED | challenge | 44.7 | 2.7 | 4 | 0.667 | - | none (not counted) | open |
+| 8 | 2026-11-04 20:21 | ETH/USDT | long | Laxman Rekha 5-EMA Trigger-Candle  | 5m | FAILED | challenge | 33.3 | 2.7 | 4 | 0.667 | short 11.6 h earlier | none (not counted) | open |
+| 9 | 2026-11-04 20:27 | HYPE/USDT | long | Laxman Rekha 5-EMA Trigger-Candle  | 5m | FAILED | challenge | 37.3 | 2.8 | 4 | 0.333 | - | none (not counted) | open |
+| 10 | 2026-11-04 20:29 | XRP/USDT | long | Laxman Rekha 5-EMA Trigger-Candle  | 5m | FAILED | challenge | 44.7 | 2.8 | 4 | 1.000 | - | none (not counted) | open |
+| 11 | 2026-11-04 20:32 | DOGE/USDT | long | Laxman Rekha 5-EMA Trigger-Candle  | 5m | FAILED | challenge | 44.7 | 2.8 | 3 | 0.667 | - | none (not counted) | open |
+| 12 | 2026-11-04 20:41 | NEAR/USDT | short | Liquidity Sweep + Engulfing Candle | 5m | FAILED | profitable | 33.3 | 1.8 | 4 | 0.667 | - | none (not counted) | open |
+
+**Summary (n = 12 signals):**
+- by Day 6 label: {'FAILED': 12}
+- by entry timeframe: {'15m': 2, '1m': 3, '5m': 7}
+- 1-minute timeframe: 3 of 12; 1m or 5m: 10 of 12
+- by strategy: {'Ichimoku 15m Indicator-Exit [Manua': 2, 'Daily Liquidity Scalping Strategy ': 3, 'Laxman Rekha 5-EMA Trigger-Candle ': 6, 'Liquidity Sweep + Engulfing Candle': 1}
+- by group now: {'profitable': 6, 'challenge': 6}
+- target-to-stop above 5: 2 of 12; freshness at send (s): min 3, max 73
+- outcome so far: 5 closed (wins 1, net -1.08), 7 still open
+- engine score at open: 1.0 for 3, below 1.0 for 9
+
+**Reading and limits:**
+- **All 12 public signals came from strategies that Day 6 labelled FAILED** (profit factor below 1 after costs over 10 months and 47 coins; none is even FRAGILE). 10 of 12 came from 1-minute or 5-minute strategies, which the Cloud scan cannot serve on time (docs/STRATEGY_FORENSICS.md timeframe table); 3 came from the single 1m strategy. Laxman Rekha 5-EMA alone sent 6 (PF 0.78 in the backtest).
+- Group labels (profitable / challenge) come from short live results, not from the backtest; the two do not agree.
+- 2 of 12 have a target 9.6-9.9 times the stop (both Ichimoku 15m Indicator-Exit); 4 of 12 have an opposite-direction signal on the same coin (BTC 0.1 h apart, ETH 4.9 h and 11.6 h).
+- 9 of 12 would NOT have been sent if the gate had used the real exchange (engine score below 1.0), see D7-1.
+- Outcomes so far: 5 closed (1 win, net -$1.08), 7 still open. **Sample size 12 signals / 5 closed outcomes: far too small to judge profitability either way**; the evidence against these strategies is the 10-month backtest, not these 12 trades.
+- Cloud currently has `auto_send_high_confidence_only` unset (default False): standard-tier ("tier=low", not confirmed by the 25-trade gate) signals are public. The local copy has it True.

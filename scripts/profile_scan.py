@@ -8,7 +8,7 @@ ap = argparse.ArgumentParser()
 ap.add_argument("--workers", type=int, default=0); ap.add_argument("--latency", type=float, default=0.0)
 ap.add_argument("--cprofile", action="store_true"); ap.add_argument("--throttle", type=float, default=None)
 ap.add_argument("--ticks", type=int, default=2); ap.add_argument("--out", default=None); ap.add_argument("--page", type=int, default=300)
-ap.add_argument("--fresh", action="store_true"); ap.add_argument("--nomemo", action="store_true"); ap.add_argument("--golden", type=int, default=0, help="golden check: N coins, memo off vs on must give identical candidates"); ap.add_argument("--delay", type=float, default=0.0, help="fixed pause between pages (config default is 0.25)")
+ap.add_argument("--ro-golden", type=int, default=0, help="research-only proof: N coins, candidates with SINDHU_RESEARCH_ONLY_TIMEFRAMES=1m must equal the full list minus the 1m ones"); ap.add_argument("--fresh", action="store_true"); ap.add_argument("--nomemo", action="store_true"); ap.add_argument("--golden", type=int, default=0, help="golden check: N coins, memo off vs on must give identical candidates"); ap.add_argument("--delay", type=float, default=0.0, help="fixed pause between pages (config default is 0.25)")
 a = ap.parse_args()
 DATA = "D:/sindhu_runtime/prof_data"
 if a.fresh:
@@ -164,6 +164,41 @@ def golden(n_coins):
     print("GOLDEN RESULT:", "PASS" if bad == 0 else f"FAIL ({bad}/{total})", flush=True)
 
 
+def ro_golden(n_coins):
+    """Frozen clock + warm cache. For each coin: full candidate list (flag OFF) vs list with SINDHU_RESEARCH_ONLY_TIMEFRAMES=1m.
+    The second must equal the first with the 1m-timeframe candidates removed, byte for byte."""
+    FIXED = int(time.time() // 900 * 900) + 5
+    real_time = time.time
+    time.time = lambda: FIXED
+    lc._now_ms = lambda: FIXED * 1000
+    settings = dict(pt.load())
+    states = ("ranging", "trending_up", "trending_down", "volatile", "breakout")
+    bad = 0; removed_total = 0; kept_total = 0; strategies_1m = set()
+    for sym in list(SYMS.values())[:n_coins]:
+        strategies, seen = [], set()
+        for st in states:
+            for s_ in strategy_matcher.relevant_strategies(sym, st):
+                if s_["strategy_id"] not in seen:
+                    seen.add(s_["strategy_id"]); strategies.append(s_)
+        _cn.memo_enable(False)
+        os.environ.pop("SINDHU_RESEARCH_ONLY_TIMEFRAMES", None)
+        full = _orig_gc("okx", sym, strategies, [], dict(settings))
+        os.environ["SINDHU_RESEARCH_ONLY_TIMEFRAMES"] = "1m"
+        ro = _orig_gc("okx", sym, strategies, [], dict(settings))
+        os.environ.pop("SINDHU_RESEARCH_ONLY_TIMEFRAMES", None)
+        j = lambda x: json.dumps(x, sort_keys=True, default=str)
+        expect = [c for c in full if c.get("timeframe") != "1m"]
+        removed = [c for c in full if c.get("timeframe") == "1m"]
+        ok = j(ro) == j(expect)
+        bad += (not ok); removed_total += len(removed); kept_total += len(ro)
+        strategies_1m |= {c.get("strategy_id") for c in removed}
+        print(f"RO-GOLDEN {sym}: {len(strategies)} strategies, full={len(full)} candidates, 1m removed={len(removed)}, with flag={len(ro)}, non-1m identical={ok}", flush=True)
+    time.time = real_time
+    print(f"RO-GOLDEN RESULT: {'PASS' if bad == 0 else f'FAIL ({bad})'} | candidates kept {kept_total}, removed (1m) {removed_total}, distinct 1m strategies with candidates {len(strategies_1m)}", flush=True)
+
+
+if a.ro_golden:
+    ro_golden(a.ro_golden); sys.exit(0)
 if a.golden:
     golden(a.golden); sys.exit(0 if True else 1)
 res = {"args": vars(a)}

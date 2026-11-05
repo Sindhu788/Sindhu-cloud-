@@ -111,3 +111,58 @@ Rules: **KEEP** = label ROBUST. **WATCH** = INSUFFICIENT_DATA with PF x1 > 1 (no
 
 **Expected effect on public signals:** only strategies in the Profitable or Challenge group can send Telegram signals (the Losing group sends none). Of the 36 PAUSE strategies, 10 are in those groups (local copy): Ichimoku 15m Indicator-Exit [Manual Build], OTE Liquidity Sweep Reversal [Manual Build], Laxman Rekha 5-EMA Trigger-Candle Strategy [Manual Build], Previous High/Low Reversal [Manual Build], Kotegawa Bear Market Reversal Strategy [Manual Build], PDH/PDL Multi-Timeframe Reversal [Manual Build], Ichimoku 5m Indicator-Exit [Manual Build], Liquidity Sweep + Engulfing Candle (Loose) [Manual Build], Daily Liquidity Scalping Strategy [Manual Build], Liquidity Sweep Multi-Confirmation [Manual Build]. Pausing them would remove their signals; strategies in the Losing group change nothing publicly. Of the 42 strategies, 11 are in the public groups (local copy).
 Nothing was paused or changed. The decision belongs to the owner (docs/OWNER_DECISIONS.md).
+
+---
+# DAY 7 DECISION PACK (5 Nov 2026) - for each switch: what it does, what it would have changed, risks, my recommendation
+Nothing below was changed. All numbers come from the 12 public signals actually sent (Cloud database export), the local scan tests, and Render logs. Small samples: 12 signals, 5 closed outcomes.
+
+## 0. The big question first: should public signals continue while no strategy is validated?
+**Facts (docs/SIGNAL_QUALITY.md D7-1, D7-2):**
+- 12 signals were sent in 2 days. **All 12 came from strategies that failed the 10-month test** (profit factor below 1 after costs); 10 of the 12 from 1-minute / 5-minute strategies.
+- The message said "Strong, 2/2 factors" in all 12 because the market-regime check is not seen by the send gate; the engine's own score at open was full (1.0) for only 3 of 12.
+- Cloud sends the "standard tier" (not confirmed by the 25-trade gate) because `auto_send_high_confidence_only` is not set there (default False); your laptop copy has it True.
+- **None of the 12 messages contains any disclaimer** (no "paper trading", no "not financial advice"): 0 of 12.
+- Outcomes so far: 5 closed (1 win, net -$1.08), 7 open. Paper P&L since the reset: 34 closed trades, net -$11.26, profit factor 0.17 (2.3 days; very small sample).
+- Who is in the groups: **NOT VERIFIED** (only you can see it in the Telegram app; steps in docs/OWNER_TODO.md, Day 7 readiness).
+**Options:** (A) **Pause automatic public signals** until at least one strategy is ROBUST and passes the forward test: dashboard > Telegram > turn OFF `auto_send_enabled` (automatic signals only; daily reports keep working) or `master_send_enabled` (everything). No Render restart, takes effect at once, undo by turning it back ON. (B) Keep signals but switch on the protections below (research-only 1m,3m,5m + gate fix + target cap + disclaimer): of the 12 past signals this leaves 0. (C) Leave as is.
+**My recommendation: A now.** Reason: the evidence shows the public bar is much easier to pass than designed and every signal came from a failed strategy; if even one member trades real money on these messages, the harm is real and the system itself says it has no proven edge. Revisit when the forward test (earliest 5 Jan 2027) says otherwise. This is your decision (it is an owner-decision setting, so I did not touch it).
+
+## 1. What each switch would have changed (simulation on the 12 signals)
+|---|---|---|
+| today (nothing changed) | 12 | 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 |
+| research-only 1m | 9 | 1, 2, 4, 7, 8, 9, 10, 11, 12 |
+| research-only 1m,3m,5m | 2 | 1, 2 |
+| gate fix (real exchange) | 3 | 1, 2, 10 |
+| target cap 5 | 10 | 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 |
+| opposite block 30 min | 11 | 1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12 |
+| opposite block 360 min | 10 | 1, 2, 4, 6, 7, 8, 9, 10, 11, 12 |
+| hide confidence | 12 | 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 |
+| gate fix + research-only 1m,3m,5m | 2 | 1, 2 |
+| ALL: research-only + gate + cap 5 + opposite 30 | 0 | none |
+Rules in time order; the opposite-direction rule counts only signals that would have been sent in that scenario. Method: `tools/flag_simulation.py`.
+
+## 2. Switch by switch
+| Switch (Render environment variable unless noted) | Default | What changes | Effect on the 12 past signals | Effect on scan time / memory | Risks | Recommendation |
+|---|---|---|---|---|---|---|
+| `SINDHU_RESEARCH_ONLY_TIMEFRAMES=1m,3m,5m` | OFF | strategies on those timeframes are no longer evaluated live; they stay enabled and testable locally | 2 of 12 would remain (10 came from 1m/5m) | local test: CPU 28.6 s -> 15.1 s, pages 1,331 -> 170, memory 192 -> 146 MB; **warm Cloud scan: small** (the 670 s coin loop is mostly not candle download, see SCAN_PROFILE section 12); 11 of 42 strategies are on 1m/5m | 11 strategies stop producing live paper trades (their Wilson/Evolution counts stop growing); they all failed the test, so little is lost | **ON (1m,3m,5m)** if signals continue; it also cuts cold-start time and about 46 MB |
+| `SINDHU_GATE_USE_POSITION_EXCHANGE=1` | OFF | the confluence gate reads the real venue (OKX) instead of Bybit | 3 of 12 remain (9 withheld) | one more exchange call per candidate; negligible | none known; it only lowers labels and makes the bar the designed one | **ON** if signals continue (the correct fix) |
+| `SINDHU_MAX_TARGET_STOP_RATIO=5` | OFF | withholds a signal whose target is more than 5 times the stop distance | 10 of 12 remain (2 withheld: PUMP 9.9, BTC 9.6) | none | a legitimately wide target would be withheld | ON if signals continue |
+| `SINDHU_BLOCK_OPPOSITE_SIGNAL=1` (window `SINDHU_OPPOSITE_SIGNAL_WINDOW_MIN`, default 30) | OFF | withholds a signal opposite to one sent on the same coin within N minutes | 11 of 12 remain at 30 min (1 withheld: BTC short 0.1 h after BTC long); 10 at 360 min | none | hides a genuine reversal | ON, 30 min |
+| `SINDHU_HIDE_CONFIDENCE=1` | OFF | removes the "Confidence: x %" line from messages | no change in what is sent; all 12 showed 33-46 % | none | readers lose a number that carries no information (AUC 0.463) | ON (the number misleads) |
+| `SINDHU_SIGNAL_DISCLAIMER=1` (new today) | OFF | adds one last line: "Paper-trading test signal, educational only. Not financial advice." | none | none | none | **ON immediately if signals continue at all** |
+| `SINDHU_CANDLE_FINGERPRINT=1` | OFF | prints one log line per new closed candle per coin/timeframe (price data only) | none | a few microseconds per call; at most 5,000 lines per run | log volume | ON for 1-2 days, then copy the lines to `tools/compare_fingerprints.py` to compare Cloud's OKX candles with the Binance data |
+| `master_send_enabled` / `auto_send_enabled` (dashboard > Telegram, stored in the database) | both ON on Cloud | master = every Telegram send; auto = automatic signals | OFF stops all new signals | none | the groups hear nothing (say so in the group first) | see question 0 |
+| `auto_send_high_confidence_only` (dashboard) | OFF on Cloud (True on the laptop) | True = only signals confirmed by the 25-trade Wilson gate; the standard tier is not sent | with True none of the 12 would have been sent (all were "tier=low") | none | far fewer signals | **ON** if signals continue (it is the stricter, intended mode); owner-decision setting, not touched |
+
+## 3. How to change one Render variable (exact steps, one at a time)
+1. dashboard.render.com > service **Sindhu-cloud--1** > left menu **Environment**.
+2. **Add Environment Variable**: Key (for example `SINDHU_SIGNAL_DISCLAIMER`), Value `1`. Click **Save Changes**. Render restarts the service (about 2 minutes; the free instance restarts, a running scan is lost).
+3. Wait until the service shows **Live**, then open `https://sindhu-cloud-1.onrender.com/health` (it must say `"status":"ok"`).
+4. Only then add the next variable. One at a time, so that a problem can be traced to one change.
+5. **Roll back:** Environment > the 3-dot menu of that variable > **Delete** > Save Changes. The default (OFF) is restored after the restart.
+6. For the dashboard settings (`auto_send_enabled`, `master_send_enabled`, `auto_send_high_confidence_only`): the Telegram page of the dashboard; no restart.
+**Suggested order if you keep signals:** disclaimer -> hide confidence -> gate fix -> target cap -> opposite block -> research-only 1m,3m,5m -> `auto_send_high_confidence_only` ON.
+
+## 4. Other recommendations (no switch exists yet)
+- Show a visible note when the regime check cannot be computed instead of silently counting 2 factors (small code change inside `score_confluence`; needs your OK because it is a gate module).
+- Keep Cloud awake (pinger) before judging any scan statistics: today every number mixes cold starts and warm scans.

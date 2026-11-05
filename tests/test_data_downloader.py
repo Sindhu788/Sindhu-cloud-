@@ -284,3 +284,43 @@ def test_two_processes_must_not_share_one_manifest_and_replace_retries_on_window
     monkeypatch.setattr(downloader.time, "sleep", lambda s: None)
     a.manifest.put("X/2026-01", {"status": "absent"})
     assert len(calls) == 3 and a.manifest.get("X/2026-01")["status"] == "absent"
+
+
+def test_recent_404_is_pending_not_absent_so_the_next_run_asks_again(root, mock, monkeypatch):
+    import datetime as dt
+    mock.listed_from["LATEUSDT"] = "2026-12"                               # everything before December answers 404
+    monkeypatch.setattr(downloader, "_today", lambda: dt.date(2026, 11, 5))
+    d = dl(root, mock)
+    d.run([("day", "LATEUSDT", "2026-11-04"), ("month", "LATEUSDT", "2025-11"), ("day", "LATEUSDT", "2026-11-01")], "t")
+    assert d.manifest.get("LATEUSDT/2026-11-04") is None                   # yesterday: not published yet -> nothing recorded
+    assert d.manifest.get("LATEUSDT/2025-11")["status"] == "absent"        # a year ago: really absent
+    assert d.manifest.get("LATEUSDT/2026-11-01")["status"] == "absent"     # older than the grace period: absent
+    assert d.stats.get("pending") == 1
+    mock.listed_from["LATEUSDT"] = "2026-01"                               # it gets published
+    d2 = dl(root, mock)
+    d2.run([("day", "LATEUSDT", "2026-11-04")], "t2")
+    assert d2.manifest.get("LATEUSDT/2026-11-04")["status"] == "ok"
+
+
+def test_recent_month_404_is_pending_for_three_days_after_month_end(monkeypatch):
+    import datetime as dt
+    monkeypatch.setattr(downloader, "_today", lambda: dt.date(2026, 11, 2))
+    assert downloader._too_recent_to_be_absent("month", "2026-10") is True
+    monkeypatch.setattr(downloader, "_today", lambda: dt.date(2026, 11, 5))
+    assert downloader._too_recent_to_be_absent("month", "2026-10") is False
+    assert downloader._too_recent_to_be_absent("month", "2026-12") is True       # a future month is never 'absent'
+    assert downloader._too_recent_to_be_absent("day", "garbage") is False
+
+
+def test_dry_run_reports_missing_files_without_touching_anything(tmp_path):
+    import datetime as dt
+    import json
+    from data_platform import run_download
+    (tmp_path / "manifest").mkdir()
+    man = {"AUSDT/2026-10": {"status": "ok"}, "AUSDT/2026-09": {"status": "absent"}, "AUSDT/2026-11-01": {"status": "ok"}}
+    (tmp_path / "manifest" / "manifest.json").write_text(json.dumps(man))
+    before = (tmp_path / "manifest" / "manifest.json").read_bytes()
+    rep = run_download.pending_report(str(tmp_path), {"symbols": ["AUSDT", "BUSDT"]}, 2, 2, dt.date(2026, 11, 3))
+    assert rep["tasks_total"] == 2 * 2 + 2 * 2 and rep["already_done"] == 3
+    assert rep["missing_days"] == ["2026-11-01", "2026-11-02"] and rep["missing_months"] == ["2026-09", "2026-10"]
+    assert (tmp_path / "manifest" / "manifest.json").read_bytes() == before        # nothing written

@@ -43,6 +43,28 @@ def setup_logging(root):
 
 
 # ---------------------------------------------------------------- periods
+PUBLICATION_GRACE_DAYS = 3
+
+
+def _today():
+    return dt.datetime.now(dt.timezone.utc).date()
+
+
+def _too_recent_to_be_absent(kind, period):
+    """Binance publishes a day's file the day after and a month's file within the first days of the next month. A 404 for a file whose period
+    ended less than PUBLICATION_GRACE_DAYS ago therefore means 'not yet', never 'does not exist' (Day 7: without this the daily update would
+    record such files as absent forever and leave a hole in the data)."""
+    try:
+        if kind == "month":
+            y, m = int(period[:4]), int(period[5:7])
+            end = (dt.date(y + (m == 12), (m % 12) + 1, 1)) - dt.timedelta(days=1)
+        else:
+            end = dt.date.fromisoformat(period)
+    except ValueError:
+        return False
+    return end >= _today() - dt.timedelta(days=PUBLICATION_GRACE_DAYS)
+
+
 def month_list(end_month, count):
     y, m = int(end_month[:4]), int(end_month[5:7])
     out = []
@@ -232,6 +254,10 @@ class Downloader:
             self.manifest.put(key, {"status": "ok", "rows": rows, "sha256": sha, "note": "adopted existing file", "checked_at": _now()})
             return "ok"
         st, blob = self._fetch(url)
+        if st == 404 and _too_recent_to_be_absent(kind, period):
+            with self.lock:                       # not published yet: leave NO manifest line, so the next run asks again
+                self.stats["pending"] = self.stats.get("pending", 0) + 1
+            return "pending"
         if st == 404:
             self.manifest.put(key, {"status": "absent", "checked_at": _now()})
             with self.lock:
@@ -290,7 +316,7 @@ class Downloader:
     def progress(self):
         s = dict(self.stats)
         el = max(1.0, time.time() - self._t0)
-        finished = s["done"] + s["absent"] + s["skipped_done"] + s["failed"]
+        finished = s["done"] + s["absent"] + s["skipped_done"] + s["failed"] + s.get("pending", 0)
         s["finished"] = finished
         s["percent"] = round(100.0 * finished / s["tasks_total"], 1) if s["tasks_total"] else 0.0
         rate = finished / el

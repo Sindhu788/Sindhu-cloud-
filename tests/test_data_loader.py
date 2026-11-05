@@ -103,3 +103,18 @@ def test_daily_files_are_used_only_for_months_without_a_monthly_file(root):
     make(root, "AAAUSDT", "2026-11")
     months = loader.CandleLoader(root)._months_for("AAAUSDT", ms("2026-10-31T00:00:00"), ms("2026-11-03T00:00:00"))
     assert [p for p, *_ in months] == ["2026-10", "2026-11"]
+
+
+def test_data_paths_reject_names_that_could_escape_the_data_folder():
+    import pytest
+    from data_platform import store
+    for bad in ("..", "../x", "BTC/USDT", "C:/x", "BTC\\USDT", "","A" * 40, "BTC USDT"):
+        with pytest.raises(ValueError):
+            store.month_path("binance", bad, "2026-10", "R")
+    for bad in ("2026-1", "2026-10-1x", "../2026", "2026-10/../.."):
+        with pytest.raises(ValueError):
+            store.day_path("binance", "BTCUSDT", bad, "R")
+    with pytest.raises(ValueError):
+        store.native_path("binance", "BTCUSDT", "../5m", "2026-10", "R")
+    import os
+    assert store.month_path("binance", "BTCUSDT", "2026-10", "R").endswith(os.path.join("BTCUSDT", "1m", "2026-10.parquet"))
