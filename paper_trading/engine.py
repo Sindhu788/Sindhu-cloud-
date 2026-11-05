@@ -67,9 +67,7 @@ def _default_exchange():
     # deploys. Binance geo-blocks Render's servers with a real HTTP 451,
     # so "binance" specifically is never a safe cloud default regardless
     # of what an old file says.
-    if base_config.env_flag("SINDHU_CLOUD_MODE") and default == "binance":
-        return "bybit"
-    return default
+    return base_config.cloud_safe_exchange(default)       # master plan A7: never binance/bybit on Cloud
 
 
 # Task 4 (Batch 2): the Telegram fresh-signal sweep (see
@@ -608,8 +606,9 @@ class PaperTradingEngine:
             from data_engine.symbols import pick_top_symbols
             coins_cfg = base_config.load_or_seed("coins.json", base_config.DEFAULTS["coins.json"])
             candidates = list(base_config.load_or_seed("exchanges.json", base_config.DEFAULTS["exchanges.json"])["enabled"])
-            if env_flag("SINDHU_CLOUD_MODE") and "binance" in candidates:
-                candidates.remove("binance")
+            if env_flag("SINDHU_CLOUD_MODE"):
+                # binance (451) and, master plan A7, bybit (403) block Render: never try them on Cloud (was one failing call per wake)
+                candidates = [c for c in candidates if c not in base_config.CLOUD_BLOCKED_EXCHANGES] or [base_config.CLOUD_FALLBACK_EXCHANGE]
             self._beat('exchange', force=True)
             exchange, client, tradeable = get_working_exchange_client(candidates, coins_cfg["quote_asset"], log=self._log)
             symbols = pick_top_symbols(client, n=coins_cfg["num_coins"], quote=coins_cfg["quote_asset"], tradeable=tradeable)

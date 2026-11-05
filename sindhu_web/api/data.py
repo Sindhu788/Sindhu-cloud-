@@ -26,9 +26,7 @@ def _default_exchange():
     # restart). Binance geo-blocks Render's servers with a real HTTP 451,
     # so "binance" specifically is never a safe cloud default regardless
     # of what an old file says.
-    if config.env_flag("SINDHU_CLOUD_MODE") and default == "binance":
-        return "bybit"
-    return default
+    return config.cloud_safe_exchange(default)            # master plan A7: never binance/bybit on Cloud
 
 
 @router.get("/api/data")

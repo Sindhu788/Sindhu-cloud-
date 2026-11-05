@@ -895,6 +895,12 @@ def _gate_exchange(pos, exchanges_cfg):
     gate uses the exchange the position actually trades on. OFF by default because it changes gate inputs (owner decision)."""
     if str(os.environ.get("SINDHU_GATE_USE_POSITION_EXCHANGE", "")).strip().lower() in ("1", "true", "yes", "on") and pos.get("exchange"):
         return pos["exchange"]
+    # Master plan A7 (P8, owner instruction): on Cloud the gate never reads Bybit. It reads the position's own exchange (OKX there),
+    # so the regime factor is really computed instead of silently dropping out. This only makes the gate stricter (Day 7 audit:
+    # with the real exchange 9 of the 12 public signals would have been withheld). Local behaviour is unchanged.
+    from data_engine import config as _cfg
+    if _cfg.env_flag("SINDHU_CLOUD_MODE"):
+        return _cfg.cloud_safe_exchange(pos.get("exchange") or exchanges_cfg["default"])
     return exchanges_cfg["default"]
 
 
