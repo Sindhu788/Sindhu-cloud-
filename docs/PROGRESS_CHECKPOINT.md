@@ -1,4 +1,4 @@
-[PROGRESS 42% | steps 12/28 done | now: waiting for the 50-coin run (71%), then Steps 8-11, 12, 14 | status: WAITING | elapsed ~3h30m | blockers: none]
+[PROGRESS 57% | steps 16/28 done | now: full suite, then push 1 (Step 14) and Cloud measurement | status: WAITING | elapsed ~5h | blockers: none]
 
 # Day 6 checkpoint (5 Nov 2026)
 NOTE: the Day 6 prompt is cut off inside Step 21; Steps 22-28 and the final-report format are unknown and cannot be done or counted.
@@ -11,9 +11,11 @@ NOTE: the Day 6 prompt is cut off inside Step 21; Steps 22-28 and the final-repo
 | 5 metrics fix | DONE | data_platform/metrics.py, tests/test_metrics.py (9, one fails on old code); labels unchanged |
 | 6 rigour layer | DONE | data_platform/rigor.py + protocol_rigor.py, tests/test_rigor.py (8); docs/BACKTEST_PROTOCOL.md section 10 |
 | 7 holdout audit | DONE | NOT CLEAN (Day 4 used Sep-Oct for 10 strategies x 3 coins); forward test pre-registered (sections 8-9; manifest/forward_registry.json) |
-| 8 50-coin re-run | RUNNING | 2100 runs, 71% at last check; results come from protocol_analyze + protocol_rigor |
-| 9-11 reports | WAITING | need the run |
-| 12 scan speed | NOT STARTED | needs a quiet machine (run is using 3 workers) |
+| 8 50-coin re-run | DONE | 2100 runs, 47 coins with data; 0 ROBUST, 1 FRAGILE, 36 FAILED, 5 INSUFFICIENT; docs/STRATEGY_FORENSICS.md |
+| 9 comparison | DONE | 2 of 42 beat random entries (FDR) but both lose after costs |
+| 10 timeframe report | DONE | STRATEGY_FORENSICS.md; 11 strategies on 1m-5m cannot be served live |
+| 11 shortlist | DONE | docs/OWNER_DECISIONS.md (recommendation only) |
+| 12 scan speed | PARTIAL | measured: CPU 29 s/scan (Day 4 said 185 s, not reproduced); 72% of pages are 1m candles; research-only flag cuts pages 72-87% (OFF); golden identical; no speedup delivered without owner OK |
 | 13 gate flag analysis | DONE | docs/SIGNAL_QUALITY.md D6-1 (regime shares measured; past-signal effect NOT VERIFIED) |
 | 14 push 1 + Cloud measurement | NOT STARTED | after Step 12 |
 | 15 source mismatch | DONE | OKX global unreachable (NOT VERIFIED); OKX US stand-in table; fingerprint logger OFF + tool + 3 tests |
