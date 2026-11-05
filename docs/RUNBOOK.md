@@ -170,3 +170,13 @@ If a day is missing, nothing breaks: the next run fetches it. Files that Binance
 robocopy D:\sindhu_data C:\sindhu_data_copy_YYYYMMDD /E /COPY:DAT /XD experiments logs candidates
 ```
 Keep one copy on a different physical disk or cloud drive too; C: and D: on this laptop may be partitions of the same disk (NOT VERIFIED).
+
+## 11e. Local app resilience, second round (Day 7, 5 Nov 2026) - what was tried
+| Scenario | Result (measured) |
+|---|---|
+| Start with the documented command (`OPEN_SINDHU.cmd` = `launch_detached.py --wait`) | ready in 14 s (Day 6) and again today |
+| Start it a second time while it runs | prints "already running"; process tree shows ONE supervisor and ONE server (each is a launcher stub plus its child) |
+| Forced kill of the server process | back in **34 s** today (22 s on Day 6); still one instance |
+| **Does the app keep running after a work session ends?** | **NO.** `D:\sindhu_runtime\supervisor.log` shows a fresh "supervisor started" at the start of every session (4 Nov 14:30, 15:45, 17:53, 23:50; 5 Nov 08:43, 10:58) with nothing in between: the app was dead each time. Programs started from inside the assistant's session are stopped when the session ends, even with the detached launcher |
+| Laptop sleep and wake | **NOT VERIFIED.** The laptop did sleep and wake six times in two days (Windows power log), but I did not put it to sleep on purpose: unattended, nothing would wake it again. Normal Windows behaviour is that programs survive sleep; the app is expected to continue, but this was not proven |
+**What this means for you:** the local app only runs when YOU start it. Double-click `OPEN_SINDHU.cmd` (on the Desktop or in `D:\sindhu_runtime`) and keep that window; programs you start yourself are not stopped by the assistant. After a PC restart or a sleep that confuses it, double-click it again: it never starts a second copy.
