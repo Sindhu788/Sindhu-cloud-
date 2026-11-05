@@ -1,3 +1,16 @@
+[PROGRESS 22% | steps 5/22 done | now: Step 6 security review (then 7-11) | status: RUNNING | elapsed ~2h30m | blockers: none]
+
+# Day 7 checkpoint (5 Nov 2026)
+| Step | State | Evidence |
+|---|---|---|
+| 1 baseline | DONE | docs/DAY7_BASELINE.md (12 signals not 11; memory not a regression; paper P&L since reset known) |
+| 2 local app | DONE (sleep/wake NOT VERIFIED) | docs/RUNBOOK.md 11e: start, duplicate refused, kill recovery 34 s, app never survives a session end |
+| 3 data upkeep | DONE | incremental update run; full re-hash 748 files / 24,587,700 rows PASS; second copy C:\sindhu_data_copy_20261105 PASS; dry run; downloader fix (unpublished files = pending, not absent); owner steps RUNBOOK section 12 |
+| 4 backups | DONE | new Cloud export cloud_export_20261105_172207 (51 tables, 14,817 rows) + throwaway restore: 49 ok, 0 mismatched; export script made resilient |
+| 5 owner readiness | DONE | docs/OWNER_TODO.md "DAY 7 OWNER READINESS" |
+| 6 security review | NEXT | |
+
+---- Day 6 checkpoint (kept below) ----
 [PROGRESS 64% | steps 18/28 done | now: closeout (final docs push) | status: DONE after push | elapsed ~6h40m | blockers: none]
 
 # Day 6 checkpoint (5 Nov 2026)
