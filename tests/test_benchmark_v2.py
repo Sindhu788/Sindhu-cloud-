@@ -122,3 +122,23 @@ def test_bh_and_bootstrap_helpers():
     good = rng.normal(0.003, 0.01, 800)
     bad = rng.normal(-0.003, 0.01, 800)
     assert bv.block_bootstrap_p(good) < 0.05 and bv.block_bootstrap_p(bad) > 0.5
+
+
+def test_a_missing_candle_inside_a_series_values_holdings_at_the_last_close_not_zero():
+    """Bug found after run 1 (8 Feb 2018 outage candles were dropped as partial): valuation must carry the last close."""
+    c = np.array([[100.0], [100.0], [np.nan], [100.0], [100.0]])
+    p = panel(c, spread=0.0)
+    p.o[3, 0] = 100.0
+    tg = np.full((5, 1), np.nan)
+    tg[0, 0] = 1.0
+    res = bv.simulate(p, tg, cost=0.0)
+    assert res["equity"][2] == pytest.approx(100.0) and min(res["equity"]) > 99.0
+
+
+def test_donchian_state_survives_a_missing_close():
+    flat = [100.0] * 120
+    up = [100.0 + 2 * i for i in range(1, 21)]
+    c = np.array(flat + up + [np.nan] + [up[-1]] * 3)
+    p = panel(c, spread=0.0)
+    s = bv.donchian_signal(p)[:, 0]
+    assert s[140] == pytest.approx(1.0)                 # the missing day keeps the position on

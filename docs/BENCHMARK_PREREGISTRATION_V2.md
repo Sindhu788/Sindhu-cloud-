@@ -122,3 +122,12 @@ result exists:
 **Data quality** (docs/DATA_QUALITY.md, B2 section): all 20 files PASS (no gaps, duplicates, OHLC errors or non-UTC candles; hashes OK).
 The 1m cross-check overlaps 304 days for 19 symbols and shows differences > 0.1 % only for QNTUSDT: 8 days, open price only, up to 0.4 %.
 That fits a few missing first minutes in the thin 1m data (NOT VERIFIED). The native daily data is used as is.
+
+## Amendment 2, 2026-11-05 22:15 UTC: simulator bug found AFTER run 1 (reported openly; no rule or parameter changed)
+Run 1 (`D:\sindhu_runtime\bt_jobs\BT-RUN`, kept unchanged) printed impossible benchmark numbers: BTC buy-and-hold had a −100 % drawdown
+and a negative Sharpe during a +216 % period. Cause: on 2018-02-08 (exchange outage) the BTC, ETH, BNB and LTC daily candles closed
+after 28 minutes, so the Amendment 1 rule dropped them. The simulator then valued a held coin at 0 on a day with no candle, and the
+Donchian state was reset on a missing close.
+Fix (simulator correctness, not a strategy rule): a missing candle keeps the last close for valuation, and the Donchian state is kept.
+Tests: `test_a_missing_candle_inside_a_series_values_holdings_at_the_last_close_not_zero`, `test_donchian_state_survives_a_missing_close`.
+Run 2 (`...\BT-RUN-v2`) is the reported result; run 1's verdicts (both FRAGILE) are listed next to it in the report.

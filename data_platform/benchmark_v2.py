@@ -100,8 +100,7 @@ def donchian_signal(p, lookbacks=(20, 55, 100)):
                 valid = ~(np.isnan(hh) | np.isnan(ll) | np.isnan(ct))
                 up = valid & (ct > hh)
                 dn = valid & (ct < ll)
-                state = np.where(up, 1.0, np.where(dn, 0.0, state))
-                state = np.where(np.isnan(ct), 0.0, state)
+                state = np.where(up, 1.0, np.where(dn, 0.0, state))   # a missing close (outage day) keeps the state (fix after run 1)
             s[t] = state
         total += s
     return total / len(lookbacks)
@@ -138,6 +137,7 @@ def simulate(p, targets, band=None, cost=COST, start_cash=100.0):
     open_pos = {}                                 # j -> {"entry_day", "cash_out", "cash_in", "entry_notional"}
     positions = []
     pending = None
+    last_close = np.full(J, np.nan)
 
     def trade(j, new_units, price, day):
         nonlocal cash, turnover, costs_paid
@@ -185,8 +185,10 @@ def simulate(p, targets, band=None, cost=COST, start_cash=100.0):
         for j in np.where(p.last_idx == t)[0]:
             if units[j] > 0 and t < T - 1:
                 trade(j, 0.0, p.c[t, j], t)
-        # 3) mark to market at the close
-        c = np.where(np.isnan(p.c[t]), 0.0, p.c[t])
+        # 3) mark to market at the close. Fix after run 1: on a day with no candle (8 Feb 2018 exchange outage, dropped as a partial
+        # candle) a held coin is valued at its LAST close, not at 0.
+        last_close = np.where(np.isnan(p.c[t]), last_close, p.c[t])
+        c = np.where(np.isnan(last_close), 0.0, last_close)
         held = units * c
         equity[t] = cash + float(np.sum(held))
         gross[t] = float(np.sum(held)) / equity[t] if equity[t] > 0 else 0.0
