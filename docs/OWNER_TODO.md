@@ -124,3 +124,12 @@ New backup folder `D:\sindhu_backup_day4\cloud_export_20261104_222811` (51 table
 3. **Back up `D:\sindhu_data`:** it is the only copy of the rebuilt dataset (about 1.0 GB). Copy the folder to another drive or cloud storage once a month; it was lost once before. The downloader can rebuild it in about 30 minutes from Binance's public archive if needed.
 4. **Cloud memory / gate exchange:** after the next deploy check the Render log line `[memory-guard]`; and decide `SINDHU_GATE_USE_POSITION_EXCHANGE=1` (docs/SCAN_PROFILE.md section 10, D41).
 5. **Read docs/BACKTEST_RESULTS.md** when the 42-strategy run finishes; the sealed holdout (Sep-Oct 2026) must be opened only once, for strategies that pass.
+
+## DAY 6 ADDITIONS (5 Nov 2026) - short list
+1. **Keep Cloud awake** (external pinger): without it the free instance sleeps, scans stop, and signals are irregular (it restarted three times overnight).
+2. **Read docs/WEEKLY_SCORECARD.md and docs/OWNER_DECISIONS.md** (pause recommendation list; nothing was paused).
+3. **Decide the prepared switches** (all OFF, set on Render): `SINDHU_RESEARCH_ONLY_TIMEFRAMES=1m,3m,5m` (cuts exchange pages 87 %), `SINDHU_MAX_TARGET_STOP_RATIO=5` and `SINDHU_BLOCK_OPPOSITE_SIGNAL=1` (would have withheld 3 of the first 6 signals), `SINDHU_HIDE_CONFIDENCE=1` (the confidence number carries no information), `SINDHU_GATE_USE_POSITION_EXCHANGE=1` (docs/SIGNAL_QUALITY.md D6-1).
+4. **Memory:** Cloud now reads 439-444 MB (hard guard 450 MB). If you see restarts, enabling the research-only flag lowers memory about 46 MB in the local test.
+5. **Do not open forward data** before 5 Jan 2027; new strategies go through `python -m data_platform.candidate_eval` with a filled claim (docs/templates/CANDIDATE_CLAIM_TEMPLATE.md).
+6. **Backup** `D:\sindhu_data` (not in git) to another drive or cloud storage monthly.
+7. Still yours from before: chat id, old Render services that may hold the bot token, secrets rotation, hosting decision, daily candle update schedule.
