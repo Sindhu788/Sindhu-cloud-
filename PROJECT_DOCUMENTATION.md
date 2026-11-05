@@ -771,3 +771,13 @@ Verified facts only; details and evidence are in docs/ (INVESTIGATION_REPORT, DE
 - **Strategy forensics:** docs/STRATEGY_FORENSICS.md - no strategy robust over four 17-day windows; losses concentrate on long trades and 18-23 UTC; strategies are not redundant.
 - **Security:** docs/SECURITY_REVIEW.md - login throttle, Secure cookie, security headers added; dependency scan clean.
 - **Owner kit:** OWNER_TODO.md "DAY 4 ADDITIONS" (pinger, chat id, token/service conflict check of the other Render services incl. an old `main` build still deployed).
+
+## STATUS 5 Nov 2026 - Day 6 (trust the measurements first, then validate, prepare, hand over)
+- **Metrics audit:** Day 5's "t = +11.5 but profit factor 0.75" was a counting error (the two legs of one entry counted as separate trades, R averaged per leg). Fixed in `data_platform/metrics.py` (unit = position); only Daily Liquidity Scalping changed; no label changed. Details: docs/BACKTEST_RESULTS.md "Metrics audit"; independent check script `tools/recompute_metrics.py`.
+- **Rigour layer:** `data_platform/rigor.py`, `protocol_rigor.py` (day-clustered bootstrap intervals, false-discovery control, random-entry null model, SMA/RSI/buy-and-hold baselines); docs/BACKTEST_PROTOCOL.md sections 8-10.
+- **Honest result (47 coins, 10 months, costs):** 0 ROBUST, 1 FRAGILE, 36 FAILED, 5 INSUFFICIENT_DATA; 2 strategies beat random entries but still lose after costs (docs/STRATEGY_FORENSICS.md, docs/OWNER_DECISIONS.md shortlist).
+- **Holdout:** Sep-Oct 2026 is NOT clean (Day 4 used it); a forward test from 6 Nov 2026 is pre-registered (evaluate no earlier than 5 Jan 2027, >= 100 positions).
+- **Prepared and OFF (owner decisions):** `SINDHU_RESEARCH_ONLY_TIMEFRAMES`, `SINDHU_BLOCK_OPPOSITE_SIGNAL`, `SINDHU_MAX_TARGET_STOP_RATIO`, `SINDHU_HIDE_CONFIDENCE`, `SINDHU_CANDLE_FINGERPRINT` (and the older `SINDHU_GATE_USE_POSITION_EXCHANGE`). Docs: docs/PIPELINE.md, docs/SIGNAL_QUALITY.md.
+- **Candidate tool:** `python -m data_platform.candidate_eval` (credential-free, network-locked sandbox, dossier + claim template).
+- **Scan speed:** the CPU work of a scan is about 29 s locally; Cloud time is mostly waiting for exchange pages (72 % are 1m candles). docs/SCAN_PROFILE.md section 11.
+- **Facts and hand-off:** docs/WEEKLY_SCORECARD.md; checkpoint docs/PROGRESS_CHECKPOINT.md. The Day 6 prompt text stopped inside Step 21: Steps 22-28 were never received.
