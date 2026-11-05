@@ -98,8 +98,11 @@ def test_low_tier_qualifies_and_is_sent_by_default(test_db):
     history for the Wilson gate: HIGH tier correctly refuses, LOW tier
     still qualifies (evaluate_auto_send_low_tier is untouched), and the
     combined decision evaluate_auto_send_tier() now sends it at the
-    standard tier by default."""
+    standard tier when the owner turns High-Confidence-only OFF.
+    Master plan A22: the DEFAULT is now True (stricter, same as local); this test sets False explicitly, and the default is checked in
+    test_default_is_high_confidence_only_and_withholds_the_low_tier below."""
     _enable_auto_send()
+    telegram_bot.save_settings(auto_send_high_confidence_only=False)
     _open_position(storage)
     with patch.object(telegram_bot.confluence_mod, "score_confluence", return_value=FULL_CONFLUENCE):
         should_send_high, _ = telegram_bot.evaluate_auto_send("pos1")
@@ -189,3 +192,13 @@ def test_high_confidence_no_longer_changes_the_simplified_message_text():
     text_normal = telegram_bot.format_signal_message(_position(), high_confidence=False)
     assert text_high == text_normal
     assert "HIGH CONFIDENCE SIGNAL" not in text_high
+
+
+def test_default_is_high_confidence_only_and_withholds_the_low_tier(test_db):
+    """Master plan A22: code default auto_send_high_confidence_only=True (stricter) everywhere."""
+    _enable_auto_send()
+    _open_position(storage)
+    assert telegram_bot.load_settings()["auto_send_high_confidence_only"] is True
+    with patch.object(telegram_bot.confluence_mod, "score_confluence", return_value=FULL_CONFLUENCE):
+        tier, reason = telegram_bot.evaluate_auto_send_tier("pos1")
+    assert tier is None

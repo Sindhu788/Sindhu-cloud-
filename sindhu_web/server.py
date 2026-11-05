@@ -30,7 +30,7 @@ from sindhu_web.api import (
     risk_department as risk_department_api, memory_core as memory_core_api,
     dashboard_scores as dashboard_scores_api, project_meta as project_meta_api,
     time_machine as time_machine_api, timeline_compare as timeline_compare_api,
-    report_builder as report_builder_api, ops_checks as ops_checks_api,
+    report_builder as report_builder_api, ops_checks as ops_checks_api, wallet as wallet_api, summary as summary_api,
 )
 
 _STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -212,6 +212,8 @@ async def _lifespan(app: FastAPI):
     start_daily_report_scheduler_thread()
     from paper_trading.telegram_commands import start_command_polling_thread
     start_command_polling_thread()
+    from paper_trading import self_check as _self_check
+    _self_check.start_background_self_check()      # master plan A17
     from paper_trading.strategy_sync import start_offline_queue_scheduler_thread
     start_offline_queue_scheduler_thread()
     from backtest_engine.result_plausibility import start_plausibility_sweep_thread
@@ -306,7 +308,7 @@ def create_app():
                    incidents_api.router, weekly_snapshot_api.router, infra_weekly_digest_api.router,
                    self_learning_api.router, risk_department_api.router, memory_core_api.router,
                    dashboard_scores_api.router, project_meta_api.router, time_machine_api.router,
-                   timeline_compare_api.router, report_builder_api.router, ops_checks_api.router):
+                   timeline_compare_api.router, report_builder_api.router, ops_checks_api.router, wallet_api.router, summary_api.router):
         app.include_router(router)
 
     @app.get("/api/token")
@@ -359,6 +361,13 @@ app = create_app()
 @app.api_route("/health", methods=["GET", "HEAD"])   # Master plan A1/P6: HEAD too
 def health():
     return {"status": "ok", "safe_start": os.environ.get("SINDHU_SAFE_START") == "1"}
+
+
+@app.get("/health/details")
+def health_details():
+    """Master plan A17: trading state, config validation, self-check, config hash and safe summary (no secrets)."""
+    from paper_trading import self_check
+    return {"status": "ok", **self_check.details()}
 
 
 

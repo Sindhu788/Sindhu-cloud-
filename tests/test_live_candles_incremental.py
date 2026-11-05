@@ -107,3 +107,12 @@ def test_fetch_counters_count_pages_and_rows(fake):
     live_candles.get_ohlcv_live("binance", "XRP/USDT", "1m", T0 - 2500 * M, fake.now)
     d = live_candles.fetch_stats_delta(before)
     assert d["cold"] == 1 and d["requests"] == len(fake.calls) and d["rows"] == 2501
+
+
+def test_freshness_counts_use_the_guard_rule(fake):
+    fake.now = T0 + 10_000
+    live_candles.get_ohlcv_live("binance", "BTC/USDT", "1m", T0 - 100 * M, fake.now)
+    c = live_candles.freshness_counts(now_ms=fake.now)
+    assert c["series"] == 1 and c["fresh"] == 1 and c["stale"] == 0
+    c = live_candles.freshness_counts(now_ms=fake.now + 5 * M)          # nothing new fetched for 5 minutes
+    assert c["stale"] == 1 and c["stale_examples"] == ["BTC/USDT 1m"] and c["oldest_age_s"] >= 4 * 60

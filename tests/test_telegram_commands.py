@@ -23,7 +23,7 @@ def isolated_config(tmp_path, monkeypatch):
 
 
 def _configure_bot(chat_id="12345"):
-    telegram_bot.save_settings(bot_token="test-token", channel_id=chat_id)
+    telegram_bot.save_settings(bot_token="test-token", channel_id=chat_id, personal_chat_id=chat_id)   # A15: owner chat
 
 
 def _update(text, chat_id="12345", update_id=1):
@@ -156,3 +156,13 @@ def test_poll_once_does_nothing_without_a_bot_token(test_db):
         count = telegram_commands.poll_once()
     assert count == 0
     mock_get.assert_not_called()
+
+
+def test_public_group_is_no_longer_authorized_only_the_owner_chat(test_db, monkeypatch):
+    """Master plan A15 (P36): commands only from the owner's private chat; a public group member cannot /pause."""
+    monkeypatch.delenv("OWNER_CHAT_ID", raising=False)
+    telegram_bot.save_settings(bot_token="test-token", channel_id="-100777", personal_chat_id="")
+    assert telegram_commands.handle_update(_update("/pause", chat_id="-100777")) is None
+    monkeypatch.setenv("OWNER_CHAT_ID", "99887766")
+    assert telegram_commands.handle_update(_update("/status", chat_id="-100777")) is None
+    assert telegram_commands._is_authorized("99887766") is True

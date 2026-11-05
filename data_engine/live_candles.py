@@ -67,7 +67,14 @@ _cache = {}  # (exchange, symbol, interval) -> DataFrame, _OUT_COLUMNS, sorted b
 
 # Master plan A2 (P3): download counters, read by the engine once per scan (one summary line instead of a line per slow series).
 # kinds: "cold" = no cache yet (one full window), "backfill" = only the OLDER part a new caller needs, "incremental" = only newer candles.
-FETCH_STATS = {"requests": 0, "rows": 0, "cold": 0, "backfill": 0, "incremental": 0, "seconds": 0.0}
+FETCH_STATS = {"requests": 0, "rows": 0, "cold": 0, "backfill": 0, "incremental": 0, "seconds": 0.0, "slow_series": 0}
+
+
+def _verbose():
+    """Master plan A18 (P29): the per-series 'slow download' / 'BACKFILL' lines (100+ per cold scan) are now counted in the per-scan
+    [scan-stages] summary instead; SINDHU_VERBOSE_CANDLES=1 prints them again for a diagnosis."""
+    import os
+    return os.environ.get("SINDHU_VERBOSE_CANDLES") == "1"
 
 
 def fetch_stats_snapshot():
@@ -171,6 +178,9 @@ def _fetch_range(client, symbol, interval, start_ms, end_ms):
     took = time.monotonic() - t_begin
     _note_fetch(pages, len(all_rows), took)
     if took > 20:   # diagnosis only: shows in the Render log which series make a scan slow
+        with _lock:
+            FETCH_STATS["slow_series"] += 1
+    if took > 20 and _verbose():
         print(f"[live-candles] slow download {symbol} {interval}: {len(all_rows)} rows, {pages} pages, {took:.0f}s, "
               f"window {(end_ms - start_ms) / 86_400_000:.0f} days", flush=True)
     return all_rows
@@ -221,8 +231,8 @@ def get_ohlcv_live(exchange, symbol, interval, start_ms=None, end_ms=None):
         # returned everything the exchange has (a coin listed 40 days ago can never fill a 90-day window; do not retry forever).
         reaches_back = (not (cached is None or cached.empty)) and (
             cached.index.min() <= pd.to_datetime(start, unit="ms", utc=True) or (covered is not None and start >= covered))
-        if not reaches_back and not (cached is None or cached.empty):
-            # a series we already hold is being downloaded AGAIN: say why (diagnosis for the slow-scan investigation)
+        if not reaches_back and not (cached is None or cached.empty) and _verbose():
+            # a series we already hold is being extended backwards: say why (diagnosis; counted as "backfill" in [scan-stages])
             print(f"[live-candles] BACKFILL {symbol} {interval}: needs {(now - start) / 86_400_000:.1f}d, cache starts "
                   f"{(now - int(cached.index.min().timestamp() * 1000)) / 86_400_000:.1f}d ago, covered_from "
                   f"{'-' if covered is None else format((now - covered) / 86_400_000, '.1f') + 'd ago'}", flush=True)
@@ -294,3 +304,29 @@ def clear_cache():
         _cache.clear()
         _keep_from.clear()
         _covered_from.clear()
+
+
+def freshness_counts(now_ms=None):
+    """Master plan A20 (P28): for every cached (exchange, symbol, interval): is the newest CLOSED candle older than one period (the same
+    rule paper_trading.market_data_guard uses to reject stale data)? Returns counts only (no per-coin list), plus the stale series
+    names (capped at 20) for the dashboard badge."""
+    now_ms = now_ms if now_ms is not None else _now_ms()
+    with _lock:
+        items = list(_cache.items())
+    fresh = stale = 0
+    stale_names, oldest = [], 0
+    for (ex, sym, iv), df in items:
+        if df is None or df.empty:
+            continue
+        period = _INTERVAL_MS[iv]
+        last_open = int(df.index.max().timestamp() * 1000)
+        last_close = last_open + period if last_open + period <= now_ms else last_open      # newest row may still be forming
+        age = now_ms - last_close
+        oldest = max(oldest, age)
+        if age > period:
+            stale += 1
+            if len(stale_names) < 20:
+                stale_names.append(f"{sym} {iv}")
+        else:
+            fresh += 1
+    return {"series": fresh + stale, "fresh": fresh, "stale": stale, "oldest_age_s": oldest // 1000, "stale_examples": stale_names}

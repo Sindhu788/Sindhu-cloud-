@@ -20,9 +20,16 @@ Sample size: one Render instance (`kddpt`) over about one hour, plus the Day 6/7
 
 **Reading (careful):** the Cloud instance is over its memory budget (517-536 MB on a 512 MB plan). Every database call fails while the same database is fine from the laptop, so the problem is on the instance side: memory pressure plus slow or broken new SSL connections on 0.15 CPU. That is NOT VERIFIED as the single cause. The 20-day 1m re-download (master plan section 3) and the 3,828 s prefetch match this picture.
 
-## Local (measured in F2 part 2 after the test runs finish, so the CPU is not shared)
+## Local (F2 part 2, measured 2026-11-05 ~22:25 UTC on the UNCHANGED code, D:\sindhu_clean at 7388c1b)
+Isolated QA server on port 8422 with a fresh empty data folder `D:\sindhu_runtime\smoke_data_f2`, logged in with a throwaway QA test
+account (credentials only in that folder). `python tools/dashboard_baseline.py --base http://127.0.0.1:8422 --runs 3`.
+The full test suite was running at the same time, so the timings are indicative (CPU shared).
+
 | Metric | Baseline | Source |
 |---|---|---|
-| Dashboard home load / payload / requests | see part 2 below | tools/dashboard_qa.py |
-| DB queries per home-page load | see part 2 below | db_backend counters |
-| 1m download volume per scan | Cloud logs Day 7: 20 days = about 28,800 rows / 97 pages / 49 s per coin (LTC example) | Master plan section 3, Render logs |
+| Home page time until the network is quiet | 6.44 s first load, then 3.04 s and 2.91 s (median 3.04 s) | tools/dashboard_baseline.py |
+| Requests per home load | 29-30, of which 24-25 API calls | same |
+| Transferred per home load | 1.0-1.1 MB; biggest: app.js 943 KB, /api/backtesting/strategies 104 KB, app.css 62 KB | same |
+| Console errors | 0 | same |
+| DB queries per home-page load | NOT MEASURED: local runs on SQLite (no counters); the Postgres counters exist only in the Cloud scan logs ([scan-stages]) | - |
+| 1m download volume per scan | Cloud logs 5 Nov: 20 days = 28,806 rows / 97 pages / 49 s per coin (LTC example); now also counted per scan in [scan-stages] "candles: ..." (master plan A2) | Render logs |

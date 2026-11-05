@@ -74,6 +74,8 @@ from sindhu_web.api import timeline_compare as timeline_compare_api
 from sindhu_web.api import report_builder as report_builder_api
 from sindhu_web.api import activity as activity_api
 from sindhu_web.api import ops_checks as ops_checks_api
+from sindhu_web.api import wallet as wallet_api
+from sindhu_web.api import summary as summary_api
 # 2026-09-16 audit: the CEO Control Room (this deployment's default landing
 # page) has a Settings card that reads/writes /api/settings -- never mounted
 # here, so every field showed blank/default values and every Save failed
@@ -214,6 +216,8 @@ async def _lifespan(app: FastAPI):
     # laptop (see sindhu_web/server.py's own lifespan for that side).
     from paper_trading import telegram_commands
     telegram_commands.start_command_polling_thread()
+    from paper_trading import self_check as _self_check
+    _self_check.start_background_self_check()      # master plan A17
 
     # Master Task 3, Phase 2.20: Challenge Mode's achievability-trend
     # snapshots -- Challenge Mode is already fully cloud-reachable (its own
@@ -377,7 +381,7 @@ def create_app():
     for router in (paper_trading_api.router, ws.router, auth_api.router, system_api.router, strategy_lifecycle_api.router,
                    risk_department_api.router, memory_core_api.router, dashboard_scores_api.router,
                    project_meta_api.router, timeline_compare_api.router, report_builder_api.router,
-                   activity_api.router, settings_api.router, ops_checks_api.router):
+                   activity_api.router, settings_api.router, ops_checks_api.router, wallet_api.router, summary_api.router):
         app.include_router(router)
 
     @app.get("/api/token")
@@ -396,6 +400,12 @@ def create_app():
     @app.get("/api/home")
     def get_home_stub():
         return {"version": APP_VERSION, "system_health": "OK"}
+
+    @app.get("/health/details")
+    def health_details():
+        """Master plan A17 (public, no secrets): trading state, config errors, self-check, config hash/summary, database breaker."""
+        from paper_trading import self_check
+        return {"status": "ok", "commit": (os.environ.get("RENDER_GIT_COMMIT") or "")[:7] or None, **self_check.details()}
 
     @app.api_route("/health", methods=["GET", "HEAD"])   # Master plan A1/P6: HEAD too (an uptime monitor sending HEAD got 405)
     async def health_check(request: Request = None):

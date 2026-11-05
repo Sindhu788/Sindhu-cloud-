@@ -249,6 +249,7 @@ def force_close(position_id, latest_price, reason="closed_manually"):
 
 
 def _close(pos, exit_price, exit_reason):
+    raw_exit_price = exit_price
     exit_price = _apply_slippage(exit_price, pos["direction"], True, 0.0005)
     exit_price = _apply_spread(exit_price, pos["direction"], True, _SPREAD_PCT)
     if pos["direction"] == "long":
@@ -282,6 +283,13 @@ def _close(pos, exit_price, exit_reason):
 
     closed_pos = {**pos, "exit_price": exit_price, "exit_time": now_ms, "pnl": pnl,
                   "pnl_pct": pnl_pct, "exit_reason": exit_reason, "reflection": refl}
+    try:                                       # master plan A9: close MAIN_WALLET's mirror position at the same market price
+        import os as _os
+        if _os.environ.get("SINDHU_WALLET", "1") != "0":
+            from paper_trading import wallet
+            wallet.on_research_close(pos, raw_exit_price, exit_reason)
+    except Exception:
+        pass
     evolution.record_outcome(closed_pos, pnl, pnl_pct)
     lifecycle["evolution"] = _now_iso()
     generated_lessons = lesson_generator.analyze_and_generate_lessons(closed_pos, now)
