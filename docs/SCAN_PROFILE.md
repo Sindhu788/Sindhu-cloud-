@@ -109,3 +109,25 @@ Same tool (`scripts/profile_scan.py`, mock exchange, no network, isolated data f
 **CPU profile (cProfile, 48 s with profiling overhead):** `strategy_candidates` 39.3 s of 48.3 (81 %); `prepare_context` 22.8 s over 620 strategy-coin contexts (47 %), of which `_compute_concept_columns` 16.2 s (34 %; the memo already serves 2,102 hits against 344 misses); candle access `get_ohlcv_live` 8.3 s (17 %) over 1,166 calls; `MultiTimeframeContext.build` 5.1 s; `prepare` 4.8 s; `closed_recent_frame` 4.4 s; database connections 5.2 s (3,188 opens).
 **What I changed for speed: nothing in the evaluation path.** The remaining safe CPU savings (sharing concept columns between strategies beyond the existing memo, avoiding frame copies) need a deeper change to code that decides every signal; with 29 s of CPU against 865 s of waiting, the possible gain on Cloud (at most a few percent of the scan) did not justify the risk in this run. Step 12 is therefore only PARTIAL: measured, explained, levers quantified, no speedup delivered without owner approval of the flag.
 **Golden-output proof (frozen clock, `--golden 4`, BTC/ETH/SOL/XRP, 62 strategies each):** the deployed commit 2c3882c and HEAD (all Day 6 flags OFF) give identical candidates: 12 / 12 / 12 / 11 on both, memo OFF == memo ON on both, result PASS on both. The Day 6 hooks (research-only check, fingerprint note) therefore do not change any signal when OFF.
+
+## 12. Day 7: scan time with the 1m timeframe excluded, and where the Cloud time really goes (Step 7)
+**Method.** Local sandbox only (`scripts/profile_scan.py`, mock exchange with deterministic candles, isolated data folder, 62 strategies in the local copy x 10 coins). The flag `SINDHU_RESEARCH_ONLY_TIMEFRAMES` was set only inside this local process; no Render variable was touched.
+**A. Identical-candidates proof (new mode `--ro-golden`, frozen clock, 6 coins BTC/ETH/SOL/XRP/DOGE/PEPE):** for every coin the candidate list with the 1m exclusion is byte-identical to the full list with its 1m-timeframe candidates removed. Result: **PASS**; 61 candidates kept, 6 removed (exactly one per coin, all from the single 1m strategy). Command: `python scripts/profile_scan.py --fresh --ro-golden 6`.
+**B. Before / after (cold scan, same mock inputs; Day 6 measurements, 5 Nov 2026):**
+| Setting | Wall | CPU | Pages | 1m | 5m | 15m | 1h | 4h | 1d | Peak RSS |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Current behaviour | 29.2 s | 28.6 s | 1,331 | 961 | 200 | 80 | 70 | 10 | 10 | 192 MB |
+| 1m excluded | 26.1 s | 25.7 s | 370 | 0 | 200 | 80 | 70 | 10 | 10 | 160 MB |
+| 1m, 3m and 5m excluded | 15.4 s | 15.1 s | 170 | 0 | 0 | 80 | 70 | 10 | 10 | 146 MB |
+Excluding 1m removes 72 % of the pages, 10 % of the CPU and 32 MB of memory locally. (Page counts differ by 1 between runs because the mock candles follow the clock; same code and data otherwise.)
+**C. Where the Cloud time goes (Render logs of the warm scan 05:17-05:28 UTC on 5 Nov, total 702 s, and the cold scan 04:59-05:16, total 1,046 s):**
+| Phase | Warm scan | Cold scan |
+|---|---|---|
+| exchange + symbols | 22 s | 96 s |
+| shortlist reached at | 30 s | 115 s |
+| prefetch of candles (4 workers) | skipped by the memory guard | 199 s |
+| coin loop (strategy evaluation, risk, database) | about **670 s** (about 67 s per coin) | about 700 s |
+**Correction of a Day 6 statement:** Day 6 said the rest of the Cloud time "is waiting for exchange pages". For WARM scans this is wrong: a warm scan fetches only the newest candles (a handful of pages), yet its coin loop still takes about 670 s. The page count explains the cold start (prefetch 199 s, memory) but not the coin loop. The local CPU work of the whole scan is about 29 s; at the free plan's 0.15 CPU that is at most about 190 s. **The remaining roughly 480 s of the coin loop are not explained by CPU or candles.**
+**Hypothesis, NOT VERIFIED (not measured on Cloud):** database round trips. The Neon database is in `us-east-2` (Ohio, via the pooler) and the service runs in Oregon. Day 4 counted about 8,300 queries and 3,300 connections per cold scan; at a typical 50-70 ms per cross-country round trip that is roughly 415-580 s, the size of the missing time. A cross-check: one commit stalled for 182 s at 03:57 UTC on 5 Nov (log: "scan shows no progress for 182s ... db_backend.commit").
+**What to log on Cloud next (to turn the hypothesis into a measurement, Day 8):** per scan, the number of database calls and the total seconds spent in them, and the seconds spent in strategy evaluation per coin. Both are a few counters and one log line; not added today (they would change the deployed code path).
+**Effect of the 1m flag on the Cloud scan, honestly:** it removes 1 of 62 strategy evaluations per coin (1.6 %), about 72 % of the cold-start pages and about 30 MB; it does not change the 670 s coin loop much. Expected: a faster cold start and lower memory, NOT a faster warm scan. It still removes the 3 signals of the 1m strategy from the public groups, which is the stronger reason to consider it (docs/OWNER_DECISIONS.md).
