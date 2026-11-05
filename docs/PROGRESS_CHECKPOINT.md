@@ -1,4 +1,4 @@
-[PROGRESS 63% | steps 14/22 done | now: Step 15 forward-test report script | status: RUNNING | elapsed ~6h | blockers: none]
+[PROGRESS 72% | steps 16/22 done (+Step 18 just written) | now: Step 18 commit, then closeout Steps 19-22 | status: RUNNING | elapsed ~7h | blockers: none]
 
 # Day 7 checkpoint (5 Nov 2026)
 | Step | State | Evidence |
@@ -16,6 +16,10 @@
 | 11 decision pack | DONE | docs/OWNER_DECISIONS.md Day 7; new OFF flag SINDHU_SIGNAL_DISCLAIMER (no message had a disclaimer) |
 | 12 Ichimoku | DONE | STRATEGY_FORENSICS.md: FRAGILE stays FRAGILE (one window, period-sensitive, worse than random shorts) |
 | 13 INSUFFICIENT_DATA | DONE | STRATEGY_FORENSICS.md table; need more history (warm-up gap) |
+| 15 forward report | DONE | tools/forward_report.py + forward_register.py, 10 tests, first report 0 positions; BACKTEST_PROTOCOL section 11 |
+| 16 health page | DROPPED (NICE) | time given to measurements and docs |
+| 17 weekly review + gates | DONE | docs/WEEKLY_REVIEW.md (appended), GO_LIVE_CRITERIA Day 7 table: 0 of 15 gates met |
+| 18 promo plan | DONE | docs/PROMO_PLAN.md rewritten (7 days, scripts, prompts, compliance checklist) |
 | 14 candidate tool | DONE | demo run FAILED PF 0.76 in ~2 min; isolation tests 7 green; docs/NEW_STRATEGY_HOWTO.md |
 
 ---- Day 6 checkpoint (kept below) ----
