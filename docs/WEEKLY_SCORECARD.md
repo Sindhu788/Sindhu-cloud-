@@ -55,3 +55,17 @@ Every number below was read from a log, a file, a query or a test run in the Day
 **What was learned:** none of the 42 enabled strategies is robust after costs; entries of 40 of them are not distinguishable from luck; the costs (about 0.3 % per round trip) exceed the little edge two of them show; confidence figures carry no information; Cloud's wait is network pages, not CPU.
 **What is not known:** how the real Cloud venue differs from Binance; paper P&L since the reset; the current Telegram log; what the sleeping instance missed.
 **Suggested Day 7 order:** (1) owner decisions above; (2) keep Cloud awake and measure a day of scans; (3) read the Cloud database through an approved path to complete sections 2-3; (4) evaluate any NEW strategy only through `data_platform.candidate_eval`; (5) do not look at forward data before 5 Jan 2027.
+
+## 9. Cloud measurement of push 1 (commit 8ac219f, live 04:30 UTC 5 Nov; Render logs and /health)
+| Measure | Day 5 (8185853) | Day 6 (8ac219f) | Verdict |
+|---|---|---|---|
+| Complete scans measured | 2 (1,941 s cold, 865 s warm) | **2**: 1,046 s (cold start, 04:59-05:16 UTC) and **702 s = 11.7 min** (warm, 05:17-05:28 UTC); a third had started | sample size 2 each |
+| Errors per scan | 0 | 0, 0 | same |
+| Peak memory (RSS from memory-guard lines) | 407-411 MB | **439-444 MB** | **WORSE by about 30 MB** (hard guard 450 MB; limit 512 MB) |
+| Circuit breaker | Bybit opened for 900 s on the 403 | same line at the start of each scan (04:31, 05:00, 05:15), no 30 s retry loops | works |
+| OKX rate-limit retries | not counted | several "Too Many Requests" (code 50011) retries of 5-6 s during the 4-worker prefetch at 05:02-05:03 UTC; backed off and recovered; total count NOT VERIFIED (log listing truncated) | note |
+| "Stale closed market candles rejected" | - | **none** since 04:30 UTC | clean |
+| Stalls ("no progress") | one 182 s stall in a DB commit at 03:57 on the previous version | none since 04:30 UTC | |
+| /health latency (5 spaced requests during a scan, from Pakistan) | - | 0.65 / 0.78 / 0.80 / 0.93 / 1.04 s, all HTTP 200 | fine |
+**Memory regression, honestly:** memory is higher than on Day 5. I did NOT find the code responsible: the local profile shows the same peak memory for the deployed commit and for this one (193 vs 192 MB), and the Day 6 code that Cloud loads is only a few small hooks (all OFF). The likely difference is run conditions: this process started fresh and ran a 4-worker prefetch (10 coins warmed in 199 s) before the memory guard engaged, and the guard then logged 439-444 MB at the soft level for the rest of the run (memo dropped, prefetch skipped). That explanation is NOT proven. Nothing was reverted because no change was shown to cause it. Risk: 6 MB below the hard guard; the guard only drops optional work, it does not crash the service, and no restart for memory was seen.
+**Speed:** the warm scan is faster than Day 5 (702 s vs 865 s) and the cold start much faster than Day 5's cold scan (1,046 s vs 1,941 s), but those two comparisons are single samples and the earlier numbers were taken on a different build; do not read more into them. All three flags that would cut the page count further (docs/SCAN_PROFILE.md section 11) are still OFF.
