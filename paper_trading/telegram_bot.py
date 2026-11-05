@@ -1370,7 +1370,8 @@ def format_signal_message(position, confluence_result=None, reliability_result=N
         f"{L['take_profit']}: {_format_price(position.get('take_profit'))}",
         f"{L['duration']}: {duration_text}" if duration_text else f"{L['duration']}: --",
     ]
-    if confidence is not None:
+    # Day 6 Step 16: SINDHU_HIDE_CONFIDENCE=1 hides the confidence figure (it did not predict wins out of sample, docs/SIGNAL_QUALITY.md). OFF by default.
+    if confidence is not None and str(os.environ.get("SINDHU_HIDE_CONFIDENCE", "")).strip().lower() not in ("1", "true", "yes", "on"):
         lines.append(f"{L['confidence']}: {confidence:g}%")
     return "\n".join(lines)
 
