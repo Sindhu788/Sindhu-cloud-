@@ -157,3 +157,24 @@ Differences between builds and between 2 and 4 workers are 2-10 MB, inside run-t
 **Reading:** the Day 5 fix did lower memory (470 MB peaks before, 389-459 MB after). But the four instances that ran the SAME code (8185853 / 2c3882c) peaked at 391, 389, 437 and 459 MB: a 70 MB spread from run to run. Day 6's "439-444 MB vs 407-411 MB" is inside that spread. The memory-guard log (soft level 400 MB) and Render's metric agree within about 15 MB.
 **Root cause: cannot determine.** What differs between a 389 MB and a 459 MB run of identical code is not visible in the logs (the shortlist of coins changes with the market, the order of work and Python's memory fragmentation differ). **What to log on Cloud next** (Day 8, a few lines, no behaviour change): RSS at the end of each scan phase, the list of the 10 shortlisted coins, the number of cached candle rows per timeframe, and the count of live exchange clients.
 **Smallest safe fixes, NOT applied (default behaviour unchanged):** (1) `SINDHU_RESEARCH_ONLY_TIMEFRAMES=1m` removes about 32 MB locally (the 1m candle frames), the largest single lever; (2) a shorter candle retention (`_MAX_RETENTION_DAYS`, 25 days) would cut cached frames but changes the data every strategy sees: a behaviour change, not recommended without an owner decision. The hard guard (450 MB) drops optional work and prefetch, it does not crash the service; no memory restart was seen in the logs.
+
+## 14. Day 8: Cloud uptime study - how much scanning does the free plan lose without a pinger? (read-only; no extra requests were sent for this)
+**Window:** 4 Nov 2026 19:00 UTC to 5 Nov 18:32 UTC = 23.5 h = 1,412 min. **Sources:** Render memory metric (an instance has samples only while it is awake; the samples end about 15 minutes after its last request, which is Render's free-plan idle rule), Render deploy events (`list_events`), and the log lines "Started server process", "scan finished" and "previous scan was interrupted". Render's event list contains deploys but no sleep/wake events, so wake-ups are the process starts that have no deploy at that time.
+| Instance (last 4 letters) | Awake from - to (UTC) | Minutes awake | Started by | Scans completed | Scan cut when it ended |
+|---|---|---|---|---|---|
+| ..rck4s | before 19:00 - 19:35 | 36 | (earlier) | 0 | ended by deploy 5ad081b |
+| ..kntmw | 19:35 - 19:50 | 16 | deploy 5ad081b | 0 | coin 2/10 |
+| ..bl9kl | 20:13 - 21:13 | 61 | wake-up | 1 (20:45, 1,941 s) | coin 6/10 at start of the next |
+| ..n76sr | 21:13 - 21:37 | 25 | deploy 8185853 | 1 (21:27, 865 s) | coin 9/10 |
+| ..nldr8 | 02:58 - 03:11 | 14 | wake-up | 0 | finishing phase |
+| ..9w8jn | 03:11 - 03:26 | 16 | deploy 2c3882c | 0 | coin 10/10 |
+| ..msjqj | 03:43 - 03:59 | 17 | wake-up | 0 | finishing phase (182 s database stall at 03:57) |
+| ..gd6cv | 04:29 - 04:30 | 2 | deploy 8ac219f | 0 | finishing phase |
+| ..hqbfg | 04:30 - 04:45 | 16 | deploy 8ac219f (second instance) | 0 | exchange phase |
+| ..zmc4k | 04:59 - 05:37 | 39 | wake-up (my first request) | 2 (05:16, 1,046 s; 05:28, 702 s) | coin 9/10 |
+| ..b6c6g | 05:37 - 06:12 | 36 | deploy 37859e2 | 2 (05:54, 1,047 s; 06:06, 655 s) | idle: spun down |
+| ..bwm5c | 13:30 | 1 | deploy c035ca3 | 0 | coin 7/10 |
+| ..xv9gp | 13:31 - 13:54 | 24 | deploy c035ca3 (new instance) | 0 | shortlist phase |
+| ..s864r | 18:22 - now | 11 so far | wake-up (my request) | 0 so far | - |
+**Totals:** 314 minutes awake of 1,412 = **22 %**; 6 deploys and 5 wake-ups started processes; **6 scans completed** (total scan time 6,256 s = 104 min = **7.4 % of the 23.5 hours**, 33 % of the awake time); **13 scans were cut** (an instance stopped, slept or redeployed mid-scan). After 06:12 UTC the engine did nothing for 7 hours 18 minutes (until a deploy at 13:29 woke it), and nothing again from 13:54 to 18:22.
+**What this means:** a warm scan takes about 12 minutes (865 / 702 / 655 s). An always-on instance could have completed about 120 scans in this window; it completed 6 (**about 5 %**). Everything that depends on the scanner (new paper trades, signals, stop/target handling of open positions, the freshness window) ran for about a fifth of the time, and in bursts after each wake-up. 1 minute of the 15-minute idle tail per instance is counted as awake. Statistics from different days are therefore not comparable (cold starts and warm scans are mixed), and open paper positions can sit unmanaged for hours while the instance sleeps (61 positions were open at the 5 Nov export). **An external pinger (every 5 minutes) is the single largest improvement available**, before any speed work. Note the free plan's 750 free hours a month for all free services together (docs/OWNER_TODO.md): keeping this service awake all month uses about 744.
