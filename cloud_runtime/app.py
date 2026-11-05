@@ -311,6 +311,8 @@ async def _lifespan(app: FastAPI):
 def create_app():
     app = FastAPI(title="SINDHU Cloud (Lightweight)", lifespan=_lifespan)
 
+    from starlette.middleware.gzip import GZipMiddleware   # master plan C6: app.js 953 KB -> about a quarter on the wire
+    app.add_middleware(GZipMiddleware, minimum_size=1024)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -500,7 +502,7 @@ def create_app():
         # own default page is completely untouched.
         html = html.replace(
             "<body>",
-            "<body><script>if(!location.hash){location.hash='#paper_trading';}</script>",
+            "<body><script>if(!location.hash){location.hash='#wallet';}</script>",   # master plan C2: MAIN_WALLET home
             1,
         )
         return HTMLResponse(

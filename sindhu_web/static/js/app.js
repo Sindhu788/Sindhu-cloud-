@@ -1289,7 +1289,7 @@
   // hamburger drawer. Rendered from the same /api/nav payload as the
   // sidebar (single source of truth for what's enabled), just filtered to
   // this fixed shortlist. Labels are shortened to fit a 5-tab bar.
-  const BOTTOM_NAV_IDS = ["home", "backtesting", "paper_trading", "strategies", "ceo"];
+  const BOTTOM_NAV_IDS = ["wallet", "paper_trading", "strategies", "backtesting", "settings"];   // master plan C2: five sections
   const BOTTOM_NAV_SHORT_LABELS = {
     home: "Home", backtesting: "Backtest", paper_trading: "Paper",
     strategies: "Strategies", ceo: "CEO",
@@ -1313,10 +1313,19 @@
     // SPA, not routed through PAGES{}. Keeps concepts.html untouched while
     // still making it reachable by a single click from the sidebar.
     const navHref = p => p.external_url ? p.external_url : `#${p.id}`;
+    // Master plan C2: five main sections first (Home = MAIN_WALLET, Trades, Strategies, Backtests, Settings); every other page stays
+    // reachable below them under its old group, nothing is removed.
+    if (!pages.find(p => p.id === "wallet")) pages.unshift({ id: "wallet", label: "Home", icon: "wallet", group: "Main" });
+    _navPagesById = Object.fromEntries(pages.map(p => [p.id, p]));
+    const mainIds = MAIN_SECTIONS.map(m => m[0]).filter(id => _navPagesById[id]);
+    const mainHtml = `<li class="nav-group-label">Main</li>` + mainIds.map(id => {
+      const p = _navPagesById[id]; const lbl = (MAIN_SECTIONS.find(m => m[0] === id) || [id, p.label])[1];
+      return `<li><a href="#${id}" data-id="${id}" title="${esc(lbl)}"><svg viewBox="0 0 24 24">${NAV_ICONS[p.icon] || NAV_ICONS.dashboard}</svg><span class="nav-label">${esc(lbl)}</span></a></li>`;
+    }).join("");
     if (groups && groups.length) {
       const byGroup = {};
       pages.forEach(p => { (byGroup[p.group] = byGroup[p.group] || []).push(p); });
-      list.innerHTML = groups.filter(g => byGroup[g]).map(g => `
+      list.innerHTML = mainHtml + groups.filter(g => byGroup[g] && g !== "Main").map(g => `
         <li class="nav-group-label">${esc(g)}</li>
         ${byGroup[g].map(p => `
           <li><a href="${navHref(p)}" data-id="${p.id}" title="${esc(p.label)}">
@@ -1337,7 +1346,7 @@
       bottom.innerHTML = BOTTOM_NAV_IDS.filter(id => byId[id]).map(id => `
         <a href="#${id}" data-id="${id}" title="${esc(byId[id].label)}">
           <svg viewBox="0 0 24 24">${NAV_ICONS[byId[id].icon] || NAV_ICONS.dashboard}</svg>
-          <span>${esc(BOTTOM_NAV_SHORT_LABELS[id] || byId[id].label)}</span>
+          <span>${esc((MAIN_SECTIONS.find(m => m[0] === id) || [])[1] || BOTTOM_NAV_SHORT_LABELS[id] || byId[id].label)}</span>
         </a>`).join("");
     }
   }
@@ -2770,6 +2779,7 @@
   }
 
   const PAGES = {
+    wallet: renderWalletHome,            // master plan C2: MAIN_WALLET home
     home: renderHome, market: renderMarket, data: renderData,
     backtesting: renderBacktesting, reports: renderReports, settings: renderSettings,
     knowledge: renderKnowledge, strategies: renderStrategies,
@@ -2819,7 +2829,7 @@
     // orchestrator/control-room view) is now the default landing page
     // instead of the plain Dashboard -- "Dashboard" (#home) is still one
     // click away under CEO / Orchestrator in the sidebar, unchanged.
-    const id = (location.hash || "#ceo").slice(1);
+    const id = (location.hash || "#wallet").slice(1);   // master plan C2: MAIN_WALLET home is the landing page
     setActiveNav(id);
     clearLiveListeners();
     if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
@@ -14599,11 +14609,125 @@
     } catch (e) { /* never let a diagnostics beacon break page load */ }
   }
 
+  // ------------------------------------------------------------ master plan Part C (C2/C4/C5 + A16 kill switch)
+  // MAIN_WALLET home from ONE cached call (/api/summary), a permanent paper-trading banner, and an in-page confirm modal.
+  const MAIN_SECTIONS = [["wallet", "Home"], ["paper_trading", "Trades"], ["strategies", "Strategies"], ["backtesting", "Backtests"], ["settings", "Settings"]];
+  let _summaryCache = null;
+  function _money(v) { return (v === null || v === undefined || isNaN(v)) ? "--" : (v < 0 ? "-$" : "$") + Math.abs(Number(v)).toFixed(2); }
+  function _ago(iso) {
+    if (!iso) return "--";
+    const s = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 1000));
+    return s < 90 ? `${s} sec pehle` : s < 5400 ? `${Math.round(s / 60)} min pehle` : `${Math.round(s / 3600)} ghante pehle`;
+  }
+  async function _getSummary(force) {
+    try { _summaryCache = await apiGet("/api/summary" + (force ? "?refresh=true" : ""), 20000); }
+    catch (e) { if (!_summaryCache) throw e; }
+    return _summaryCache;
+  }
+  function confirmModal(title, text, okLabel, danger) {
+    return new Promise(resolve => {
+      const bg = document.createElement("div");
+      bg.className = "pp-modal-bg";
+      bg.innerHTML = `<div class="pp-modal" role="dialog" aria-modal="true" aria-labelledby="ppmT"><h3 id="ppmT">${esc(title)}</h3>
+        <div>${esc(text)}</div><div class="row"><button data-a="no">Cancel</button>
+        <button data-a="yes" class="${danger ? "danger" : ""}">${esc(okLabel)}</button></div></div>`;
+      const done = v => { bg.remove(); document.removeEventListener("keydown", onKey); resolve(v); };
+      const onKey = e => { if (e.key === "Escape") done(false); };
+      bg.addEventListener("click", e => { if (e.target === bg) done(false); const a = e.target.dataset && e.target.dataset.a; if (a) done(a === "yes"); });
+      document.addEventListener("keydown", onKey);
+      document.body.appendChild(bg);
+      bg.querySelector('[data-a="no"]').focus();
+    });
+  }
+  async function _toggleKillSwitch(active) {
+    const ok = active
+      ? await confirmModal("Resume trading?", "New paper entries will be allowed again. Every safety gate still applies.", "Resume", false)
+      : await confirmModal("Stop all new entries?", "Kill switch: no new paper trade will be opened until you resume. Open positions keep their stop-loss and target.", "Stop new entries", true);
+    if (!ok) return;
+    try {
+      await apiPost(active ? "/api/paper-trading/kill-switch/deactivate" : "/api/paper-trading/kill-switch/activate",
+        active ? {} : { reason: "Dashboard kill-switch button", close_positions: false });
+    } catch (e) { alertBanner("Kill switch could not be changed: " + e.message); }
+    await refreshBanner(true);
+  }
+  function alertBanner(msg) {
+    const b = document.getElementById("ppBanner"); if (!b) return;
+    const m = b.querySelector(".pp-msg"); if (m) m.textContent = msg;
+  }
+  async function refreshBanner(force) {
+    const b = document.getElementById("ppBanner"); if (!b) return;
+    let s = null;
+    try { s = await _getSummary(force); } catch (e) { b.querySelector(".pp-msg").textContent = "Cloud so raha hai ya slow hai -- 1 min mein dobara koshish"; return; }
+    const ks = s.kill_switch || {};
+    const c = (s.system || {}).candles;
+    const dot = b.querySelector(".pp-dot");
+    dot.className = "pp-dot " + (c && c.series ? (c.stale ? "stale" : "fresh") : "");
+    dot.title = c && c.series ? `${c.fresh} fresh / ${c.stale} stale data series` : "data freshness: not measured here";
+    b.querySelector(".pp-fresh").textContent = c && c.series ? (c.stale ? `Data purana: ${c.stale} series` : "Data taaza") : "Data: --";
+    b.querySelector(".pp-ks").innerHTML = ks.active ? `<span class="badge-txt bad">KILL SWITCH ON</span>` : `<span class="badge-txt good">Trading allowed</span>`;
+    const btn = b.querySelector("button.pp-kill");
+    btn.textContent = ks.active ? "Resume" : "Kill switch";
+    btn.className = "pp-kill " + (ks.active ? "" : "danger");
+    btn.onclick = () => _toggleKillSwitch(!!ks.active);
+    b.querySelector(".pp-msg").textContent = "Updated " + _ago(s.generated_at);
+  }
+  function startBanner() {
+    if (document.getElementById("ppBanner")) return;
+    const b = document.createElement("div");
+    b.id = "ppBanner";
+    b.setAttribute("role", "status");
+    b.innerHTML = `<span class="pp-tag">PAPER TRADING &mdash; real paisa nahi</span><span class="pp-ks"></span>
+      <span><span class="pp-dot"></span> <span class="pp-fresh">Data: --</span></span><span class="pp-spacer"></span>
+      <span class="pp-msg muted"></span><button class="pp-kill danger" type="button">Kill switch</button>`;
+    document.body.insertBefore(b, document.body.firstChild);
+    refreshBanner(false);
+    setInterval(() => { if (!document.hidden) refreshBanner(false); }, 60000);
+  }
+  function _skeletonCards() {
+    return `<div class="wh-grid">${[1, 2, 3, 4].map(() => `<div class="wh-card"><div class="skel" style="width:40%;height:14px"></div><div class="skel" style="margin-top:10px"></div></div>`).join("")}</div>`;
+  }
+  async function renderWalletHome() {
+    const token = activeRouteToken;
+    content.innerHTML = `<div class="page-head"><h1>MAIN_WALLET</h1><p class="muted">One shared $100 paper account, like a real person's account. Research books are on the Strategies page.</p></div>${_skeletonCards()}`;
+    const draw = async (force) => {
+      let s;
+      try { s = await _getSummary(force); } catch (e) {
+        if (isStaleRoute(token)) return;
+        content.innerHTML = `<div class="card wh-empty">Cloud so raha hai ya jawab nahi de raha, 1 min mein jaagega. <button class="btn" id="whRetry">Dobara try karo</button></div>`;
+        document.getElementById("whRetry").onclick = () => draw(true); return;
+      }
+      if (isStaleRoute(token)) return;
+      const w = s.wallet || {}, e = s.engine || {}, sys = s.system || {};
+      const dayCls = (w.day_pnl || 0) > 0 ? "pos" : (w.day_pnl || 0) < 0 ? "neg" : "";
+      const c = sys.candles;
+      const health = !e.running ? `<span class="badge-txt bad">Engine stopped</span>` : `<span class="badge-txt good">Engine running</span>`;
+      const ev = (w.last_events || []);
+      content.innerHTML = `
+        <div class="page-head"><h1>MAIN_WALLET</h1><p class="muted">One shared $100 paper account. Updated ${esc(_ago(s.generated_at))}${s.cached ? " (cached)" : ""}.</p></div>
+        <div class="wh-grid">
+          <div class="wh-card"><div class="lbl">Balance (equity)</div><div class="val">${_money(w.equity)}</div><div class="sub">Cash ${_money(w.cash)} &middot; start $100.00 &middot; <span class="badge-txt info">PAPER</span></div></div>
+          <div class="wh-card"><div class="lbl">Today's P&amp;L (UTC)</div><div class="val ${dayCls}">${_money(w.day_pnl)}</div><div class="sub">${w.entries_blocked_today ? '<span class="badge-txt bad">Daily loss limit hit: no new entries today</span>' : "Daily loss limit 5%"}</div></div>
+          <div class="wh-card"><div class="lbl">Open trades</div><div class="val">${w.open_positions ?? "--"}</div><div class="sub">of max 4 &middot; ${w.closed_trades ?? 0} closed, realized ${_money(w.realized_pnl)}</div></div>
+          <div class="wh-card"><div class="lbl">System health</div><div class="val" style="font-size:18px">${health}</div>
+            <div class="sub">${e.scan_in_progress ? `Scan ${esc(e.scan_index)}/${esc(e.scan_total)} chal raha hai` : "Scan idle"} &middot; ${c && c.series ? (c.stale ? `<span class="badge-txt bad">Data purana: ${c.stale}</span>` : '<span class="badge-txt good">Data taaza</span>') : "data: --"} &middot; trading: ${esc(sys.trading || "--")}</div></div>
+        </div>
+        <div class="card" style="margin-top:16px"><h3>Last 5 wallet events</h3>
+          ${ev.length ? `<div style="overflow-x:auto"><table class="wh-table"><thead><tr><th>Time</th><th>Event</th><th>Coin</th><th>Strategy</th><th class="num">Amount</th><th>Reason</th></tr></thead><tbody>
+            ${ev.map(x => `<tr><td>${esc(_ago(x.created_at))}</td><td><span class="badge-txt ${x.event === "entry" ? "good" : x.event === "reject" ? "warn" : "info"}">${esc(x.event)}</span></td>
+              <td>${esc(x.symbol || "")}</td><td>${esc(x.strategy_name || "")}</td><td class="num">${x.notional ? _money(x.notional) : ""}</td><td>${esc(x.reason || "")}</td></tr>`).join("")}
+          </tbody></table></div>` : `<div class="wh-empty">Abhi koi wallet event nahi. Jab koi strategy saare safety gates paar karegi, wallet yahan faisla likhega.</div>`}
+        </div>`;
+    };
+    await draw(false);
+    autoRefresh(() => { if (!document.hidden) draw(false); }, 60);
+  }
+
   // ------------------------------------------------------------ init
   (async function init() {
     try {
       await ensureToken();
       await renderNav();
+      startBanner();                     // master plan C2: permanent paper-trading banner
       connectWs();
       reportClientDiagnostics();
       await route();

@@ -321,7 +321,14 @@ def test_index_html_response_defaults_to_paper_trading_not_home(cloud_app, tmp_p
         cookies = {}
 
     response = index_route.endpoint(_FakeRequest())
-    assert b"location.hash='#paper_trading'" in response.body
+    # Master plan C2: the Cloud landing page is now the MAIN_WALLET home (#wallet), still never #home; its only data call is the
+    # cached /api/summary, which IS mounted on Cloud.
+    assert b"location.hash='#wallet'" in response.body
+    from fastapi.testclient import TestClient
+    from sindhu_web import security, auth
+    monkeypatch.setattr(security, "_is_lan_client", lambda h: True)
+    monkeypatch.setattr(auth, "is_valid_session", lambda t: True)
+    assert TestClient(cloud_app.app).get("/api/summary").status_code == 200
 
 
 def _call(endpoint):

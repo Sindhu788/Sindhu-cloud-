@@ -268,6 +268,8 @@ async def _lifespan(app: FastAPI):
 
 def create_app():
     app = FastAPI(title="SINDHU Dashboard API", lifespan=_lifespan)
+    from starlette.middleware.gzip import GZipMiddleware   # master plan C6
+    app.add_middleware(GZipMiddleware, minimum_size=1024)
 
     app.add_middleware(
         CORSMiddleware,

@@ -1,0 +1,98 @@
+[
+ {
+  "page": "home",
+  "size": "phone",
+  "console_errors": 0,
+  "first_error": [],
+  "horizontal_scroll": false,
+  "seconds": 3.7
+ },
+ {
+  "page": "paper_trading",
+  "size": "phone",
+  "console_errors": 0,
+  "first_error": [],
+  "horizontal_scroll": false,
+  "seconds": 3.6
+ },
+ {
+  "page": "strategies",
+  "size": "phone",
+  "console_errors": 0,
+  "first_error": [],
+  "horizontal_scroll": false,
+  "seconds": 3.6
+ },
+ {
+  "page": "backtesting",
+  "size": "phone",
+  "console_errors": 0,
+  "first_error": [],
+  "horizontal_scroll": false,
+  "seconds": 3.6
+ },
+ {
+  "page": "settings",
+  "size": "phone",
+  "console_errors": 0,
+  "first_error": [],
+  "horizontal_scroll": false,
+  "seconds": 3.6
+ },
+ {
+  "page": "ceo",
+  "size": "phone",
+  "console_errors": 0,
+  "first_error": [],
+  "horizontal_scroll": false,
+  "seconds": 3.6
+ },
+ {
+  "page": "home",
+  "size": "laptop",
+  "console_errors": 0,
+  "first_error": [],
+  "horizontal_scroll": false,
+  "seconds": 3.6
+ },
+ {
+  "page": "paper_trading",
+  "size": "laptop",
+  "console_errors": 0,
+  "first_error": [],
+  "horizontal_scroll": false,
+  "seconds": 3.6
+ },
+ {
+  "page": "strategies",
+  "size": "laptop",
+  "console_errors": 0,
+  "first_error": [],
+  "horizontal_scroll": false,
+  "seconds": 3.7
+ },
+ {
+  "page": "backtesting",
+  "size": "laptop",
+  "console_errors": 0,
+  "first_error": [],
+  "horizontal_scroll": false,
+  "seconds": 3.6
+ },
+ {
+  "page": "settings",
+  "size": "laptop",
+  "console_errors": 0,
+  "first_error": [],
+  "horizontal_scroll": false,
+  "seconds": 3.7
+ },
+ {
+  "page": "ceo",
+  "size": "laptop",
+  "console_errors": 0,
+  "first_error": [],
+  "horizontal_scroll": false,
+  "seconds": 3.6
+ }
+]
