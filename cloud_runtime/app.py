@@ -49,6 +49,11 @@ import os
 import threading
 from contextlib import asynccontextmanager
 
+# Day 8: cap glibc malloc arenas at 2 BEFORE any worker thread exists (Linux only, no-op elsewhere; SINDHU_MEMORY_TRIM=0 switches it off).
+# Many threads x many arenas is why identical code measured 389-459 MB on different Cloud instances. See paper_trading/memory_trim.py.
+from paper_trading import memory_trim as _memory_trim
+_memory_trim.cap_arenas()
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
@@ -392,7 +397,7 @@ def create_app():
     def get_home_stub():
         return {"version": APP_VERSION, "system_health": "OK"}
 
-    @app.get("/health")
+    @app.api_route("/health", methods=["GET", "HEAD"])   # Master plan A1/P6: HEAD too (an uptime monitor sending HEAD got 405)
     async def health_check(request: Request = None):
         """For an external uptime pinger (e.g. cron-job.org) to keep a
         free-tier host from sleeping the app after ~15 minutes idle.

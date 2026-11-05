@@ -42,7 +42,7 @@ class FakeRaw:
 @pytest.fixture(autouse=True)
 def fake_pg(monkeypatch):
     FakeRaw.n = 0
-    mod = types.SimpleNamespace(connect=lambda url, connect_timeout=10: FakeRaw())
+    mod = types.SimpleNamespace(connect=lambda url, connect_timeout=10, **keepalive_kw: FakeRaw())   # A6: keepalive kwargs
     monkeypatch.setitem(sys.modules, "psycopg2", mod)
     monkeypatch.setenv("DATABASE_URL", "postgresql://u:p@h/db")
     monkeypatch.delenv("SINDHU_PG_POOL", raising=False)

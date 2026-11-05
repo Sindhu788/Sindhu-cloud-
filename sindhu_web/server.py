@@ -356,7 +356,7 @@ def create_app():
 app = create_app()
 
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])   # Master plan A1/P6: HEAD too
 def health():
     return {"status": "ok", "safe_start": os.environ.get("SINDHU_SAFE_START") == "1"}
 

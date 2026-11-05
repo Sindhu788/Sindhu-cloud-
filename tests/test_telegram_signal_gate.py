@@ -90,7 +90,11 @@ def test_auto_send_blocked_when_pattern_not_statistically_reliable(test_db):
     )
     _open_position(storage)
     # No pattern memory recorded at all yet -- 0 trades for this exact pattern.
-    should_send, reason = telegram_bot.evaluate_auto_send("pos1")
+    # Master plan A8: give the regime factor real data, else confluence is UNKNOWN and withheld before the Wilson gate is reached.
+    from unittest.mock import patch as _patch
+    from paper_trading import confluence as _confluence
+    with _patch.object(_confluence.regime_mod, "classify_regime", return_value={"regime": "trending"}):
+        should_send, reason = telegram_bot.evaluate_auto_send("pos1")
     assert should_send is False
     assert "statistically confident" in reason
 

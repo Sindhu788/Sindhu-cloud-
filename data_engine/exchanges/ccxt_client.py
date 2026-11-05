@@ -17,7 +17,16 @@ def _log_retry(exchange_id, attempt, err, sleep_s):
     retry (first 200 chars of the public exchange error, no credentials are ever in these errors), at most 300 lines per process."""
     if _retry_log_count[0] >= 300:
         return
+    try:                                      # master plan A4/S1: the same exchange + error type at most once a minute (with a count)
+        from paper_trading import log_dedup
+        ok, suppressed = log_dedup.should_log(f"exchange-retry:{exchange_id}", err, every=60)
+        if not ok:
+            return
+    except Exception:
+        suppressed = 0
     _retry_log_count[0] += 1
+    if suppressed:
+        print(f"[exchange-retry] {exchange_id}: {suppressed} more retries of this error in the last minute", flush=True)
     print(f"[exchange-retry] {exchange_id} attempt {attempt}/{MAX_RETRIES} {type(err).__name__}: {str(err)[:200]!r} - sleeping {sleep_s}s", flush=True)
 
 
@@ -138,9 +147,13 @@ class CCXTClient(ExchangeClient):
         last_err = None
         started = time.monotonic()
         waited = 0.0
+        from data_engine.exchanges import rate_limit
+        pacer = rate_limit.bucket(self.id)
         for attempt in range(1, MAX_RETRIES + 1):
             try:
-                result = fn(*args, **kwargs)
+                pacer.take()                                   # master plan A4: token bucket per exchange
+                with pacer.parallel:                           # and at most N requests in flight per exchange
+                    result = fn(*args, **kwargs)
                 with _breaker_lock:
                     if self.id in _breaker:
                         _breaker[self.id]["fails"] = 0
@@ -150,6 +163,8 @@ class CCXTClient(ExchangeClient):
                 if _is_geo_block(e):            # permanent for this IP: no retries, remember it
                     _breaker_open(self.id, BREAKER_GEO_SECONDS, f"geo-block: {str(e)[:120]}")
                     raise ExchangeUnavailable(f"{self.id}: blocked from this location ({str(e)[:80]!r})")
+                if isinstance(e, ccxt.RateLimitExceeded) or "50011" in str(e) or "Too Many Requests" in str(e):
+                    pacer.rate_limited()                       # master plan A4/S1: half the request rate for 10 minutes
                 base = 5 * attempt if isinstance(e, ccxt.RateLimitExceeded) else 2 * attempt
                 wait = _jitter(base)
                 if max(time.monotonic() - started, waited) + wait > CALL_BUDGET_S:        # bounded total time per call

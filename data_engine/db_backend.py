@@ -109,6 +109,42 @@ def _normalize_params(params):
     return tuple(_normalize_param(p) for p in params)
 
 
+# ------------------------------------------------------------------ cheap usage counters (Day 8)
+# In-memory only (no database writes): how many statements the process ran, how long they took, how many connections it checked out and how long that took.
+# A scan logs the delta at its end so the next Cloud scans show how much of the warm-scan time is the database (docs/SCAN_PROFILE.md section 15).
+import threading as _stat_threading
+import time as _stat_time
+
+DB_STATS = {"queries": 0, "query_seconds": 0.0, "commits": 0, "commit_seconds": 0.0, "checkouts": 0, "checkout_seconds": 0.0}
+_db_stats_lock = _stat_threading.Lock()
+
+
+def _db_note(kind, seconds):
+    try:
+        with _db_stats_lock:
+            if kind == "query":
+                DB_STATS["queries"] += 1; DB_STATS["query_seconds"] += seconds
+            elif kind == "commit":
+                DB_STATS["commits"] += 1; DB_STATS["commit_seconds"] += seconds
+            else:
+                DB_STATS["checkouts"] += 1; DB_STATS["checkout_seconds"] += seconds
+    except Exception:
+        pass
+
+
+def db_stats_snapshot():
+    with _db_stats_lock:
+        return dict(DB_STATS)
+
+
+def db_stats_summary(before, now=None):
+    """One log fragment: statements, seconds, commits and connection checkouts since `before` (a db_stats_snapshot())."""
+    now = now or db_stats_snapshot()
+    d = {k: now[k] - before.get(k, 0) for k in now}
+    return (f"db: {d['queries']} statements {d['query_seconds']:.1f}s, {d['commits']} commits {d['commit_seconds']:.1f}s, "
+            f"{d['checkouts']} connection checkouts {d['checkout_seconds']:.1f}s (all threads)")
+
+
 class _PGConnection:
     """Wraps a psycopg2 connection to look enough like sqlite3.Connection
     for storage.py's existing call patterns: .execute(sql, params),
@@ -120,12 +156,20 @@ class _PGConnection:
 
     def execute(self, sql, params=()):
         cur = self._conn.cursor()
-        cur.execute(_translate_placeholders(sql), _normalize_params(params))
+        t0 = _stat_time.perf_counter()
+        try:
+            cur.execute(_translate_placeholders(sql), _normalize_params(params))
+        finally:
+            _db_note("query", _stat_time.perf_counter() - t0)
         return _PGCursorResult(cur)
 
     def executemany(self, sql, seq_of_params):
         cur = self._conn.cursor()
-        cur.executemany(_translate_placeholders(sql), [_normalize_params(p) for p in seq_of_params])
+        t0 = _stat_time.perf_counter()
+        try:
+            cur.executemany(_translate_placeholders(sql), [_normalize_params(p) for p in seq_of_params])
+        finally:
+            _db_note("query", _stat_time.perf_counter() - t0)
         return _PGCursorResult(cur)
 
     def executescript(self, sql):
@@ -140,7 +184,11 @@ class _PGConnection:
         return _PGCursorResult(cur)
 
     def commit(self):
-        self._conn.commit()
+        t0 = _stat_time.perf_counter()
+        try:
+            self._conn.commit()
+        finally:
+            _db_note("commit", _stat_time.perf_counter() - t0)
 
     def rollback(self):
         self._conn.rollback()
@@ -211,6 +259,91 @@ def _pool_release(raw):
         pass
 
 
+# ------------------------------------------------------------------ connect: keepalives, one retry, fail-fast breaker (master plan A6)
+# Render log 5 Nov 20:07-21:07: about 60 errors an hour, every one a NEW connection failing ("SSL SYSCALL error: EOF detected" /
+# "timeout expired"), while the same database answered the laptop in 2.7 s. Each failed connect could block its caller for 10 s per
+# address (three addresses). Now: TCP keepalives on every connection (a silently dropped connection is noticed in ~1 min instead of
+# waiting forever), ONE quick retry of the connect (connecting is always safe to repeat), and after 3 failed connects in a row the
+# breaker OPENS: callers fail immediately with DatabaseUnavailable for 30 s, doubling up to 300 s, then one caller probes again.
+# Outcome for callers is the same as before (an exception they already handle), only sooner and without tying up threads.
+_KEEPALIVE_KW = {"keepalives": 1, "keepalives_idle": 30, "keepalives_interval": 10, "keepalives_count": 3}
+_BREAKER_AFTER = 3
+_BREAKER_BASE_S = 30.0
+_BREAKER_CAP_S = 300.0
+_breaker = {"failures": 0, "open_until": 0.0, "opens": 0, "last_error": None}
+
+
+class DatabaseUnavailable(Exception):
+    """Raised without a network attempt while the connect breaker is open."""
+
+
+def _is_connect_failure(exc):
+    """A network/database availability failure (psycopg2.OperationalError, socket/timeout errors), not a bug in our code."""
+    return isinstance(exc, (OSError, TimeoutError)) or "OperationalError" in type(exc).__name__ or type(exc).__name__ == "InterfaceError"
+
+
+def reset_breaker():
+    """Tests and manual recovery: forget past connect failures."""
+    with _pool_lock:
+        _breaker.update({"failures": 0, "open_until": 0.0, "opens": 0, "last_error": None})
+
+
+def _raw_connect():
+    import psycopg2
+    return psycopg2.connect(os.environ["DATABASE_URL"], connect_timeout=10, **_KEEPALIVE_KW)
+
+
+def breaker_state():
+    with _pool_lock:
+        left = max(0.0, _breaker["open_until"] - _time.monotonic())
+        return {"open": left > 0, "seconds_left": round(left), "consecutive_failures": _breaker["failures"], "opens": _breaker["opens"],
+                "last_error": _breaker["last_error"]}
+
+
+def _breaker_log(msg):
+    try:
+        print(msg, flush=True)
+    except Exception:
+        pass
+
+
+def _connect_with_breaker(sleep=_time.sleep):
+    with _pool_lock:
+        left = _breaker["open_until"] - _time.monotonic()
+    if left > 0:
+        raise DatabaseUnavailable(f"database unavailable: connect breaker open for {left:.0f}s more ({_breaker['last_error']})")
+    last = None
+    for attempt in (1, 2):
+        try:
+            raw = _raw_connect()
+        except Exception as e:                       # psycopg2.OperationalError and friends
+            if not _is_connect_failure(e):
+                raise                                # a programming error must surface, never trip the breaker
+            last = e
+            if attempt == 1:
+                sleep(1.0)
+            continue
+        with _pool_lock:
+            was_open = _breaker["opens"] > 0 and _breaker["failures"] >= _BREAKER_AFTER
+            _breaker["failures"] = 0
+        if was_open:
+            _breaker_log("[db] database reachable again: connect breaker closed")
+        return raw
+    msg = str(last).strip().splitlines()[0][:160] if str(last).strip() else type(last).__name__
+    with _pool_lock:
+        _breaker["failures"] += 1
+        _breaker["last_error"] = f"{type(last).__name__}: {msg}"
+        opened = None
+        if _breaker["failures"] >= _BREAKER_AFTER:
+            step = _breaker["failures"] - _BREAKER_AFTER
+            opened = min(_BREAKER_CAP_S, _BREAKER_BASE_S * (2 ** step))
+            _breaker["open_until"] = _time.monotonic() + opened
+            _breaker["opens"] += 1
+    if opened is not None:
+        _breaker_log(f"[db] {_breaker['failures']} failed connects in a row: connect breaker OPEN for {opened:.0f}s (last: {_breaker['last_error']})")
+    raise last
+
+
 def _pool_checkout():
     if _pool_enabled():
         while True:
@@ -240,8 +373,7 @@ def _pool_checkout():
             with _pool_lock:
                 _pool_stats["reused"] += 1
             return raw
-    import psycopg2
-    raw = psycopg2.connect(os.environ["DATABASE_URL"], connect_timeout=10)
+    raw = _connect_with_breaker()
     _CREATED[id(raw)] = _time.monotonic()
     with _pool_lock:
         _pool_stats["opened"] += 1
@@ -266,7 +398,11 @@ def get_postgres_conn():
     to bypass all other checks. Failing fast after 10s means a genuinely
     unreachable database surfaces as a clear, loggable connection error
     instead of an indefinite, silent hang."""
-    return _PGConnection(_pool_checkout())
+    t0 = _stat_time.perf_counter()
+    try:
+        return _PGConnection(_pool_checkout())
+    finally:
+        _db_note("checkout", _stat_time.perf_counter() - t0)
 
 
 # --------------------------------------------------------------- schema

@@ -65,6 +65,56 @@ _covered_from = {}                # key -> start_ms from which the cache holds e
 _MAX_KEEP_DAYS = 400              # hard bound: the longest lookback any caller uses is 365 days (1d candles, htf_confluence_filter)
 _cache = {}  # (exchange, symbol, interval) -> DataFrame, _OUT_COLUMNS, sorted by time ascending
 
+# Master plan A2 (P3): download counters, read by the engine once per scan (one summary line instead of a line per slow series).
+# kinds: "cold" = no cache yet (one full window), "backfill" = only the OLDER part a new caller needs, "incremental" = only newer candles.
+FETCH_STATS = {"requests": 0, "rows": 0, "cold": 0, "backfill": 0, "incremental": 0, "seconds": 0.0}
+
+
+def fetch_stats_snapshot():
+    with _lock:
+        return dict(FETCH_STATS)
+
+
+def fetch_stats_delta(before):
+    now = fetch_stats_snapshot()
+    return {k: (round(now[k] - before.get(k, 0), 1) if k == "seconds" else now[k] - before.get(k, 0)) for k in now}
+
+
+def _note_kind(kind):
+    with _lock:
+        FETCH_STATS[kind] += 1
+
+
+def _note_fetch(pages, rows, seconds):
+    with _lock:
+        FETCH_STATS["requests"] += pages
+        FETCH_STATS["rows"] += rows
+        FETCH_STATS["seconds"] += seconds
+
+
+# Master plan A5 (P5): a per-thread download deadline. The engine sets one per coin (and the prefetch phase one per run); the page loop
+# checks it before every page. Past the deadline the download stops with FetchDeadlineExceeded: the coin is skipped for this scan by the
+# engine's existing per-coin error path ("Market data unavailable; evaluation skipped"), the scan goes on with the next coin. Rows a
+# FIRST (cold) download already received are kept, oldest first, so the next scan continues from there instead of starting over.
+_tl = threading.local()
+
+
+class FetchDeadlineExceeded(RuntimeError):
+    def __init__(self, msg, rows=None):
+        super().__init__(msg)
+        self.rows = rows or []
+
+
+def set_fetch_deadline(deadline_monotonic):
+    """Deadline (time.monotonic() value) for downloads made by THIS thread; None clears it."""
+    _tl.deadline = deadline_monotonic
+
+
+def _check_deadline(symbol, interval, rows):
+    d = getattr(_tl, "deadline", None)
+    if d is not None and time.monotonic() > d:
+        raise FetchDeadlineExceeded(f"download deadline reached for {symbol} {interval} after {len(rows)} rows", rows)
+
 
 def _now_ms():
     return int(time.time() * 1000)
@@ -99,6 +149,11 @@ def _fetch_range(client, symbol, interval, start_ms, end_ms):
     pages = 0
     t_begin = time.monotonic()
     while cursor < end_ms and pages < _MAX_PAGES:
+        try:
+            _check_deadline(symbol, interval, all_rows)
+        except FetchDeadlineExceeded:
+            _note_fetch(pages, len(all_rows), time.monotonic() - t_begin)
+            raise
         pages += 1
         rows = _fetch_page(client, symbol, interval, cursor)
         if not rows:
@@ -114,6 +169,7 @@ def _fetch_range(client, symbol, interval, start_ms, end_ms):
         cursor = next_cursor
         time.sleep(REQUEST_DELAY_SECONDS)
     took = time.monotonic() - t_begin
+    _note_fetch(pages, len(all_rows), took)
     if took > 20:   # diagnosis only: shows in the Render log which series make a scan slow
         print(f"[live-candles] slow download {symbol} {interval}: {len(all_rows)} rows, {pages} pages, {took:.0f}s, "
               f"window {(end_ms - start_ms) / 86_400_000:.0f} days", flush=True)
@@ -167,31 +223,57 @@ def get_ohlcv_live(exchange, symbol, interval, start_ms=None, end_ms=None):
             cached.index.min() <= pd.to_datetime(start, unit="ms", utc=True) or (covered is not None and start >= covered))
         if not reaches_back and not (cached is None or cached.empty):
             # a series we already hold is being downloaded AGAIN: say why (diagnosis for the slow-scan investigation)
-            print(f"[live-candles] REFETCH {symbol} {interval}: needs {(now - start) / 86_400_000:.1f}d, cache starts "
+            print(f"[live-candles] BACKFILL {symbol} {interval}: needs {(now - start) / 86_400_000:.1f}d, cache starts "
                   f"{(now - int(cached.index.min().timestamp() * 1000)) / 86_400_000:.1f}d ago, covered_from "
                   f"{'-' if covered is None else format((now - covered) / 86_400_000, '.1f') + 'd ago'}", flush=True)
-        if not reaches_back:
-            # No cache yet, or the cache doesn't reach far enough back to
-            # cover what's being asked for -- one full paginated fetch.
-            rows = _fetch_range(client, symbol, interval, start, now)
+        if cached is None or cached.empty:
+            # No cache yet -- one full paginated fetch of the requested window.
+            _note_kind("cold")
+            try:
+                rows = _fetch_range(client, symbol, interval, start, now)
+            except FetchDeadlineExceeded as e:
+                if e.rows:                                   # keep the part already downloaded; the next scan resumes after it
+                    with _lock:
+                        _cache[key] = _trim(_rows_to_df(e.rows)[_OUT_COLUMNS], now, keep)
+                raise
             df = _rows_to_df(rows)[_OUT_COLUMNS] if rows else pd.DataFrame(columns=_OUT_COLUMNS)
             if rows:
                 with _lock:
                     _covered_from[key] = min(_covered_from.get(key, start), start)
         else:
-            # Cache already covers the requested start -- only fetch
-            # candles newer than what's already held, exactly the
-            # "resume from last candle" idea the local downloader uses,
-            # just kept in memory instead of in klines_1m.
-            last_open_ms = int(cached.index.max().timestamp() * 1000)
-            since = last_open_ms + _INTERVAL_MS[interval]
-            new_rows = _fetch_range(client, symbol, interval, since, now) if since < now else []
+            base = cached
+            if not reaches_back:
+                # Master plan A2 (P3): the cache holds the recent part already (e.g. 3 days) and a caller needs more (e.g. 20 days).
+                # Download ONLY the missing older segment [start, first cached candle) instead of the whole window again (Cloud log
+                # 5 Nov: "REFETCH ... needs 20.0d, cache starts 3.0d ago" re-downloaded 20 days). If the exchange has nothing there,
+                # the series is marked covered from `start` so it is never retried.
+                first_open_ms = int(cached.index.min().timestamp() * 1000)
+                _note_kind("backfill")
+                older = _fetch_range(client, symbol, interval, start, first_open_ms)
+                older = [r for r in older if r[0] < first_open_ms]
+                if older:
+                    base = pd.concat([_rows_to_df(older)[_OUT_COLUMNS], cached])
+                    base = base[~base.index.duplicated(keep="last")].sort_index()
+                with _lock:
+                    _covered_from[key] = min(_covered_from.get(key, start), start)
+            # Only fetch candles newer than what's already held ("resume from last candle"). Master plan A2: the newest cached row
+            # was usually still FORMING when it was fetched; once its close time has passed, start the refresh AT that row so its
+            # final open/high/low/close/volume replace the partial values (before, the partial row was kept for good and later
+            # read as a closed candle). Same number of requests as before: the refresh happened at exactly this moment anyway.
+            last_open_ms = int(base.index.max().timestamp() * 1000)
+            next_open_ms = last_open_ms + _INTERVAL_MS[interval]
+            since = last_open_ms if next_open_ms <= now else next_open_ms
+            new_rows = []
+            if next_open_ms < now:
+                _note_kind("incremental")
+                new_rows = _fetch_range(client, symbol, interval, since, now)
+            cached = cached if base is cached else None   # a backfilled frame is new and must be stored below
             if new_rows:
                 new_df = _rows_to_df(new_rows)[_OUT_COLUMNS]
-                df = pd.concat([cached, new_df])
+                df = pd.concat([base, new_df])
                 df = df[~df.index.duplicated(keep="last")].sort_index()
             else:
-                df = cached
+                df = base
 
         if df is not cached:                  # nothing new -> nothing to trim or store (was 5 ms x 1,100 calls per scan)
             df = _trim(df, now, keep)

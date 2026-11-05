@@ -152,7 +152,7 @@ def _loop():
         try:
             check_all_enabled_strategies()
         except Exception as e:
-            default_log(f"[auto-downgrade] check failed: {e!r}")
+            from paper_trading import log_dedup as _ld; _ld.maybe_log(default_log, "auto-downgrade", e, f"[auto-downgrade] check failed: {e!r}")
         _stop_flag.wait(CHECK_INTERVAL_SECONDS)
 
 

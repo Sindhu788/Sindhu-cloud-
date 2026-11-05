@@ -90,11 +90,18 @@ def score_confluence(strategy_id, symbol, exchange, market_state, session, direc
     counted = [f for f in factors if f["result"] is not None]
     passed = sum(1 for f in counted if f["result"])
     total = len(counted)
-    if total == 0:
+    # Master plan A8 (P14): the market regime is the one factor that needs fresh market data. When it could not be computed (Cloud read
+    # a geo-blocked exchange, so this happened on every one of the 12 public signals), the old code silently dropped it and could call
+    # the rest "Strong -- 2/2". Now the result is UNKNOWN: never "Strong", and the public-send gates withhold UNKNOWN (stricter path).
+    unknown = regime_ok is None
+    if unknown:
+        label = "UNKNOWN -- market regime data unavailable"
+    elif total == 0:
         label = "Unrated -- not enough data for any factor yet"
     else:
         ratio = passed / total
         strength = "Strong" if ratio >= 0.75 else "Moderate" if ratio >= 0.5 else "Weak"
         label = f"{strength} -- {passed}/{total} factors aligned"
 
-    return {"label": label, "passed": passed, "total": total, "factors": factors}
+    return {"label": label, "passed": passed, "total": total, "factors": factors, "unknown": unknown,
+            "inputs": {"regime_exchange": exchange, "regime": (r or {}).get("regime") if isinstance(r, dict) else None}}

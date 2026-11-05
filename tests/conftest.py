@@ -57,3 +57,21 @@ def _initialise_hermetic_database():
     table."""
     storage.init_db()
     yield
+
+
+@pytest.fixture(autouse=True)
+def _reset_db_connect_breaker():
+    """Master plan A6: the Postgres connect breaker is process-global; a test that simulates an outage must not leak it into the next."""
+    from data_engine import db_backend
+    db_backend.reset_breaker()
+    yield
+    db_backend.reset_breaker()
+
+
+@pytest.fixture(autouse=True)
+def _public_signals_allowed_in_gate_tests(monkeypatch):
+    """Master plan A14: automatic public signals are OFF by code default (SINDHU_PUBLIC_SIGNALS unset). The existing gate tests check
+    what happens once the owner has turned them on, so they run with it set; tests of the default itself delete it explicitly
+    (tests/test_public_signals_default_off.py)."""
+    monkeypatch.setenv("SINDHU_PUBLIC_SIGNALS", "1")
+    yield

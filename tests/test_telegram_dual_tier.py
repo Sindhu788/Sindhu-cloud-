@@ -82,7 +82,10 @@ def test_high_tier_still_requires_the_unchanged_25_trade_wilson_gate(test_db):
     Task 4 -- still blocked with no pattern history, exactly as before."""
     _enable_auto_send(min_ratio=0.0)
     _open_position(storage)
-    should_send, reason = telegram_bot.evaluate_auto_send("pos1")
+    # Master plan A8: without regime data the confluence is now UNKNOWN and withheld even earlier; give it a real (full) confluence
+    # so this test still checks what it is about, the unchanged Wilson gate.
+    with patch.object(telegram_bot.confluence_mod, "score_confluence", return_value=FULL_CONFLUENCE):
+        should_send, reason = telegram_bot.evaluate_auto_send("pos1")
     assert should_send is False
     assert "statistically confident" in reason
 

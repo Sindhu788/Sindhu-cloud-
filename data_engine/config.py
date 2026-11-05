@@ -57,8 +57,21 @@ _DEFAULT_EXCHANGES = {
     # _default_exchange()) so every call site is covered from one place.
     # Local development (SINDHU_CLOUD_MODE unset) is completely
     # unaffected, still defaults to "binance".
-    "default": "bybit" if env_flag("SINDHU_CLOUD_MODE") else "binance",
+    # Master plan A7 (P8): Bybit answers every request from Render with HTTP 403 (geo-block, Render log 5 Nov: "[exchange-breaker] bybit
+    # OPEN for 900s: geo-block 403"), so on Cloud the seed default is OKX, the exchange the Cloud scan and its positions really use.
+    "default": "okx" if env_flag("SINDHU_CLOUD_MODE") else "binance",
 }
+
+# Exchanges that block Render's servers by region (Binance: HTTP 451, Bybit: HTTP 403). In cloud mode they are never chosen.
+CLOUD_BLOCKED_EXCHANGES = ("binance", "bybit")
+CLOUD_FALLBACK_EXCHANGE = "okx"
+
+
+def cloud_safe_exchange(name):
+    """In cloud mode, map a region-blocked exchange (an old saved exchanges.json may still say binance/bybit) to OKX; else unchanged."""
+    if env_flag("SINDHU_CLOUD_MODE") and (name or "").lower() in CLOUD_BLOCKED_EXCHANGES:
+        return CLOUD_FALLBACK_EXCHANGE
+    return name
 
 _DEFAULT_COINS = {
     "num_coins": 50,
@@ -195,8 +208,7 @@ DEFAULT_EXCHANGE = _exchanges_cfg["default"]
 # was NOT enough. Binance geo-blocks Render's servers with a real HTTP
 # 451, so "binance" is never a safe cloud default regardless of what an
 # old file says.
-if env_flag("SINDHU_CLOUD_MODE") and DEFAULT_EXCHANGE == "binance":
-    DEFAULT_EXCHANGE = "bybit"
+DEFAULT_EXCHANGE = cloud_safe_exchange(DEFAULT_EXCHANGE)       # master plan A7: never binance/bybit on Cloud
 
 NUM_COINS = _coins_cfg["num_coins"]
 QUOTE_ASSET = _coins_cfg["quote_asset"]

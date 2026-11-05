@@ -21,7 +21,7 @@ def test_cloud_mode_defaults_to_bybit_not_binance(monkeypatch):
     import importlib
     reloaded = importlib.reload(base_config)
     try:
-        assert reloaded.DEFAULT_EXCHANGE == "bybit"
+        assert reloaded.DEFAULT_EXCHANGE == "okx"     # master plan A7: bybit 403-blocks Render too, so neither binance nor bybit
     finally:
         monkeypatch.delenv("SINDHU_CLOUD_MODE", raising=False)
         importlib.reload(base_config)
@@ -39,7 +39,7 @@ def test_paper_trading_engine_default_exchange_respects_cloud_mode(monkeypatch):
     monkeypatch.setenv("SINDHU_CLOUD_MODE", "1")
     monkeypatch.setattr(engine.base_config, "load_or_seed",
                          lambda *a, **k: {"default": "binance", "enabled": ["binance", "bybit"]})
-    assert engine._default_exchange() == "bybit"
+    assert engine._default_exchange() == "okx"       # master plan A7 (was bybit)
 
 
 def test_get_tickers_filters_to_real_spot_symbols_only():

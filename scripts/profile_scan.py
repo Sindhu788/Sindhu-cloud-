@@ -8,7 +8,7 @@ ap = argparse.ArgumentParser()
 ap.add_argument("--workers", type=int, default=0); ap.add_argument("--latency", type=float, default=0.0)
 ap.add_argument("--cprofile", action="store_true"); ap.add_argument("--throttle", type=float, default=None)
 ap.add_argument("--ticks", type=int, default=2); ap.add_argument("--out", default=None); ap.add_argument("--page", type=int, default=300)
-ap.add_argument("--ro-golden", type=int, default=0, help="research-only proof: N coins, candidates with SINDHU_RESEARCH_ONLY_TIMEFRAMES=1m must equal the full list minus the 1m ones"); ap.add_argument("--fresh", action="store_true"); ap.add_argument("--nomemo", action="store_true"); ap.add_argument("--golden", type=int, default=0, help="golden check: N coins, memo off vs on must give identical candidates"); ap.add_argument("--delay", type=float, default=0.0, help="fixed pause between pages (config default is 0.25)")
+ap.add_argument("--freeze", type=int, default=0, help="engine-level identical-output check: freeze the clock at this epoch second for the whole run and print digests of candidates, summary, decisions and positions"); ap.add_argument("--ro-golden", type=int, default=0, help="research-only proof: N coins, candidates with SINDHU_RESEARCH_ONLY_TIMEFRAMES=1m must equal the full list minus the 1m ones"); ap.add_argument("--fresh", action="store_true"); ap.add_argument("--nomemo", action="store_true"); ap.add_argument("--golden", type=int, default=0, help="golden check: N coins, memo off vs on must give identical candidates"); ap.add_argument("--delay", type=float, default=0.0, help="fixed pause between pages (config default is 0.25)")
 a = ap.parse_args()
 DATA = "D:/sindhu_runtime/prof_data"
 if a.fresh:
@@ -203,6 +203,9 @@ if a.golden:
     golden(a.golden); sys.exit(0 if True else 1)
 res = {"args": vars(a)}
 pr = None
+if a.freeze:
+    time.time = lambda: a.freeze
+    lc._now_ms = lambda: a.freeze * 1000
 if a.cprofile:
     import cProfile, pstats; pr = cProfile.Profile()
 for i in range(a.ticks):
@@ -216,6 +219,14 @@ STOP.set()
 res["peak_rss_mb"] = round(PEAK[0] / 1e6); res["timings"] = {k: [v[0], round(v[1], 1), round(v[2], 1)] for k, v in TIM.items()}
 res["pages_by_interval"] = STAT["by_iv"]; res["mock_exchange_generation_s"] = round(STAT.get("gen_s", 0.0), 1); res["rss_curve_mb"] = CURVE[::max(1, len(CURVE) // 40)]
 res["summary"] = E._last_summary; res["candidate_digests"] = DIGEST; res["memo"] = _cn.memo_stats()
+if a.freeze:
+    with storage.get_conn() as _c:
+        dec = sorted(tuple(str(x) for x in r) for r in _c.execute("SELECT symbol, strategy_id, decision, reason FROM paper_decision_log").fetchall())
+        pos = sorted(tuple(str(x) for x in r) for r in _c.execute("SELECT symbol, strategy_id, direction, entry_price, stop_loss, take_profit, size FROM paper_positions").fetchall())
+    res["frozen"] = {"decisions": len(dec), "decisions_digest": hashlib.sha1(json.dumps(dec).encode()).hexdigest()[:16],
+                     "positions": len(pos), "positions_digest": hashlib.sha1(json.dumps(pos).encode()).hexdigest()[:16],
+                     "summary": E._last_summary, "candidates_digest": hashlib.sha1(json.dumps(DIGEST, sort_keys=True).encode()).hexdigest()[:16]}
+    print("FROZEN", json.dumps(res["frozen"], sort_keys=True))
 print(json.dumps(res, indent=1))
 if a.out: json.dump(res, open(a.out, "w"), indent=1)
 if pr:

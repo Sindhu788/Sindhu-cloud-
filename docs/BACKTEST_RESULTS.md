@@ -82,3 +82,7 @@ Not the cause (checked): fees (net = gross - commission; gross PF is 0.89, still
 | Ichimoku 5m Indicator-Exit | 29,591 | 304 | -61.98 | -27.09 |
 | 9-20 EMA SMC Hybrid | 269 | 156 | -3.83 | -2.90 |
 Per-trade t-statistics therefore overstate significance. (The per-day R is an equal-weight average, so it can differ from the money view; both are shown.) Step 6 adds block-bootstrap intervals for this reason.
+
+## V2 benchmark strategies (master plan Part B, 2026-11-06)
+Donchian trend ensemble 1d: **FRAGILE**; vol-scaled TSMOM 1d: **FRAGILE**. Both positive after costs IS and OOS, robust to neighbours and 1.5x costs, but fail the FDR rule over 44 tests and earn less than buy-and-hold in absolute terms. Full report: docs/STRATEGY_V2_REPORT.md.
+

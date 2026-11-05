@@ -12,7 +12,8 @@ import secrets
 from datetime import datetime, timezone
 
 from fastapi import Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
+from starlette.routing import Match
 
 from data_engine.config import env_flag
 from data_engine.paths import CONFIG_DIR, ensure_folders
@@ -146,6 +147,25 @@ def get_or_create_token():
 from starlette.concurrency import run_in_threadpool
 
 
+def _matches_any_route(request) -> bool:
+    """True when some route or mount of the app matches this path (any method). Pure in-memory regex matching, no I/O.
+    If the app's routes cannot be read (unusual test setups), fail open: treat the path as known so nothing is newly blocked."""
+    app = request.scope.get("app")
+    routes = getattr(getattr(app, "router", None), "routes", None)
+    if not routes:
+        return True
+    scope = dict(request.scope)
+    scope["method"] = "GET"
+    try:
+        for route in routes:
+            match, _ = route.matches(scope)
+            if match != Match.NONE:
+                return True
+    except Exception:
+        return True
+    return False
+
+
 async def token_guard_middleware(request: Request, call_next):
     path = request.url.path
 
@@ -162,6 +182,12 @@ async def token_guard_middleware(request: Request, call_next):
     # bypassing the LAN check for it unconditionally costs nothing.
     if path == "/health":
         return await call_next(request)
+
+    # Master plan A1/S2: a path that matches NO route (bot probes such as /wp-admin, /order, /contact) gets a tiny 404 right here,
+    # before the session lookup below. That lookup is a database call: on Cloud every probe used to cost one (and a thread waiting
+    # on a slow database), only to end in a redirect to /login. Known routes behave exactly as before.
+    if not _matches_any_route(request):
+        return PlainTextResponse("not found", status_code=404)
 
     client_host = request.client.host if request.client else None
     if not _is_lan_client(client_host):
