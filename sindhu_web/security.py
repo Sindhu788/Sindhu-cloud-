@@ -46,7 +46,7 @@ _EXEMPT_PATHS = {"/", "/api/token"}
 # below. A wrong/missing secret there returns 401 before the payload is
 # ever touched -- exempting this one path from the LOGIN gate does not
 # loosen that check at all.
-_LOGIN_EXEMPT_PATHS = {"/login", "/api/auth/status", "/api/auth/setup", "/api/auth/login", "/health",
+_LOGIN_EXEMPT_PATHS = {"/login", "/api/auth/status", "/api/auth/setup", "/api/auth/login", "/health", "/health/details",
                         "/api/paper-trading/strategy-sync/push",
                         # Master Task Expansion, Part 2: the LOCAL machine's cloud-aware
                         # auto-stop scheduler polls this from outside any browser session,
@@ -180,7 +180,7 @@ async def token_guard_middleware(request: Request, call_next):
     # the login gate further down) -- it reveals nothing sensitive (no
     # trading data, no settings, not even whether an account exists), so
     # bypassing the LAN check for it unconditionally costs nothing.
-    if path == "/health":
+    if path in ("/health", "/health/details"):     # /health/details (master plan A17) shows no secrets: public like /health
         return await call_next(request)
 
     # Master plan A1/S2: a path that matches NO route (bot probes such as /wp-admin, /order, /contact) gets a tiny 404 right here,

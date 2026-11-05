@@ -215,6 +215,8 @@ async def _lifespan(app: FastAPI):
     # laptop (see sindhu_web/server.py's own lifespan for that side).
     from paper_trading import telegram_commands
     telegram_commands.start_command_polling_thread()
+    from paper_trading import self_check as _self_check
+    _self_check.start_background_self_check()      # master plan A17
 
     # Master Task 3, Phase 2.20: Challenge Mode's achievability-trend
     # snapshots -- Challenge Mode is already fully cloud-reachable (its own
@@ -397,6 +399,12 @@ def create_app():
     @app.get("/api/home")
     def get_home_stub():
         return {"version": APP_VERSION, "system_health": "OK"}
+
+    @app.get("/health/details")
+    def health_details():
+        """Master plan A17 (public, no secrets): trading state, config errors, self-check, config hash/summary, database breaker."""
+        from paper_trading import self_check
+        return {"status": "ok", "commit": (os.environ.get("RENDER_GIT_COMMIT") or "")[:7] or None, **self_check.details()}
 
     @app.api_route("/health", methods=["GET", "HEAD"])   # Master plan A1/P6: HEAD too (an uptime monitor sending HEAD got 405)
     async def health_check(request: Request = None):

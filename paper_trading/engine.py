@@ -597,6 +597,14 @@ class PaperTradingEngine:
             self._last_tick_duration_seconds = round(time.monotonic() - tick_started_monotonic, 2)
             return
         settings = pt_config.load()
+        try:                                   # master plan A17: an invalid saved config refuses NEW trading (positions keep their stops)
+            from paper_trading import self_check
+            _cfg_errors = self_check.config_errors()
+        except Exception:
+            _cfg_errors = {}
+        self._config_block = _cfg_errors       # read by _process_coin: no NEW entry; the coin loop still monitors open positions
+        if _cfg_errors:
+            self._log(f"[self-check] new entries disabled: invalid settings {_cfg_errors}")
         if LIVE_CANDLES_ONLY:
             # Urgent bug fix, 2026-09-08: Binance 451-blocked Render (fixed by
             # defaulting to bybit), then bybit ITSELF started 403-ing every
@@ -947,6 +955,9 @@ class PaperTradingEngine:
         return closed
 
     def _process_coin(self, exchange, symbol, snapshot, settings):
+        if getattr(self, "_config_block", None):        # master plan A17
+            self._log_decision(exchange, symbol, {}, "rejected", f"config error, new entries disabled: {sorted(self._config_block)[:3]}", snapshot)
+            return 0, 1
         settings = dict(settings, _scan_diagnostics=[])
         market_type = snapshot["market_state"]
         strategies = strategy_matcher.relevant_strategies(symbol, market_type)

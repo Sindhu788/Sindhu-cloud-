@@ -212,6 +212,8 @@ async def _lifespan(app: FastAPI):
     start_daily_report_scheduler_thread()
     from paper_trading.telegram_commands import start_command_polling_thread
     start_command_polling_thread()
+    from paper_trading import self_check as _self_check
+    _self_check.start_background_self_check()      # master plan A17
     from paper_trading.strategy_sync import start_offline_queue_scheduler_thread
     start_offline_queue_scheduler_thread()
     from backtest_engine.result_plausibility import start_plausibility_sweep_thread
@@ -359,6 +361,13 @@ app = create_app()
 @app.api_route("/health", methods=["GET", "HEAD"])   # Master plan A1/P6: HEAD too
 def health():
     return {"status": "ok", "safe_start": os.environ.get("SINDHU_SAFE_START") == "1"}
+
+
+@app.get("/health/details")
+def health_details():
+    """Master plan A17: trading state, config validation, self-check, config hash and safe summary (no secrets)."""
+    from paper_trading import self_check
+    return {"status": "ok", **self_check.details()}
 
 
 
