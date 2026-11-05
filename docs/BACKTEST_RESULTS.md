@@ -8,7 +8,7 @@
 - **No strategy passed the protocol.** Every strategy with enough trades has a profit factor below 1 after realistic costs; 32 of 32 testable strategies FAILED.
 - The 10 INSUFFICIENT_DATA strategies traded too rarely (under 300 trades or under 6 usable windows). Some show PF above 1 (e.g. the three Ichimoku trailing/indicator-exit variants) but on 21-110 trades with t-statistics around 1: that is noise, not evidence.
 - Caveats: only 10 coins and 10 months (sample sizes are in the table); spot costs only, no funding; the paper engine's results on live data may differ. This is a statement about THESE rules on THIS data, not a forecast.
-- **Unreconciled:** 'Daily Liquidity Scalping' shows PF 0.75 but a t-statistic of +11.5 (positive mean R). The two disagree (R uses each trade's risk amount; PF uses money PnL). It FAILED on PF, but the t number should not be trusted until this is investigated. NOT VERIFIED.
+- **Day 5 inconsistency explained and fixed (Day 6 Step 4-5):** see section 'Metrics audit' at the end. Only Daily Liquidity Scalping was affected; no label changed.
 
 ## Per-strategy table (sorted by label, then PF after costs)
 
@@ -62,3 +62,23 @@ Bonferroni threshold t >= 3.24; none of the strategies with positive PF qualifie
 ## What this means for the owner
 - Do not trust any strategy's claimed edge from this backtest: none showed one. Existing safety gates (Wilson 25-trade, Evolution 100-trade, confluence) remain the right filter; nothing here changes them.
 - Next honest steps: investigate the Daily Liquidity Scalping discrepancy; widen to 50 coins; collect more paper trades. The sealed holdout stays unopened until a candidate exists.
+
+## Metrics audit (Day 6, 5 Nov 2026)
+**Question:** Daily Liquidity Scalping (sid b36687e8401a) showed t = +11.54 (mean R positive) but profit factor 0.75 and a net result of -6,588.1 (money, 10 coins, 10 months).
+**Method:** independent script `tools/recompute_metrics.py` (plain numpy, imports nothing from data_platform), run on the stored raw trades.
+**Cause (numbers from the raw trades):**
+1. The engine closes this strategy's entries in TWO legs: a partial take-profit leg (80 % of the size, risk 8) and a remainder leg (20 %, risk 2). 6,920 stored records = **5,011 positions** (1,909 of them have two legs). Day 5 treated every leg as a separate trade.
+2. R was computed per leg as pnl / that leg's own risk. The small-risk remainder legs hit 2.75 R targets (1,181 take-profit legs, mean R +2.75) and dominate an unweighted average: mean R per leg = +0.219 (t +11.54), but money-weighted R (sum pnl / sum risk) = -0.185 and the position-level result is a loss.
+3. Counting legs as independent trades also inflated n (6,920 vs 5,011) and changed the win rate (44.8 % per leg vs 38.1 % per position).
+Not the cause (checked): fees (net = gross - commission; gross PF is 0.89, still < 1, so the strategy loses before fees too), sign errors, duplicates (the 10 'duplicate' keys are legs of one position ending at end-of-data), look-ahead (not examined by this audit).
+**Fix:** `data_platform/metrics.py` defines every metric once (unit = position, R = position pnl / position risk); `protocol_analyze.analyze_strategy` now uses it. Tests: `tests/test_metrics.py` (9 tests with hand-computed profit factor, win rate, expectancy, t-statistic, drawdown, fees, zero- and one-trade inputs; the analyzer test fails on the old analyzer and passes on the new).
+**Before / after (all 42 strategies re-labelled from the stored runs):** labels unchanged (32 FAILED, 10 INSUFFICIENT_DATA). Only Daily Liquidity Scalping's numbers changed: trades 6,920 -> 5,011, PF 0.750 -> 0.738, t +11.54 -> -10.82, win rate 44.8 % -> 38.1 %. For the other 41 strategies every entry has exactly one leg, so legs = positions and the independent script reproduces the framework's profit factor and t-statistic exactly.
+**Three other strategies checked as requested:** winner-looking Ichimoku 1d Trailing-SL (21 positions, PF 1.93, t +1.01); loser Ichimoku 5m Indicator-Exit (29,591 positions, PF 0.42, t -61.98); INSUFFICIENT 9-20 EMA SMC Hybrid (269 positions, PF 0.62, t -3.83). Framework and independent numbers agree for all three.
+**Remaining weakness (important):** trades are not independent. Lag-1 autocorrelation of R is 0.12-0.28 for these strategies and many positions open on the same days across coins. Clustering the R values by exit day shrinks the evidence a lot:
+| Strategy | positions | days | t per trade | t per day (clustered) |
+|---|---|---|---|---|
+| Daily Liquidity Scalping | 5,011 | 299 | -10.82 | +0.56 |
+| Ichimoku 1d Trailing-SL | 21 | 12 | +1.01 | -2.35 |
+| Ichimoku 5m Indicator-Exit | 29,591 | 304 | -61.98 | -27.09 |
+| 9-20 EMA SMC Hybrid | 269 | 156 | -3.83 | -2.90 |
+Per-trade t-statistics therefore overstate significance. (The per-day R is an equal-weight average, so it can differ from the money view; both are shown.) Step 6 adds block-bootstrap intervals for this reason.
