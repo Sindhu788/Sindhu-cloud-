@@ -259,6 +259,91 @@ def _pool_release(raw):
         pass
 
 
+# ------------------------------------------------------------------ connect: keepalives, one retry, fail-fast breaker (master plan A6)
+# Render log 5 Nov 20:07-21:07: about 60 errors an hour, every one a NEW connection failing ("SSL SYSCALL error: EOF detected" /
+# "timeout expired"), while the same database answered the laptop in 2.7 s. Each failed connect could block its caller for 10 s per
+# address (three addresses). Now: TCP keepalives on every connection (a silently dropped connection is noticed in ~1 min instead of
+# waiting forever), ONE quick retry of the connect (connecting is always safe to repeat), and after 3 failed connects in a row the
+# breaker OPENS: callers fail immediately with DatabaseUnavailable for 30 s, doubling up to 300 s, then one caller probes again.
+# Outcome for callers is the same as before (an exception they already handle), only sooner and without tying up threads.
+_KEEPALIVE_KW = {"keepalives": 1, "keepalives_idle": 30, "keepalives_interval": 10, "keepalives_count": 3}
+_BREAKER_AFTER = 3
+_BREAKER_BASE_S = 30.0
+_BREAKER_CAP_S = 300.0
+_breaker = {"failures": 0, "open_until": 0.0, "opens": 0, "last_error": None}
+
+
+class DatabaseUnavailable(Exception):
+    """Raised without a network attempt while the connect breaker is open."""
+
+
+def _is_connect_failure(exc):
+    """A network/database availability failure (psycopg2.OperationalError, socket/timeout errors), not a bug in our code."""
+    return isinstance(exc, (OSError, TimeoutError)) or "OperationalError" in type(exc).__name__ or type(exc).__name__ == "InterfaceError"
+
+
+def reset_breaker():
+    """Tests and manual recovery: forget past connect failures."""
+    with _pool_lock:
+        _breaker.update({"failures": 0, "open_until": 0.0, "opens": 0, "last_error": None})
+
+
+def _raw_connect():
+    import psycopg2
+    return psycopg2.connect(os.environ["DATABASE_URL"], connect_timeout=10, **_KEEPALIVE_KW)
+
+
+def breaker_state():
+    with _pool_lock:
+        left = max(0.0, _breaker["open_until"] - _time.monotonic())
+        return {"open": left > 0, "seconds_left": round(left), "consecutive_failures": _breaker["failures"], "opens": _breaker["opens"],
+                "last_error": _breaker["last_error"]}
+
+
+def _breaker_log(msg):
+    try:
+        print(msg, flush=True)
+    except Exception:
+        pass
+
+
+def _connect_with_breaker(sleep=_time.sleep):
+    with _pool_lock:
+        left = _breaker["open_until"] - _time.monotonic()
+    if left > 0:
+        raise DatabaseUnavailable(f"database unavailable: connect breaker open for {left:.0f}s more ({_breaker['last_error']})")
+    last = None
+    for attempt in (1, 2):
+        try:
+            raw = _raw_connect()
+        except Exception as e:                       # psycopg2.OperationalError and friends
+            if not _is_connect_failure(e):
+                raise                                # a programming error must surface, never trip the breaker
+            last = e
+            if attempt == 1:
+                sleep(1.0)
+            continue
+        with _pool_lock:
+            was_open = _breaker["opens"] > 0 and _breaker["failures"] >= _BREAKER_AFTER
+            _breaker["failures"] = 0
+        if was_open:
+            _breaker_log("[db] database reachable again: connect breaker closed")
+        return raw
+    msg = str(last).strip().splitlines()[0][:160] if str(last).strip() else type(last).__name__
+    with _pool_lock:
+        _breaker["failures"] += 1
+        _breaker["last_error"] = f"{type(last).__name__}: {msg}"
+        opened = None
+        if _breaker["failures"] >= _BREAKER_AFTER:
+            step = _breaker["failures"] - _BREAKER_AFTER
+            opened = min(_BREAKER_CAP_S, _BREAKER_BASE_S * (2 ** step))
+            _breaker["open_until"] = _time.monotonic() + opened
+            _breaker["opens"] += 1
+    if opened is not None:
+        _breaker_log(f"[db] {_breaker['failures']} failed connects in a row: connect breaker OPEN for {opened:.0f}s (last: {_breaker['last_error']})")
+    raise last
+
+
 def _pool_checkout():
     if _pool_enabled():
         while True:
@@ -288,8 +373,7 @@ def _pool_checkout():
             with _pool_lock:
                 _pool_stats["reused"] += 1
             return raw
-    import psycopg2
-    raw = psycopg2.connect(os.environ["DATABASE_URL"], connect_timeout=10)
+    raw = _connect_with_breaker()
     _CREATED[id(raw)] = _time.monotonic()
     with _pool_lock:
         _pool_stats["opened"] += 1

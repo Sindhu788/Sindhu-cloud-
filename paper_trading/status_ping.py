@@ -134,7 +134,7 @@ def _loop():
                 else:
                     default_log(f"[status-ping] send failed: {result}")
         except Exception as e:
-            default_log(f"[status-ping] check failed: {e!r}")
+            from paper_trading import log_dedup as _ld; _ld.maybe_log(default_log, "status-ping", e, f"[status-ping] check failed: {e!r}")
         _stop_flag.wait(_CHECK_INTERVAL_SECONDS)
 
 

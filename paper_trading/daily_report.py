@@ -241,6 +241,6 @@ def start_daily_report_scheduler_thread():
                 if result:
                     log(f"[daily-report] sent (ok={result['ok']})")
             except Exception as e:
-                log(f"[daily-report] failed: {e!r}")
+                from paper_trading import log_dedup as _ld; _ld.maybe_log(log, "daily-report", e, f"[daily-report] failed: {e!r}")
             time.sleep(3600)  # hourly check; the same-calendar-day gate above prevents over-sending
     threading.Thread(target=_loop, daemon=True).start()

@@ -57,3 +57,12 @@ def _initialise_hermetic_database():
     table."""
     storage.init_db()
     yield
+
+
+@pytest.fixture(autouse=True)
+def _reset_db_connect_breaker():
+    """Master plan A6: the Postgres connect breaker is process-global; a test that simulates an outage must not leak it into the next."""
+    from data_engine import db_backend
+    db_backend.reset_breaker()
+    yield
+    db_backend.reset_breaker()

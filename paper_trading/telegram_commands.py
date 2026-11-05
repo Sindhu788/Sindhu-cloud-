@@ -254,14 +254,19 @@ def start_command_polling_thread():
     only when there is no bot token configured yet, or after an error."""
 
     def _loop():
+        from paper_trading import log_dedup as _ld
+        failures = 0
         while True:
             try:
                 if _bot_token():
                     poll_once()
                 else:
                     time.sleep(30)
+                failures = 0
             except Exception as e:
-                default_log(f"[telegram-commands] poll error: {e!r}")
-                time.sleep(5)
+                failures += 1
+                _ld.maybe_log(default_log, "telegram-commands", e, f"[telegram-commands] poll error: {e!r}")
+                # Master plan A6: was a fixed 5 s, i.e. ~40 identical error lines an hour while the database was unreachable.
+                time.sleep(_ld.backoff_seconds(failures, base=5.0, cap=300.0))
 
     threading.Thread(target=_loop, daemon=True).start()

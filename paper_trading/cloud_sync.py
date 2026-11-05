@@ -110,7 +110,7 @@ def _loop():
                             f"({len(snapshot['open_positions'])} open, "
                             f"{len(snapshot['closed_positions'])} closed positions).")
         except Exception as e:
-            default_log(f"[cloud-sync] snapshot failed: {e!r}")
+            from paper_trading import log_dedup as _ld; _ld.maybe_log(default_log, "cloud-sync", e, f"[cloud-sync] snapshot failed: {e!r}")
         _stop_flag.wait(_CHECK_INTERVAL_SECONDS)
 
 

@@ -430,7 +430,7 @@ def start_challenge_lifecycle_scheduler_thread():
                     telegram_challenge_commands.send_lifecycle_event_messages(events)
                 send_daily_challenge_updates()
             except Exception as e:
-                log(f"[challenge-lifecycle] sweep failed: {e!r}")
+                from paper_trading import log_dedup as _ld; _ld.maybe_log(log, "challenge-lifecycle", e, f"[challenge-lifecycle] sweep failed: {e!r}")
             time.sleep(15 * 60)
 
     threading.Thread(target=_loop, daemon=True).start()
@@ -450,7 +450,7 @@ def start_achievability_snapshot_scheduler_thread():
                 for c in storage.list_challenges():
                     record_achievability_snapshot(c["id"])
             except Exception as e:
-                log(f"[challenge-achievability] snapshot sweep failed: {e!r}")
+                from paper_trading import log_dedup as _ld; _ld.maybe_log(log, "challenge-achievability", e, f"[challenge-achievability] snapshot sweep failed: {e!r}")
             time.sleep(4 * 3600)
 
     threading.Thread(target=_loop, daemon=True).start()
