@@ -34,6 +34,24 @@ def _jsonable(o):
     return str(o)
 
 
+SECRET_KEY_MARKERS = ("token", "secret", "password", "passwd", "api_key", "apikey", "private_key", "credential")
+
+
+def redact_row(table, cols, row):
+    """Day 7 security fix: the `cloud_settings` table stores the Cloud API token and the strategy-sync secret as rows. A backup file must not hold
+    them in plain text, so the VALUE of every secret-like key is replaced by a marker that keeps only the length. Row counts (used by the restore
+    verification) are unchanged."""
+    if table != "cloud_settings":
+        return row
+    d = dict(zip(cols, row))
+    key = str(d.get("key", "")).lower()
+    if any(m in key for m in SECRET_KEY_MARKERS):
+        v = d.get("value_json")
+        d["value_json"] = f"<redacted:{len(str(v))} chars>"
+        return tuple(d[c] for c in cols)
+    return row
+
+
 def _export_table(psycopg, url, table, out, tries=3):
     """One table per fresh AUTOCOMMIT connection (no long idle transaction, which Neon's pooler terminates); written to a .tmp file and renamed only
     when complete; up to `tries` attempts. Returns [expected_rows, written_rows]."""
@@ -48,7 +66,7 @@ def _export_table(psycopg, url, table, out, tries=3):
                 cols, written = [d.name for d in cur.description], 0
                 with open(tmp, "w", encoding="utf-8") as f:
                     for row in cur:
-                        f.write(json.dumps(dict(zip(cols, row)), default=_jsonable) + "\n"); written += 1
+                        f.write(json.dumps(dict(zip(cols, redact_row(table, cols, row))), default=_jsonable) + "\n"); written += 1
             os.replace(tmp, os.path.join(out, table + ".jsonl"))
             return [expected, written]
         except Exception as e:                                 # network drop / pooler timeout: try the whole table again

@@ -35,3 +35,10 @@ Thumbs.db
 # above via data/) -- these accumulate at the repo root during manual
 # debugging and are never meant to be committed.
 *.log
+
+# Day 7: data and backups live OUTSIDE the repository; these lines only protect against copying them in by accident
+sindhu_data/
+sindhu_data_copy_*/
+sindhu_backup*/
+cloud_export_*/
+*.parquet
