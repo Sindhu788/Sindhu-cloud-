@@ -131,3 +131,29 @@ Excluding 1m removes 72 % of the pages, 10 % of the CPU and 32 MB of memory loca
 **Hypothesis, NOT VERIFIED (not measured on Cloud):** database round trips. The Neon database is in `us-east-2` (Ohio, via the pooler) and the service runs in Oregon. Day 4 counted about 8,300 queries and 3,300 connections per cold scan; at a typical 50-70 ms per cross-country round trip that is roughly 415-580 s, the size of the missing time. A cross-check: one commit stalled for 182 s at 03:57 UTC on 5 Nov (log: "scan shows no progress for 182s ... db_backend.commit").
 **What to log on Cloud next (to turn the hypothesis into a measurement, Day 8):** per scan, the number of database calls and the total seconds spent in them, and the seconds spent in strategy evaluation per coin. Both are a few counters and one log line; not added today (they would change the deployed code path).
 **Effect of the 1m flag on the Cloud scan, honestly:** it removes 1 of 62 strategy evaluations per coin (1.6 %), about 72 % of the cold-start pages and about 30 MB; it does not change the 670 s coin loop much. Expected: a faster cold start and lower memory, NOT a faster warm scan. It still removes the 3 signals of the 1m strategy from the public groups, which is the stronger reason to consider it (docs/OWNER_DECISIONS.md).
+
+## 13. Day 7: the memory "regression" (Step 8) - answer: there is none; memory varies by about 70 MB between instances running identical code
+**A. Local, identical mock inputs, peak RSS in MB (build x prefetch workers):**
+| Build | workers 0 | workers 2 | workers 4 |
+|---|---|---|---|
+| Day 5 build `8185853` | 198 | 196 | 199 |
+| Current build (Day 7) | 200 | 192 | 202 |
+| Current build with 1m excluded (Day 6 run) | 160 | - | - |
+Differences between builds and between 2 and 4 workers are 2-10 MB, inside run-to-run noise: **no build and no worker setting explains a 30 MB rise**. (Timings of these runs were 158-178 s each, against 28 s on Day 6 for the same code: absolute local times depend on the machine's state, memory does not.)
+**B. Largest allocations (tracemalloc, current build, end of a local scan; 119 MB traced of about 196 MB RSS; `tools/mem_top.py`):** imported code objects 45 MB + 7.5 MB (pandas, numpy, ccxt and project modules); pandas candle frames 27 MB (400 blocks) + 3 MB of datetime arrays; ccxt market structures 5.9 MB (78,000 small objects, one set per exchange client); everything else under 1.2 MB per line. The rest of the RSS is native libraries.
+**C. Cloud, from Render's own memory metric (`get_metrics`, 5-minute view), peak per instance:**
+| Instance (start UTC) | Build | Peak MB |
+|---|---|---|
+| rck4s (before 19:35 on 4 Nov) | before 5ad081b | 421 |
+| kntmw (19:35) | 5ad081b | 470 |
+| bl9kl (20:12) | 5ad081b | 470 |
+| n76sr (21:13) | 8185853 | 391 |
+| nldr8 (02:58, 5 Nov) | 8185853 | 389 |
+| 9w8jn (03:11) | 2c3882c (code identical to 8185853, docs only) | 437 |
+| msjqj (03:42) | 2c3882c | 459 |
+| hqbfg (04:30) | 8ac219f | 404 |
+| zmc4k (04:59) | 8ac219f | 427 |
+| b6c6g (05:37) | 37859e2 (docs only after 8ac219f) | 403 |
+**Reading:** the Day 5 fix did lower memory (470 MB peaks before, 389-459 MB after). But the four instances that ran the SAME code (8185853 / 2c3882c) peaked at 391, 389, 437 and 459 MB: a 70 MB spread from run to run. Day 6's "439-444 MB vs 407-411 MB" is inside that spread. The memory-guard log (soft level 400 MB) and Render's metric agree within about 15 MB.
+**Root cause: cannot determine.** What differs between a 389 MB and a 459 MB run of identical code is not visible in the logs (the shortlist of coins changes with the market, the order of work and Python's memory fragmentation differ). **What to log on Cloud next** (Day 8, a few lines, no behaviour change): RSS at the end of each scan phase, the list of the 10 shortlisted coins, the number of cached candle rows per timeframe, and the count of live exchange clients.
+**Smallest safe fixes, NOT applied (default behaviour unchanged):** (1) `SINDHU_RESEARCH_ONLY_TIMEFRAMES=1m` removes about 32 MB locally (the 1m candle frames), the largest single lever; (2) a shorter candle retention (`_MAX_RETENTION_DAYS`, 25 days) would cut cached frames but changes the data every strategy sees: a behaviour change, not recommended without an owner decision. The hard guard (450 MB) drops optional work and prefetch, it does not crash the service; no memory restart was seen in the logs.
