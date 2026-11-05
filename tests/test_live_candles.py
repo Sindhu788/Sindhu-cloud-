@@ -209,6 +209,8 @@ def test_exchange_retries_are_logged_with_the_error_type(monkeypatch, capsys):
     import ccxt
     from data_engine.exchanges import ccxt_client
     ccxt_client._retry_log_count[0] = 0
+    from paper_trading import log_dedup
+    log_dedup.reset()
     c = ccxt_client.CCXTClient.__new__(ccxt_client.CCXTClient)
     c.id = "okx"
     monkeypatch.setattr(ccxt_client.time, "sleep", lambda s: None)
@@ -222,4 +224,6 @@ def test_exchange_retries_are_logged_with_the_error_type(monkeypatch, capsys):
 
     assert c._retry(flaky) == "ok"
     out = capsys.readouterr().out
-    assert out.count("[exchange-retry] okx attempt") == 2 and "RateLimitExceeded" in out and "Too Many Requests" in out
+    # master plan A4/S1: the same exchange + error type is logged once a minute, so 2 retries -> 1 line (both retries still happen)
+    assert len(calls) == 3
+    assert out.count("[exchange-retry] okx attempt") == 1 and "RateLimitExceeded" in out and "Too Many Requests" in out
