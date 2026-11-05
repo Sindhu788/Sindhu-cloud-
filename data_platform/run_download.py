@@ -64,6 +64,19 @@ def plan(universe_doc, n_coins, n_months, today):
     return syms, months, cur_month, days
 
 
+def pending_report(root, uni, n_coins, n_months, today):
+    """DRY RUN: which files a normal run would ask Binance for, judged only from the manifest and the files on disk. No network, no writes."""
+    syms, months, cur_month, days = plan(uni, n_coins, n_months, today)
+    mf = os.path.join(root, "manifest", "manifest.json")
+    man = json.load(open(mf, encoding="utf-8")) if os.path.exists(mf) else {}
+    tasks = [("month", s, m) for s in syms for m in months] + [("day", s, d) for s in syms for d in days]
+    todo = [(k, s, p) for k, s, p in tasks if man.get(f"{s}/{p}", {}).get("status") not in ("ok", "absent")]
+    return {"tasks_total": len(tasks), "already_done": len(tasks) - len(todo), "would_download": len(todo),
+            "months": [months[0], months[-1]], "days_of_current_month": [days[0], days[-1]] if days else [],
+            "missing_days": sorted({p for k, s, p in todo if k == "day"}), "missing_months": sorted({p for k, s, p in todo if k == "month"}),
+            "coins": len(syms)}
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--root", default=None)
@@ -75,10 +88,15 @@ def main(argv=None):
     ap.add_argument("--no-expand", action="store_true")
     ap.add_argument("--detach", action="store_true")
     ap.add_argument("--base-url", default=None)
+    ap.add_argument("--dry-run", action="store_true", help="only report what would be downloaded (no network, no writes)")
     a = ap.parse_args(argv)
     if a.root:
         os.environ["SINDHU_DATA_ROOT"] = a.root
     root = store.root()
+    if a.dry_run:
+        rep = pending_report(root, universe.load_latest(root), a.coins, a.months, dt.datetime.now(dt.timezone.utc).date())
+        print(json.dumps(rep, indent=1))
+        return 0
     if a.detach:
         print("started detached, pid", detach(sys.argv[1:]))
         return 0

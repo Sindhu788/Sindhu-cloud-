@@ -140,3 +140,33 @@ D:\sindhu_venv_stable\Scripts\python.exe scripts\restore_export_to_sqlite.py D:\
 | Forced kill of the server process | the supervisor restarted it; healthy again after **22 s** |
 | Laptop sleep and wake | **NOT VERIFIED** - not tested unattended (it would suspend this session and the downloads). When the laptop wakes, just double-click `OPEN_SINDHU.cmd`; it starts the app only if it is not running |
 | The app after the working session / PC restart | it does NOT start by itself after a PC restart (no scheduled task by design); double-click `OPEN_SINDHU.cmd` |
+
+## 12. Candle data upkeep (Day 7, 5 Nov 2026) - for the owner
+**What it is:** the candle files live in `D:\sindhu_data` (not in git, never deleted by any script). Binance publishes yesterday's candles a few hours after midnight UTC; the update downloads only what is missing.
+**State on 5 Nov 2026 (verified today):** 748 files, 24,587,700 rows, every file re-hashed: 0 mismatches. Files up to 4 Nov 2026 for 48 of 50 coins; 2 coins' 4 Nov file was not yet published ("pending", it is asked for again next time).
+**See what an update would do (no download, no change):**
+```bash
+D:\sindhu_venv_bt\Scripts\python.exe -m data_platform.run_download --dry-run
+```
+**Run the update now (about 1 minute for one day):**
+```bash
+D:\sindhu_venv_bt\Scripts\python.exe -m data_platform.run_download --workers 2
+```
+**Check everything is intact (re-hashes every file, about 10 seconds):**
+```bash
+D:\sindhu_venv_bt\Scripts\python.exe tools\verify_dataset.py
+```
+The result prints `"verdict": "PASS"` and writes a new report file in `D:\sindhu_data\manifest` (never overwrites). Note: the file `full_verify_20261105_135538.json` is INVALID (written while my path lookup was wrong; it falsely says all files are missing); the next one, `..._135727.json`, is the real result.
+**Make it run every day by itself (Windows Task Scheduler, you do this once, about 3 minutes):**
+1. Press the Windows key, type `Task Scheduler`, open it.
+2. Right side: click `Create Basic Task...`. Name: `SINDHU daily candles`. Next.
+3. Trigger: `Daily`, start time `06:30` (Pakistan time is fine; Binance files for yesterday are ready by then). Next.
+4. Action: `Start a program`. Program/script: `D:\sindhu_venv_bt\Scripts\python.exe`. Add arguments: `-m data_platform.run_download --workers 2`. Start in: `D:\sindhu_clean`. Next, then Finish.
+5. Open the new task, `Properties`: tick `Run whether user is logged on or not` is NOT needed; keep the default. On the `Conditions` tab, tick `Wake the computer to run this task` only if you want it to run while the laptop sleeps.
+6. To test: right-click the task, `Run`. Then look at `D:\sindhu_data\logs` (newest file) for the last lines.
+If a day is missing, nothing breaks: the next run fetches it. Files that Binance has not published yet are NOT recorded as missing any more (fixed on 5 Nov 2026), so an early run cannot leave a permanent hole.
+**Second copy (done 5 Nov 2026):** `C:\sindhu_data_copy_20261105` (dataset + manifests, 1.0 GB, re-hashed: PASS, same 24,587,700 rows). To refresh it: copy the folder again into a NEW folder name with the new date (never into the old one):
+```bash
+robocopy D:\sindhu_data C:\sindhu_data_copy_YYYYMMDD /E /COPY:DAT /XD experiments logs candidates
+```
+Keep one copy on a different physical disk or cloud drive too; C: and D: on this laptop may be partitions of the same disk (NOT VERIFIED).

@@ -34,31 +34,49 @@ def _jsonable(o):
     return str(o)
 
 
+def _export_table(psycopg, url, table, out, tries=3):
+    """One table per fresh AUTOCOMMIT connection (no long idle transaction, which Neon's pooler terminates); written to a .tmp file and renamed only
+    when complete; up to `tries` attempts. Returns [expected_rows, written_rows]."""
+    last = None
+    for attempt in range(1, tries + 1):
+        tmp = os.path.join(out, table + ".jsonl.tmp")
+        try:
+            with psycopg.connect(url, connect_timeout=30, autocommit=True, options="-c default_transaction_read_only=on") as conn:
+                cur = conn.cursor()
+                cur.execute(f'select count(*) from "{table}"'); expected = cur.fetchone()[0]
+                cur.execute(f'select * from "{table}"')
+                cols, written = [d.name for d in cur.description], 0
+                with open(tmp, "w", encoding="utf-8") as f:
+                    for row in cur:
+                        f.write(json.dumps(dict(zip(cols, row)), default=_jsonable) + "\n"); written += 1
+            os.replace(tmp, os.path.join(out, table + ".jsonl"))
+            return [expected, written]
+        except Exception as e:                                 # network drop / pooler timeout: try the whole table again
+            last = f"{type(e).__name__}"
+            print(f"export retry {attempt}/{tries} for {table}: {last}", flush=True)
+            import time
+            time.sleep(3 * attempt)
+    return f"FAILED ({last})"
+
+
 def main(root=None):
     import psycopg
     root = root or (sys.argv[1] if len(sys.argv) > 1 else "D:/sindhu_backup_phase0")
     out = os.path.join(root, "cloud_export_" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S"))
     os.makedirs(out, exist_ok=False)                      # refuses to reuse a folder
     manifest = {}
-    with psycopg.connect(_url(), connect_timeout=30, options="-c default_transaction_read_only=on") as conn:
-        cur = conn.cursor()
-        cur.execute("select tablename from pg_tables where schemaname='public' order by 1")
-        for (table,) in cur.fetchall():
-            if table.startswith("auth_"):
-                manifest[table] = "SKIPPED (credentials)"; continue
-            if "kline" in table or "candle" in table:
-                manifest[table] = "SKIPPED (candle table)"; continue
-            c2 = conn.cursor()
-            c2.execute(f'select count(*) from "{table}"'); expected = c2.fetchone()[0]
-            c2.execute(f'select * from "{table}"')
-            cols, written = [d.name for d in c2.description], 0
-            with open(os.path.join(out, table + ".jsonl"), "w", encoding="utf-8") as f:
-                for row in c2:
-                    f.write(json.dumps(dict(zip(cols, row)), default=_jsonable) + "\n"); written += 1
-            manifest[table] = [expected, written]
+    url = _url()
+    with psycopg.connect(url, connect_timeout=30, autocommit=True, options="-c default_transaction_read_only=on") as conn:
+        tables = [t for (t,) in conn.execute("select tablename from pg_tables where schemaname='public' order by 1").fetchall()]
+    for table in tables:
+        if table.startswith("auth_"):
+            manifest[table] = "SKIPPED (credentials)"; continue
+        if "kline" in table or "candle" in table:
+            manifest[table] = "SKIPPED (candle table)"; continue
+        manifest[table] = _export_table(psycopg, url, table, out)
     json.dump(manifest, open(os.path.join(out, "_manifest.json"), "w"), indent=1)
-    bad = [t for t, v in manifest.items() if isinstance(v, list) and v[0] != v[1]]
-    print("export folder:", out, "| tables:", len(manifest), "| mismatched while exporting:", bad)
+    bad = [t for t, v in manifest.items() if isinstance(v, str) and v.startswith("FAILED") or (isinstance(v, list) and v[0] != v[1])]
+    print("export folder:", out, "| tables:", len(manifest), "| problems:", bad)
     return out
 
 
