@@ -20,6 +20,29 @@ class ChangePasswordPayload(BaseModel):
     new_password: str
 
 
+def _env_dashboard_password():
+    """Master plan A16 (P35): optional owner password from the Render env DASHBOARD_PASSWORD (never logged, never returned)."""
+    import os
+    return os.environ.get("DASHBOARD_PASSWORD") or None
+
+
+def _matches_env_password(password: str) -> bool:
+    import hashlib
+    import hmac
+    env = _env_dashboard_password()
+    if not env:
+        return False
+    return hmac.compare_digest(hashlib.sha256(password.encode("utf-8")).digest(), hashlib.sha256(env.encode("utf-8")).digest())
+
+
+def _cloud_mode() -> bool:
+    try:
+        from sindhu_web.security import CLOUD_MODE
+        return bool(CLOUD_MODE)
+    except Exception:
+        return False
+
+
 def _set_session_cookie(response: Response, token: str, secure: bool = False):
     response.set_cookie(
         auth.SESSION_COOKIE, token, httponly=True, samesite="lax", secure=secure,
@@ -84,7 +107,7 @@ def auth_status(request: Request):
     # be misleading (already in the past) rather than useful.
     expires_at = auth.session_expires_at(token) if logged_in else None
     return {
-        "configured": auth.has_credentials(),
+        "configured": auth.has_credentials() or bool(_env_dashboard_password()),   # A16: the env password counts as configured
         "logged_in": logged_in,
         "session_expires_at": expires_at,
     }
@@ -97,6 +120,13 @@ def auth_setup(req: AuthPayload, response: Response):
     requires already being logged in)."""
     if auth.has_credentials():
         raise HTTPException(400, "An account is already configured -- use login instead.")
+    # Master plan A16: on Cloud the very first visitor could otherwise create the only account. There, setup needs the owner's
+    # DASHBOARD_PASSWORD (Render env) and the chosen password must be that one. Local setup (127.0.0.1/LAN only) is unchanged.
+    if _cloud_mode():
+        if not _env_dashboard_password():
+            raise HTTPException(403, "Set DASHBOARD_PASSWORD on Render first (Environment), then sign in with it.")
+        if not _matches_env_password(req.password):
+            raise HTTPException(403, "On Cloud the first account must use the DASHBOARD_PASSWORD set on Render.")
     username = req.username.strip()
     if not username:
         raise HTTPException(400, "Username is required.")
@@ -112,7 +142,8 @@ def auth_setup(req: AuthPayload, response: Response):
 def auth_login(req: AuthPayload, response: Response, request: Request):
     if _login_blocked(request):
         raise HTTPException(429, "Too many failed sign-in attempts. Wait 10 minutes and try again.")
-    if not auth.verify_password(req.username.strip(), req.password):
+    owner_env_login = req.username.strip().lower() == "owner" and _matches_env_password(req.password)   # master plan A16
+    if not owner_env_login and not auth.verify_password(req.username.strip(), req.password):
         _login_failed(request)
         raise HTTPException(401, "Incorrect username or password.")
     _login_ok(request)

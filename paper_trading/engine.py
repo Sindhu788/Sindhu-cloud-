@@ -124,6 +124,11 @@ WIN_RATE_DECAY_SWEEP_INTERVAL_SECONDS = 3600
 CUSTOM_ALERT_RULES_SWEEP_INTERVAL_SECONDS = 3600
 
 
+def _wallet_enabled():
+    """Master plan A9: MAIN_WALLET is on by default (paper only); SINDHU_WALLET=0 switches the mirror off."""
+    return os.environ.get("SINDHU_WALLET", "1") != "0"
+
+
 def _budget_seconds(name, default):
     try:
         return max(1.0, float(os.environ.get(name, default)))
@@ -680,6 +685,9 @@ class PaperTradingEngine:
                 self._log_decision(exchange, symbol, {}, 'no_trade', 'Market snapshot unavailable.', {})
                 continue
             self._record_candle_receipt(exchange,symbol,snapshot)
+            if _wallet_enabled():
+                from paper_trading import wallet
+                wallet.mark(symbol, snapshot.get("price"))
 
             with stages.stage("monitor_positions"):
                 closed += len(position_manager.monitor_and_close(
@@ -702,6 +710,14 @@ class PaperTradingEngine:
                 self._current_scan['errors'] += 1
 
         _set_coin_fetch_deadline(clear=True)
+        if _wallet_enabled():
+            try:
+                from paper_trading import wallet
+                for d in wallet.settle():
+                    if d.get("decision") == "opened":
+                        self._log(f"[wallet] MAIN_WALLET opened ${d['notional']:.2f} (fee ${d['fee']:.4f})")
+            except Exception as e:
+                self._log(f"[wallet] settle error: {e!r}")
         if coin_mark:
             self._log_coin_stages(stages, *coin_mark)
         self._scan_progress["in_progress"] = False
@@ -1102,6 +1118,9 @@ class PaperTradingEngine:
 
         pos = position_manager.open_position(exchange, symbol, pick, size, risk_amount, pick["confidence"], snapshot)
         self._log_decision(exchange, symbol, pick, "opened", "trade opened", snapshot, position_id=pos["id"])
+        if _wallet_enabled():                  # master plan A9: offer the (fully gated) research position to MAIN_WALLET; decided at scan end
+            from paper_trading import wallet
+            wallet.offer(pos, pick, snapshot)
         self._log(f"[paper-trading] OPENED {symbol} {pos['direction']} @ {pos['entry_price']:.6f} "
                   f"(strategy={pick.get('strategy_name') or pick.get('lesson_title')})")
         self._emit({"type": "position_opened", "position": pos})
