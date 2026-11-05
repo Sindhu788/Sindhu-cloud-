@@ -67,9 +67,25 @@ def _reply(chat_id, text):
         pass
 
 
+def owner_chat_id():
+    """Master plan A15 (P15/P36): the owner's PRIVATE chat with the bot: env OWNER_CHAT_ID, else the saved personal_chat_id."""
+    import os
+    return (os.environ.get("OWNER_CHAT_ID") or "").strip() or (telegram_bot.load_settings().get("personal_chat_id") or "").strip() or None
+
+
 def _is_authorized(chat_id):
-    configured = telegram_bot.load_settings().get("channel_id")
-    return bool(configured) and str(chat_id) == str(configured)
+    """Master plan A15: commands are accepted ONLY from the owner's private chat. Before, the public signal group (channel_id) was
+    authorized, so any group member could /pause or /resume the engine. With no owner chat configured, nobody is authorized."""
+    owner = owner_chat_id()
+    ok = bool(owner) and str(chat_id) == str(owner)
+    if not ok:
+        try:
+            from paper_trading import log_dedup
+            log_dedup.maybe_log(default_log, "telegram-commands-unauthorized", PermissionError("unauthorized chat"),
+                                "[telegram-commands] ignored a command from a chat that is not the owner's private chat", every=3600)
+        except Exception:
+            pass
+    return ok
 
 
 def _status_reply(args=""):

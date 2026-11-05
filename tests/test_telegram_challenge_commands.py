@@ -39,7 +39,7 @@ def no_real_reply_network_call(monkeypatch):
 
 
 def _configure_bot(chat_id="12345"):
-    telegram_bot.save_settings(bot_token="test-token", channel_id=chat_id)
+    telegram_bot.save_settings(bot_token="test-token", channel_id=chat_id, personal_chat_id=chat_id)   # A15: owner chat
 
 
 def _update(text, chat_id="12345", update_id=1):

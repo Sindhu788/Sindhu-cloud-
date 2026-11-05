@@ -917,7 +917,7 @@ def send_private_message(text):
     rather than silently falling back to the public channel (a private-
     only message must never leak to the shared channel by accident)."""
     settings = load_settings()
-    personal_chat_id = settings.get("personal_chat_id")
+    personal_chat_id = (os.environ.get("OWNER_CHAT_ID") or "").strip() or settings.get("personal_chat_id")   # master plan A15: env first
     if not personal_chat_id:
         return {"ok": False, "error": "personal_chat_id is not configured yet -- Settings > Telegram"}
     ok, err = _raw_send(text, channel_id_override=personal_chat_id)
@@ -936,7 +936,7 @@ def send_private_document(file_path, caption=None):
         return {'ok':False,'error':'Telegram dry-run: network delivery disabled'}
     settings = load_settings()
     token = settings.get("bot_token")
-    personal_chat_id = settings.get("personal_chat_id")
+    personal_chat_id = (os.environ.get("OWNER_CHAT_ID") or "").strip() or settings.get("personal_chat_id")   # master plan A15: env first
     if not token or not personal_chat_id:
         return {"ok": False, "error": "bot_token or personal_chat_id is not configured yet -- Settings > Telegram"}
     proxies = _build_proxies(settings)
