@@ -126,3 +126,181 @@ Expected effect on signals: none from pausing; signals come from the 5 profitabl
 
 ## Limits
 Paper P&L is the old 29 Aug - 16 Sep sample on 50 mostly thin coins; backtests use three major coins on Binance candles with assumed costs; none of this predicts live results. No strategy parameter was changed.
+
+
+## Day 6: corrected validation of the 42 enabled strategies (Step 8)
+
+Unit = position, corrected metrics (docs/BACKTEST_PROTOCOL.md section 10). Coins: up to 50 (coins with no data in the window are skipped, see the coin column). Development window 1 Nov 2025 - 31 Aug 2026, 8 walk-forward windows scored by entry time, costs x1 with exact x1.5 / x2 re-pricing. No parameter changed; the holdout and the forward window were not read.
+
+| Label | Strategy | TF | Coins | Positions | Win % | PF x1 [95 % CI] | PF x1.5 | PF x2 | Expectancy ($) | Avg R | Max DD ($) | Windows ok | Coins ok | Long n / PF | Short n / PF |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| FRAGILE | Ichimoku 1d Indicator-Exit [Manual Build] | 1d | 47 | 576 | 30.4 | 1.09 [0.71-1.61] | 0.98 | 0.89 | 0.569 | 0.055 | 1171 | 2/6 | 0/0 | 85 / 0.83 | 491 / 1.14 |
+| FAILED | Supply/Demand Zone Strategy [Manual Build] | 1h | 47 | 494 | 25.3 | 0.78 [0.61-0.96] | 0.67 | 0.58 | -1.962 | -0.196 | 1212 | 1/8 | 0/0 | 275 / 0.69 | 219 / 0.91 |
+| FAILED | Laxman Rekha 5-EMA Trigger-Candle Strategy [Manual Build] | 5m | 47 | 13165 | 25.0 | 0.76 [0.71-0.82] | 0.67 | 0.59 | -1.854 | -0.219 | 24836 | 0/8 | 1/47 | 9108 / 0.69 | 4057 / 0.91 |
+| FAILED | Dumb Money Concepts -- Confirmation Entry [Manual Build] | 4h | 47 | 1605 | 17.4 | 0.75 [0.56-0.96] | 0.67 | 0.59 | -2.348 | -0.235 | 4451 | 1/8 | 7/28 | 957 / 0.68 | 648 / 0.87 |
+| FAILED | Heikin Ashi Trend Reversal [Manual Build] | 15m | 47 | 1313 | 28.9 | 0.75 [0.63-0.89] | 0.61 | 0.50 | -2.157 | -0.229 | 2944 | 0/8 | 1/19 | 706 / 0.76 | 607 / 0.74 |
+| FAILED | Kotegawa Bear Market Reversal Strategy [Manual Build] | 15m | 47 | 4288 | 22.1 | 0.73 [0.57-0.95] | 0.68 | 0.63 | -2.304 | -0.230 | 11126 | 3/8 | 1/45 | 4288 / 0.73 | 0 / - |
+| FAILED | 4-Hour Range Breakout-Retest [Manual Build] | 5m | 47 | 11813 | 32.4 | 0.73 [0.67-0.79] | 0.64 | 0.56 | -2.016 | -0.214 | 23806 | 0/8 | 1/46 | 6170 / 0.64 | 5643 / 0.83 |
+| FAILED | Asian Range London Sweep [Manual Build] | 5m | 47 | 2715 | 32.5 | 0.71 [0.62-0.81] | 0.62 | 0.54 | -2.246 | -0.225 | 6091 | 0/8 | 2/46 | 1381 / 0.60 | 1334 / 0.84 |
+| FAILED | Daily Liquidity Scalping Strategy [Manual Build] | 1m | 47 | 28287 | 37.0 | 0.69 [0.63-0.76] | 0.59 | 0.50 | -1.334 | -0.231 | 37917 | 0/8 | 0/47 | 14407 / 0.68 | 13880 / 0.71 |
+| FAILED | Liquidity Sweep Reversal Strategy [Manual Build] | 15m | 47 | 23212 | 46.4 | 0.69 [0.63-0.76] | 0.58 | 0.48 | -1.433 | -0.186 | 34454 | 0/8 | 0/46 | 10882 / 0.63 | 12330 / 0.75 |
+| FAILED | 9-20 EMA SMC Hybrid [Manual Build] | 15m | 47 | 1766 | 34.6 | 0.67 [0.57-0.77] | 0.54 | 0.44 | -2.713 | -0.271 | 4881 | 0/8 | 0/29 | 1023 / 0.63 | 743 / 0.72 |
+| FAILED | Liquidity Sweep Multi-Confirmation [Manual Build] | 5m | 47 | 7424 | 20.9 | 0.67 [0.56-0.79] | 0.57 | 0.50 | -2.548 | -0.341 | 21213 | 0/8 | 2/41 | 4154 / 0.60 | 3270 / 0.76 |
+| FAILED | Order Block Trading (Strict) [Manual Build] | 1h | 47 | 4002 | 41.2 | 0.66 [0.51-0.86] | 0.55 | 0.47 | -1.936 | -0.195 | 9584 | 1/8 | 4/43 | 1656 / 0.60 | 2346 / 0.70 |
+| FAILED | Dumb Money Concepts -- Combined Confirmation [Manual Build] | 4h | 47 | 1356 | 15.8 | 0.66 [0.46-0.88] | 0.58 | 0.52 | -3.316 | -0.343 | 4948 | 1/8 | 3/25 | 810 / 0.62 | 546 / 0.71 |
+| FAILED | Fibonacci Golden Zone Retracement [Manual Build] | 1h | 47 | 17377 | 36.1 | 0.66 [0.61-0.70] | 0.53 | 0.44 | -1.710 | -0.285 | 30842 | 0/8 | 1/47 | 9286 / 0.57 | 8091 / 0.77 |
+| FAILED | PDH/PDL Multi-Timeframe Reversal [Manual Build] | 5m | 47 | 8495 | 25.2 | 0.65 [0.58-0.73] | 0.54 | 0.45 | -2.644 | -0.345 | 22943 | 0/8 | 1/47 | 3901 / 0.62 | 4594 / 0.68 |
+| FAILED | Market Structure Shift Reversal [Manual Build] | 15m | 47 | 9570 | 48.0 | 0.65 [0.57-0.76] | 0.54 | 0.46 | -1.636 | -0.179 | 17940 | 0/8 | 1/36 | 4669 / 0.54 | 4901 / 0.76 |
+| FAILED | Liquidity Sweep + Engulfing Candle (Loose) [Manual Build] | 5m | 47 | 26935 | 32.3 | 0.64 [0.59-0.70] | 0.53 | 0.45 | -1.508 | -0.319 | 40800 | 0/8 | 0/47 | 14741 / 0.60 | 12194 / 0.70 |
+| FAILED | OTE Liquidity Sweep Reversal [Manual Build] | 15m | 47 | 13685 | 23.8 | 0.64 [0.58-0.70] | 0.52 | 0.43 | -2.240 | -0.379 | 30829 | 0/8 | 0/47 | 7084 / 0.56 | 6601 / 0.73 |
+| FAILED | Candle Range Theory (Loose) [Manual Build] | 1h | 47 | 17679 | 33.9 | 0.63 [0.60-0.67] | 0.51 | 0.41 | -1.936 | -0.329 | 34261 | 0/8 | 0/47 | 9139 / 0.58 | 8540 / 0.70 |
+| FAILED | Liquidity Sweep + Engulfing Candle (Strict) [Manual Build] | 5m | 47 | 17647 | 31.5 | 0.63 [0.59-0.67] | 0.52 | 0.43 | -1.954 | -0.331 | 34585 | 0/8 | 0/47 | 9775 / 0.57 | 7872 / 0.72 |
+| FAILED | Previous High/Low Reversal [Manual Build] | 15m | 47 | 15035 | 41.3 | 0.61 [0.55-0.69] | 0.50 | 0.42 | -1.822 | -0.242 | 29164 | 0/8 | 1/43 | 8310 / 0.56 | 6725 / 0.68 |
+| FAILED | Support/Resistance + Liquidity Sweep (Fixed-RR) [Manual Build] | 1h | 47 | 6983 | 43.3 | 0.61 [0.54-0.70] | 0.49 | 0.39 | -2.468 | -0.265 | 17559 | 0/8 | 0/47 | 5633 / 0.59 | 1350 / 0.73 |
+| FAILED | Candle Range Theory (Strict) [Manual Build] | 1h | 47 | 2953 | 33.3 | 0.60 [0.53-0.69] | 0.48 | 0.38 | -3.072 | -0.346 | 9303 | 0/8 | 0/46 | 1112 / 0.55 | 1841 / 0.63 |
+| FAILED | Equal Highs/Lows Reversal [Manual Build] | 15m | 47 | 16803 | 44.4 | 0.60 [0.50-0.77] | 0.48 | 0.38 | -1.339 | -0.239 | 26840 | 0/8 | 1/40 | 8637 / 0.48 | 8166 / 0.75 |
+| FAILED | Ichimoku 1h Indicator-Exit [Manual Build] | 1h | 47 | 13466 | 25.2 | 0.60 [0.51-0.71] | 0.48 | 0.40 | -1.905 | -0.245 | 26562 | 0/8 | 1/47 | 4833 / 0.70 | 8633 / 0.53 |
+| FAILED | Candlestick Pattern Reversal Strategy [Manual Build] | 15m | 47 | 17792 | 41.2 | 0.60 [0.56-0.64] | 0.49 | 0.40 | -1.954 | -0.264 | 35082 | 0/8 | 0/47 | 9439 / 0.53 | 8353 / 0.69 |
+| FAILED | Liquidity Sweep + CISD (Pure Swing Variant) [Manual Build] | 5m | 47 | 8967 | 38.9 | 0.60 [0.55-0.64] | 0.47 | 0.37 | -2.414 | -0.306 | 21924 | 0/8 | 0/46 | 4638 / 0.52 | 4329 / 0.69 |
+| FAILED | FVG Pure + Inverse FVG (Fixed 1:2) [Manual Build] | 1h | 47 | 18695 | 32.1 | 0.59 [0.56-0.63] | 0.47 | 0.37 | -1.874 | -0.371 | 35034 | 0/8 | 0/47 | 9552 / 0.53 | 9143 / 0.67 |
+| FAILED | HTF-LTF FVG/OB Confluence Entry [Manual Build] | 15m | 47 | 12360 | 48.2 | 0.59 [0.43-0.86] | 0.46 | 0.36 | -1.350 | -0.193 | 21609 | 0/8 | 8/42 | 4651 / 0.47 | 7709 / 0.67 |
+| FAILED | Fixed Range Volume Profile -- Market Shape [Manual Build] | 1h | 47 | 19966 | 38.1 | 0.58 [0.55-0.62] | 0.46 | 0.37 | -1.744 | -0.337 | 35836 | 0/8 | 2/47 | 10087 / 0.49 | 9879 / 0.69 |
+| FAILED | FVG Momentum Pullback (Structure) [Manual Build] | 1h | 47 | 8706 | 31.6 | 0.58 [0.50-0.67] | 0.45 | 0.36 | -2.476 | -0.363 | 23412 | 0/8 | 3/46 | 5162 / 0.51 | 3544 / 0.69 |
+| FAILED | Range Breakout Volume Confirmation [Manual Build] | 15m | 47 | 3278 | 42.0 | 0.56 [0.40-0.86] | 0.45 | 0.37 | -2.267 | -0.266 | 9625 | 0/8 | 1/30 | 1473 / 0.35 | 1805 / 0.79 |
+| FAILED | FVG Pure + Inverse FVG (Structure) [Manual Build] | 1h | 47 | 17026 | 35.0 | 0.55 [0.47-0.66] | 0.41 | 0.31 | -1.754 | -0.353 | 33234 | 0/8 | 1/45 | 8717 / 0.49 | 8309 / 0.61 |
+| FAILED | Donchian LWTI Volume Confluence [Manual Build] | 15m | 47 | 5740 | 53.6 | 0.53 [0.38-0.76] | 0.40 | 0.31 | -1.596 | -0.166 | 11231 | 0/8 | 3/40 | 2505 / 0.43 | 3235 / 0.61 |
+| FAILED | Ichimoku 15m Indicator-Exit [Manual Build] | 15m | 47 | 48161 | 20.6 | 0.51 [0.43-0.59] | 0.38 | 0.29 | -0.944 | -0.294 | 45481 | 0/8 | 0/47 | 19155 / 0.56 | 29006 / 0.47 |
+| FAILED | Ichimoku 5m Indicator-Exit [Manual Build] | 5m | 47 | 134525 | 15.7 | 0.36 [0.31-0.41] | 0.25 | 0.18 | -0.349 | -0.373 | 46948 | 0/8 | 0/47 | 56063 / 0.35 | 78462 / 0.37 |
+| INSUFFICIENT_DATA | Ichimoku 1d Trailing-SL [Manual Build] | 1d | 47 | 121 | 27.3 | 1.79 [0.00-5.80] | 1.67 | 1.56 | 6.176 | 0.616 | 922 | 1/1 | 0/0 | 28 / 0.27 | 93 / 2.30 |
+| INSUFFICIENT_DATA | Ichimoku 15m Trailing-SL [Manual Build] | 15m | 47 | 509 | 9.2 | 1.44 [0.00-5.08] | 1.31 | 1.21 | 4.519 | 0.474 | 5157 | 1/4 | 0/3 | 239 / 0.05 | 270 / 2.87 |
+| INSUFFICIENT_DATA | Ichimoku 1h Trailing-SL [Manual Build] | 1h | 47 | 299 | 14.0 | 1.28 [0.00-4.12] | 1.19 | 1.11 | 2.578 | 0.257 | 2758 | 1/2 | 0/2 | 115 / 0.11 | 184 / 2.15 |
+| INSUFFICIENT_DATA | SMA-Alignment Strategy (Approximate - ZIP Indicator Excluded) [Manual Build] | 1h | 47 | 1696 | 34.9 | 0.74 [0.55-0.98] | 0.64 | 0.57 | -1.675 | -0.168 | 3249 | 0/3 | 3/37 | 405 / 0.75 | 1291 / 0.73 |
+| INSUFFICIENT_DATA | SAR + SMC (CISD Entry) [Manual Build] | 5m | 47 | 254 | 39.0 | 0.36 [0.23-0.54] | 0.22 | 0.15 | -3.548 | -0.360 | 908 | 0/4 | 0/0 | 124 / 0.30 | 130 / 0.44 |
+
+**Hour-of-day split (UTC, 6-hour blocks; positions, PF) for the strategies with >= 300 positions:**
+
+| Strategy | 00-05 | 06-11 | 12-17 | 18-23 |
+|---|---|---|---|---|
+| Ichimoku 5m Indicator-Exit [Manual Build] | 33950 / 0.30 | 33089 / 0.32 | 34650 / 0.54 | 32836 / 0.27 |
+| Ichimoku 15m Indicator-Exit [Manual Build] | 11934 / 0.47 | 12192 / 0.58 | 12936 / 0.56 | 11099 / 0.42 |
+| Daily Liquidity Scalping Strategy [Manual Build] | 7155 / 0.66 | 5486 / 0.66 | 9129 / 0.62 | 6517 / 0.89 |
+| Liquidity Sweep + Engulfing Candle (Loose) [Manual Build] | 6253 / 0.71 | 5809 / 0.64 | 8185 / 0.57 | 6688 / 0.66 |
+| Liquidity Sweep Reversal Strategy [Manual Build] | 5662 / 0.68 | 5195 / 0.75 | 6217 / 0.64 | 6138 / 0.70 |
+| Fixed Range Volume Profile -- Market Shape [Manual Build] | 4822 / 0.62 | 4716 / 0.56 | 5580 / 0.54 | 4848 / 0.61 |
+| FVG Pure + Inverse FVG (Fixed 1:2) [Manual Build] | 4708 / 0.58 | 4400 / 0.63 | 5238 / 0.57 | 4349 / 0.61 |
+| Candlestick Pattern Reversal Strategy [Manual Build] | 4348 / 0.59 | 4562 / 0.59 | 3975 / 0.55 | 4907 / 0.65 |
+| Candle Range Theory (Loose) [Manual Build] | 4471 / 0.66 | 4249 / 0.63 | 4551 / 0.61 | 4408 / 0.64 |
+| Liquidity Sweep + Engulfing Candle (Strict) [Manual Build] | 3893 / 0.69 | 3573 / 0.62 | 5648 / 0.58 | 4533 / 0.65 |
+| Fibonacci Golden Zone Retracement [Manual Build] | 4216 / 0.68 | 4007 / 0.62 | 4911 / 0.65 | 4243 / 0.67 |
+| FVG Pure + Inverse FVG (Structure) [Manual Build] | 4227 / 0.42 | 4073 / 0.75 | 4816 / 0.48 | 3910 / 0.56 |
+| Equal Highs/Lows Reversal [Manual Build] | 4104 / 0.61 | 3647 / 0.53 | 5139 / 0.62 | 3913 / 0.63 |
+| Previous High/Low Reversal [Manual Build] | 6625 / 0.65 | 2141 / 0.61 | 3720 / 0.57 | 2549 / 0.61 |
+| OTE Liquidity Sweep Reversal [Manual Build] | 3508 / 0.61 | 2931 / 0.68 | 4173 / 0.57 | 3073 / 0.75 |
+| Ichimoku 1h Indicator-Exit [Manual Build] | 3240 / 0.57 | 2950 / 0.61 | 3816 / 0.68 | 3460 / 0.55 |
+| Laxman Rekha 5-EMA Trigger-Candle Strategy [Manual Build] | 2966 / 0.76 | 2619 / 0.75 | 4288 / 0.70 | 3292 / 0.85 |
+| HTF-LTF FVG/OB Confluence Entry [Manual Build] | 2962 / 0.59 | 2469 / 0.55 | 3875 / 0.62 | 3054 / 0.59 |
+| 4-Hour Range Breakout-Retest [Manual Build] | 1071 / 0.65 | 4860 / 0.76 | 4405 / 0.74 | 1477 / 0.64 |
+| Market Structure Shift Reversal [Manual Build] | 2302 / 0.67 | 1891 / 0.63 | 3222 / 0.67 | 2155 / 0.61 |
+| Liquidity Sweep + CISD (Pure Swing Variant) [Manual Build] | 2084 / 0.57 | 1936 / 0.61 | 3117 / 0.63 | 1830 / 0.56 |
+| FVG Momentum Pullback (Structure) [Manual Build] | 2292 / 0.53 | 2184 / 0.73 | 2127 / 0.55 | 2103 / 0.52 |
+| PDH/PDL Multi-Timeframe Reversal [Manual Build] | 1594 / 0.72 | 1964 / 0.65 | 2856 / 0.66 | 2081 / 0.59 |
+| Liquidity Sweep Multi-Confirmation [Manual Build] | 2766 / 0.70 | 1302 / 0.74 | 2143 / 0.57 | 1213 / 0.70 |
+| Support/Resistance + Liquidity Sweep (Fixed-RR) [Manual Build] | 1783 / 0.54 | 1627 / 0.54 | 2036 / 0.57 | 1537 / 0.85 |
+| Donchian LWTI Volume Confluence [Manual Build] | 1109 / 0.45 | 1159 / 0.77 | 1848 / 0.52 | 1624 / 0.42 |
+| Kotegawa Bear Market Reversal Strategy [Manual Build] | 1063 / 0.73 | 1072 / 0.75 | 987 / 0.69 | 1166 / 0.74 |
+| Order Block Trading (Strict) [Manual Build] | 955 / 0.72 | 893 / 0.63 | 1195 / 0.70 | 959 / 0.58 |
+| Range Breakout Volume Confirmation [Manual Build] | 813 / 0.45 | 694 / 0.63 | 1121 / 0.63 | 650 / 0.55 |
+| Candle Range Theory (Strict) [Manual Build] | 775 / 0.65 | 721 / 0.64 | 800 / 0.65 | 657 / 0.47 |
+| Asian Range London Sweep [Manual Build] | 0 / - | 2286 / 0.75 | 429 / 0.54 | 0 / - |
+| 9-20 EMA SMC Hybrid [Manual Build] | 424 / 0.77 | 332 / 0.74 | 560 / 0.63 | 450 / 0.56 |
+| SMA-Alignment Strategy (Approximate - ZIP Indicator Excluded) [Manual Build] | 0 / - | 0 / - | 1446 / 0.75 | 250 / 0.64 |
+| Dumb Money Concepts -- Confirmation Entry [Manual Build] | 513 / 0.80 | 193 / 0.56 | 613 / 0.64 | 286 / 1.03 |
+| Dumb Money Concepts -- Combined Confirmation [Manual Build] | 431 / 0.82 | 189 / 0.40 | 493 / 0.53 | 243 / 0.84 |
+| Heikin Ashi Trend Reversal [Manual Build] | 370 / 0.66 | 280 / 0.54 | 398 / 0.97 | 265 / 0.82 |
+| Ichimoku 1d Indicator-Exit [Manual Build] | 576 / 1.09 | 0 / - | 0 / - | 0 / - |
+| Ichimoku 15m Trailing-SL [Manual Build] | 134 / 1.38 | 95 / 2.63 | 117 / 0.69 | 163 / 1.36 |
+| Supply/Demand Zone Strategy [Manual Build] | 122 / 0.92 | 103 / 0.80 | 137 / 0.71 | 132 / 0.72 |
+
+**Why 5 strategies are INSUFFICIENT_DATA:**
+
+| Strategy | TF | Positions | Reason |
+|---|---|---|---|
+| Ichimoku 1d Trailing-SL [Manual Build] | 1d | 121 | timeframe problem: slow timeframe, few signals in 10 months |
+| SAR + SMC (CISD Entry) [Manual Build] | 5m | 254 | too few trades (254 < 300) |
+| Ichimoku 1h Trailing-SL [Manual Build] | 1h | 299 | too few trades (299 < 300) |
+| Ichimoku 15m Trailing-SL [Manual Build] | 15m | 509 | trades bunched in too few windows (4 of 8 with >= 30) |
+| SMA-Alignment Strategy (Approximate - ZIP Indicator Excluded) [Manual Build] | 1h | 1696 | trades bunched in too few windows (3 of 8 with >= 30) |
+
+## Day 6: comparison with luck and with simple baselines (Step 9)
+
+Net return per position as % of notional, same costs. Null = random entries with the same side mix, holding times and costs (500 simulated books). p = share of simulated books at least as good (smaller = stronger evidence). FDR = survives Benjamini-Hochberg at 5 % across all strategies.
+
+| Strategy | TF | Positions | Strategy % | Random-entry % (95th pct) | p | FDR | SMA-4h % | RSI-1h % | Beats luck | Beats both baselines |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Ichimoku 1d Trailing-SL [Manual Build] | 1d | 121 | +1.396 | +12.543 (+15.291) | 1.000 | no | -1.441 | -0.360 | no | yes |
+| Ichimoku 1d Indicator-Exit [Manual Build] | 1d | 576 | +0.185 | +1.060 (+1.856) | 0.964 | no | -1.441 | -0.360 | no | yes |
+| Heikin Ashi Trend Reversal [Manual Build] | 15m | 1313 | -0.261 | -0.439 (-0.307) | 0.016 | no | -1.441 | -0.360 | no | yes |
+| Ichimoku 15m Trailing-SL [Manual Build] | 15m | 509 | -0.304 | +3.255 (+3.990) | 1.000 | no | -1.441 | -0.360 | no | yes |
+| Laxman Rekha 5-EMA Trigger-Candle Strategy [Manual Build] | 5m | 13165 | -0.327 | -0.403 (-0.337) | 0.038 | no | -1.441 | -0.360 | no | yes |
+| Supply/Demand Zone Strategy [Manual Build] | 1h | 494 | -0.340 | -0.444 (-0.190) | 0.291 | no | -1.441 | -0.360 | no | yes |
+| HTF-LTF FVG/OB Confluence Entry [Manual Build] | 15m | 12360 | -0.346 | -0.292 (-0.248) | 0.968 | no | -1.441 | -0.360 | no | yes |
+| Fibonacci Golden Zone Retracement [Manual Build] | 1h | 17377 | -0.360 | -0.399 (-0.357) | 0.070 | no | -1.441 | -0.360 | no | yes |
+| FVG Pure + Inverse FVG (Structure) [Manual Build] | 1h | 17026 | -0.360 | -0.406 (-0.377) | 0.014 | no | -1.441 | -0.360 | no | no |
+| 9-20 EMA SMC Hybrid [Manual Build] | 15m | 1766 | -0.364 | -0.443 (-0.357) | 0.074 | no | -1.441 | -0.360 | no | no |
+| FVG Momentum Pullback (Structure) [Manual Build] | 1h | 8706 | -0.372 | -0.407 (-0.361) | 0.114 | no | -1.441 | -0.360 | no | no |
+| Candle Range Theory (Loose) [Manual Build] | 1h | 17679 | -0.375 | -0.432 (-0.406) | 0.002 | yes | -1.441 | -0.360 | YES | no |
+| FVG Pure + Inverse FVG (Fixed 1:2) [Manual Build] | 1h | 18695 | -0.378 | -0.435 (-0.410) | 0.002 | yes | -1.441 | -0.360 | YES | no |
+| Liquidity Sweep Reversal Strategy [Manual Build] | 15m | 23212 | -0.383 | -0.417 (-0.387) | 0.040 | no | -1.441 | -0.360 | no | no |
+| Candle Range Theory (Strict) [Manual Build] | 1h | 2953 | -0.383 | -0.418 (-0.351) | 0.200 | no | -1.441 | -0.360 | no | no |
+| Equal Highs/Lows Reversal [Manual Build] | 15m | 16803 | -0.387 | -0.350 (-0.316) | 0.962 | no | -1.441 | -0.360 | no | no |
+| OTE Liquidity Sweep Reversal [Manual Build] | 15m | 13685 | -0.387 | -0.432 (-0.399) | 0.008 | no | -1.441 | -0.360 | no | no |
+| Donchian LWTI Volume Confluence [Manual Build] | 15m | 5740 | -0.389 | -0.219 (-0.147) | 1.000 | no | -1.441 | -0.360 | no | no |
+| PDH/PDL Multi-Timeframe Reversal [Manual Build] | 5m | 8495 | -0.396 | -0.426 (-0.385) | 0.126 | no | -1.441 | -0.360 | no | no |
+| Liquidity Sweep + CISD (Pure Swing Variant) [Manual Build] | 5m | 8967 | -0.397 | -0.425 (-0.384) | 0.138 | no | -1.441 | -0.360 | no | no |
+| SAR + SMC (CISD Entry) [Manual Build] | 5m | 254 | -0.397 | -0.426 (-0.270) | 0.405 | no | -1.441 | -0.360 | no | no |
+| Ichimoku 1h Indicator-Exit [Manual Build] | 1h | 13466 | -0.405 | -0.413 (-0.362) | 0.399 | no | -1.441 | -0.360 | no | no |
+| Range Breakout Volume Confirmation [Manual Build] | 15m | 3278 | -0.410 | -0.284 (-0.200) | 0.986 | no | -1.441 | -0.360 | no | no |
+| Support/Resistance + Liquidity Sweep (Fixed-RR) [Manual Build] | 1h | 6983 | -0.420 | -0.469 (-0.418) | 0.062 | no | -1.441 | -0.360 | no | no |
+| Fixed Range Volume Profile -- Market Shape [Manual Build] | 1h | 19966 | -0.423 | -0.417 (-0.382) | 0.599 | no | -1.441 | -0.360 | no | no |
+| Daily Liquidity Scalping Strategy [Manual Build] | 1m | 28287 | -0.425 | -0.450 (-0.421) | 0.076 | no | -1.441 | -0.360 | no | no |
+| Ichimoku 15m Indicator-Exit [Manual Build] | 15m | 48161 | -0.430 | -0.427 (-0.413) | 0.647 | no | -1.441 | -0.360 | no | no |
+| Candlestick Pattern Reversal Strategy [Manual Build] | 15m | 17792 | -0.435 | -0.433 (-0.393) | 0.533 | no | -1.441 | -0.360 | no | no |
+| Market Structure Shift Reversal [Manual Build] | 15m | 9570 | -0.438 | -0.313 (-0.249) | 1.000 | no | -1.441 | -0.360 | no | no |
+| Liquidity Sweep + Engulfing Candle (Strict) [Manual Build] | 5m | 17647 | -0.439 | -0.427 (-0.389) | 0.689 | no | -1.441 | -0.360 | no | no |
+| Ichimoku 5m Indicator-Exit [Manual Build] | 5m | 134525 | -0.450 | -0.428 (-0.423) | 1.000 | no | -1.441 | -0.360 | no | no |
+| Liquidity Sweep + Engulfing Candle (Loose) [Manual Build] | 5m | 26935 | -0.451 | -0.428 (-0.397) | 0.914 | no | -1.441 | -0.360 | no | no |
+| Asian Range London Sweep [Manual Build] | 5m | 2715 | -0.456 | -0.423 (-0.320) | 0.677 | no | -1.441 | -0.360 | no | no |
+| Liquidity Sweep Multi-Confirmation [Manual Build] | 5m | 7424 | -0.468 | -0.388 (-0.309) | 0.932 | no | -1.441 | -0.360 | no | no |
+| Order Block Trading (Strict) [Manual Build] | 1h | 4002 | -0.470 | -0.259 (-0.151) | 1.000 | no | -1.441 | -0.360 | no | no |
+| Previous High/Low Reversal [Manual Build] | 15m | 15035 | -0.477 | -0.397 (-0.352) | 0.998 | no | -1.441 | -0.360 | no | no |
+| 4-Hour Range Breakout-Retest [Manual Build] | 5m | 11813 | -0.482 | -0.431 (-0.374) | 0.940 | no | -1.441 | -0.360 | no | no |
+| SMA-Alignment Strategy (Approximate - ZIP Indicator Excluded) [Manual Build] | 1h | 1696 | -0.537 | -0.331 (-0.169) | 0.974 | no | -1.441 | -0.360 | no | no |
+| Dumb Money Concepts -- Confirmation Entry [Manual Build] | 4h | 1605 | -0.570 | -0.661 (-0.294) | 0.339 | no | -1.441 | -0.360 | no | no |
+| Dumb Money Concepts -- Combined Confirmation [Manual Build] | 4h | 1356 | -0.635 | -0.606 (-0.232) | 0.541 | no | -1.441 | -0.360 | no | no |
+| Kotegawa Bear Market Reversal Strategy [Manual Build] | 15m | 4288 | -0.834 | -0.718 (-0.532) | 0.854 | no | -1.441 | -0.360 | no | no |
+| Ichimoku 1h Trailing-SL [Manual Build] | 1h | 299 | -1.919 | +5.904 (+7.111) | 1.000 | no | -1.441 | -0.360 | no | no |
+
+**Result: 2 of 42 strategies beat random entries significantly (FDR-controlled); 8 of 42 beat both trade-based baselines on mean return per position.** See the YES rows; each still has to pass the PF-interval and window/coin rules.
+Buy-and-hold context: the average coin lost about 43 % over the window (mean of per-strategy coin sets, one round trip of costs included).
+
+## Day 6: results by timeframe and live eligibility (Step 10)
+
+Live rule used here (stated, measured input): the Cloud scan of 10 coins took **865 s (14.4 min)** on commit 8185853 (Step 12/14 may lower it). A strategy on timeframe T is evaluated once per scan, so a new candle can wait up to one scan before it is seen, and a signal older than the 15-minute freshness window is rejected. So: T <= 5m cannot be served (a candle every 1-5 min vs one look per ~14 min); 15m is borderline (the scan is almost one full candle long); T >= 30m can be served.
+
+| Entry TF | Strategies | Positions | Strategies with PF x1 > 1 | Best PF x1 | Median PF x1 | ROBUST | FAILED | INSUFFICIENT | Can Cloud serve it live today? |
+|---|---|---|---|---|---|---|---|---|---|
+| 1m | 1 | 28287 | 0 | 0.69 | 0.69 | 0 | 1 | 0 | no (scan too slow for the candle period) |
+| 5m | 10 | 231940 | 0 | 0.76 | 0.65 | 0 | 9 | 1 | no (scan too slow for the candle period) |
+| 15m | 14 | 173512 | 1 | 1.44 | 0.64 | 0 | 13 | 1 | borderline |
+| 1h | 13 | 129342 | 1 | 1.28 | 0.61 | 0 | 11 | 2 | yes |
+| 4h | 2 | 2961 | 0 | 0.75 | 0.75 | 0 | 2 | 0 | yes |
+| 1d | 2 | 697 | 2 | 1.79 | 1.79 | 0 | 0 | 1 | yes |
+
+**Which strategies could be live today?** None is validated, so none should be promoted. Servable by timeframe (30m and slower): Candle Range Theory (Loose) [Manual Build], Candle Range Theory (Strict) [Manual Build], Dumb Money Concepts -- Combined Confirmation [Manual Build], Dumb Money Concepts -- Confirmation Entry [Manual Build], FVG Momentum Pullback (Structure) [Manual Build], FVG Pure + Inverse FVG (Fixed 1:2) [Manual Build], FVG Pure + Inverse FVG (Structure) [Manual Build], Fibonacci Golden Zone Retracement [Manual Build], Fixed Range Volume Profile -- Market Shape [Manual Build], Ichimoku 1d Indicator-Exit [Manual Build], Ichimoku 1d Trailing-SL [Manual Build], Ichimoku 1h Indicator-Exit [Manual Build] ... (see table); but servable is not the same as good.
+Count on 1m-5m (research-only candidates for `SINDHU_RESEARCH_ONLY_TIMEFRAMES`): 11 of 42 strategies.
+
+**Reading of the Day 6 corrected 50-coin validation (47 coins had data; 3 of the 50 listed coins have none in the window):**
+- **0 ROBUST, 1 FRAGILE, 36 FAILED, 5 INSUFFICIENT_DATA.** The earlier 10-coin result (32 FAILED / 10 INSUFFICIENT) holds in substance: widening to 47 coins gave 5 more strategies enough trades to be judged, and all of those failed.
+- The only strategy with a pooled PF above 1 is **Ichimoku 1d Indicator-Exit** (576 positions, PF 1.09, 95 % interval 0.71-1.61, PF 0.98 at 1.5x costs, 2 of 6 qualifying windows): that is indistinguishable from 1.0 and disappears with slightly higher costs.
+- **Two strategies (Candle Range Theory Loose; FVG Pure + Inverse FVG Fixed 1:2) beat random entries significantly** (p = 0.002, survives false-discovery control): their entries are slightly better than luck (-0.37 % vs -0.43 % per position). **Both still lose money after costs** (PF interval 0.56-0.67). Better than random is not the same as profitable; the cost of roughly 0.3 % per round trip is larger than the edge.
+- The entries of the other 40 strategies are not distinguishable from random entries with the same holding times.
