@@ -114,13 +114,18 @@ def test_delta_since_reports_only_stages_that_moved():
 
 def test_overhead_is_negligible_against_a_scan():
     """A scan has roughly 150 timed stages and about 8,000 database statements. Bound the cost per call generously (50 microseconds)."""
+    # Day 8 fix: measured as THIS thread's CPU time (time.thread_time), best of 5 batches, so a busy machine (3 test shards in
+    # parallel) cannot inflate it with wall-clock waiting. The 50 microsecond bound itself is unchanged.
     t = stage_timer.StageTimer()
-    n = 20000
-    t0 = time.perf_counter()
-    for _ in range(n):
-        with t.stage("s"):
-            pass
-    per_call = (time.perf_counter() - t0) / n
+    n = 5000
+    best = float("inf")
+    for _batch in range(5):
+        t0 = time.thread_time()
+        for _ in range(n):
+            with t.stage("s"):
+                pass
+        best = min(best, (time.thread_time() - t0) / n)
+    per_call = best
     assert per_call < 50e-6, f"{per_call * 1e6:.1f} microseconds per stage"
 
 
