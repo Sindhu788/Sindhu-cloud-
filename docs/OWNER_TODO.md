@@ -133,3 +133,19 @@ New backup folder `D:\sindhu_backup_day4\cloud_export_20261104_222811` (51 table
 5. **Do not open forward data** before 5 Jan 2027; new strategies go through `python -m data_platform.candidate_eval` with a filled claim (docs/templates/CANDIDATE_CLAIM_TEMPLATE.md).
 6. **Backup** `D:\sindhu_data` (not in git) to another drive or cloud storage monthly.
 7. Still yours from before: chat id, old Render services that may hold the bot token, secrets rotation, hosting decision, daily candle update schedule.
+
+## DAY 7 OWNER READINESS (5 Nov 2026) - what is ready, what is not
+| Item | Status today | Evidence |
+|---|---|---|
+| Keep-alive pinger for Cloud | **NOT DONE**: the free instance still sleeps; 4 wake-ups and ~6 deploy restarts in 11 hours (4-5 Nov) | Render logs "Started server process" (10 starts) |
+| Pinger status endpoint (`/api/ops/pinger`) | NOT VERIFIED - answers 401 "login required"; I do not use your login | HTTP 401 |
+| Owner chat id (private alerts) | **NOT configured on Cloud** - "status-ping skipped -- personal_chat_id not configured yet" at 05:37 UTC today; so there is no owner alert routing: stalls, failures and the daily status ping never reach you | Render log |
+| Bot token / chat id on this laptop | none (by design the laptop never holds the token) | local settings file: token, chat id and channel id empty |
+| Telegram sending on Cloud | ON ("Telegram sending is currently ON (restored from the last saved setting)"); the laptop copy is OFF | Render log; local `master_send_enabled=False` |
+| Other Render services (9 in total, all running, none suspended) | Sindhu-cloud--1 is the live one. `Sindhu-cloud-` (old, branch `main`, free) and `Trading-best-`, `-1`, `-2` (`python bot.py`), `alpha-signal-bot`, `sindhu-agency`, `Trading-main future`, `zaiqa-royale-portfolio` have no log lines since 1-3 Nov (they are asleep or idle) | `list_services`, `list_logs` |
+| Whether those old services define a Telegram token variable | **NOT VERIFIED**: the Render connector cannot list environment variable names or values; only you can look at the dashboard | connector limit |
+**Do these (order, plain steps):**
+1. **Pinger:** create a free account at an uptime service (for example UptimeRobot or cron-job.org), add a check of type "HTTP" to `https://sindhu-cloud-1.onrender.com/health` every 5 minutes. Note: the Render free plan has 750 free hours a month for ALL your free services together; keeping Sindhu-cloud--1 awake uses about 744, so first suspend services you do not use (step 3).
+2. **Owner chat id:** open Telegram, start a chat with the bot, send `/start`, then open the dashboard's Telegram settings and enter your personal chat id (the dashboard shows how to find it). This is what turns on the private status ping and failure alerts. I did not test it (no test messages are sent by me).
+3. **Old services:** on dashboard.render.com open each service listed above except `Sindhu-cloud--1` -> `Environment`. If you see a variable whose name contains `TELEGRAM` or `BOT_TOKEN`, that service can talk as your bot: suspend it (button `Suspend`) if you do not use it. Do not delete anything.
+4. **Who is in the Telegram groups (you do this in the Telegram app, nothing is sent):** open the group -> tap the group name at the top -> `Members` (a group) or `Subscribers` (a channel; only admins see the list). The number at the top is the member count; write down the count and any name you do not recognise. Tap `Administrators` to see which bots and people can post. To remove someone: open the member list, swipe left (phone) or right-click (computer) on the name -> `Remove`. Do this before deciding whether public signals should continue (docs/OWNER_DECISIONS.md).
