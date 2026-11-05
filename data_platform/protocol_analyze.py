@@ -19,7 +19,7 @@ import sys
 
 import numpy as np
 
-from data_platform import cost_model
+from data_platform import cost_model, metrics
 
 MIN_TOTAL_TRADES = 300
 MIN_WINDOWS = 6
@@ -48,8 +48,10 @@ def load_runs(out_dir):
 def analyze_strategy(sid, by_coin, start_ms, end_ms, edges):
     trades = []
     for sym, d in by_coin.items():
-        for t, net in zip(d["trades"], cost_model.reprice(d["trades"], 1.0)):
-            trades.append((t["entry_time"], t["exit_time"], sym, t["side"], net, t.get("risk_amount") or 0.0, t))
+        # unit of analysis = POSITION (Day 6 fix): partial-TP + remainder legs of one entry are one trade (see data_platform/metrics.py)
+        pos = metrics.aggregate_positions([dict(t, symbol=sym) for t in d["trades"]])
+        for t, net in zip(pos, cost_model.reprice(pos, 1.0)):
+            trades.append((t["entry_time"], t["exit_time"], sym, t["side"], net, t["risk_amount"], t))
     trades.sort(key=lambda x: x[1])
     n = len(trades)
     res = {"strategy_id": sid, "trades": n, "coins_run": len(by_coin)}
@@ -66,7 +68,8 @@ def analyze_strategy(sid, by_coin, start_ms, end_ms, edges):
     res["expectancy"] = round(float(net1.mean()), 4)
     r = np.array([x[4] / x[5] for x in trades if x[5]])
     res["avg_R"] = round(float(r.mean()), 4) if len(r) else None
-    res["t_stat"] = round(float(r.mean() / (r.std(ddof=1) / math.sqrt(len(r)))), 2) if len(r) > 2 and r.std(ddof=1) > 0 else 0.0
+    ts = metrics.t_stat(r)
+    res["t_stat"] = round(ts, 2) if ts is not None else 0.0
     res["bonferroni_ok"] = bool(res["t_stat"] >= BONFERRONI_T)
     eq = np.cumsum(net1)
     res["max_drawdown"] = round(float((np.maximum.accumulate(eq) - eq).max()), 2)

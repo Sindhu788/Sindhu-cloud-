@@ -88,3 +88,45 @@ Whole log 27 Jul - 4 Nov (112 rows): automatic 6 sent / 53 not sent; daily repor
 ## 6. Duplicate and restart safety (Step 16)
 The "already sent" memory is the database table `telegram_message_log` in Neon (not process memory): `sweep_unsent_qualifying_signals` skips every open position that already has a logged signal (`storage.has_telegram_signal_for_position`), and `duplicate_signal_check` blocks the same strategy+coin+direction inside the freshness window. A restart, redeploy or sleep/wake therefore cannot re-send an already logged signal; the freshness gate (15 min) also blocks late first sends. Proof: tests `test_telegram_hourly_sweep.py`, `test_signal_congestion_filter.py`, `test_telegram_freshness_gate.py` (all pass in the Day 4 full run); live: the 6 signals have exactly one automatic row each (the only position messaged more than once is a manual test on 29 Jul).
 **Gap (low):** if the process dies in the second between Telegram accepting a message and the log row being written, that signal could be sent again by the next sweep (only inside the 15-minute window). Not reproduced.
+
+
+---
+# Day 6 additions (5 Nov 2026)
+
+
+## D6-1. Confluence-gate fix flag `SINDHU_GATE_USE_POSITION_EXCHANGE` (Step 13) - OFF, not turned on
+**What the gate reads today (flag OFF, unchanged behaviour).** `paper_trading/telegram_bot.py::_gate_exchange` returns `exchanges.json "default"`. In Cloud mode that is `bybit`. `score_confluence(strategy, symbol, exchange, market_state, session, direction)` then uses the exchange in two of its four factors:
+1. *Market condition supports this signal* (`regime.classify_regime(exchange, symbol)` -> 72 h of 1h candles from that exchange). On Cloud Bybit is geo-blocked, the call fails or returns nothing, so the factor is `None` = "neutral, not counted".
+2. *No other strategy already crowding this coin* (`storage.get_open_paper_positions(exchange, symbol)`): positions are stored under the exchange they trade on (OKX on Cloud), so asking for `bybit` finds none and the factor is always **True**.
+Factors 3 (strategy not paused) and 4 (pattern memory, neutral below 5 samples) do not depend on the exchange.
+**What the fix reads (flag ON):** the exchange stored on the position (`pos["exchange"]`, OKX on Cloud), so factor 1 is really computed and factor 2 really looks at open positions on that coin.
+**Effect on the label (arithmetic from the code, factors 3 true and 4 neutral):** OFF = 2 of 2 counted factors true = "Strong" always. ON: regime true -> 3/3 Strong; regime false -> 2/3 = 0.67 = "Moderate"; regime false AND crowding false -> 1/3 = "Weak". So the fix can only lower labels, never raise them.
+**How often would the regime factor be unfavourable?** The REAL `classify_regime` code was run on 18,040 72-hour windows (every 4th hour, 10 coins, 1 Nov 2025 - 31 Aug 2026, Binance 1h candles as a stand-in for OKX; script `tools/regime_distribution.py`): **ranging 74.2 %, trending 23.7 %, high_volatility 2.1 %**. `high_volatility` is always unfavourable (2.1 %). A trending regime is unfavourable when the signal's market_state is not trending, and ranging when it is trending; the signal's market_state is not in my data, so the exact unfavourable share is **NOT VERIFIED**; the lower bound is 2.1 %, the upper bound is 100 %.
+**How many of the past candidates / sent signals would change: NOT VERIFIED.** (a) The 6 signals are described in section 2 above (Day 4, from Cloud queries) but without the candle history needed to replay the gate at send time; the local database only has 3 manual sends of an old DEXE position. (b) The crowding factor depends on which positions were open at each moment, which is not recoverable offline. What the owner can do after enabling the flag: nothing changes for public delivery of signals that were Strong with all factors true unless regime or crowding turns false, and then Strong -> Moderate/Weak (which only matters if `auto_send_high_confidence_only` is ON).
+**Recommendation (not applied):** leave OFF until the Cloud-side fingerprint logger (Step 15) and the forward test are running; turning it on changes which signals count as "high confidence", which is an owner decision.
+
+## D6-3. Prepared signal rules, OFF by default (Step 17)
+Code: `paper_trading/signal_rules.py`, wired into `send_signal_for_position` right after the congestion check; tests `tests/test_signal_rules.py` (6 tests). With no environment variable set nothing is ever blocked (tested). They only withhold a Telegram message; the paper trade is untouched. Both are owner decisions (not applied):
+| Rule | Switch (environment variable on Render) | Default |
+|---|---|---|
+| (a) block a second OPPOSITE-direction signal on the same coin within N minutes | `SINDHU_BLOCK_OPPOSITE_SIGNAL=1`, window `SINDHU_OPPOSITE_SIGNAL_WINDOW_MIN` (default 30) | OFF |
+| (b) cap target distance at N times the stop distance | `SINDHU_MAX_TARGET_STOP_RATIO=5` (any number > 0) | OFF |
+**Simulation on the 6 signals actually sent (rows from section 2 above, tested in `test_signal_rules.py`):** cap 5 would have withheld **#56 PUMP (9.9) and #57 BTC (9.6)** = 2 of 6; the 30-minute opposite rule would have withheld **#60 BTC short** (5 minutes after the BTC long #57) = 1 of 6; the ETH long/short pair is 4 h 56 min apart, so it needs a window of about 5 hours (a 360-minute window withholds #68). Together at the defaults: **3 of 6 signals (56, 57, 60) would not have been sent**, leaving ETH long 65, ETH short 68 and ZEC short 70. Sample size 6, so this shows what the rules do, not that they improve results (the 6 outcomes are too few: docs/SIGNAL_QUALITY.md section 3).
+
+## D6-2. Why the confidence score does not predict wins (Step 16)
+**Data:** local database `paper_positions`, 1,132 closed trades with a stored confidence, entries 29 Aug - 11 Sep 2026 (all BEFORE the 17 Sep recalibration, i.e. the old raw heuristic), base win rate 36.1 %. Script `tools/confidence_analysis.py` (read-only, numpy). Chronological split: train = older 60 % (679 trades), test = newer 40 % (453 trades). These trades are September paper results (see the contamination note in docs/BACKTEST_PROTOCOL.md section 8); here they are used only to study the score, not to pick strategies.
+| Measure | Result |
+|---|---|
+| AUC of stored confidence, all 1,132 trades | **0.463** (bootstrap 95 % interval 0.428-0.497; 0.5 = coin flip) |
+| AUC on the newer 40 % | 0.442 (interval 0.388-0.491) |
+| Brier score on the test part | 0.363 vs **0.228** for always guessing the base rate (worse than a constant guess) |
+| Offline recalibration (10-point buckets learned on the older 60 %, applied to the newer 40 %) | AUC 0.559, Brier 0.226 (about the base rate 0.228) - essentially no probability information gained |
+| Logistic regression on confidence + direction + market_state + session (trained older 60 %) | test AUC 0.410 (0.355-0.464), Brier 0.241 - worse than no model |
+**Reading:** out of sample no version I tried predicts wins better than the base rate; the stored confidence is, if anything, slightly anti-predictive (its interval lies below 0.5). Sample caveat: 1,132 trades from only two weeks of one market regime and 40-odd strategies, so the numbers describe that regime.
+**Causes (what the evidence supports):**
+1. *Not fitted to outcomes* (verified by reading `paper_trading/confidence.py`): 50 points + hand-picked bonuses (strategy version x 2, up to +20; number of lessons x 2; +15 when the trend agrees with the direction; -5 when ranging; a running win-rate term). None was ever fitted to results; the module's own docstring says so.
+2. *Mostly ranks strategies, not setups:* the strategy alone explains **29 %** of the variance of the score (measured), through the constant version bonus; but strategy identity does not predict wins here either.
+3. *Blind to direction, which dominated the outcome:* in the older 60 % longs won 40.7 % and shorts 33.5 %; in the newer 40 % longs won **18.6 %** and shorts **55.5 %**. The score only sees direction through the +15 trend-agreement bonus, so it cannot track this swing. **Regime shift** between train and test is the main reason offline models do not transfer.
+4. *Leakage:* none found; the strategy running win rate is backward-looking at decision time. Regression to the mean of that term is NOT tested.
+5. *Scaling / labels:* the score is clipped to 0-100 and the display after 17 Sep is replaced by the bucket's real win rate once a bucket has 25 trades (`confidence_calibration.py`); that cannot add information that the inputs do not contain. Label used here: win = position pnl > 0.
+**Prepared (not enabled):** `SINDHU_HIDE_CONFIDENCE=1` removes the "Confidence: x %" line from outgoing Telegram messages (default OFF, so messages are unchanged); `tests/test_hide_confidence.py` (3 tests). Recommendation for the owner: until a calibrated model beats the base rate in the forward test, do not rely on the number; hiding it is an owner decision.

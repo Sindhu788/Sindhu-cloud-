@@ -1,3 +1,33 @@
+[PROGRESS 57% | steps 16/28 done | now: full suite, then push 1 (Step 14) and Cloud measurement | status: WAITING | elapsed ~5h | blockers: none]
+
+# Day 6 checkpoint (5 Nov 2026)
+NOTE: the Day 6 prompt is cut off inside Step 21; Steps 22-28 and the final-report format are unknown and cannot be done or counted.
+| Step | State | Evidence |
+|---|---|---|
+| 1 baseline | DONE | docs/DAY6_BASELINE.md (local app was found dead; dataset 24.52 M rows, not 24.3 M; pinger endpoint NOT VERIFIED - login) |
+| 2 local app | PARTIAL | normal start 14 s, duplicate refused, kill recovery 22 s; sleep/wake NOT VERIFIED; docs/RUNBOOK.md 11d |
+| 3 plan | DONE | mapping table in DAY6_BASELINE.md |
+| 4 metrics audit | DONE | cause: legs counted as trades + per-leg R; tools/recompute_metrics.py; docs/BACKTEST_RESULTS.md "Metrics audit" |
+| 5 metrics fix | DONE | data_platform/metrics.py, tests/test_metrics.py (9, one fails on old code); labels unchanged |
+| 6 rigour layer | DONE | data_platform/rigor.py + protocol_rigor.py, tests/test_rigor.py (8); docs/BACKTEST_PROTOCOL.md section 10 |
+| 7 holdout audit | DONE | NOT CLEAN (Day 4 used Sep-Oct for 10 strategies x 3 coins); forward test pre-registered (sections 8-9; manifest/forward_registry.json) |
+| 8 50-coin re-run | DONE | 2100 runs, 47 coins with data; 0 ROBUST, 1 FRAGILE, 36 FAILED, 5 INSUFFICIENT; docs/STRATEGY_FORENSICS.md |
+| 9 comparison | DONE | 2 of 42 beat random entries (FDR) but both lose after costs |
+| 10 timeframe report | DONE | STRATEGY_FORENSICS.md; 11 strategies on 1m-5m cannot be served live |
+| 11 shortlist | DONE | docs/OWNER_DECISIONS.md (recommendation only) |
+| 12 scan speed | PARTIAL | measured: CPU 29 s/scan (Day 4 said 185 s, not reproduced); 72% of pages are 1m candles; research-only flag cuts pages 72-87% (OFF); golden identical; no speedup delivered without owner OK |
+| 13 gate flag analysis | DONE | docs/SIGNAL_QUALITY.md D6-1 (regime shares measured; past-signal effect NOT VERIFIED) |
+| 14 push 1 + Cloud measurement | NOT STARTED | after Step 12 |
+| 15 source mismatch | DONE | OKX global unreachable (NOT VERIFIED); OKX US stand-in table; fingerprint logger OFF + tool + 3 tests |
+| 16 confidence | DONE | AUC 0.463 out of sample; docs/SIGNAL_QUALITY.md D6-2; SINDHU_HIDE_CONFIDENCE flag OFF + 3 tests |
+| 17 signal rules | DONE | paper_trading/signal_rules.py OFF; 3 of 6 sent signals would have been withheld; 6 tests |
+| 18 pipeline doc + research-only flag | DONE | docs/PIPELINE.md; SINDHU_RESEARCH_ONLY_TIMEFRAMES OFF + 3 tests |
+| 19 candidate tool | DONE | data_platform/candidate_eval.py + sandbox.py; 7 isolation/dossier tests; proof run on one existing strategy |
+| 20 health page | NOT STARTED (NICE) | |
+| 21 weekly scorecard | NOT STARTED | prompt text cut off in this step; facts-only scorecard planned |
+Commits so far (local branch recovery/clean, NOT pushed): see `git log` ; pushes used today: 0 of 3.
+
+---- Day 5 checkpoint (kept below) ----
 [PROGRESS 60% | steps 16/30 done (Steps 19-30 unknown: prompt truncated) | now: closeout (full tests, push 3, report) | status: RUNNING | elapsed ~5h | data download: 100% | blockers: none]
 
 # Day 5 checkpoint (5 Nov 2026 ~01:55 PKT / 20:55 UTC)
