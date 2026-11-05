@@ -779,5 +779,15 @@ Verified facts only; details and evidence are in docs/ (INVESTIGATION_REPORT, DE
 - **Holdout:** Sep-Oct 2026 is NOT clean (Day 4 used it); a forward test from 6 Nov 2026 is pre-registered (evaluate no earlier than 5 Jan 2027, >= 100 positions).
 - **Prepared and OFF (owner decisions):** `SINDHU_RESEARCH_ONLY_TIMEFRAMES`, `SINDHU_BLOCK_OPPOSITE_SIGNAL`, `SINDHU_MAX_TARGET_STOP_RATIO`, `SINDHU_HIDE_CONFIDENCE`, `SINDHU_CANDLE_FINGERPRINT` (and the older `SINDHU_GATE_USE_POSITION_EXCHANGE`). Docs: docs/PIPELINE.md, docs/SIGNAL_QUALITY.md.
 - **Candidate tool:** `python -m data_platform.candidate_eval` (credential-free, network-locked sandbox, dossier + claim template).
-- **Scan speed:** the CPU work of a scan is about 29 s locally; Cloud time is mostly waiting for exchange pages (72 % are 1m candles). docs/SCAN_PROFILE.md section 11.
+- **Scan speed:** the CPU work of a scan is about 29 s locally; Cloud time is mostly waiting for exchange pages (72 % are 1m candles). docs/SCAN_PROFILE.md section 11. [CORRECTED on Day 7 (5 Nov 2026): wrong for warm scans (docs/SCAN_PROFILE.md section 12).]
 - **Facts and hand-off:** docs/WEEKLY_SCORECARD.md; checkpoint docs/PROGRESS_CHECKPOINT.md. The Day 6 prompt text stopped inside Step 21: Steps 22-28 were never received.
+
+## STATUS 5 Nov 2026 - Day 7 (finish what was cut, explain the Cloud numbers, audit the signals, prepare decisions)
+- **Verified/corrected:** docs/DAY7_BASELINE.md. 12 public signals (not 11), all from strategies labelled FAILED, 10 of 12 from 1m/5m strategies; memory on identical code varies 389-459 MB between instances (no regression); paper P&L since the 3 Nov reset: 34 closed trades, net -$11.26, profit factor 0.17 (tiny sample).
+- **Why every signal says "Strong, 2/2":** the send gate scores confluence on Bybit (blocked from Cloud), so the regime factor silently drops out; with the real exchange 9 of 12 would have been withheld. docs/SIGNAL_QUALITY.md D7-1, D7-2.
+- **Decision pack for the owner:** docs/OWNER_DECISIONS.md (seven OFF switches, simulated effects, exact Render steps, the question whether public signals should continue). Nothing was switched on.
+- **Data:** full re-hash of 748 files / 24,587,700 rows: PASS; second copy on C:; daily update runbook (docs/RUNBOOK.md section 12); downloader no longer marks unpublished files absent.
+- **Backups:** new Cloud export (51 tables) + throwaway restore: 49 OK; the export now redacts secrets; old backup folders still hold two secrets in plain text (docs/SECURITY_REVIEW.md #1).
+- **Strategy work:** Ichimoku 1d Indicator-Exit stays FRAGILE (docs/STRATEGY_FORENSICS.md dossier); the 5 INSUFFICIENT_DATA strategies need more history; candidate tool proven on a demo (docs/NEW_STRATEGY_HOWTO.md); forward-test report/registration tools (docs/BACKTEST_PROTOCOL.md section 11).
+- **Reviews and plans:** docs/WEEKLY_REVIEW.md (appended), docs/GO_LIVE_CRITERIA.md (0 of 15 gates met), docs/PROMO_PLAN.md (rewritten, compliant), docs/SECURITY_REVIEW.md (15 findings).
+- **Not done:** Step 16 (local health page); sleep/wake test of the local app (NOT VERIFIED).

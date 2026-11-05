@@ -129,7 +129,7 @@ New backup folder `D:\sindhu_backup_day4\cloud_export_20261104_222811` (51 table
 1. **Keep Cloud awake** (external pinger): without it the free instance sleeps, scans stop, and signals are irregular (it restarted three times overnight).
 2. **Read docs/WEEKLY_SCORECARD.md and docs/OWNER_DECISIONS.md** (pause recommendation list; nothing was paused).
 3. **Decide the prepared switches** (all OFF, set on Render): `SINDHU_RESEARCH_ONLY_TIMEFRAMES=1m,3m,5m` (cuts exchange pages 87 %), `SINDHU_MAX_TARGET_STOP_RATIO=5` and `SINDHU_BLOCK_OPPOSITE_SIGNAL=1` (would have withheld 3 of the first 6 signals), `SINDHU_HIDE_CONFIDENCE=1` (the confidence number carries no information), `SINDHU_GATE_USE_POSITION_EXCHANGE=1` (docs/SIGNAL_QUALITY.md D6-1).
-4. **Memory:** Cloud now reads 439-444 MB (hard guard 450 MB). If you see restarts, enabling the research-only flag lowers memory about 46 MB in the local test.
+4. **Memory:** Cloud now reads 439-444 MB (hard guard 450 MB). If you see restarts, enabling the research-only flag lowers memory about 46 MB in the local test. [CORRECTED on Day 7 (5 Nov 2026): that was a spread between instances on identical code (389-459 MB), not a regression; see docs/SCAN_PROFILE.md section 13.]
 5. **Do not open forward data** before 5 Jan 2027; new strategies go through `python -m data_platform.candidate_eval` with a filled claim (docs/templates/CANDIDATE_CLAIM_TEMPLATE.md).
 6. **Backup** `D:\sindhu_data` (not in git) to another drive or cloud storage monthly.
 7. Still yours from before: chat id, old Render services that may hold the bot token, secrets rotation, hosting decision, daily candle update schedule.
