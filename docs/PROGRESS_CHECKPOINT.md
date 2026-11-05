@@ -22,4 +22,4 @@ NOTE: the Day 5 prompt was cut off in the middle of Step 18, so Steps 19-30 are 
 | 16 experiment tracker | DONE | experiments.db, 4 tests, real-data reproducibility check identical hash |
 | 17 protocol doc + enforcement | DONE | docs/BACKTEST_PROTOCOL.md; loader enforces the holdout |
 | 18 run 42 strategies | RUNNING | 420 runs (42 x 10 coins, Nov 2025 - Aug 2026), started 20:41 UTC |
-Open: memory on Cloud 449-483 MB of 512 (fix written, not deployed); housekeeping(light) took up to 108 s inside the scan (moved to its own thread, not deployed); warm Cloud scans still take ~3 min per coin because every new 15m candle re-evaluates 62 strategies on 0.15 CPU.
+Open: warm Cloud scans still ~85 s per coin on 0.15 CPU; Daily Liquidity Scalping PF-vs-t discrepancy unreconciled; engine before/after timing not measured; OKX-vs-Binance candle comparison NOT VERIFIED.
