@@ -1,4 +1,4 @@
-[PROGRESS 40% | steps 12/30 done | now: Step 18 - protocol run of the 42 strategies (background) + push 2 prep | status: RUNNING | elapsed ~4h | data download: 100% complete (700 files, 24.3 M rows) | blockers: none]
+[PROGRESS 60% | steps 16/30 done (Steps 19-30 unknown: prompt truncated) | now: closeout (full tests, push 3, report) | status: RUNNING | elapsed ~5h | data download: 100% | blockers: none]
 
 # Day 5 checkpoint (5 Nov 2026 ~01:55 PKT / 20:55 UTC)
 NOTE: the Day 5 prompt was cut off in the middle of Step 18, so Steps 19-30 are unknown to me and cannot be done or counted.
@@ -9,7 +9,7 @@ NOTE: the Day 5 prompt was cut off in the middle of Step 18, so Steps 19-30 are 
 | 3 inventory | DONE | DAY5_BASELINE.md |
 | 4 root cause | DONE | docs/SCAN_PROFILE.md section 10: Bybit geo-block, 30 s retry per call, confluence gate reads the wrong exchange |
 | 5 fix | DONE | exchange circuit breaker, per-thread ccxt, tests (8 + 2); pushed `5ad081b` |
-| 6 push + Cloud measurement | PARTIAL | first COMPLETE Cloud scan since 3 Nov: 20:12:39 -> 20:45:00 UTC = 32 min 21 s cold, 10 coins, 0 errors. A second complete scan and peak memory (483 MB!) still open; fixes ready for push 2 |
+| 6 push + Cloud measurement | DONE | first COMPLETE Cloud scan since 3 Nov: 20:12:39 -> 20:45:00 UTC = 32 min 21 s cold, 10 coins, 0 errors. Push 2 (8185853) live: second complete scan 865 s (14.4 min, 10 coins, 0 errors) vs 1941 s before; RSS ~407-411 MB (was 487 MB). Soft memory-guard (400 MB) still triggers; hard (450 MB) no longer |
 | 7 data plan | DONE | docs/DATA_PLAN.md, universe v2 (50 coins) |
 | 8 downloader | DONE | 12 tests incl. kill/resume, 429 storms, disk guard, checksum |
 | 9 launch pilot | DONE | ran independently, pilot PASS (109/110 files ok) then expansion COMPLETE 100% |
@@ -21,5 +21,5 @@ NOTE: the Day 5 prompt was cut off in the middle of Step 18, so Steps 19-30 are 
 | 15 cost model | DONE | data_platform/cost_model.py, 3 tests, x1/x1.5/x2 sensitivity by exact re-pricing |
 | 16 experiment tracker | DONE | experiments.db, 4 tests, real-data reproducibility check identical hash |
 | 17 protocol doc + enforcement | DONE | docs/BACKTEST_PROTOCOL.md; loader enforces the holdout |
-| 18 run 42 strategies | RUNNING | 420 runs (42 x 10 coins, Nov 2025 - Aug 2026), started 20:41 UTC |
-Open: memory on Cloud 449-483 MB of 512 (fix written, not deployed); housekeeping(light) took up to 108 s inside the scan (moved to its own thread, not deployed); warm Cloud scans still take ~3 min per coin because every new 15m candle re-evaluates 62 strategies on 0.15 CPU.
+| 18 run 42 strategies | DONE | 420 runs; 32 FAILED, 10 INSUFFICIENT_DATA, 0 ROBUST; docs/BACKTEST_RESULTS.md; holdout untouched |
+Open: warm Cloud scans still ~85 s per coin on 0.15 CPU; Daily Liquidity Scalping PF-vs-t discrepancy unreconciled; engine before/after timing not measured; OKX-vs-Binance candle comparison NOT VERIFIED.

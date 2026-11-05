@@ -33,4 +33,4 @@ Changes: (1) the day-change check now uses precomputed integer UTC days instead 
 The Parquet loader reads a coin-month in about 0.06 s; a 10-month frame loads in about 1 s (the old SQLite path needed the 10 GB database).
 
 ## 7. Run record
-See docs/BACKTEST_RESULTS.md (written when the run finishes) for the per-strategy table, the command that produced it and the elapsed time.
+See docs/BACKTEST_RESULTS.md (written; 420 runs, 0 ROBUST) for the per-strategy table, the command that produced it and the elapsed time.
