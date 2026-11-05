@@ -1,4 +1,4 @@
-[PROGRESS 22% | steps 5/22 done | now: Step 6 security review (then 7-11) | status: RUNNING | elapsed ~2h30m | blockers: none]
+[PROGRESS 63% | steps 14/22 done | now: Step 15 forward-test report script | status: RUNNING | elapsed ~6h | blockers: none]
 
 # Day 7 checkpoint (5 Nov 2026)
 | Step | State | Evidence |
@@ -8,7 +8,15 @@
 | 3 data upkeep | DONE | incremental update run; full re-hash 748 files / 24,587,700 rows PASS; second copy C:\sindhu_data_copy_20261105 PASS; dry run; downloader fix (unpublished files = pending, not absent); owner steps RUNBOOK section 12 |
 | 4 backups | DONE | new Cloud export cloud_export_20261105_172207 (51 tables, 14,817 rows) + throwaway restore: 49 ok, 0 mismatched; export script made resilient |
 | 5 owner readiness | DONE | docs/OWNER_TODO.md "DAY 7 OWNER READINESS" |
-| 6 security review | NEXT | |
+| 6 security review | DONE | docs/SECURITY_REVIEW.md Day 7: 15 findings; backups now redact secrets, path-name validation, ignore rules |
+| 7 scan time | DONE | docs/SCAN_PROFILE.md section 12: identical candidates proven; warm Cloud coin loop ~670 s not explained by CPU/candles; DB round trips hypothesis (NOT VERIFIED) |
+| 8 memory | DONE | section 13: no regression; same code varies 389-459 MB across instances; local 192-202 MB all builds |
+| 9 Strong 2/2 | DONE | docs/SIGNAL_QUALITY.md D7-1: gate reads bybit; 9 of 12 would be withheld with the real exchange |
+| 10 signal audit | DONE | D7-2: 12 signals, all FAILED strategies, 10 from 1m/5m |
+| 11 decision pack | DONE | docs/OWNER_DECISIONS.md Day 7; new OFF flag SINDHU_SIGNAL_DISCLAIMER (no message had a disclaimer) |
+| 12 Ichimoku | DONE | STRATEGY_FORENSICS.md: FRAGILE stays FRAGILE (one window, period-sensitive, worse than random shorts) |
+| 13 INSUFFICIENT_DATA | DONE | STRATEGY_FORENSICS.md table; need more history (warm-up gap) |
+| 14 candidate tool | DONE | demo run FAILED PF 0.76 in ~2 min; isolation tests 7 green; docs/NEW_STRATEGY_HOWTO.md |
 
 ---- Day 6 checkpoint (kept below) ----
 [PROGRESS 64% | steps 18/28 done | now: closeout (final docs push) | status: DONE after push | elapsed ~6h40m | blockers: none]
