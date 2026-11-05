@@ -109,6 +109,42 @@ def _normalize_params(params):
     return tuple(_normalize_param(p) for p in params)
 
 
+# ------------------------------------------------------------------ cheap usage counters (Day 8)
+# In-memory only (no database writes): how many statements the process ran, how long they took, how many connections it checked out and how long that took.
+# A scan logs the delta at its end so the next Cloud scans show how much of the warm-scan time is the database (docs/SCAN_PROFILE.md section 15).
+import threading as _stat_threading
+import time as _stat_time
+
+DB_STATS = {"queries": 0, "query_seconds": 0.0, "commits": 0, "commit_seconds": 0.0, "checkouts": 0, "checkout_seconds": 0.0}
+_db_stats_lock = _stat_threading.Lock()
+
+
+def _db_note(kind, seconds):
+    try:
+        with _db_stats_lock:
+            if kind == "query":
+                DB_STATS["queries"] += 1; DB_STATS["query_seconds"] += seconds
+            elif kind == "commit":
+                DB_STATS["commits"] += 1; DB_STATS["commit_seconds"] += seconds
+            else:
+                DB_STATS["checkouts"] += 1; DB_STATS["checkout_seconds"] += seconds
+    except Exception:
+        pass
+
+
+def db_stats_snapshot():
+    with _db_stats_lock:
+        return dict(DB_STATS)
+
+
+def db_stats_summary(before, now=None):
+    """One log fragment: statements, seconds, commits and connection checkouts since `before` (a db_stats_snapshot())."""
+    now = now or db_stats_snapshot()
+    d = {k: now[k] - before.get(k, 0) for k in now}
+    return (f"db: {d['queries']} statements {d['query_seconds']:.1f}s, {d['commits']} commits {d['commit_seconds']:.1f}s, "
+            f"{d['checkouts']} connection checkouts {d['checkout_seconds']:.1f}s (all threads)")
+
+
 class _PGConnection:
     """Wraps a psycopg2 connection to look enough like sqlite3.Connection
     for storage.py's existing call patterns: .execute(sql, params),
@@ -120,12 +156,20 @@ class _PGConnection:
 
     def execute(self, sql, params=()):
         cur = self._conn.cursor()
-        cur.execute(_translate_placeholders(sql), _normalize_params(params))
+        t0 = _stat_time.perf_counter()
+        try:
+            cur.execute(_translate_placeholders(sql), _normalize_params(params))
+        finally:
+            _db_note("query", _stat_time.perf_counter() - t0)
         return _PGCursorResult(cur)
 
     def executemany(self, sql, seq_of_params):
         cur = self._conn.cursor()
-        cur.executemany(_translate_placeholders(sql), [_normalize_params(p) for p in seq_of_params])
+        t0 = _stat_time.perf_counter()
+        try:
+            cur.executemany(_translate_placeholders(sql), [_normalize_params(p) for p in seq_of_params])
+        finally:
+            _db_note("query", _stat_time.perf_counter() - t0)
         return _PGCursorResult(cur)
 
     def executescript(self, sql):
@@ -140,7 +184,11 @@ class _PGConnection:
         return _PGCursorResult(cur)
 
     def commit(self):
-        self._conn.commit()
+        t0 = _stat_time.perf_counter()
+        try:
+            self._conn.commit()
+        finally:
+            _db_note("commit", _stat_time.perf_counter() - t0)
 
     def rollback(self):
         self._conn.rollback()
@@ -266,7 +314,11 @@ def get_postgres_conn():
     to bypass all other checks. Failing fast after 10s means a genuinely
     unreachable database surfaces as a clear, loggable connection error
     instead of an indefinite, silent hang."""
-    return _PGConnection(_pool_checkout())
+    t0 = _stat_time.perf_counter()
+    try:
+        return _PGConnection(_pool_checkout())
+    finally:
+        _db_note("checkout", _stat_time.perf_counter() - t0)
 
 
 # --------------------------------------------------------------- schema

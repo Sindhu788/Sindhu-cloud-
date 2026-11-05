@@ -40,6 +40,8 @@ LIVE_CANDLES_ONLY = env_flag("SINDHU_LIVE_CANDLES")
 from paper_trading import config as pt_config
 from backtest_engine import concepts
 from paper_trading import memory_guard
+from paper_trading import memory_trim, stage_timer
+from data_engine import db_backend as _db_backend
 from paper_trading import coin_filter, coin_blacklist, coin_priority, live_feed, market_state, strategy_matcher, lesson_matcher
 from paper_trading import signal_generator, confidence, risk_manager, guards, position_manager
 from paper_trading import auto_avoid, drawdown_guard, kill_switch, lesson_auto_apply, telegram_bot, capital_allocation
@@ -597,14 +599,26 @@ class PaperTradingEngine:
         self._guards.release_all()
 
         self._scan_progress = {"in_progress": True, "current_symbol": None, "index": 0, "total": len(shortlist)}
+        # Day 8: light per-stage timing (in-memory counters only, no database writes) so the Cloud log shows where the scan time goes.
+        stages = self._stages = stage_timer.StageTimer()
+        stages.add("before_coins", time.monotonic() - tick_started_monotonic)
+        db_before = _db_backend.db_stats_snapshot()
+        coin_mark = None
         for entry in shortlist:
+            if coin_mark:
+                self._log_coin_stages(stages, *coin_mark)
             symbol = entry["symbol"]
             self._current_scan['coins_scanned'] += 1
             self._scan_progress["index"] += 1
+            if LIVE_CANDLES_ONLY and self._scan_progress["index"] > 1:
+                with stages.stage("memory_release"):
+                    memory_trim.release_memory()           # hand the previous coin's temporary frames back (no effect on any result)
+            coin_mark = (symbol, self._scan_progress["index"], len(shortlist), stages.snapshot()[0], time.monotonic())
             self._scan_progress["current_symbol"] = symbol
             self._beat('coins', idx=self._scan_progress["index"], total=len(shortlist), symbol=symbol)
             try:
-                snapshot = market_state.classify(exchange, symbol)
+                with stages.stage("classify"):
+                    snapshot = market_state.classify(exchange, symbol)
             except Exception as e:
                 self._log(f"[paper-trading] market state error {symbol}: {e!r}")
                 self._current_scan['errors'] += 1
@@ -616,10 +630,11 @@ class PaperTradingEngine:
                 continue
             self._record_candle_receipt(exchange,symbol,snapshot)
 
-            closed += len(position_manager.monitor_and_close(
-                exchange, symbol, snapshot["price"],
-                high=snapshot.get("high"), low=snapshot.get("low"),
-            ))
+            with stages.stage("monitor_positions"):
+                closed += len(position_manager.monitor_and_close(
+                    exchange, symbol, snapshot["price"],
+                    high=snapshot.get("high"), low=snapshot.get("low"),
+                ))
 
             events = self._event_tracker.check(snapshot)
             if not events:
@@ -627,22 +642,27 @@ class PaperTradingEngine:
                 continue
 
             try:
-                o, r = self._process_coin(exchange, symbol, snapshot, settings)
+                with stages.stage("process_coin"):
+                    o, r = self._process_coin(exchange, symbol, snapshot, settings)
                 opened += o
                 rejected += r
             except Exception as e:
                 self._log(f"[paper-trading] decision error {symbol}: {e!r}")
                 self._current_scan['errors'] += 1
 
+        if coin_mark:
+            self._log_coin_stages(stages, *coin_mark)
         self._scan_progress["in_progress"] = False
         self._scan_progress["current_symbol"] = None
         self._beat('finishing', force=True)
 
         # One batched write for every decision the whole coin-scan loop
         # above just buffered -- see _flush_decisions' own docstring.
-        self._flush_decisions()
+        with stages.stage("flush_decisions"):
+            self._flush_decisions()
 
-        closed += self._monitor_orphaned_positions(exchange, client, shortlisted_symbols)
+        with stages.stage("orphan_positions"):
+            closed += self._monitor_orphaned_positions(exchange, client, shortlisted_symbols)
 
         # Lesson Auto-Apply (item 2): re-scan pattern memory once per tick
         # and promote/refresh any pattern that now clears the auto-apply
@@ -662,7 +682,9 @@ class PaperTradingEngine:
         except Exception as e:
             self._log(f"[paper-trading] capital allocation error: {e!r}")
 
-        self._housekeeping()
+        with stages.stage("housekeeping_full"):
+            self._housekeeping()
+        self._log_scan_stages(stages, db_before, tick_started_monotonic)
 
         self._tick_count += 1
         self._last_tick_at = _now_iso()
@@ -671,6 +693,30 @@ class PaperTradingEngine:
             "shortlisted": shortlisted_symbols, "opened": opened, "closed": closed, "rejected": rejected,
         }
         self._emit({"type": "tick", "summary": self._last_summary, "at": self._last_tick_at})
+
+    def _log_coin_stages(self, stages, symbol, idx, total, before, t_start):
+        """One log line per coin: seconds in each stage for that coin plus the process memory. Never raises."""
+        try:
+            d = stages.delta_since(before)
+            rest = d.get("process_coin", 0.0) - d.get("evaluate_strategies", 0.0) - d.get("open_risk_db", 0.0)
+            parts = [f"{k} {v:.1f}s" for k, v in sorted(d.items(), key=lambda kv: -kv[1]) if k != "process_coin"]
+            if "process_coin" in d:
+                parts.append(f"decide_other {max(rest, 0.0):.1f}s")
+            self._log(f"[scan-coin] {idx}/{total} {symbol} {time.monotonic() - t_start:.1f}s | " + " | ".join(parts) + f" | rss {memory_guard.rss_mb():.0f} MB")
+        except Exception:
+            pass
+
+    def _log_scan_stages(self, stages, db_before, tick_started_monotonic):
+        """One summary line per scan: seconds per stage, database usage and memory release. Never raises."""
+        try:
+            order = ["before_coins", "classify", "monitor_positions", "process_coin", "evaluate_strategies", "open_risk_db", "memory_release",
+                     "flush_decisions", "orphan_positions", "housekeeping_full", "telegram_sweep"]
+            mt = memory_trim.stats()
+            self._log(f"[scan-stages] total {time.monotonic() - tick_started_monotonic:.0f}s | {stages.summary(order)} | "
+                      f"{_db_backend.db_stats_summary(db_before)} | memory release x{mt['calls']} {mt['seconds']:.1f}s total (trimmed {mt['trimmed']}x) | "
+                      f"rss {memory_guard.rss_mb():.0f} MB")
+        except Exception:
+            pass
 
     def _housekeeper_loop(self, engine_thread, every=60):
         """Day 5: the time-critical duties (Telegram fresh-signal sweep, owner watchdog, reconciliation) run on THEIR OWN thread once a minute.
@@ -713,7 +759,8 @@ class PaperTradingEngine:
         if self._last_telegram_sweep_at is None or (now - self._last_telegram_sweep_at) >= TELEGRAM_SWEEP_INTERVAL_SECONDS:
             self._last_telegram_sweep_at = now
             try:
-                sent = telegram_bot.sweep_unsent_qualifying_signals()
+                with (getattr(self, "_stages", None) or stage_timer.StageTimer()).stage("telegram_sweep"):
+                    sent = telegram_bot.sweep_unsent_qualifying_signals()
                 if sent:
                     self._log(f"[paper-trading] Telegram hourly sweep sent {len(sent)} previously-unsent signal(s): "
                                f"{[s['position_id'] for s in sent]}")
@@ -837,7 +884,9 @@ class PaperTradingEngine:
         strategies = strategy_matcher.relevant_strategies(symbol, market_type)
         lessons = lesson_matcher.relevant_lessons(market_type, settings.get("lesson_default_timeframe", "1h"))
 
-        candidates = signal_generator.generate_candidates(exchange, symbol, strategies, lessons, settings)
+        _st = getattr(self, "_stages", None) or stage_timer.StageTimer()
+        with _st.stage("evaluate_strategies"):
+            candidates = signal_generator.generate_candidates(exchange, symbol, strategies, lessons, settings)
         if settings['_scan_diagnostics']:
             self._log_decision(exchange,symbol,{},'no_trade',
                                '; '.join(sorted(set(settings['_scan_diagnostics'])))[:300],snapshot)
@@ -913,7 +962,8 @@ class PaperTradingEngine:
                     rejected += 1
                     continue
 
-            o, r = self._open_if_allowed(book, exchange, symbol, pick, snapshot, settings)
+            with _st.stage("open_risk_db"):
+                o, r = self._open_if_allowed(book, exchange, symbol, pick, snapshot, settings)
             opened += o
             rejected += r
 
