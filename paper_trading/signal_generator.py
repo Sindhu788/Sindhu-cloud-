@@ -60,6 +60,7 @@ def strategy_candidates(exchange, symbol, strategies, lessons, settings):
     candidates = []
     start_ms = _lookback_start_ms(settings)
     from paper_trading import research_only
+    from data_engine import candle_fingerprint
     for s in strategies:
         cfg = s["config"]
         if research_only.is_research_only(cfg.timeframes.get("entry")):      # Day 6: OFF unless SINDHU_RESEARCH_ONLY_TIMEFRAMES is set
@@ -73,6 +74,7 @@ def strategy_candidates(exchange, symbol, strategies, lessons, settings):
         try:
             for role,tf in ctx.roles.items():
                 ctx.frames[role],_=closed_recent_frame(ctx.frames[role],tf,label=f"{exchange}:{symbol}:{role}")
+                candle_fingerprint.note(exchange, symbol, tf, ctx.frames[role])      # Day 6: OFF unless SINDHU_CANDLE_FINGERPRINT=1
         except ValueError as exc:
             settings.get('_scan_diagnostics',[]).append(str(exc))
             continue

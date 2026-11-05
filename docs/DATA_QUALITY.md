@@ -119,3 +119,21 @@ OKX (where Cloud trades) cannot be reached from this PC (its history endpoint fa
 | UNIUSDT | 744 | 4.35 | 45.1 | 4.06 | 0.99899 | 12.55 |
 Reading: for the large coins the venues agree to about 1 basis point (0.01 %) on average, far below the 0.1 % commission; for thin coins (PEPE) the mean close difference is 16 bps with a worst hour of 238 bps and return correlation 0.9885, i.e. signals on thin coins will not transfer one-to-one between venues. This is a Binance-vs-Bybit number; the Binance-vs-OKX difference is NOT VERIFIED (not reachable from here) and should be measured once from Render (the Cloud process can fetch OKX candles) before trusting thin-coin results.
 Daily incremental updates: `python -m data_platform.run_download --detach --no-expand` adds the newly closed days (finished files are skipped via the manifest); scheduling it is an owner step (docs/OWNER_TODO.md).
+
+## Day 6: Binance vs OKX (Step 15)
+**Cloud trades on OKX GLOBAL (www.okx.com). From this PC it does not connect (HTTP status 000 on 5 Nov 2026), so Cloud's real candles still cannot be compared: NOT VERIFIED.**
+Stand-in: `us.okx.com` (a different OKX site, answers 200, public market data, 0.3 s between requests, no credentials, no proxy). It may be a separate order book, so it is NOT necessarily the Cloud venue. August 2026 (inside the development window), 1h candles, top 10 coins, 744 candles each (`python -m data_platform.compare_okx`):
+| Coin | mean abs close diff (bps) | max (bps) | mean range diff (bps) | return correlation | median volume ratio Binance/OKX-US |
+|---|---|---|---|---|---|
+| BTCUSDT | 0.6 | 2.5 | 1.1 | 0.99968 | 3.4 |
+| ETHUSDT | 0.58 | 2.9 | 1.41 | 0.99986 | 3.07 |
+| SOLUSDT | 0.97 | 4.1 | 1.62 | 0.99961 | 2.77 |
+| ZECUSDT | 2.06 | 22.3 | 4.48 | 0.99936 | 6.12 |
+| NEARUSDT | 3.27 | 17.7 | 6.11 | 0.99722 | 4.42 |
+| XRPUSDT | 0.86 | 5.0 | 1.68 | 0.99984 | 2.77 |
+| BNBUSDT | 1.48 | 6.9 | 1.96 | 0.99864 | 11.5 |
+| PEPEUSDT | 14.84 | 37.9 | 22.2 | 0.96788 | 2.02 |
+| DOGEUSDT | 1.1 | 6.1 | 2.51 | 0.99962 | 1.49 |
+| UNIUSDT | 2.35 | 13.8 | 4.15 | 0.99913 | 2.28 |
+Reading: for the large coins the two venues agree to about 1 basis point on the close (1 bp = 0.01 %); thin coins differ more (PEPE 15 bps, correlation 0.968). The backtest cost model charges about 30 bps per round trip, so venue differences of 1-3 bps do not change the picture for large coins, but thin coins (PEPE, ZEC, NEAR) are less reliable. Volume is 1.5-11x larger on Binance (different venue size). Raw numbers: `D:\sindhu_data\manifest\okx_us_comparison.json`. Binance vs Binance-resampled difference (from Day 5): 99.92-100 % of OHLC values identical.
+**Prepared (OFF): candle fingerprint logger.** `SINDHU_CANDLE_FINGERPRINT=1` on the live service prints one line `[candle-fp] okx BTC/USDT 15m t=... o= h= l= c= v= fp=` whenever the last closed candle of a symbol/timeframe changes (no database writes, no network, max 5,000 lines per process; code `data_engine/candle_fingerprint.py`, hook in `signal_generator.strategy_candidates`; 3 tests). Later the owner copies those log lines into a text file and runs `python tools/compare_fingerprints.py file.txt` to compare Cloud's OKX candles with the dataset (price fidelity only; every read is recorded in the holdout access log).
