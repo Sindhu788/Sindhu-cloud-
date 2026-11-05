@@ -1,4 +1,4 @@
-[PROGRESS 57% | steps 16/28 done | now: full suite, then push 1 (Step 14) and Cloud measurement | status: WAITING | elapsed ~5h | blockers: none]
+[PROGRESS 64% | steps 18/28 done | now: closeout (final docs push) | status: DONE after push | elapsed ~6h40m | blockers: none]
 
 # Day 6 checkpoint (5 Nov 2026)
 NOTE: the Day 6 prompt is cut off inside Step 21; Steps 22-28 and the final-report format are unknown and cannot be done or counted.
@@ -23,9 +23,10 @@ NOTE: the Day 6 prompt is cut off inside Step 21; Steps 22-28 and the final-repo
 | 17 signal rules | DONE | paper_trading/signal_rules.py OFF; 3 of 6 sent signals would have been withheld; 6 tests |
 | 18 pipeline doc + research-only flag | DONE | docs/PIPELINE.md; SINDHU_RESEARCH_ONLY_TIMEFRAMES OFF + 3 tests |
 | 19 candidate tool | DONE | data_platform/candidate_eval.py + sandbox.py; 7 isolation/dossier tests; proof run on one existing strategy |
-| 20 health page | NOT STARTED (NICE) | |
-| 21 weekly scorecard | NOT STARTED | prompt text cut off in this step; facts-only scorecard planned |
-Commits so far (local branch recovery/clean, NOT pushed): see `git log` ; pushes used today: 0 of 3.
+| 20 health page | DROPPED (NICE) | time given to measurements |
+| 21 weekly scorecard | DONE (text of the step was cut off) | docs/WEEKLY_SCORECARD.md incl. Day 7 hand-off |
+| 22-28 | UNKNOWN | the prompt stopped inside Step 21; cannot be done or counted |
+Pushes used today: 1 code push (8ac219f) + 1 docs push at closeout; local branch recovery/clean.
 
 ---- Day 5 checkpoint (kept below) ----
 [PROGRESS 60% | steps 16/30 done (Steps 19-30 unknown: prompt truncated) | now: closeout (full tests, push 3, report) | status: RUNNING | elapsed ~5h | data download: 100% | blockers: none]
