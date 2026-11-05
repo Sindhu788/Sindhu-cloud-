@@ -397,7 +397,7 @@ def create_app():
     def get_home_stub():
         return {"version": APP_VERSION, "system_health": "OK"}
 
-    @app.get("/health")
+    @app.api_route("/health", methods=["GET", "HEAD"])   # Master plan A1/P6: HEAD too (an uptime monitor sending HEAD got 405)
     async def health_check(request: Request = None):
         """For an external uptime pinger (e.g. cron-job.org) to keep a
         free-tier host from sleeping the app after ~15 minutes idle.
