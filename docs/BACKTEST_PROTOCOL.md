@@ -34,3 +34,25 @@ The Parquet loader reads a coin-month in about 0.06 s; a 10-month frame loads in
 
 ## 7. Run record
 See docs/BACKTEST_RESULTS.md (written; 420 runs, 0 ROBUST) for the per-strategy table, the command that produced it and the elapsed time.
+
+## 8. Holdout contamination audit (Day 6 Step 7, 5 Nov 2026)
+The sealed window is 1 Sep 2026 onward (`manifest/protocol.json`: holdout_first_month 2026-09, last 2026-10, plus every later day). Everything below was read in this session from the repository documents and the file system.
+| Earlier analysis | Where | Looked inside Sep-Oct 2026? | Effect |
+|---|---|---|---|
+| Day 4 backtest of the 10 most-traded strategies on BTC/ETH/SOL, 1 Sep - 1 Nov 2026 | docs/PERFORMANCE_RECONCILIATION.md (tree comparison) | **YES, the whole window** | those 10 strategies x 3 coins have been seen in the holdout |
+| Day 4 "walk-forward" IS = Sep 2026, OOS = Oct 2026 (same 10 strategies, 3 coins) | PERFORMANCE_RECONCILIATION.md Step 22 | **YES** (both months) | used to describe collapse of Liquidity Sweep Multi-Confirmation and Daily Liquidity Scalping |
+| Day 4 strategy forensics on paper trades 29 Aug - 16 Sep (1,132 trades) and the keep/watch/pause notes | docs/STRATEGY_FORENSICS.md, docs/SCORECARD_2026-11-03.md | **YES (live paper results of 1-16 Sep)** | keep/watch/pause opinions already use September outcomes |
+| Day 5 exchange comparison (Binance vs Bybit candles, October 2026, top-10 coins) | data_platform/compare_exchanges.py | **YES, October prices were read** directly through `store` (not through the loader, so it is NOT in the access log) | prices only, no strategy result was computed, but the guard did not see it |
+| Day 5 data quality / integrity audit | docs/DATA_QUALITY.md | opened all files to check hashes and OHLC rules | no performance computed |
+| Day 5 42-strategy protocol run | docs/BACKTEST_RESULTS.md | **NO**: development window ends 31 Aug 2026 | clean |
+| Loader access log | `manifest/holdout_access.log` | the file does not exist: **0 logged accesses** through the loader | the loader was never asked for the final exam |
+**Conclusion: the Sep-Oct 2026 holdout is NOT clean.** For the 10 most-traded strategies it has been used for analysis (3 coins), and the September paper results influenced the keep/watch/pause opinions. For the other 32 strategies and the other 47 coins it was not examined for performance, but the window can no longer be called a sealed final exam for the system as a whole. No result from it may be used as confirmation. (It is kept sealed in the loader anyway; it remains a legitimate EXTRA sanity check for strategies never looked at, only with that caveat stated.)
+
+## 9. Replacement: pre-registered FORWARD test (written 5 Nov 2026, before any forward data is examined)
+- **Forward data** = candles that close at or after **2026-11-06 00:00 UTC** (the day after this registration), plus live paper trades opened after that moment. Nothing from this window may be looked at for performance until the evaluation date. (Downloading it is allowed; analysing it is not.)
+- **Who can be tested:** a strategy registered BEFORE the window, with its id, config hash and code commit written to `D:\sindhu_data\manifest\forward_registry.json`. No parameter change after registration; a changed strategy is a new candidate with a new window.
+- **Evaluation date:** not before **2027-01-05** (60 days) and not before 100 closed positions per candidate; one single look, recorded in the registry. If fewer than 100 positions exist by then, the answer is INSUFFICIENT_DATA, not a pass.
+- **Measured (position level, net of costs, corrected metrics of data_platform/metrics.py):** profit factor at cost x1 and x1.5, cluster-bootstrap 95 % interval of the profit factor (clusters = days), expectancy, max drawdown, random-entry null-model p-value, comparison with the three baselines.
+- **Pass criteria (all):** >= 100 positions; PF >= 1.2 at x1; PF > 1.0 at x1.5; lower end of the 95 % PF interval > 1.0; null-model p < 0.05; beats the best baseline's mean net return per position; false-discovery-rate controlled if several candidates are evaluated together.
+- **Secondary evidence, not a pass criterion:** live paper results since the paper balance reset (reset date NOT VERIFIED by me; owner statement only). Paper results are execution-realistic but are a few weeks of one regime.
+- **If the forward test fails:** the strategy stays out of the promotion path; nothing is retuned on the forward data.
