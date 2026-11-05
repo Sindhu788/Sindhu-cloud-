@@ -72,8 +72,9 @@ def settings():
 # ------------------------------------------------------------------ storage helpers
 def ensure():
     """Create the tables and MAIN_WALLET once (idempotent: a second call changes nothing)."""
+    ident = _db_identity()
     with _lock:
-        if _ready[0]:
+        if _ready[0] == ident:
             return
         with storage.get_conn() as conn:
             for stmt in _SCHEMA:
@@ -83,7 +84,16 @@ def ensure():
             _set("start_balance", f"{START_BALANCE:.2f}")
             _set("cash", f"{START_BALANCE:.8f}")
             _set("paused_strategies", "{}")
-        _ready[0] = True
+        _ready[0] = ident
+
+
+def _db_identity():
+    """Which database the tables were created in (the SQLite file path, or 'postgres'), so a different database is set up again."""
+    try:
+        from data_engine import db_backend
+        return "postgres" if db_backend.IS_POSTGRES else str(storage.DB_PATH)
+    except Exception:
+        return "unknown"
 
 
 def _get(k):
