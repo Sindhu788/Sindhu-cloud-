@@ -66,3 +66,12 @@ def _reset_db_connect_breaker():
     db_backend.reset_breaker()
     yield
     db_backend.reset_breaker()
+
+
+@pytest.fixture(autouse=True)
+def _public_signals_allowed_in_gate_tests(monkeypatch):
+    """Master plan A14: automatic public signals are OFF by code default (SINDHU_PUBLIC_SIGNALS unset). The existing gate tests check
+    what happens once the owner has turned them on, so they run with it set; tests of the default itself delete it explicitly
+    (tests/test_public_signals_default_off.py)."""
+    monkeypatch.setenv("SINDHU_PUBLIC_SIGNALS", "1")
+    yield

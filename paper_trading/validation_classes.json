@@ -1,0 +1,217 @@
+{
+ "classes": {
+  "0113516effdb": {
+   "class": "FAILED",
+   "entry_tf": "15m",
+   "name": "Donchian LWTI Volume Confluence [Manual Build]"
+  },
+  "04598eaca214": {
+   "class": "FAILED",
+   "entry_tf": "15m",
+   "name": "Ichimoku 15m Indicator-Exit [Manual Build]"
+  },
+  "0897eb126593": {
+   "class": "FAILED",
+   "entry_tf": "5m",
+   "name": "4-Hour Range Breakout-Retest [Manual Build]"
+  },
+  "1be394d92302": {
+   "class": "FAILED",
+   "entry_tf": "15m",
+   "name": "Candlestick Pattern Reversal Strategy [Manual Build]"
+  },
+  "1e0a42397286": {
+   "class": "FAILED",
+   "entry_tf": "15m",
+   "name": "OTE Liquidity Sweep Reversal [Manual Build]"
+  },
+  "1f43468bb6af": {
+   "class": "FAILED",
+   "entry_tf": "5m",
+   "name": "Laxman Rekha 5-EMA Trigger-Candle Strategy [Manual Build]"
+  },
+  "2d7299c7a197": {
+   "class": "FAILED",
+   "entry_tf": "4h",
+   "name": "Dumb Money Concepts -- Confirmation Entry [Manual Build]"
+  },
+  "2f6ff7755c8f": {
+   "class": "FAILED",
+   "entry_tf": "1h",
+   "name": "Candle Range Theory (Loose) [Manual Build]"
+  },
+  "4334392c8c67": {
+   "class": "FAILED",
+   "entry_tf": "1h",
+   "name": "Supply/Demand Zone Strategy [Manual Build]"
+  },
+  "433942cfbbe0": {
+   "class": "FAILED",
+   "entry_tf": "1h",
+   "name": "Fixed Range Volume Profile -- Market Shape [Manual Build]"
+  },
+  "45040c58cf5a": {
+   "class": "FAILED",
+   "entry_tf": "15m",
+   "name": "HTF-LTF FVG/OB Confluence Entry [Manual Build]"
+  },
+  "480cc42075a4": {
+   "class": "FAILED",
+   "entry_tf": "5m",
+   "name": "Asian Range London Sweep [Manual Build]"
+  },
+  "52c6ab43fd4a": {
+   "class": "FAILED",
+   "entry_tf": "1h",
+   "name": "Order Block Trading (Strict) [Manual Build]"
+  },
+  "594c16205e7f": {
+   "class": "FAILED",
+   "entry_tf": "5m",
+   "name": "Liquidity Sweep + Engulfing Candle (Strict) [Manual Build]"
+  },
+  "59978271c6ce": {
+   "class": "FAILED",
+   "entry_tf": "15m",
+   "name": "Liquidity Sweep Reversal Strategy [Manual Build]"
+  },
+  "62e44ad0fa92": {
+   "class": "FAILED",
+   "entry_tf": "15m",
+   "name": "Previous High/Low Reversal [Manual Build]"
+  },
+  "6c9dddb14b67": {
+   "class": "FAILED",
+   "entry_tf": "15m",
+   "name": "Kotegawa Bear Market Reversal Strategy [Manual Build]"
+  },
+  "74c3a80238d4": {
+   "class": "FAILED",
+   "entry_tf": "15m",
+   "name": "Equal Highs/Lows Reversal [Manual Build]"
+  },
+  "770d68250de1": {
+   "class": "INSUFFICIENT_DATA",
+   "entry_tf": "1h",
+   "name": "Ichimoku 1h Trailing-SL [Manual Build]"
+  },
+  "7775cebf0fd3": {
+   "class": "FAILED",
+   "entry_tf": "5m",
+   "name": "PDH/PDL Multi-Timeframe Reversal [Manual Build]"
+  },
+  "7c8a8f40ce2a": {
+   "class": "FAILED",
+   "entry_tf": "1h",
+   "name": "FVG Pure + Inverse FVG (Structure) [Manual Build]"
+  },
+  "86a1e5062c20": {
+   "class": "FAILED",
+   "entry_tf": "5m",
+   "name": "Ichimoku 5m Indicator-Exit [Manual Build]"
+  },
+  "86ceac60820b": {
+   "class": "FAILED",
+   "entry_tf": "15m",
+   "name": "9-20 EMA SMC Hybrid [Manual Build]"
+  },
+  "872544b77a57": {
+   "class": "FAILED",
+   "entry_tf": "5m",
+   "name": "Liquidity Sweep + CISD (Pure Swing Variant) [Manual Build]"
+  },
+  "87c0c79ac0cb": {
+   "class": "FAILED",
+   "entry_tf": "15m",
+   "name": "Market Structure Shift Reversal [Manual Build]"
+  },
+  "8a048e8a2224": {
+   "class": "FAILED",
+   "entry_tf": "15m",
+   "name": "Range Breakout Volume Confirmation [Manual Build]"
+  },
+  "8d94d5ee403f": {
+   "class": "INSUFFICIENT_DATA",
+   "entry_tf": "1d",
+   "name": "Ichimoku 1d Trailing-SL [Manual Build]"
+  },
+  "96f7cb9100f0": {
+   "class": "FAILED",
+   "entry_tf": "5m",
+   "name": "Liquidity Sweep + Engulfing Candle (Loose) [Manual Build]"
+  },
+  "99fbf2454f8a": {
+   "class": "INSUFFICIENT_DATA",
+   "entry_tf": "1h",
+   "name": "SMA-Alignment Strategy (Approximate - ZIP Indicator Excluded) [Manual Build]"
+  },
+  "b36687e8401a": {
+   "class": "FAILED",
+   "entry_tf": "1m",
+   "name": "Daily Liquidity Scalping Strategy [Manual Build]"
+  },
+  "bddde91aee6d": {
+   "class": "FAILED",
+   "entry_tf": "5m",
+   "name": "Liquidity Sweep Multi-Confirmation [Manual Build]"
+  },
+  "beab3636067e": {
+   "class": "INSUFFICIENT_DATA",
+   "entry_tf": "15m",
+   "name": "Ichimoku 15m Trailing-SL [Manual Build]"
+  },
+  "c502890cdef2": {
+   "class": "FAILED",
+   "entry_tf": "4h",
+   "name": "Dumb Money Concepts -- Combined Confirmation [Manual Build]"
+  },
+  "ca0777badd9f": {
+   "class": "FAILED",
+   "entry_tf": "1h",
+   "name": "Ichimoku 1h Indicator-Exit [Manual Build]"
+  },
+  "d781b37694ef": {
+   "class": "FRAGILE",
+   "entry_tf": "1d",
+   "name": "Ichimoku 1d Indicator-Exit [Manual Build]"
+  },
+  "df643d86c987": {
+   "class": "FAILED",
+   "entry_tf": "1h",
+   "name": "FVG Momentum Pullback (Structure) [Manual Build]"
+  },
+  "e25028146948": {
+   "class": "FAILED",
+   "entry_tf": "15m",
+   "name": "Heikin Ashi Trend Reversal [Manual Build]"
+  },
+  "e2d090ed4ff4": {
+   "class": "FAILED",
+   "entry_tf": "1h",
+   "name": "Fibonacci Golden Zone Retracement [Manual Build]"
+  },
+  "e636f066f17e": {
+   "class": "FAILED",
+   "entry_tf": "1h",
+   "name": "Support/Resistance + Liquidity Sweep (Fixed-RR) [Manual Build]"
+  },
+  "eba4cc77ee31": {
+   "class": "FAILED",
+   "entry_tf": "1h",
+   "name": "Candle Range Theory (Strict) [Manual Build]"
+  },
+  "edb442d731aa": {
+   "class": "FAILED",
+   "entry_tf": "1h",
+   "name": "FVG Pure + Inverse FVG (Fixed 1:2) [Manual Build]"
+  },
+  "f4bfea4e22e0": {
+   "class": "INSUFFICIENT_DATA",
+   "entry_tf": "5m",
+   "name": "SAR + SMC (CISD Entry) [Manual Build]"
+  }
+ },
+ "generated": "2026-11-05",
+ "note": "Strategies not listed here have no validation result: shown as NOT VALIDATED.",
+ "source": "D:/sindhu_data/experiments/protocol_results.json + protocol_rigor.json via data_platform.protocol_rigor.final_label (Day 6 protocol: 47 coins, 10 months, after costs; docs/BACKTEST_RESULTS.md)"
+}

@@ -1311,7 +1311,33 @@ _GROUP_MARKER_EMOJI = {"profitable": "\U0001F535", "losing": "\U0001F534", "chal
 _UNCLASSIFIED_MARKER_EMOJI = "\U000026AA"
 
 
-SIGNAL_DISCLAIMER = "Paper-trading test signal, educational only. Not financial advice."
+SIGNAL_DISCLAIMER = "Paper-trading research signal. Not financial advice. Past results do not predict future results."
+
+# Master plan A14 (P1): AUTOMATIC public signals are OFF by code default, on Cloud and locally, whatever the saved Telegram settings say
+# (Cloud's saved settings had auto_send_enabled=True and sent 12 signals, all from FAILED strategies). Only the owner turns them on, with
+# ONE Render env change: SINDHU_PUBLIC_SIGNALS=1. This only blocks sends; paper trading and every other gate are unchanged.
+_PUBLIC_SIGNALS_ENV = "SINDHU_PUBLIC_SIGNALS"
+PUBLIC_SIGNALS_OFF_REASON = "automatic public signals are off by code default (owner: set SINDHU_PUBLIC_SIGNALS=1 to allow)"
+
+
+def public_signals_allowed():
+    return str(os.environ.get(_PUBLIC_SIGNALS_ENV, "")).strip().lower() in ("1", "true", "yes", "on")
+
+
+_VALIDATION = None
+
+
+def validation_class(strategy_id):
+    """ROBUST / FRAGILE / FAILED / INSUFFICIENT_DATA from the backtest protocol (paper_trading/validation_classes.json), else NOT VALIDATED."""
+    global _VALIDATION
+    if _VALIDATION is None:
+        try:
+            import json
+            with open(os.path.join(os.path.dirname(__file__), "validation_classes.json"), encoding="utf-8") as f:
+                _VALIDATION = json.load(f).get("classes", {})
+        except Exception:
+            _VALIDATION = {}
+    return (_VALIDATION.get(strategy_id or "") or {}).get("class") or "NOT VALIDATED"
 
 
 def format_signal_message(position, confluence_result=None, reliability_result=None, high_confidence=False,
@@ -1382,9 +1408,10 @@ def format_signal_message(position, confluence_result=None, reliability_result=N
     # Day 6 Step 16: SINDHU_HIDE_CONFIDENCE=1 hides the confidence figure (it did not predict wins out of sample, docs/SIGNAL_QUALITY.md). OFF by default.
     if confidence is not None and str(os.environ.get("SINDHU_HIDE_CONFIDENCE", "")).strip().lower() not in ("1", "true", "yes", "on"):
         lines.append(f"{L['confidence']}: {confidence:g}%")
-    # Day 7: SINDHU_SIGNAL_DISCLAIMER=1 adds one closing line saying this is a paper-trading test signal, not advice. OFF by default (messages unchanged).
-    if str(os.environ.get("SINDHU_SIGNAL_DISCLAIMER", "")).strip().lower() in ("1", "true", "yes", "on"):
-        lines.append(SIGNAL_DISCLAIMER)
+    # Master plan A14 (P13): EVERY signal message ends with the disclaimer and the strategy's backtest validation class (was opt-in via
+    # SINDHU_SIGNAL_DISCLAIMER, which is now ignored: there is no way to send a signal without it).
+    lines.append(f"Backtest validation: {validation_class(position.get('strategy_id'))}")
+    lines.append(SIGNAL_DISCLAIMER)
     return "\n".join(lines)
 
 
@@ -1721,6 +1748,8 @@ def evaluate_auto_send(position_id):
          currently net negative).
     Returns (should_send: bool, reason: str) -- reason is always populated,
     even when True, for auditability."""
+    if not public_signals_allowed():
+        return False, PUBLIC_SIGNALS_OFF_REASON
     settings = load_settings()
     if not settings.get("auto_send_enabled", False):
         return False, "automatic sending is turned off in Settings"
@@ -1743,6 +1772,8 @@ def evaluate_auto_send(position_id):
     )
     if conf["total"] == 0:
         return False, "not enough data yet to score confluence"
+    if conf.get("unknown"):              # master plan A8: regime input missing -> UNKNOWN -> withheld, never "Strong"
+        return False, "confluence UNKNOWN (market regime data unavailable): withheld"
     ratio = conf["passed"] / conf["total"]
     min_ratio = settings.get("auto_send_min_confluence_ratio", 1.0)
     if ratio < min_ratio:
@@ -1798,6 +1829,8 @@ def evaluate_auto_send_low_tier(position_id):
     paper_trading.pattern_stats or its 25-trade minimum.
 
     Returns (should_send: bool, reason: str)."""
+    if not public_signals_allowed():
+        return False, PUBLIC_SIGNALS_OFF_REASON
     settings = load_settings()
     if not settings.get("auto_send_enabled", False):
         return False, "automatic sending is turned off in Settings"
@@ -1820,6 +1853,8 @@ def evaluate_auto_send_low_tier(position_id):
     )
     if conf["total"] == 0:
         return False, "not enough data yet to score confluence"
+    if conf.get("unknown"):              # master plan A8: regime input missing -> UNKNOWN -> withheld, never "Strong"
+        return False, "confluence UNKNOWN (market regime data unavailable): withheld"
     ratio = conf["passed"] / conf["total"]
     min_ratio = settings.get("auto_send_min_confluence_ratio", 1.0)
     if ratio < min_ratio:
@@ -1999,7 +2034,7 @@ def sweep_unsent_qualifying_signals():
 
     Returns a list of {"position_id", "tier"} for every signal actually
     sent this sweep (empty list = nothing qualified, or auto-send is off)."""
-    if not load_settings().get("auto_send_enabled", False):
+    if not public_signals_allowed() or not load_settings().get("auto_send_enabled", False):
         return []
     sent = []
     for pos in storage.get_open_paper_positions():
@@ -2026,6 +2061,9 @@ def sweep_pending_telegram_retries():
     {"delivered": [...], "abandoned": [...], "still_pending": [...]}
     (each a list of position_ids) for visibility/testing."""
     result = {"delivered": [], "abandoned": [], "still_pending": []}
+    if not public_signals_allowed():     # master plan A14: queued PUBLIC signals wait (no attempt used up) while public signals are off
+        result["still_pending"] = [row["position_id"] for row in storage.list_pending_telegram_retries()]
+        return result
     for row in storage.list_pending_telegram_retries():
         send_result = send_signal_for_position(
             row["position_id"], trigger_type=row["trigger_type"],

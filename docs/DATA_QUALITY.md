@@ -137,3 +137,38 @@ Stand-in: `us.okx.com` (a different OKX site, answers 200, public market data, 0
 | UNIUSDT | 2.35 | 13.8 | 4.15 | 0.99913 | 2.28 |
 Reading: for the large coins the two venues agree to about 1 basis point on the close (1 bp = 0.01 %); thin coins differ more (PEPE 15 bps, correlation 0.968). The backtest cost model charges about 30 bps per round trip, so venue differences of 1-3 bps do not change the picture for large coins, but thin coins (PEPE, ZEC, NEAR) are less reliable. Volume is 1.5-11x larger on Binance (different venue size). Raw numbers: `D:\sindhu_data\manifest\okx_us_comparison.json`. Binance vs Binance-resampled difference (from Day 5): 99.92-100 % of OHLC values identical.
 **Prepared (OFF): candle fingerprint logger.** `SINDHU_CANDLE_FINGERPRINT=1` on the live service prints one line `[candle-fp] okx BTC/USDT 15m t=... o= h= l= c= v= fp=` whenever the last closed candle of a symbol/timeframe changes (no database writes, no network, max 5,000 lines per process; code `data_engine/candle_fingerprint.py`, hook in `signal_generator.strategy_candidates`; 3 tests). Later the owner copies those log lines into a text file and runs `python tools/compare_fingerprints.py file.txt` to compare Cloud's OKX candles with the dataset (price fidelity only; every read is recorded in the holdout access log).
+
+## Daily klines for the V2 benchmark (master plan B2), checked 2026-11-05 21:58 UTC
+Source: native Binance spot 1d klines (public REST), `D:\sindhu_data\daily`, 20 symbols from the frozen rule in docs/BENCHMARK_PREREGISTRATION_V2.md. Command: `python tools/daily_quality.py --write` (bt venv).
+
+| Symbol | Rows | First | Last | Missing days | Dupes | Zero-vol days | OHLC bad | Not 00:00 UTC | Last closed | Hash | 1m overlap days | >0.1 % diffs |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| BTCUSDT | 3230 | 2018-01-01 | 2026-11-04 | 0 | 0 | 0 | 0 | 0 | yes | OK | 304 | 0 |
+| ETHUSDT | 3230 | 2018-01-01 | 2026-11-04 | 0 | 0 | 0 | 0 | 0 | yes | OK | 304 | 0 |
+| SOLUSDT | 2277 | 2020-08-11 | 2026-11-04 | 0 | 0 | 0 | 0 | 0 | yes | OK | 304 | 0 |
+| ZECUSDT | 2786 | 2019-03-21 | 2026-11-04 | 0 | 0 | 0 | 0 | 0 | yes | OK | 304 | 0 |
+| NEARUSDT | 2213 | 2020-10-14 | 2026-11-04 | 0 | 0 | 0 | 0 | 0 | yes | OK | 304 | 0 |
+| XRPUSDT | 3107 | 2018-05-04 | 2026-11-04 | 0 | 0 | 0 | 0 | 0 | yes | OK | 304 | 0 |
+| BNBUSDT | 3230 | 2018-01-01 | 2026-11-04 | 0 | 0 | 0 | 0 | 0 | yes | OK | 304 | 0 |
+| DOGEUSDT | 2680 | 2019-07-05 | 2026-11-04 | 0 | 0 | 0 | 0 | 0 | yes | OK | 304 | 0 |
+| UNIUSDT | 2240 | 2020-09-17 | 2026-11-04 | 0 | 0 | 0 | 0 | 0 | yes | OK | 304 | 0 |
+| TRXUSDT | 3069 | 2018-06-11 | 2026-11-04 | 0 | 0 | 0 | 0 | 0 | yes | OK | 304 | 0 |
+| RNDRUSDT | 969 | 2021-11-27 | 2024-07-22 | 0 | 0 | 0 | 0 | 0 | yes | OK | no 1m overlap | - |
+| AVAXUSDT | 2235 | 2020-09-22 | 2026-11-04 | 0 | 0 | 0 | 0 | 0 | yes | OK | 304 | 0 |
+| ADAUSDT | 3124 | 2018-04-17 | 2026-11-04 | 0 | 0 | 0 | 0 | 0 | yes | OK | 304 | 0 |
+| LINKUSDT | 2850 | 2019-01-16 | 2026-11-04 | 0 | 0 | 0 | 0 | 0 | yes | OK | 304 | 0 |
+| QNTUSDT | 1925 | 2021-07-29 | 2026-11-04 | 0 | 0 | 0 | 0 | 0 | yes | OK | 304 | 8 |
+| AAVEUSDT | 2212 | 2020-10-15 | 2026-11-04 | 0 | 0 | 0 | 0 | 0 | yes | OK | 304 | 0 |
+| LTCUSDT | 3230 | 2018-01-01 | 2026-11-04 | 0 | 0 | 0 | 0 | 0 | yes | OK | 304 | 0 |
+| INJUSDT | 2206 | 2020-10-21 | 2026-11-04 | 0 | 0 | 0 | 0 | 0 | yes | OK | 304 | 0 |
+| FETUSDT | 2807 | 2019-02-28 | 2026-11-04 | 0 | 0 | 0 | 0 | 0 | yes | OK | 304 | 0 |
+| FILUSDT | 2212 | 2020-10-15 | 2026-11-04 | 0 | 0 | 0 | 0 | 0 | yes | OK | 304 | 0 |
+
+Examples of differences > 0.1 % (native vs resampled from 1m):
+- QNTUSDT 2026-03-12 open: native 62.44, from 1m 62.36 (0.128 %)
+- QNTUSDT 2026-04-28 open: native 69.7, from 1m 69.84 (0.201 %)
+- QNTUSDT 2026-06-10 open: native 65.88, from 1m 65.7 (0.273 %)
+- QNTUSDT 2026-06-18 open: native 70.73, from 1m 70.45 (0.396 %)
+- QNTUSDT 2026-06-19 open: native 69.99, from 1m 70.06 (0.1 %)
+
+Result: PASS; zero-volume days are listed, not removed.

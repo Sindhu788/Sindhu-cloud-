@@ -81,3 +81,44 @@ Every metric above for IS, OOS, each walk-forward year and each neighbour; bench
 
 ## 5. Appendix: resolved universe (filled by B2 from the frozen rule; not a result)
 (pending B2)
+
+## Amendment 1, 2026-11-05 ~22:00 UTC: universe resolved, delisting rule (before any backtest code or result exists)
+
+**Resolved universe** (rule of section 0 applied by `data_platform/daily_download.py`; file `D:\sindhu_data\daily\universe_v2.json`):
+
+| # | Symbol | Rank | First daily candle |
+|---|---|---|---|
+| 1 | BTCUSDT | 1 | 2017-08-17 |
+| 2 | ETHUSDT | 2 | 2017-08-17 |
+| 3 | SOLUSDT | 3 | 2020-08-11 |
+| 4 | ZECUSDT | 4 | 2019-03-21 |
+| 5 | NEARUSDT | 5 | 2020-10-14 |
+| 6 | XRPUSDT | 6 | 2018-05-04 |
+| 7 | BNBUSDT | 7 | 2017-11-06 |
+| 8 | DOGEUSDT | 9 | 2019-07-05 |
+| 9 | UNIUSDT | 10 | 2020-09-17 |
+| 10 | TRXUSDT | 14 | 2018-06-11 |
+| 11 | RNDRUSDT | 16 | 2021-11-27 |
+| 12 | AVAXUSDT | 17 | 2020-09-22 |
+| 13 | ADAUSDT | 18 | 2018-04-17 |
+| 14 | LINKUSDT | 20 | 2019-01-16 |
+| 15 | QNTUSDT | 24 | 2021-07-29 |
+| 16 | AAVEUSDT | 25 | 2020-10-15 |
+| 17 | LTCUSDT | 26 | 2017-12-13 |
+| 18 | INJUSDT | 28 | 2020-10-21 |
+| 19 | FETUSDT | 29 | 2019-02-28 |
+| 20 | FILUSDT | 32 | 2020-10-15 |
+
+Skipped because their first daily candle is after 2023-01-01: PEPEUSDT (rank 8, first 2023-05-05), SUIUSDT (rank 11, first 2023-05-03), ENAUSDT (rank 12, first 2024-04-02), WLDUSDT (rank 13, first 2023-07-24), HYPEUSDT (rank 15, first 2026-09-24), PUMPUSDT (rank 19, first 2025-09-11), STRKUSDT (rank 21, first 2024-02-20), TONUSDT (rank 22, first 2024-08-08), TAOUSDT (rank 23, first 2024-04-11), ONDOUSDT (rank 27, first 2025-04-11), ARBUSDT (rank 30, first 2023-03-23), ZROUSDT (rank 31, first 2024-06-20).
+
+**Why an amendment.** RNDRUSDT's Binance daily series stops on 2024-07-22, when the token was renamed to RENDER. That last candle covers
+only 3 hours (close time 03:00 UTC). The original text had no rule for a series that stops. Fixed now, before any strategy code or
+result exists:
+- A candle shorter than one full day (close_time - open_time < 86,399,999 ms) is dropped.
+- When a coin's series ends, any position in it is closed at the close of its last full day, with normal costs. After that the coin's
+  weight is 0 (cash) for the rest of the backtest. It is not replaced by another coin, so N stays 20.
+- RNDR's later RENDERUSDT series is NOT joined to it (another symbol; listed after 2023-01-01, so outside the frozen rule).
+
+**Data quality** (docs/DATA_QUALITY.md, B2 section): all 20 files PASS (no gaps, duplicates, OHLC errors or non-UTC candles; hashes OK).
+The 1m cross-check overlaps 304 days for 19 symbols and shows differences > 0.1 % only for QNTUSDT: 8 days, open price only, up to 0.4 %.
+That fits a few missing first minutes in the thin 1m data (NOT VERIFIED). The native daily data is used as is.

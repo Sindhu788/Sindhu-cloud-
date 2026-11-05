@@ -82,3 +82,15 @@
 - D61 No candidate was registered for the forward test: nothing passed the backtest, and the one FRAGILE strategy cannot reach 100 positions in 60 days at its trade rate. `tools/forward_register.py` exists for the first ROBUST candidate. Undo: none.
 - D62 Step 16 (local health page, NICE) was dropped to keep time for the measurements, the security review and the closeout checks. Steps 1-15 and 17-22 were executed.
 - D63 Used Render's own memory metric (`get_metrics`) and Cloud database exports (read-only) as the evidence base for Steps 8-10; the Render connector cannot list environment variables, so statements about other services' tokens stay NOT VERIFIED.
+
+## Master Plan (docs/MASTER_PLAN.md), started 2026-11-05 ~20:55 UTC
+- D64 Previous "Final Master Prompt" closed (F1): three consecutive green full runs; open steps mapped to Master Plan steps (docs/FINAL_MASTER_PROMPT_CLOSEOUT.md). Work happens in worktree D:\sindhu_wtA (branch masterplan/partA) so the running suite never saw a changing tree.
+- D65 A1/S2: unknown paths get a 404 BEFORE the session lookup. Reason: that lookup is a database call, and on Cloud every bot probe cost one only to end in a redirect. Fail-open if routes cannot be read.
+- D66 A2: a cache that is "not far enough back" now downloads only the missing older segment; the formerly-forming last candle is re-read once it has closed (before, its partial values were kept and later read as a closed candle; the market-data guard already hid the still-forming candle from strategies). No disk cache: Render's disk does not survive sleep, so it would not help there.
+- D67 A5: download deadlines instead of killing threads (a coin is skipped through the existing per-coin error path; partial cold downloads are kept and resumed). Defaults 180 s per coin, 600 s prefetch.
+- D68 A6: connect breaker (3 failed connects -> fail fast 30 s doubling to 300 s) counts only availability errors (OperationalError/OSError), never programming errors. Same outcome for callers as before, sooner.
+- D69 A7: on Cloud binance/bybit are never used; the gate reads the position's own exchange. The owner plan asks for this explicitly; it only makes the gate stricter.
+- D70 A14: public automatic signals need SINDHU_PUBLIC_SIGNALS=1 (owner, Render env). The saved Cloud setting auto_send_enabled=True was left untouched (owner data); the new switch overrides it to OFF. Disclaimer + validation class are now always in the message (old opt-in flag ignored). Queued retries wait without using attempts while off.
+- D71 A8: missing regime input -> confluence UNKNOWN -> withheld by both public gates. Pattern-memory "not enough history" stays neutral as before (it is not market data).
+- D72 A4: token bucket per exchange (okx 8/s, others 10/s, max 3 parallel), halved for 10 min after a 429/50011; retry log once a minute per exchange and error type.
+- D73 B1 Amendment 1 (before any code/result): delisted-series rule (RNDRUSDT ends 2024-07-22).
