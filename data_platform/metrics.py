@@ -32,9 +32,24 @@ def aggregate_positions(legs):
              "entry_price": ls[0].get("entry_price"), "exit_price": ls[-1].get("exit_price")}
         for k in COST_KEYS:
             p[k] = float(sum(l.get(k) or 0.0 for l in ls))
+        p["ret"] = _position_return(ls)
         out.append(p)
     out.sort(key=lambda x: (x["exit_time"], x["entry_time"]))
     return out
+
+
+def _position_return(legs):
+    """Risk-weighted gross return of a position as a fraction (side-adjusted, from FILL prices, so slippage and spread are inside; commission is not).
+    None when the legs carry no prices."""
+    num = den = 0.0
+    for l in legs:
+        ep, xp = l.get("entry_price"), l.get("exit_price")
+        if not ep or not xp:
+            return None
+        w = l.get("risk_amount") or 1.0
+        num += w * (1.0 if l["side"] == "long" else -1.0) * (xp / ep - 1.0)
+        den += w
+    return num / den if den else None
 
 
 def profit_factor(pnls):

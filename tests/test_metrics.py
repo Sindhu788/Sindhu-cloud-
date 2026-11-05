@@ -90,3 +90,13 @@ def test_analyzer_counts_positions_and_agrees_in_sign_with_money():
     res = protocol_analyze.analyze_strategy("sid", by_coin, 0, 10_000, edges)
     assert res["trades"] == 60                                                  # positions, not 100 legs
     assert res["pf_x1"] < 1.0 and res["t_stat"] < 0 and res["net_total"] < 0
+
+
+def test_position_return_is_risk_weighted_and_side_adjusted():
+    legs = [dict(leg(0, 8.0, entry=1, exit_=2), entry_price=100.0, exit_price=102.0),
+            dict(leg(0, 2.0, entry=1, exit_=3), entry_price=100.0, exit_price=96.0)]
+    pos = metrics.aggregate_positions(legs)[0]
+    assert pos["ret"] == pytest.approx((8 * 0.02 + 2 * -0.04) / 10)
+    short = metrics.aggregate_positions([dict(leg(0, 5.0, side="short"), entry_price=100.0, exit_price=90.0)])[0]
+    assert short["ret"] == pytest.approx(0.10)
+    assert metrics.aggregate_positions([leg(1.0, 1.0)])[0]["ret"] is None          # no prices -> None, no crash
