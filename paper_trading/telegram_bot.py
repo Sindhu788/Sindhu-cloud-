@@ -106,7 +106,7 @@ _DEFAULTS = {
     # gets sent to Telegram. Kept as a setting (not hardcoded) so it can be
     # flipped back from the Settings page by anyone who wants High-Confidence
     # -only again.
-    "auto_send_high_confidence_only": False,
+    "auto_send_high_confidence_only": True,   # master plan A22: stricter default everywhere (local already True; Cloud saved False until the owner changes it)
     # Grand Feature Expansion, Phase 2 Feature 22: Multi-Channel Support --
     # {strategy_id: channel_id} overrides. A strategy with no entry here
     # keeps going to the one default `channel_id` above, exactly as

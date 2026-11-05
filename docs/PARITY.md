@@ -103,3 +103,12 @@ Reconciliation (stored P&L vs closed trades, tolerance 0.01):
 - Cloud: Reconciliation OK: 58 books, stored PnL -11.26 == trades PnL -11.26.
 - Cloud books: 58, realized since reset min -2.21 / max 1.57; initial balance setting 100.0
 - Local books: 58, realized since reset min 0.00 / max 0.00; initial balance setting 100.0
+
+## Master plan A22 (2026-11-05): parity by config hash
+- `python tools/parity_check.py` compares the SAFE config summary (numbers and on/off flags only, from `paper_trading/self_check.py`) of
+  the local data folder with Cloud's public `/health/details` (master plan A17), and prints both hashes and each differing key.
+- Local hash on 2026-11-05 22:58 UTC: `c708b9da542afe1e`. Cloud: available after deploy gate D2 (the D1 build has no /health/details).
+- `auto_send_high_confidence_only`: the **code default is now True** (stricter) everywhere. Local was already True. Cloud has False
+  SAVED in its settings, and a saved value wins over the default: owner step in OWNER_TODO (Settings page or Telegram settings).
+- The seven Day 6/7 flags stay OFF on Cloud. `SINDHU_RESEARCH_ONLY_TIMEFRAMES` stays OFF on purpose, because the owner excluded P7
+  (1m/5m strategies stay on Cloud).

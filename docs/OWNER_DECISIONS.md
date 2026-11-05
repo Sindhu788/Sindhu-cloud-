@@ -166,3 +166,15 @@ Rules in time order; the opposite-direction rule counts only signals that would 
 ## 4. Other recommendations (no switch exists yet)
 - Show a visible note when the regime check cannot be computed instead of silently counting 2 factors (small code change inside `score_confluence`; needs your OK because it is a gate module).
 - Keep Cloud awake (pinger) before judging any scan statistics: today every number mixes cold starts and warm scans.
+
+## Master plan A22 (2026-11-05): the seven flags, one line each (all OFF on Cloud; nothing was flipped)
+| Flag | Recommendation |
+|---|---|
+| SINDHU_RESEARCH_ONLY_TIMEFRAMES | **Keep OFF.** You excluded P7: 1m/5m strategies stay on Cloud; their load is handled by A2/A4/A5 instead. |
+| SINDHU_BLOCK_OPPOSITE_SIGNAL | Turn ON when public signals return: no two opposite calls on one coin within the window. |
+| SINDHU_MAX_TARGET_STOP_RATIO | Turn ON when public signals return (caps unrealistic targets). |
+| SINDHU_HIDE_CONFIDENCE | Turn ON when public signals return: confidence did not predict wins (AUC 0.463). |
+| SINDHU_CANDLE_FINGERPRINT | Optional diagnosis only; leave OFF unless investigating a data question. |
+| SINDHU_GATE_USE_POSITION_EXCHANGE | No longer needed on Cloud: master plan A7 makes the Cloud gate use the position's exchange anyway. |
+| SINDHU_SIGNAL_DISCLAIMER | Obsolete: master plan A14 always adds the disclaimer and the validation class. |
+| SINDHU_PUBLIC_SIGNALS (new, A14) | **Keep unset (OFF)** until a strategy is ROBUST and has passed its forward test. |
