@@ -816,6 +816,9 @@ class PaperTradingEngine:
             order = ["before_coins", "classify", "monitor_positions", "process_coin", "evaluate_strategies", "open_risk_db", "memory_release",
                      "flush_decisions", "orphan_positions", "housekeeping_full", "telegram_sweep"]
             mt = memory_trim.stats()
+            self._last_stages = {"at": _now_iso(), "total_s": round(time.monotonic() - tick_started_monotonic), "stages": stages.summary(order),
+                                 "db": _db_backend.db_stats_summary(db_before), "candles": _candle_fetch_summary(db_before.get('_candles')),
+                                 "rss_mb": round(memory_guard.rss_mb())}       # master plan V2 PG7 (System page)
             self._log(f"[scan-stages] total {time.monotonic() - tick_started_monotonic:.0f}s | {stages.summary(order)} | "
                       f"{_db_backend.db_stats_summary(db_before)} | memory release x{mt['calls']} {mt['seconds']:.1f}s total (trimmed {mt['trimmed']}x) | "
                       f"{_candle_fetch_summary(db_before.get('_candles'))} | rss {memory_guard.rss_mb():.0f} MB")
@@ -826,6 +829,12 @@ class PaperTradingEngine:
             if mine:
                 total = max(1e-9, time.monotonic() - tick_started_monotonic)
                 db_s = mine.get("query_seconds", 0.0) + mine.get("commit_seconds", 0.0) + mine.get("checkout_seconds", 0.0)
+                try:
+                    self._last_stages["scan_db"] = {"statements": mine.get("queries", 0), "statement_s": round(mine.get("query_seconds", 0.0), 1),
+                                                    "commits": mine.get("commits", 0), "commit_s": round(mine.get("commit_seconds", 0.0), 1),
+                                                    "share_pct": round(100 * db_s / total), "top": top[:5]}
+                except Exception:
+                    pass
                 self._log(f"[scan-db] scan thread only: {mine.get('queries', 0)} statements {mine.get('query_seconds', 0.0):.1f}s, "
                           f"{mine.get('commits', 0)} commits {mine.get('commit_seconds', 0.0):.1f}s, {mine.get('checkouts', 0)} checkouts "
                           f"{mine.get('checkout_seconds', 0.0):.1f}s = {db_s:.0f}s of {total:.0f}s ({100 * db_s / total:.0f}%) | top: "

@@ -30,7 +30,7 @@ from sindhu_web.api import (
     risk_department as risk_department_api, memory_core as memory_core_api,
     dashboard_scores as dashboard_scores_api, project_meta as project_meta_api,
     time_machine as time_machine_api, timeline_compare as timeline_compare_api,
-    report_builder as report_builder_api, ops_checks as ops_checks_api, wallet as wallet_api, summary as summary_api,
+    report_builder as report_builder_api, ops_checks as ops_checks_api, wallet as wallet_api, summary as summary_api, v2_pages as v2_pages_api,
 )
 
 _STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -310,7 +310,7 @@ def create_app():
                    incidents_api.router, weekly_snapshot_api.router, infra_weekly_digest_api.router,
                    self_learning_api.router, risk_department_api.router, memory_core_api.router,
                    dashboard_scores_api.router, project_meta_api.router, time_machine_api.router,
-                   timeline_compare_api.router, report_builder_api.router, ops_checks_api.router, wallet_api.router, summary_api.router):
+                   timeline_compare_api.router, report_builder_api.router, ops_checks_api.router, wallet_api.router, summary_api.router, v2_pages_api.router):
         app.include_router(router)
 
     @app.get("/api/token")
@@ -330,36 +330,20 @@ def create_app():
             return RedirectResponse(url="/")
         return FileResponse(os.path.join(_STATIC_DIR, "login.html"))
 
-    @app.get("/")
-    def index(request: Request):
-        session_token = request.cookies.get(auth.SESSION_COOKIE)
-        if not auth.is_valid_session(session_token):
-            return RedirectResponse(url="/login")
-        # Cache-bust app.js/app.css with each file's own mtime so a browser
-        # (or an automated CDP session) can never serve a stale script/style
-        # after a deploy -- every real change gets a genuinely new URL
-        # instead of relying on the browser to notice the file changed.
-        index_path = os.path.join(_STATIC_DIR, "index.html")
-        with open(index_path, "r", encoding="utf-8") as f:
-            html = f.read()
-        js_path = os.path.join(_STATIC_DIR, "js", "app.js")
-        css_path = os.path.join(_STATIC_DIR, "css", "app.css")
-        js_v = int(os.path.getmtime(js_path)) if os.path.exists(js_path) else 0
-        css_v = int(os.path.getmtime(css_path)) if os.path.exists(css_path) else 0
-        html = html.replace('/static/js/app.js"', f'/static/js/app.js?v={js_v}"')
-        html = html.replace('/static/css/app.css"', f'/static/css/app.css?v={css_v}"')
-        # The root document itself must never be cached -- a cached "/" means
-        # a browser (or an automated CDP session reusing one tab across many
-        # restarts) keeps re-using an old <script src> reference forever,
-        # even after the cache-busted URL above changes on the server.
-        return HTMLResponse(html, headers={"Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache"})
+    # Master plan V2 DS3/PG1: "/" is the new app (static/app2.html), "/legacy" the old dashboard (static/index.html), and
+    # /assets/... the fingerprinted, pre-compressed files (sindhu_web/assets.py).
+    from sindhu_web import assets as _assets
+    _assets.register(app)
+    _assets.register_pages(app, cloud=False)
 
     return app
 
 
 app = create_app()
-
-
+
+
+
+
 @app.api_route("/health", methods=["GET", "HEAD"])   # Master plan A1/P6: HEAD too
 def health():
     return {"status": "ok", "safe_start": os.environ.get("SINDHU_SAFE_START") == "1"}
@@ -370,7 +354,8 @@ def health_details():
     """Master plan A17: trading state, config validation, self-check, config hash and safe summary (no secrets)."""
     from paper_trading import self_check
     return {"status": "ok", **self_check.details()}
-
+
+
 
 
 def _dual_stack_socket(port):

@@ -12,6 +12,19 @@ _cache = {"at": 0.0, "data": None}
 _lock = threading.Lock()
 
 
+def _next_tick(engine):
+    """last tick + tick_interval_seconds (master plan V2 PG2 "next scan in"); None when the engine is not running."""
+    try:
+        from datetime import datetime, timedelta
+        from paper_trading import config as pt_config
+        last = getattr(engine, "_last_tick_at", None)
+        if not last or not getattr(engine, "_running", False):
+            return None
+        return (datetime.fromisoformat(last) + timedelta(seconds=pt_config.load().get("tick_interval_seconds", 60))).isoformat()
+    except Exception:
+        return None
+
+
 def _compute():
     out = {"generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "paper_only": True}
     try:
@@ -26,7 +39,8 @@ def _compute():
         out["engine"] = {"running": bool(getattr(engine, "_running", False)), "scan_in_progress": bool(prog.get("in_progress")),
                          "scan_index": prog.get("index"), "scan_total": prog.get("total"),
                          "last_summary": getattr(engine, "_last_summary", None),
-                         "last_tick_seconds": getattr(engine, "_last_tick_duration_seconds", None)}
+                         "last_tick_seconds": getattr(engine, "_last_tick_duration_seconds", None),
+                         "last_tick_at": getattr(engine, "_last_tick_at", None), "next_tick_at": _next_tick(engine)}
     except Exception as e:
         out["engine"] = {"error": type(e).__name__}
     try:

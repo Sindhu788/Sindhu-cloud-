@@ -203,7 +203,7 @@ async def token_guard_middleware(request: Request, call_next):
     # just decided one layer up. Static files stay reachable (app.js/
     # app.css are code, not data -- serving them pre-login leaks nothing,
     # and the login page needs this same static mount available too).
-    if path != "/" and path not in _LOGIN_EXEMPT_PATHS and not path.startswith("/static"):
+    if path != "/" and path not in _LOGIN_EXEMPT_PATHS and not path.startswith("/static") and not path.startswith("/assets/"):
         session_token = request.cookies.get(auth.SESSION_COOKIE)
         # Blocking DB lookup: run it in the thread pool. Called directly it froze the WHOLE event loop (so /health too) whenever the
         # database was slow or waking up (Day 4 finding).
