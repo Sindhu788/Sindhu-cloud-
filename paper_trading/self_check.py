@@ -189,6 +189,23 @@ def safe_config_summary():
     return out, hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
 
 
+def _memory():
+    try:
+        from paper_trading import memory_guard
+        s = memory_guard.status()
+        return {"rss_mb": round(memory_guard.rss_mb(), 1), "level": s.get("level"), "soft_mb": s.get("soft_mb"), "hard_mb": s.get("hard_mb")}
+    except Exception:
+        return None
+
+
+def _scans_finished():
+    try:
+        from paper_trading import engine
+        return engine._SCANS_FINISHED
+    except Exception:
+        return None
+
+
 def _log_lines():
     try:
         from paper_trading import log_volume
@@ -233,4 +250,4 @@ def details():
         top_coins = None
     return {"candles": candles, "trading": trading_state(), "config_errors": config_errors(), "self_check": sc, "config_hash": h,
             "config_summary": summary, "db_breaker": breaker, "refetch_queue": refetch, "top_coins_cache": top_coins,
-            "db_latency": _db_latency(), "log_lines": _log_lines()}
+            "db_latency": _db_latency(), "log_lines": _log_lines(), "memory": _memory(), "scans_finished": _scans_finished()}
