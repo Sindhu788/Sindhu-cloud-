@@ -1,7 +1,7 @@
 # MASTER PLAN FINAL REPORT (X2), 2026-11-06
 
 Plan: docs/MASTER_PLAN.md. State: docs/MASTER_PLAN_STATE.md. Before/after numbers: docs/MASTER_PLAN_RESULTS.md.
-Deploys: D1 6390321 (2026-11-05 22:37 UTC), D2 02d12c3 (23:07), D3 __D3__. All three were pushed fast-forward only after a green full suite.
+Deploys: D1 6390321 (2026-11-05 22:37 UTC), D2 02d12c3 (23:07), D3 3eabeac (2026-11-06 03:37 UTC; live 03:39, self-check 4/4 OK). All three were pushed fast-forward only after a green full suite.
 
 ## 8.1 Point table
 | ID | Name | Status | Evidence | Owner action |
