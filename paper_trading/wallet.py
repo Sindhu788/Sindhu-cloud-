@@ -327,8 +327,13 @@ def _decide(o, now=None):
     risk_usd = eq * s["risk_per_trade_pct"] / 100
     fee_rate = s["fee_pct"] / 100
     notional = risk_usd / stop_dist
-    free = cash()
-    notional = min(notional, free / (1 + fee_rate), eq)              # no leverage
+    free = max(0.0, cash())
+    if free < s["min_notional_usd"] * (1 + fee_rate):
+        return _reject(o, f"no free cash: ${free:.2f} left, all money is in open positions")
+    # Fix after the first Cloud entries (6 Nov): with a tight stop the risk-based size took ~50 % of the wallet per trade, so the 3rd and
+    # 4th slot could never be used. Cap: one position may use at most equity / max_open_positions (25 %). Only ever smaller, never larger.
+    cap = eq / max(1, int(s["max_open_positions"]))
+    notional = min(notional, cap, free / (1 + fee_rate) * (1 - 1e-9), eq)   # no leverage; never below zero cash by rounding
     if notional < s["min_notional_usd"]:
         return _reject(o, f"below the minimum notional (${notional:.2f} < ${s['min_notional_usd']:.2f})")
     qty = notional / fill

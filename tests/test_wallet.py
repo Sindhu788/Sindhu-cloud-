@@ -148,3 +148,21 @@ def test_wallet_api_is_mounted_and_read_only_get(w, monkeypatch):
     assert r.status_code == 200
     body = r.json()
     assert body["wallet"] == "MAIN_WALLET" and body["equity"] == 100.0 and body["reconciliation"]["ok"] and body["paper_only"] is True
+
+
+def test_one_position_uses_at_most_a_quarter_of_equity_and_cash_never_goes_negative(w):
+    w.offer(pos(entry=100.0, stop=99.0))                  # 1 % stop: risk-based size would be ~$100, capped at $25
+    d = w.settle()[0]
+    assert d["notional"] == pytest.approx(25.0)
+    for i in range(3):
+        w.offer(pos(symbol=f"Q{i}/USDT", entry=100.0, stop=99.0))
+    w.settle()
+    assert len(w.open_positions()) == 4 and w.cash() >= 0
+
+
+def test_no_free_cash_is_said_plainly(w, monkeypatch):
+    monkeypatch.setitem(wallet.DEFAULTS, "max_open_positions", 10)
+    monkeypatch.setattr(wallet, "daily_limit_hit", lambda: (False, 100.0, 100.0))   # this test is about cash only
+    w._set("cash", "0.00000000")
+    w.offer(pos(stop=90.0))
+    assert "no free cash" in w.settle()[0]["reason"]
