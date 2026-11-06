@@ -166,3 +166,30 @@ def test_no_free_cash_is_said_plainly(w, monkeypatch):
     w._set("cash", "0.00000000")
     w.offer(pos(stop=90.0))
     assert "no free cash" in w.settle()[0]["reason"]
+
+
+def test_settle_reads_the_state_once_and_writes_stay_consistent(w, monkeypatch):
+    from data_engine import storage
+    reads = []
+    real = storage.get_conn
+    import contextlib
+
+    @contextlib.contextmanager
+    def counting():
+        with real() as conn:
+            class C:
+                def execute(self, sql, params=()):
+                    if sql.lstrip().upper().startswith("SELECT") and "FROM wallet_state" in sql:
+                        reads.append(sql)
+                    return conn.execute(sql, params)
+            yield C()
+    for i in range(6):
+        w.offer(pos(symbol=f"S{i}/USDT", direction="short", stop=105.0))   # 6 rejections
+    w.offer(pos(symbol="OK/USDT", stop=90.0))
+    monkeypatch.setattr(storage, "get_conn", counting)
+    out = w.settle()
+    monkeypatch.setattr(storage, "get_conn", real)
+    assert [o["decision"] for o in out].count("opened") == 1
+    assert len(reads) <= 2                                   # one bulk read (+ at most one at ensure), not one per check
+    assert w.reconcile()["ok"] and w.cash() < 100.0          # the cached write reached the database
+    assert w.settle() == []                                  # no offers -> no work
