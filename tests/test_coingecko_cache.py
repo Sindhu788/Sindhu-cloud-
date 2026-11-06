@@ -157,5 +157,5 @@ def test_any_network_error_uses_the_stale_list(monkeypatch):
     monkeypatch.setitem(cg._cache, "coins", [{"symbol": "btc"}, {"symbol": "eth"}])
     monkeypatch.setitem(cg._cache, "limit", 2)
     monkeypatch.setitem(cg._cache, "fetched_at", -1e9)
-    monkeypatch.setattr(cg, "_fetch_top_market_cap_coins", lambda limit: (_ for _ in ()).throw(requests.ConnectionError("down")))
+    monkeypatch.setattr(cg, "_fetch_top_market_cap_coins", lambda limit, deadline=None: (_ for _ in ()).throw(requests.ConnectionError("down")))
     assert [c["symbol"] for c in cg.get_top_market_cap_coins(2)] == ["btc", "eth"]
