@@ -288,7 +288,7 @@ def get_ohlcv_live(exchange, symbol, interval, start_ms=None, end_ms=None):
             except FetchDeadlineExceeded as e:
                 if e.rows:                                   # keep the part already downloaded; the next scan resumes after it
                     with _lock:
-                        _cache[key] = _trim(_rows_to_df(e.rows)[_OUT_COLUMNS], now, keep)
+                        _cache[key] = _compact(_trim(_rows_to_df(e.rows)[_OUT_COLUMNS], now, keep))
                 raise
             df = _rows_to_df(rows)[_OUT_COLUMNS] if rows else pd.DataFrame(columns=_OUT_COLUMNS)
             if rows:
@@ -331,7 +331,7 @@ def get_ohlcv_live(exchange, symbol, interval, start_ms=None, end_ms=None):
                 df = base
 
         if df is not cached:                  # nothing new -> nothing to trim or store (was 5 ms x 1,100 calls per scan)
-            df = _trim(df, now, keep)
+            df = _compact(_trim(df, now, keep))
             with _lock:
                 _cache[key] = df
 
@@ -340,6 +340,21 @@ def get_ohlcv_live(exchange, symbol, interval, start_ms=None, end_ms=None):
     end_ts = pd.to_datetime(now, unit="ms", utc=True)
     start_ts = pd.to_datetime(start, unit="ms", utc=True)
     return df[(df.index >= start_ts) & (df.index <= end_ts)]
+
+
+_COMPACT_COLS = ("quote_volume", "trades")
+
+
+def _compact(df):
+    """Master plan V2 R3 (P11): the two columns no strategy reads (okx gives trades = 0 and quote_volume = volume x close) are kept
+    as float32 in the cache: 8 of 64 bytes per candle less, open/high/low/close/volume stay float64 so every result is unchanged."""
+    try:
+        cols = [c for c in _COMPACT_COLS if c in df.columns and df[c].dtype != "float32"]
+        if cols and not df.empty:
+            df = df.astype({c: "float32" for c in cols})
+    except Exception:
+        pass
+    return df
 
 
 def clear_cache():

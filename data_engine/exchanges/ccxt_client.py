@@ -3,7 +3,10 @@ import random
 import threading
 import time
 
-import ccxt
+from data_engine.exchanges import lazy_ccxt
+
+lazy_ccxt.install()   # master plan V2 R3: only the exchanges actually used are imported (-34 MiB RSS)
+import ccxt  # noqa: E402
 
 from data_engine.exchanges.base import ExchangeClient
 from data_engine.config import MAX_RETRIES
