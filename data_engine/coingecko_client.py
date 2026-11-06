@@ -37,8 +37,10 @@ def get_top_market_cap_coins(limit=200):
 
     try:
         coins = _fetch_top_market_cap_coins(limit)
-    except requests.HTTPError as e:
-        if e.response is not None and e.response.status_code == 429 and _cache["coins"] is not None:
+    except requests.RequestException:
+        # Master plan P5 follow-up: ANY network failure (not only 429) falls back to a stale list when one exists; the top-50 by
+        # market cap barely changes between scans. Without a cached list the error is raised as before.
+        if _cache["coins"] is not None:
             return _cache["coins"][:limit]
         raise
     _cache["limit"] = limit
@@ -71,15 +73,26 @@ def _fetch_top_market_cap_coins(limit):
     return coins[:limit]
 
 
-def _get_with_retry(url, params, max_retries=3):
+_MAX_WAIT_S = 20.0          # master plan P5: one 429 pause is at most 20 s (Cloud log 6 Nov 01:43: a 139 s stall here) ...
+_CALL_BUDGET_S = 45.0       # ... and all retries of one call together at most 45 s
+
+
+def _get_with_retry(url, params, max_retries=3, sleep=None):
+    sleep = sleep or time.sleep
     last_exc = None
+    started = time.monotonic()
+    waited = 0.0
     for attempt in range(max_retries):
         resp = _session.get(url, params=params, timeout=15)
         if resp.status_code == 429:
             last_exc = requests.HTTPError(f"429 Client Error: Too Many Requests for url: {resp.url}", response=resp)
             retry_after = resp.headers.get("Retry-After")
             wait = float(retry_after) if retry_after and retry_after.isdigit() else 5.0 * (attempt + 1)
-            time.sleep(wait)
+            wait = min(wait, _MAX_WAIT_S)
+            if max(time.monotonic() - started, waited) + wait > _CALL_BUDGET_S:
+                break
+            sleep(wait)
+            waited += wait
             continue
         resp.raise_for_status()
         return resp.json()
