@@ -155,3 +155,12 @@ New backup folder `D:\sindhu_backup_day4\cloud_export_20261104_222811` (51 table
 2. **Har signal message ab disclaimer + "Backtest validation: FAILED/FRAGILE/..." ke saath** jata hai; iske liye kuch karna nahi.
 3. **Cloud ab Bybit/Binance kabhi nahi chhuta** (dono Render ko block karte hain); default OKX. Kuch karna nahi.
 4. **Pinger**: master plan kehta hai UptimeRobot Keyword monitor (GET, keyword `ok`) laga hua hai. Purane HTTP monitor ne `HEAD /health` bheja tha -> 405 aata tha; ab `HEAD /health` bhi 200 deta hai (D1 deploy ke baad). UptimeRobot dashboard mein monitor "Up" dikhe, yeh check karo.
+
+## Master plan: owner steps (Hinglish, ek kaam ek line; Render env change = service restart, ek waqt mein ek)
+1. **OWNER_CHAT_ID:** Telegram mein apne bot ki private chat kholo aur `/start` bhejo. Apna numeric chat id Telegram ke bot @userinfobot se pata karo (woh sirf tumhara id batata hai). Phir Render → Sindhu-cloud--1 → Environment → `OWNER_CHAT_ID` = woh number → Save → 2 min ruko → `/health` check. Bot token kabhi kisi link ya chat mein mat daalo.
+2. **DASHBOARD_PASSWORD (optional, extra login):** Render → Environment → `DASHBOARD_PASSWORD` = lamba naya password → Save → restart ka intezaar → login page par username `owner` + yeh password. Purana account bhi chalta rahega.
+3. **Scheduled tasks (laptop):** pehle Windows user variables `TELEGRAM_BOT_TOKEN` aur `OWNER_CHAT_ID` set karo (Settings → System → About → Advanced system settings → Environment Variables → User variables → New). Phir `D:\sindhu_clean\ops\windows_tasks\install_tasks.cmd` par double-click. Hatane ke liye `remove_tasks.cmd`.
+4. **Purane Render services:** dashboard.render.com → har service (Sindhu-cloud--1 ke ilawa: `Sindhu-cloud-`, `Trading-best` x3) → Environment → agar `TELEGRAM_BOT_TOKEN` dikhe → us service par **Suspend** (Delete nahi).
+5. **Secrets rotation, ek ek karke:** (a) Telegram: BotFather → `/revoke` → naya token → Render env `TELEGRAM_BOT_TOKEN` update → restart → `/health/details` mein `telegram_token` ok. (b) Neon: console.neon.tech → Roles → password reset → Render env `DATABASE_URL` update → restart → `/health` mein `db_backend: postgres`. (c) Dashboard password: login → change password. Har step ke baad 5 min check, tab agla.
+6. **Settings farq (Local vs Cloud):** docs/PARITY.md mein 5 farq hain (coin filter 10 vs 50, risk 0.5 vs 1.0, tick 30 vs 60, Telegram). Jo sahi lage, ek jagah Settings page se badlo.
+7. **SINDHU_PUBLIC_SIGNALS:** abhi **mat lagao**.

@@ -96,9 +96,25 @@ def _db_identity():
         return "unknown"
 
 
-def _get(k):
+# Fix after the first Cloud scan (6 Nov 00:15): settle() read the state one key at a time, several reads per offer, and with
+# ~110 ms per Cloud database round trip 113 offers stalled the scan for 139 s. During settle() the whole state is read ONCE into
+# _state_cache; writes go to the database AND the cache, so values are never stale inside one settle.
+_state_cache = {"on": False, "kv": {}}
+
+
+def _load_state_cache():
     with storage.get_conn() as conn:
-        row = conn.execute("SELECT v FROM wallet_state WHERE k = ?", (f"{WALLET_ID}:{k}",)).fetchone()
+        rows = conn.execute("SELECT k, v FROM wallet_state WHERE k LIKE ?", (f"{WALLET_ID}:%",)).fetchall()
+    _state_cache["kv"] = {r[0]: r[1] for r in rows}
+    _state_cache["on"] = True
+
+
+def _get(k):
+    key = f"{WALLET_ID}:{k}"
+    if _state_cache["on"]:
+        return _state_cache["kv"].get(key)
+    with storage.get_conn() as conn:
+        row = conn.execute("SELECT v FROM wallet_state WHERE k = ?", (key,)).fetchone()
     return None if row is None else row[0]
 
 
@@ -107,6 +123,8 @@ def _set(k, v):
     with storage.get_conn() as conn:
         conn.execute("DELETE FROM wallet_state WHERE k = ?", (key,))
         conn.execute("INSERT INTO wallet_state (k, v) VALUES (?, ?)", (key, str(v)))
+    if _state_cache["on"]:
+        _state_cache["kv"][key] = str(v)
 
 
 def _rows(sql, params=()):
@@ -270,6 +288,18 @@ def offer(research_pos, candidate=None, snapshot=None):
 
 
 def settle(now=None):
+    with _lock:
+        if not _offers:
+            return []                            # nothing offered this scan: no database work at all
+    ensure()
+    _load_state_cache()
+    try:
+        return _settle(now)
+    finally:
+        _state_cache["on"] = False
+
+
+def _settle(now=None):
     """Decide all offers of this scan: best validation class first, then arrival order. Returns the list of decisions."""
     with _lock:
         batch = sorted(_offers, key=lambda o: (_CLASS_RANK.get(o["cls"], 2), o["seq"]))
@@ -327,8 +357,13 @@ def _decide(o, now=None):
     risk_usd = eq * s["risk_per_trade_pct"] / 100
     fee_rate = s["fee_pct"] / 100
     notional = risk_usd / stop_dist
-    free = cash()
-    notional = min(notional, free / (1 + fee_rate), eq)              # no leverage
+    free = max(0.0, cash())
+    if free < s["min_notional_usd"] * (1 + fee_rate):
+        return _reject(o, f"no free cash: ${free:.2f} left, all money is in open positions")
+    # Fix after the first Cloud entries (6 Nov): with a tight stop the risk-based size took ~50 % of the wallet per trade, so the 3rd and
+    # 4th slot could never be used. Cap: one position may use at most equity / max_open_positions (25 %). Only ever smaller, never larger.
+    cap = eq / max(1, int(s["max_open_positions"]))
+    notional = min(notional, cap, free / (1 + fee_rate) * (1 - 1e-9), eq)   # no leverage; never below zero cash by rounding
     if notional < s["min_notional_usd"]:
         return _reject(o, f"below the minimum notional (${notional:.2f} < ${s['min_notional_usd']:.2f})")
     qty = notional / fill

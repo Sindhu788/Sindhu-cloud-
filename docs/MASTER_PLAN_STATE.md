@@ -2,8 +2,8 @@
 plan_version: 1
 started_at: 2026-11-05 ~20:55 UTC (the laptop clock said 5 Nov UTC; the session header said 6 Nov)
 last_update: 2026-11-05 23:00 UTC
-current_step: D2 (suite running)
-next_action: D2 deploy after green suite, then Part C UI, A23-A26, B6-B7, X1-X2
+current_step: A23 (scripts being written)
+next_action: finish ops/windows_tasks (daily_health_report.py written; monthly_export, weekly_backup, install/remove cmd NOT yet written), A25-A26 docs, B6-B7, wallet.ensure at startup, full suite, D3 push of e7f4201+, X1 measure, X2 report
 background_jobs:
   - id: SUITE3   status: DONE  marker_dir: /tmp/full_runs.log  done: 3/3
   - id: BT-DATA  status: DONE  marker_dir: D:\sindhu_runtime\bt_jobs\BT-DATA  done: 20/20
@@ -61,3 +61,5 @@ Working copy: D:\sindhu_clean (branch recovery/clean); pushes go through D:\sind
 
 ## Deploys
 - D1: 6390321 pushed 22:37:27 UTC, live 22:38:49 (/health commit 6390321, HEAD 200, /wp-admin 404). Suite before: 2,568 passed / 0 failed.
+- D2: 02d12c3 pushed 23:07:43 UTC, live 23:09:21; /health/details: trading enabled, self-check 4/4 OK, 54/54 candles fresh. Suite before: 2,596 passed / 0 failed.
+- Part C committed e7f4201 (NOT deployed yet; needs D3).

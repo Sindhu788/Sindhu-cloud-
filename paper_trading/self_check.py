@@ -141,6 +141,11 @@ def start_background_self_check(delay_s=20):
     """Called once at startup; does not delay serving requests."""
     def run():
         time.sleep(delay_s)
+        try:                                     # master plan A9: create MAIN_WALLET once (idempotent) so its start time is fixed
+            from paper_trading import wallet
+            wallet.ensure()
+        except Exception:
+            pass
         run_self_check()
     threading.Thread(target=run, daemon=True, name="self-check").start()
 

@@ -112,3 +112,18 @@ Reconciliation (stored P&L vs closed trades, tolerance 0.01):
   SAVED in its settings, and a saved value wins over the default: owner step in OWNER_TODO (Settings page or Telegram settings).
 - The seven Day 6/7 flags stay OFF on Cloud. `SINDHU_RESEARCH_ONLY_TIMEFRAMES` stays OFF on purpose, because the owner excluded P7
   (1m/5m strategies stay on Cloud).
+
+### Result after D2 (2026-11-05 23:12 UTC, Cloud commit 02d12c3)
+Local hash `c708b9da542afe1e`, Cloud hash `daa386e51f850757`, **5 differences** (owner settings; nothing was changed):
+
+| Key | Local | Cloud |
+|---|---|---|
+| paper_trading.coin_filter_top_n | 10 | 50 |
+| paper_trading.risk_pct_default | 0.5 | 1.0 |
+| paper_trading.tick_interval_seconds | 30 | 60 |
+| telegram.bot_token_set | False | True |
+| telegram.master_send_enabled | False | True |
+
+**CORRECTED:** the Day 7 re-check said only `auto_send_high_confidence_only` differed. That comparison did not include these
+paper-trading keys, so it was incomplete. `auto_send_high_confidence_only` is now True on BOTH sides: Cloud's saved blob has no
+value for it, so the new default applies. Public signals: not allowed on Cloud (`SINDHU_PUBLIC_SIGNALS` unset). All Day 6/7 flags: OFF.

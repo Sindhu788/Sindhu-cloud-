@@ -178,3 +178,12 @@ Rules in time order; the opposite-direction rule counts only signals that would 
 | SINDHU_GATE_USE_POSITION_EXCHANGE | No longer needed on Cloud: master plan A7 makes the Cloud gate use the position's exchange anyway. |
 | SINDHU_SIGNAL_DISCLAIMER | Obsolete: master plan A14 always adds the disclaimer and the validation class. |
 | SINDHU_PUBLIC_SIGNALS (new, A14) | **Keep unset (OFF)** until a strategy is ROBUST and has passed its forward test. |
+
+## Master plan B6 (2026-11-06): the two V2 benchmark strategies
+Both are **FRAGILE** (docs/STRATEGY_V2_REPORT.md): positive after costs in- and out-of-sample and robust to parameter neighbours and
+1.5x costs, but they fail the multiple-testing rule over 44 tests and earn less than buy-and-hold in absolute terms.
+- They are NOT synced to Cloud and do NOT trade (master plan B6: only a ROBUST verdict plus your approval would allow paper trading).
+- They are daily portfolio strategies (many coins at once, volatility-scaled weights). The live engine trades one coin and one signal
+  at a time, so they cannot be dropped into the strategy library as they are. Registering them would need a new portfolio mode (not built).
+- **Decision for you (no action needed now):** keep them as research results only (my recommendation), or ask for a forward test.
+  At their out-of-sample rates (5.6 and 9.5 positions a month) a verdict needs about 11-18 months.

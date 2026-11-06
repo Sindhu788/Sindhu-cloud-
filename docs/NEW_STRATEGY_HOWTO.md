@@ -61,3 +61,16 @@ EXPECTED FAILURE MODES (how would this idea lose money? what regime breaks it?):
 WHAT RESULT WOULD MAKE ME STOP BELIEVING IT (a number, decided in advance):
 WHAT I ALREADY LOOKED AT (charts / earlier tests, so they are not counted as new evidence):
 ```
+
+## Daily portfolio strategies (master plan B7, the V2 benchmark pipeline)
+**Hinglish:** naya daily strategy test karna ho (bina Claude):
+1. Pehle `docs/BENCHMARK_PREREGISTRATION_V2.md` jaisa ek naya file likho: rules, coins, costs, pass criteria. **Result dekhne se PEHLE** `git commit` karo.
+2. Data: `D:\sindhu_venv_bt\Scripts\python.exe -m data_platform.daily_download` (daily candles, resumable), phir `python tools/daily_quality.py`.
+3. Code: `data_platform/benchmark_v2.py` mein ek naya `*_signal(p)` function (sirf din t ke close tak ka data) aur `run_strategy` mein ek naam.
+4. Test: `tests/test_benchmark_v2.py` jaisa no-lookahead test likho, phir `pytest`.
+5. Run: `python -m data_platform.benchmark_v2_run --job-dir D:\sindhu_runtime\bt_jobs\<naya-naam>` (purane folder kabhi overwrite nahi hote).
+6. Report: `python tools/benchmark_v2_report.py --job <folder> --write`. Verdict FAILED/FRAGILE aaye to wahi likho, parameters badal kar dobara mat chalao.
+
+**English:** (1) pre-register and commit before any result; (2) download native daily data and run the quality check; (3) add a
+signal function that only reads data up to the close of day t; (4) add a no-lookahead unit test; (5) run the resumable job into a new
+folder; (6) write the report. Never re-tune after seeing results; a re-run counts as a new test for the FDR rule.
