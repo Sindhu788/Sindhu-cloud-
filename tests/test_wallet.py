@@ -35,11 +35,12 @@ def test_created_once_with_100_dollars(w):
 
 
 def test_risk_based_size_fees_and_slippage(w):
-    w.offer(pos(entry=100.0, stop=95.0))
+    # master plan V2 R4: stop moved from 95 to 92 so the risk-based size ($12.4) stays under the new 15 % cap
+    w.offer(pos(entry=100.0, stop=92.0))
     d = w.settle()[0]
     assert d["decision"] == "opened"
     fill = 100.0 * 1.0005
-    stop_dist = (fill - 95.0) / fill
+    stop_dist = (fill - 92.0) / fill
     assert d["notional"] == pytest.approx(1.0 / stop_dist, rel=1e-9)     # 1 % of $100 equity at risk
     assert d["fee"] == pytest.approx(d["notional"] * 0.001)
     assert w.cash() == pytest.approx(100.0 - d["notional"] - d["fee"])
@@ -150,10 +151,11 @@ def test_wallet_api_is_mounted_and_read_only_get(w, monkeypatch):
     assert body["wallet"] == "MAIN_WALLET" and body["equity"] == 100.0 and body["reconciliation"]["ok"] and body["paper_only"] is True
 
 
-def test_one_position_uses_at_most_a_quarter_of_equity_and_cash_never_goes_negative(w):
-    w.offer(pos(entry=100.0, stop=99.0))                  # 1 % stop: risk-based size would be ~$100, capped at $25
+def test_one_position_uses_at_most_15_pct_of_equity_and_cash_never_goes_negative(w):
+    # master plan V2 R4 (N1): changed on purpose from 25 % (equity / 4) to 15 % of equity
+    w.offer(pos(entry=100.0, stop=99.0))                  # 1 % stop: risk-based size would be ~$100, capped at $15
     d = w.settle()[0]
-    assert d["notional"] == pytest.approx(25.0)
+    assert d["notional"] == pytest.approx(15.0)
     for i in range(3):
         w.offer(pos(symbol=f"Q{i}/USDT", entry=100.0, stop=99.0))
     w.settle()
@@ -193,3 +195,20 @@ def test_settle_reads_the_state_once_and_writes_stay_consistent(w, monkeypatch):
     assert len(reads) <= 2                                   # one bulk read (+ at most one at ensure), not one per check
     assert w.reconcile()["ok"] and w.cash() < 100.0          # the cached write reached the database
     assert w.settle() == []                                  # no offers -> no work
+
+
+def test_position_cap_setting_is_clamped_to_5_25_pct(w):
+    w._set("settings", '{"max_position_pct": 80}')
+    assert wallet.settings()["max_position_pct"] == 25.0
+    w._set("settings", '{"max_position_pct": 1}')
+    assert wallet.settings()["max_position_pct"] == 5.0
+    w._set("settings", '{}')
+    assert wallet.settings()["max_position_pct"] == 15.0
+
+
+def test_self_check_flags_a_position_cap_outside_5_25(w):
+    from paper_trading import self_check
+    w._set("settings", '{"max_position_pct": 40}')
+    assert "wallet.max_position_pct" in self_check.validate_config()
+    w._set("settings", '{"max_position_pct": 10}')
+    assert "wallet.max_position_pct" not in self_check.validate_config()

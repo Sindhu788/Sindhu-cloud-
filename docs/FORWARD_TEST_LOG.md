@@ -15,3 +15,9 @@ numbers stay interpretable. Evaluation is not before **2027-01-05** and needs at
 
 Registered forward-test candidates: **0** (`D:\sindhu_data\manifest\forward_registry.json`). The two V2 benchmark strategies (both
 FRAGILE) are NOT registered; that is an owner decision (docs/OWNER_DECISIONS.md).
+
+## 2026-11-06 06:48 UTC - MAIN_WALLET position cap 25 % -> 15 % (master plan V2 R4, N1)
+- Change: one wallet position may use at most **15 % of equity** (before: equity / max_open_positions = 25 %). Stricter only.
+- Setting `max_position_pct` (wallet settings), allowed 5-25; outside that range self-check reports a config error and the value is
+  clamped. Takes effect on Cloud when commit (R4) is deployed at gate G1; positions already open are not resized.
+- Effect on comparisons: wallet trades before and after this change are sized differently; compare P&L per trade in %, not in $.

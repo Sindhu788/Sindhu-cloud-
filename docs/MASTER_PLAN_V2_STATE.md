@@ -1,9 +1,9 @@
 # MASTER_PLAN_V2_STATE
 plan_version: 2
 started_at: 2026-11-06 06:20 UTC
-last_update: 2026-11-06 06:44 UTC
+last_update: 2026-11-06 06:48 UTC
 current_step: F2
-next_action: R4 position cap 15%
+next_action: R5 DB latency
 background_jobs: none
 
 Working copy: D:\sindhu_wtA (branch masterplan/partA); D:\sindhu_clean (recovery/clean) is fast-forwarded to it; pushes go through
@@ -17,7 +17,7 @@ D:\sindhu_merge to origin codex/trading-intelligence (fast-forward only). V1 sta
 | R1 | DONE | (this commit) | tests/test_coingecko_deadline.py (5 passed, real slow local HTTP server) + test_coingecko_cache + test_coin_selection_fallback: 16 passed | deadline 20 s for the whole fetch, connect 5 s / read 10 s, last good list on disk (config/coingecko_top_coins_cache.json, atomic, timestamp), fallback logged once per 30 min; includes 20736c4 |
 | R2 | DONE | (this commit) | tests/test_refetch_budget.py (6 passed); live_candles/fetch_deadline/self_check tests 18 passed; /health/details refetch_queue + top_coins_cache | heavy = cold or backfill > 1000 candles; K = SINDHU_REFETCH_BUDGET (3); first scan after a start unlimited (all cold) |
 | R3 | DONE | (this commit) | docs/MEMORY_PROFILE_V2.md: import RSS 141 -> 106 MiB (lazy ccxt), ~-11 MiB candle cache; tests/test_lazy_ccxt.py 3 passed, candle tests 34 passed | Cloud RSS after: measured at G1 (target <= 400 MB) |
-| R4 | TODO | | | |
+| R4 | DONE | (this commit) | tests/test_wallet.py 17 passed (cap test changed on purpose 25 -> 15; risk test stop 95 -> 92); FORWARD_TEST_LOG entry | max_position_pct 15, range 5-25, self-check error outside |
 | R5 | TODO | | | |
 | R6 | TODO | | | |
 | R7 | TODO | | | |

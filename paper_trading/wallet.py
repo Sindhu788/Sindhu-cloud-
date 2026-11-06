@@ -28,7 +28,9 @@ DEFAULTS = {
     "risk_per_trade_pct": 1.0, "max_open_positions": 4, "same_coin_cap": 5, "min_notional_usd": 5.0,
     "fee_pct": 0.10, "slippage_pct": 0.05, "daily_loss_limit_pct": 5.0, "duplicate_window_min": 60,
     "auto_pause_min_trades": 20, "auto_pause_pf_below": 0.9, "auto_pause_dd_contribution_pct": 3.0, "long_only": True,
+    "max_position_pct": 15.0,   # master plan V2 R4 (N1): one position uses at most 15 % of equity (was 25 % = 1/4); allowed 5-25
 }
+MAX_POSITION_PCT_RANGE = (5.0, 25.0)
 DAILY_LOSS_LIMIT_HARD_MAX_PCT = 10.0      # A10: configurable, but never above 10 % without editing this constant
 _CLASS_RANK = {"ROBUST": 0, "FRAGILE": 1}
 _lock = threading.RLock()
@@ -66,6 +68,11 @@ def settings():
     except Exception:
         pass
     s["daily_loss_limit_pct"] = min(float(s["daily_loss_limit_pct"]), DAILY_LOSS_LIMIT_HARD_MAX_PCT)
+    try:
+        lo, hi = MAX_POSITION_PCT_RANGE
+        s["max_position_pct"] = min(max(float(s["max_position_pct"]), lo), hi)
+    except (TypeError, ValueError):
+        s["max_position_pct"] = DEFAULTS["max_position_pct"]
     return s
 
 
@@ -362,7 +369,8 @@ def _decide(o, now=None):
         return _reject(o, f"no free cash: ${free:.2f} left, all money is in open positions")
     # Fix after the first Cloud entries (6 Nov): with a tight stop the risk-based size took ~50 % of the wallet per trade, so the 3rd and
     # 4th slot could never be used. Cap: one position may use at most equity / max_open_positions (25 %). Only ever smaller, never larger.
-    cap = eq / max(1, int(s["max_open_positions"]))
+    # Master plan V2 R4 (N1): and at most max_position_pct of equity (default 15 %), whichever is smaller.
+    cap = min(eq / max(1, int(s["max_open_positions"])), eq * float(s["max_position_pct"]) / 100)
     notional = min(notional, cap, free / (1 + fee_rate) * (1 - 1e-9), eq)   # no leverage; never below zero cash by rounding
     if notional < s["min_notional_usd"]:
         return _reject(o, f"below the minimum notional (${notional:.2f} < ${s['min_notional_usd']:.2f})")

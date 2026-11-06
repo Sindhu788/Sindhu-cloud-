@@ -46,6 +46,12 @@ def validate_config():
             errors["wallet.max_open_positions"] = "must be at least 1"
         if not 0 < float(w["daily_loss_limit_pct"]) <= 10.0:
             errors["wallet.daily_loss_limit_pct"] = "must be above 0 and at most 10 %"
+        try:
+            saved_cap = json.loads(wallet._get("settings") or "{}").get("max_position_pct")
+        except Exception:
+            saved_cap = None
+        if saved_cap is not None and not 5.0 <= float(saved_cap) <= 25.0:
+            errors["wallet.max_position_pct"] = "must be between 5 and 25 % of equity"
     except Exception as e:
         errors["wallet"] = f"settings could not be read: {type(e).__name__}"
     return errors
