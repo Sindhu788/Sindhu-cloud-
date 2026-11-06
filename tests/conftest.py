@@ -75,3 +75,13 @@ def _public_signals_allowed_in_gate_tests(monkeypatch):
     (tests/test_public_signals_default_off.py)."""
     monkeypatch.setenv("SINDHU_PUBLIC_SIGNALS", "1")
     yield
+
+
+@pytest.fixture(autouse=True)
+def _isolated_coingecko_disk_cache(monkeypatch, tmp_path):
+    """Master plan V2 R1: the last-good top-coins list on disk must not leak between tests."""
+    try:
+        from data_engine import coingecko_client as _cg
+        monkeypatch.setattr(_cg, "_disk_cache_path", lambda: str(tmp_path / "coingecko_top_coins_cache.json"))
+    except Exception:
+        pass

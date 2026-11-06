@@ -33,6 +33,9 @@ def level(rss=None):
     return "hard" if rss >= HARD_MB else ("soft" if rss >= SOFT_MB else "ok")
 
 
+_log_state = {"level": "ok", "at": -1e9, "skipped": 0}
+
+
 def optional_work_allowed():
     """False once memory is tight: callers skip prefetch and other non-essential work."""
     return level() == "ok"
@@ -49,6 +52,7 @@ def check(log=print, send=None, now=None, rss=None):
         lv = level(rss)
         _last.update(level=lv, rss=round(rss, 1))
         if lv == "ok":
+            _log_state.update(level="ok", skipped=0)
             return lv
         # soft or hard: free what can be rebuilt
         try:
@@ -57,7 +61,14 @@ def check(log=print, send=None, now=None, rss=None):
         except Exception:
             pass
         _last["soft_events" if lv == "soft" else "hard_events"] += 1
-        log(f"[memory-guard] RSS {rss:.0f} MB >= {SOFT_MB if lv == 'soft' else HARD_MB:.0f} MB ({lv}): concept memo dropped, optional work (prefetch) skipped")
+        # master plan V2 R6 (P29): print when the level changes, and otherwise at most every 30 min with the count (was every ~3 min)
+        mono = time.monotonic()
+        if lv != _log_state["level"] or mono - _log_state["at"] >= 1800:
+            extra = f" ({_log_state['skipped']} repeats not printed)" if _log_state["skipped"] else ""
+            log(f"[memory-guard] RSS {rss:.0f} MB >= {SOFT_MB if lv == 'soft' else HARD_MB:.0f} MB ({lv}): concept memo dropped, optional work (prefetch) skipped{extra}")
+            _log_state.update(level=lv, at=mono, skipped=0)
+        else:
+            _log_state["skipped"] += 1
         if lv == "hard":
             now = time.time() if now is None else now
             if now - _last["alert_at"] >= ALERT_EVERY_MIN * 60:

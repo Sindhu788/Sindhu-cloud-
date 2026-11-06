@@ -164,3 +164,27 @@ New backup folder `D:\sindhu_backup_day4\cloud_export_20261104_222811` (51 table
 5. **Secrets rotation, ek ek karke:** (a) Telegram: BotFather → `/revoke` → naya token → Render env `TELEGRAM_BOT_TOKEN` update → restart → `/health/details` mein `telegram_token` ok. (b) Neon: console.neon.tech → Roles → password reset → Render env `DATABASE_URL` update → restart → `/health` mein `db_backend: postgres`. (c) Dashboard password: login → change password. Har step ke baad 5 min check, tab agla.
 6. **Settings farq (Local vs Cloud):** docs/PARITY.md mein 5 farq hain (coin filter 10 vs 50, risk 0.5 vs 1.0, tick 30 vs 60, Telegram). Jo sahi lage, ek jagah Settings page se badlo.
 7. **SINDHU_PUBLIC_SIGNALS:** abhi **mat lagao**.
+
+## Master plan V2 - Login bhool gaye? (R10, N5 + P35) - koi lockout nahi
+Aaj login ke 2 raste hain; dono alag-alag kaam karte hain:
+1. **Env login (sabse aasaan):** username `owner` + jo `DASHBOARD_PASSWORD` Render par set hai.
+   - Set/badalne ke liye: dashboard.render.com -> Sindhu-cloud--1 -> Environment -> `DASHBOARD_PASSWORD` = naya lamba password -> Save.
+   - Service restart hoti hai: 2-3 minute ruko, phir https://sindhu-cloud-1.onrender.com/health kholo, `ok` dikhe to login karo.
+   - Yeh ek hi env change hai; saath mein koi aur env mat badlo.
+2. **Purana account (jiska username/password yaad nahi):** laptop par reset karo, password kabhi screen par nahi aata:
+   - Local app ka account: `D:\sindhu_venv_stable\Scripts\python.exe -m tools.reset_dashboard_user --list` (sirf username dikhata hai),
+     phir `... -m tools.reset_dashboard_user --reset <naya_username>` -> do baar naya password (8+ characters) -> "Saved".
+   - Cloud ka account: repo folder ki `.env` file mein ek line `DATABASE_URL=...` (Neon console -> Connection string; yeh file git
+     mein nahi jaati) -> phir wahi command `--cloud` ke saath: `--list --cloud`, `--reset <naya_username> --cloud`.
+   - Reset ke baad saare purane login sessions sign out ho jaate hain. Env login (`owner`) par koi asar nahi.
+3. 6 Nov 05:34-05:35 UTC ko ek IP se 5 galat login aaye (401). Agar woh tum thay: upar wala step 1 ya 2 karo. Agar tum nahi thay:
+   password lamba rakho; 5 galat tries ke baad us IP ko 10 minute rok diya jaata hai.
+
+## Master plan V2 R7 (P9) - Postgres par settings test (BLOCKED: test database nahi hai)
+1. console.neon.tech -> apna project -> **Branches** -> **Create branch** (naam `settings-test`, parent `main`) -> Create.
+2. Us branch ka **Connection string** copy karo (production wala nahi!). Host naam mein branch ka alag `ep-...` hoga.
+3. Repo folder `D:\sindhu_clean` mein `.env` file kholo (na ho to banao) -> ek line: `TEST_DATABASE_URL=<woh string>` -> Save.
+   `.env` git mein nahi jaati. Yeh string kisi chat ya screenshot mein mat daalo.
+4. Ek baar: `D:\sindhu_venv_stable\Scripts\python.exe -m pip install psycopg2-binary`
+5. Chalao: `D:\sindhu_venv_stable\Scripts\python.exe tools\settings_cycles.py --postgres --write` (production URL ho to tool khud mana kar deta hai).
+6. Kaam ke baad Neon console mein `settings-test` branch **Delete** kar sakte ho (sirf woh branch, main nahi).

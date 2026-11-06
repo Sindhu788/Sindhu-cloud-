@@ -132,3 +132,30 @@ def test_429_with_no_cache_raises(monkeypatch):
 
     with pytest.raises(requests.HTTPError):
         cg.get_top_market_cap_coins(limit=50)
+
+
+def test_429_waits_are_capped_and_bounded(monkeypatch):
+    """Master plan P5: a long Retry-After cannot stall a scan for minutes (was 139 s on Cloud)."""
+    from data_engine import coingecko_client as cg
+
+    class R:
+        status_code = 429
+        headers = {"Retry-After": "600"}
+        url = "https://example.invalid"
+
+    monkeypatch.setattr(cg._session, "get", lambda *a, **k: R())
+    waits = []
+    import pytest, requests
+    with pytest.raises(requests.HTTPError):
+        cg._get_with_retry("u", {}, sleep=waits.append)
+    assert waits and all(w <= cg._MAX_WAIT_S for w in waits) and sum(waits) <= cg._CALL_BUDGET_S
+
+
+def test_any_network_error_uses_the_stale_list(monkeypatch):
+    from data_engine import coingecko_client as cg
+    import requests
+    monkeypatch.setitem(cg._cache, "coins", [{"symbol": "btc"}, {"symbol": "eth"}])
+    monkeypatch.setitem(cg._cache, "limit", 2)
+    monkeypatch.setitem(cg._cache, "fetched_at", -1e9)
+    monkeypatch.setattr(cg, "_fetch_top_market_cap_coins", lambda limit, deadline=None: (_ for _ in ()).throw(requests.ConnectionError("down")))
+    assert [c["symbol"] for c in cg.get_top_market_cap_coins(2)] == ["btc", "eth"]

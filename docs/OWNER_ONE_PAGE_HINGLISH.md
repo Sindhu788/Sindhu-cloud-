@@ -37,6 +37,11 @@
 - Sleep: Settings → System → Power → "When plugged in, put my device to sleep after" = **Never** (jab SINDHU chalana ho).
   Lid band karne par bhi chale: Control Panel → Power Options → "Choose what closing the lid does" → plugged in = **Do nothing**.
 
+## Login nahi ho raha
+- Username `owner` + Render par set `DASHBOARD_PASSWORD` se login karo (Render -> Environment se set/badlo, phir 2-3 min ruko).
+- Purana account bhool gaye: `python -m tools.reset_dashboard_user --list` (username), `--reset <naam>` (naya password). Cloud ke
+  liye `.env` mein `DATABASE_URL` daal kar `--cloud` lagao. Poori steps: docs/OWNER_TODO.md "Login bhool gaye?".
+
 ## Kill switch (emergency)
 Dashboard ke upar banner mein laal **Kill switch** button → "Stop new entries" → confirm. Wapas: **Resume** → confirm.
 Telegram se bhi (sirf tumhari private chat se, agar `OWNER_CHAT_ID` set hai): `/pause` aur `/resume`.

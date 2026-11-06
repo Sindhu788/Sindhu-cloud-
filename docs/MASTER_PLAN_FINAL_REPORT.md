@@ -1,7 +1,7 @@
 # MASTER PLAN FINAL REPORT (X2), 2026-11-06
 
 Plan: docs/MASTER_PLAN.md. State: docs/MASTER_PLAN_STATE.md. Before/after numbers: docs/MASTER_PLAN_RESULTS.md.
-Deploys: D1 6390321 (2026-11-05 22:37 UTC), D2 02d12c3 (23:07), D3 __D3__. All three were pushed fast-forward only after a green full suite.
+Deploys: D1 6390321 (2026-11-05 22:37 UTC), D2 02d12c3 (23:07), D3 3eabeac (2026-11-06 03:37 UTC; live 03:39, self-check 4/4 OK). All three were pushed fast-forward only after a green full suite.
 
 ## 8.1 Point table
 | ID | Name | Status | Evidence | Owner action |
@@ -10,7 +10,7 @@ Deploys: D1 6390321 (2026-11-05 22:37 UTC), D2 02d12c3 (23:07), D3 __D3__. All t
 | P2 | Single $100 wallet + research books | ✅ Done | paper_trading/wallet.py, tests/test_wallet.py (17); MAIN_WALLET live on Cloud since 2026-11-05 23:20:33 UTC | - |
 | P3 | Incremental candle fetch | ✅ Done | warm scans 159-254 requests / ~3k rows vs 20-day re-download; tests/test_live_candles_incremental.py | - |
 | P4 | Neon pre-ping + reconnect | ✅ Done | keepalives, retry, breaker; 0 error lines 00:30-01:30 UTC (was ~60/h) | - |
-| P5 | No scanner stalls | ⚠️ Partial | per-coin/prefetch deadlines, 5/5 scans complete; one 139 s stall in the CoinGecko top-coins call is not covered by a deadline yet | - |
+| P5 | No scanner stalls | ⚠️ Partial | per-coin/prefetch deadlines; 8/8 scans complete on D2+D3; the CoinGecko 139 s stall is fixed in 20736c4 (tests) but not deployed yet | - |
 | P6 | /health HEAD | ✅ Done | HEAD 200 on Cloud; tests/test_health_head_and_probes.py | - |
 | P7 | Cloud only 1h/4h/1d | ➖ Excluded by owner | — | — |
 | P8 | Bybit off on Cloud | ✅ Done | cloud_safe_exchange, gate uses position exchange; tests/test_gate_exchange.py | - |
@@ -67,7 +67,7 @@ Deploys: D1 6390321 (2026-11-05 22:37 UTC), D2 02d12c3 (23:07), D3 __D3__. All t
 
 ## 8.2 Before vs after
 See docs/MASTER_PLAN_RESULTS.md. In short:
-- 1 complete scan a day became 5 complete 50-coin scans in a row.
+- 1 complete scan a day became 8 complete 50-coin scans in a row (D2 + D3); warm scans now ~1,950 s.
 - Memory 517-536 MB became 428-435 MB.
 - About 60 error lines an hour became 0.
 - `/health` timing out after 60 s became 0.70 s.

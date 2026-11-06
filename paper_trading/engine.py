@@ -148,6 +148,23 @@ def _set_coin_fetch_deadline(clear=False):
         pass
 
 
+_SCANS_FINISHED = 0   # master plan V2 R2: scans finished since this process started
+
+
+def _set_refetch_budget():
+    """V2 R2 (P27): no limit for the first scan after a start (every series is cold), then SINDHU_REFETCH_BUDGET (default 3)
+    heavy downloads per scan."""
+    try:
+        from data_engine import live_candles
+        try:
+            k = int(os.environ.get("SINDHU_REFETCH_BUDGET", "3"))
+        except ValueError:
+            k = 3
+        live_candles.set_refetch_budget(None if _SCANS_FINISHED == 0 else k)
+    except Exception:
+        pass
+
+
 def _fetch_stats_snapshot():
     """Master plan A2: candle-download counters at scan start (live-candle mode only). Never raises."""
     try:
@@ -588,6 +605,8 @@ class PaperTradingEngine:
             except Exception:
                 self._log('[paper-trading] Scan receipt could not be persisted; diagnostics coverage is incomplete.')
             self._current_scan = None
+            global _SCANS_FINISHED
+            _SCANS_FINISHED += 1
             self._scan_lock.release()
 
     def _tick_impl(self):
@@ -656,6 +675,7 @@ class PaperTradingEngine:
         if not LIVE_CANDLES_ONLY:
             live_feed.refresh_coins(client, shortlisted_symbols, log=self._log)
 
+        _set_refetch_budget()
         self._prefetch_candles(exchange, shortlisted_symbols, settings)
         opened, closed, rejected = 0, 0, 0
         self._guards.release_all()
@@ -666,6 +686,10 @@ class PaperTradingEngine:
         stages.add("before_coins", time.monotonic() - tick_started_monotonic)
         db_before = _db_backend.db_stats_snapshot()
         db_before['_candles'] = _fetch_stats_snapshot()
+        try:
+            _db_backend.thread_scope_begin()       # master plan V2 R5: this scan thread's own database time, not all threads
+        except Exception:
+            pass
         coin_mark = None
         for entry in shortlist:
             if coin_mark:
@@ -778,7 +802,11 @@ class PaperTradingEngine:
             parts = [f"{k} {v:.1f}s" for k, v in sorted(d.items(), key=lambda kv: -kv[1]) if k != "process_coin"]
             if "process_coin" in d:
                 parts.append(f"decide_other {max(rest, 0.0):.1f}s")
-            self._log(f"[scan-coin] {idx}/{total} {symbol} {time.monotonic() - t_start:.1f}s | " + " | ".join(parts) + f" | rss {memory_guard.rss_mb():.0f} MB")
+            took = time.monotonic() - t_start
+            # master plan V2 R6 (P29): one line per coin only for slow coins (>= SINDHU_SCAN_COIN_LOG_S, default 60 s) or with
+            # SINDHU_VERBOSE_SCAN=1; the per-scan [scan-stages] line keeps the totals for every coin (was 50 lines per scan).
+            if took >= _budget_seconds("SINDHU_SCAN_COIN_LOG_S", 60) or os.environ.get("SINDHU_VERBOSE_SCAN") == "1":
+                self._log(f"[scan-coin] {idx}/{total} {symbol} {took:.1f}s | " + " | ".join(parts) + f" | rss {memory_guard.rss_mb():.0f} MB")
         except Exception:
             pass
 
@@ -791,6 +819,17 @@ class PaperTradingEngine:
             self._log(f"[scan-stages] total {time.monotonic() - tick_started_monotonic:.0f}s | {stages.summary(order)} | "
                       f"{_db_backend.db_stats_summary(db_before)} | memory release x{mt['calls']} {mt['seconds']:.1f}s total (trimmed {mt['trimmed']}x) | "
                       f"{_candle_fetch_summary(db_before.get('_candles'))} | rss {memory_guard.rss_mb():.0f} MB")
+        except Exception:
+            pass
+        try:
+            mine, top = _db_backend.thread_scope_end()
+            if mine:
+                total = max(1e-9, time.monotonic() - tick_started_monotonic)
+                db_s = mine.get("query_seconds", 0.0) + mine.get("commit_seconds", 0.0) + mine.get("checkout_seconds", 0.0)
+                self._log(f"[scan-db] scan thread only: {mine.get('queries', 0)} statements {mine.get('query_seconds', 0.0):.1f}s, "
+                          f"{mine.get('commits', 0)} commits {mine.get('commit_seconds', 0.0):.1f}s, {mine.get('checkouts', 0)} checkouts "
+                          f"{mine.get('checkout_seconds', 0.0):.1f}s = {db_s:.0f}s of {total:.0f}s ({100 * db_s / total:.0f}%) | top: "
+                          + "; ".join(f"{n}x {s}s {shape}" for shape, n, s in top[:5]))
         except Exception:
             pass
 

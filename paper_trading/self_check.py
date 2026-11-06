@@ -46,6 +46,12 @@ def validate_config():
             errors["wallet.max_open_positions"] = "must be at least 1"
         if not 0 < float(w["daily_loss_limit_pct"]) <= 10.0:
             errors["wallet.daily_loss_limit_pct"] = "must be above 0 and at most 10 %"
+        try:
+            saved_cap = json.loads(wallet._get("settings") or "{}").get("max_position_pct")
+        except Exception:
+            saved_cap = None
+        if saved_cap is not None and not 5.0 <= float(saved_cap) <= 25.0:
+            errors["wallet.max_position_pct"] = "must be between 5 and 25 % of equity"
     except Exception as e:
         errors["wallet"] = f"settings could not be read: {type(e).__name__}"
     return errors
@@ -147,6 +153,18 @@ def start_background_self_check(delay_s=20):
         except Exception:
             pass
         run_self_check()
+        while True:                              # master plan V2 R5 (N2): database round-trip probe, at start and then hourly
+            try:
+                from data_engine import db_backend
+                r = db_backend.probe_latency(20)
+                if r:
+                    print(f"[db-latency] SELECT 1 x{r['samples']}: p50 {r['p50_ms']} ms, p95 {r['p95_ms']} ms, min {r['min_ms']} ms, "
+                          f"max {r['max_ms']} ms" + (f" ({r['error']})" if r.get("error") else ""), flush=True)
+                else:
+                    return
+            except Exception:
+                pass
+            time.sleep(3600)
     threading.Thread(target=run, daemon=True, name="self-check").start()
 
 
@@ -171,6 +189,39 @@ def safe_config_summary():
     return out, hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
 
 
+def _memory():
+    try:
+        from paper_trading import memory_guard
+        s = memory_guard.status()
+        return {"rss_mb": round(memory_guard.rss_mb(), 1), "level": s.get("level"), "soft_mb": s.get("soft_mb"), "hard_mb": s.get("hard_mb")}
+    except Exception:
+        return None
+
+
+def _scans_finished():
+    try:
+        from paper_trading import engine
+        return engine._SCANS_FINISHED
+    except Exception:
+        return None
+
+
+def _log_lines():
+    try:
+        from paper_trading import log_volume
+        return log_volume.stats()
+    except Exception:
+        return None
+
+
+def _db_latency():
+    try:
+        from data_engine import db_backend
+        return db_backend.latency_state()
+    except Exception:
+        return None
+
+
 def details():
     summary, h = safe_config_summary()
     try:
@@ -187,5 +238,16 @@ def details():
         candles = live_candles.freshness_counts() if LIVE_CANDLES_ONLY else None     # master plan A20 (local reads its own database)
     except Exception:
         candles = None
+    try:
+        from data_engine import live_candles
+        refetch = live_candles.refetch_state()                                          # master plan V2 R2 (P27)
+    except Exception:
+        refetch = None
+    try:
+        from data_engine import coingecko_client
+        top_coins = coingecko_client.disk_cache_info()                                  # master plan V2 R1 (P5)
+    except Exception:
+        top_coins = None
     return {"candles": candles, "trading": trading_state(), "config_errors": config_errors(), "self_check": sc, "config_hash": h,
-            "config_summary": summary, "db_breaker": breaker}
+            "config_summary": summary, "db_breaker": breaker, "refetch_queue": refetch, "top_coins_cache": top_coins,
+            "db_latency": _db_latency(), "log_lines": _log_lines(), "memory": _memory(), "scans_finished": _scans_finished()}
