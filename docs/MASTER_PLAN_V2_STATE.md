@@ -1,9 +1,9 @@
 # MASTER_PLAN_V2_STATE
 plan_version: 2
 started_at: 2026-11-06 06:20 UTC
-last_update: 2026-11-06 06:55 UTC
+last_update: 2026-11-06 06:57 UTC
 current_step: R5
-next_action: R10 login recovery
+next_action: G1 gate: full suite, CI, deploy
 background_jobs: none
 
 Working copy: D:\sindhu_wtA (branch masterplan/partA); D:\sindhu_clean (recovery/clean) is fast-forwarded to it; pushes go through
@@ -23,7 +23,7 @@ D:\sindhu_merge to origin codex/trading-intelligence (fast-forward only). V1 sta
 | R7 | TODO | | | |
 | R8 | TODO | | | |
 | R9 | TODO | | | |
-| R10 | TODO | | | |
+| R10 | DONE | (this commit) | tests/test_reset_dashboard_user.py 4 passed (SQLite/JSON); OWNER_TODO + one-pager Hinglish steps | tools.reset_dashboard_user --list/--reset [--cloud]; never prints passwords or hashes; signs out old sessions; env login untouched |
 | DS1 | TODO | | | |
 | DS2 | TODO | | | |
 | DS3 | TODO | | | |
