@@ -148,6 +148,23 @@ def _set_coin_fetch_deadline(clear=False):
         pass
 
 
+_SCANS_FINISHED = 0   # master plan V2 R2: scans finished since this process started
+
+
+def _set_refetch_budget():
+    """V2 R2 (P27): no limit for the first scan after a start (every series is cold), then SINDHU_REFETCH_BUDGET (default 3)
+    heavy downloads per scan."""
+    try:
+        from data_engine import live_candles
+        try:
+            k = int(os.environ.get("SINDHU_REFETCH_BUDGET", "3"))
+        except ValueError:
+            k = 3
+        live_candles.set_refetch_budget(None if _SCANS_FINISHED == 0 else k)
+    except Exception:
+        pass
+
+
 def _fetch_stats_snapshot():
     """Master plan A2: candle-download counters at scan start (live-candle mode only). Never raises."""
     try:
@@ -588,6 +605,8 @@ class PaperTradingEngine:
             except Exception:
                 self._log('[paper-trading] Scan receipt could not be persisted; diagnostics coverage is incomplete.')
             self._current_scan = None
+            global _SCANS_FINISHED
+            _SCANS_FINISHED += 1
             self._scan_lock.release()
 
     def _tick_impl(self):
@@ -656,6 +675,7 @@ class PaperTradingEngine:
         if not LIVE_CANDLES_ONLY:
             live_feed.refresh_coins(client, shortlisted_symbols, log=self._log)
 
+        _set_refetch_budget()
         self._prefetch_candles(exchange, shortlisted_symbols, settings)
         opened, closed, rejected = 0, 0, 0
         self._guards.release_all()

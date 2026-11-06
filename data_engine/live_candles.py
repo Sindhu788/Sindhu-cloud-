@@ -112,6 +112,49 @@ class FetchDeadlineExceeded(RuntimeError):
         self.rows = rows or []
 
 
+# Master plan V2 R2 (P27): at most K HEAVY downloads per scan ("full refetch": a cold series or a backfill of more than _HEAVY_ROWS
+# candles). The engine sets the budget at the start of every scan; None = no limit (used for the first scan after a start, when
+# every series is cold). Over budget, the series is put on `refetch_queue` and RefetchDeferred is raised: the engine's normal
+# per-coin error path skips that coin for this scan; a later scan downloads it (the budget resets every scan).
+_HEAVY_ROWS = 1000
+_refetch = {"limit": None, "used": 0, "deferred_total": 0}
+refetch_queue = {}                # key -> first time (UTC ms) it was deferred
+
+
+class RefetchDeferred(RuntimeError):
+    def __init__(self, msg):
+        super().__init__(msg)
+        self.rows = []
+
+
+def set_refetch_budget(limit):
+    """Start a new scan's budget: `limit` heavy downloads allowed (None = unlimited)."""
+    with _lock:
+        _refetch["limit"] = None if limit is None else max(0, int(limit))
+        _refetch["used"] = 0
+
+
+def refetch_state():
+    with _lock:
+        q = sorted(refetch_queue.items(), key=lambda kv: kv[1])
+        return {"limit": _refetch["limit"], "used_this_scan": _refetch["used"], "deferred_total": _refetch["deferred_total"],
+                "queue": len(q), "queued": [f"{k[1]} {k[2]}" for k, _ in q[:10]]}
+
+
+def _take_heavy(key, est_rows):
+    """Called before a download of about `est_rows` candles; raises RefetchDeferred when over this scan's budget."""
+    if est_rows <= _HEAVY_ROWS:
+        return
+    with _lock:
+        lim = _refetch["limit"]
+        if lim is not None and _refetch["used"] >= lim:
+            refetch_queue.setdefault(key, _now_ms())
+            _refetch["deferred_total"] += 1
+            raise RefetchDeferred(f"full refetch of {key[1]} {key[2]} (~{int(est_rows)} candles) deferred: budget {lim} per scan used")
+        _refetch["used"] += 1
+        refetch_queue.pop(key, None)
+
+
 def set_fetch_deadline(deadline_monotonic):
     """Deadline (time.monotonic() value) for downloads made by THIS thread; None clears it."""
     _tl.deadline = deadline_monotonic
@@ -238,6 +281,7 @@ def get_ohlcv_live(exchange, symbol, interval, start_ms=None, end_ms=None):
                   f"{'-' if covered is None else format((now - covered) / 86_400_000, '.1f') + 'd ago'}", flush=True)
         if cached is None or cached.empty:
             # No cache yet -- one full paginated fetch of the requested window.
+            _take_heavy(key, (now - start) / _INTERVAL_MS[interval])
             _note_kind("cold")
             try:
                 rows = _fetch_range(client, symbol, interval, start, now)
@@ -258,6 +302,7 @@ def get_ohlcv_live(exchange, symbol, interval, start_ms=None, end_ms=None):
                 # 5 Nov: "REFETCH ... needs 20.0d, cache starts 3.0d ago" re-downloaded 20 days). If the exchange has nothing there,
                 # the series is marked covered from `start` so it is never retried.
                 first_open_ms = int(cached.index.min().timestamp() * 1000)
+                _take_heavy(key, (first_open_ms - start) / _INTERVAL_MS[interval])
                 _note_kind("backfill")
                 older = _fetch_range(client, symbol, interval, start, first_open_ms)
                 older = [r for r in older if r[0] < first_open_ms]

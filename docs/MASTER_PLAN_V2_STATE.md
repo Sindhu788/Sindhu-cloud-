@@ -1,7 +1,7 @@
 # MASTER_PLAN_V2_STATE
 plan_version: 2
 started_at: 2026-11-06 06:20 UTC
-last_update: 2026-11-06 06:31 UTC
+last_update: 2026-11-06 06:36 UTC
 current_step: F2
 next_action: F2 baseline
 background_jobs: none
@@ -15,7 +15,7 @@ D:\sindhu_merge to origin codex/trading-intelligence (fast-forward only). V1 sta
 | F2 | IN_PROGRESS |  |  |  |
 | F3 | DONE | (this commit) | docs/ui/FEATURE_MAP.md: 38 SPA pages, 36 menu entries, 461 route decorators, 3 static HTML pages, 6 global controls; every row has a new location | status per row TODO until PG8 |
 | R1 | DONE | (this commit) | tests/test_coingecko_deadline.py (5 passed, real slow local HTTP server) + test_coingecko_cache + test_coin_selection_fallback: 16 passed | deadline 20 s for the whole fetch, connect 5 s / read 10 s, last good list on disk (config/coingecko_top_coins_cache.json, atomic, timestamp), fallback logged once per 30 min; includes 20736c4 |
-| R2 | TODO | | | |
+| R2 | DONE | (this commit) | tests/test_refetch_budget.py (6 passed); live_candles/fetch_deadline/self_check tests 18 passed; /health/details refetch_queue + top_coins_cache | heavy = cold or backfill > 1000 candles; K = SINDHU_REFETCH_BUDGET (3); first scan after a start unlimited (all cold) |
 | R3 | TODO | | | |
 | R4 | TODO | | | |
 | R5 | TODO | | | |

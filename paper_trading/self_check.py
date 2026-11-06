@@ -187,5 +187,15 @@ def details():
         candles = live_candles.freshness_counts() if LIVE_CANDLES_ONLY else None     # master plan A20 (local reads its own database)
     except Exception:
         candles = None
+    try:
+        from data_engine import live_candles
+        refetch = live_candles.refetch_state()                                          # master plan V2 R2 (P27)
+    except Exception:
+        refetch = None
+    try:
+        from data_engine import coingecko_client
+        top_coins = coingecko_client.disk_cache_info()                                  # master plan V2 R1 (P5)
+    except Exception:
+        top_coins = None
     return {"candles": candles, "trading": trading_state(), "config_errors": config_errors(), "self_check": sc, "config_hash": h,
-            "config_summary": summary, "db_breaker": breaker}
+            "config_summary": summary, "db_breaker": breaker, "refetch_queue": refetch, "top_coins_cache": top_coins}
