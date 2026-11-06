@@ -53,6 +53,9 @@ from contextlib import asynccontextmanager
 # Many threads x many arenas is why identical code measured 389-459 MB on different Cloud instances. See paper_trading/memory_trim.py.
 from paper_trading import memory_trim as _memory_trim
 _memory_trim.cap_arenas()
+# Master plan V2 R6 (P29): count log lines per hour, skip successful GET access lines and websocket open/close noise (errors kept).
+from paper_trading import log_volume as _log_volume
+_log_volume.install()
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware

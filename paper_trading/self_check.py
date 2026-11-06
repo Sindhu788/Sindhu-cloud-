@@ -189,6 +189,14 @@ def safe_config_summary():
     return out, hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
 
 
+def _log_lines():
+    try:
+        from paper_trading import log_volume
+        return log_volume.stats()
+    except Exception:
+        return None
+
+
 def _db_latency():
     try:
         from data_engine import db_backend
@@ -225,4 +233,4 @@ def details():
         top_coins = None
     return {"candles": candles, "trading": trading_state(), "config_errors": config_errors(), "self_check": sc, "config_hash": h,
             "config_summary": summary, "db_breaker": breaker, "refetch_queue": refetch, "top_coins_cache": top_coins,
-            "db_latency": _db_latency()}
+            "db_latency": _db_latency(), "log_lines": _log_lines()}

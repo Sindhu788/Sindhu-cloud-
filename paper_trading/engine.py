@@ -802,7 +802,11 @@ class PaperTradingEngine:
             parts = [f"{k} {v:.1f}s" for k, v in sorted(d.items(), key=lambda kv: -kv[1]) if k != "process_coin"]
             if "process_coin" in d:
                 parts.append(f"decide_other {max(rest, 0.0):.1f}s")
-            self._log(f"[scan-coin] {idx}/{total} {symbol} {time.monotonic() - t_start:.1f}s | " + " | ".join(parts) + f" | rss {memory_guard.rss_mb():.0f} MB")
+            took = time.monotonic() - t_start
+            # master plan V2 R6 (P29): one line per coin only for slow coins (>= SINDHU_SCAN_COIN_LOG_S, default 60 s) or with
+            # SINDHU_VERBOSE_SCAN=1; the per-scan [scan-stages] line keeps the totals for every coin (was 50 lines per scan).
+            if took >= _budget_seconds("SINDHU_SCAN_COIN_LOG_S", 60) or os.environ.get("SINDHU_VERBOSE_SCAN") == "1":
+                self._log(f"[scan-coin] {idx}/{total} {symbol} {took:.1f}s | " + " | ".join(parts) + f" | rss {memory_guard.rss_mb():.0f} MB")
         except Exception:
             pass
 
