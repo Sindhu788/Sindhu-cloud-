@@ -63,3 +63,4 @@ Working copy: D:\sindhu_clean (branch recovery/clean); pushes go through D:\sind
 - D1: 6390321 pushed 22:37:27 UTC, live 22:38:49 (/health commit 6390321, HEAD 200, /wp-admin 404). Suite before: 2,568 passed / 0 failed.
 - D2: 02d12c3 pushed 23:07:43 UTC, live 23:09:21; /health/details: trading enabled, self-check 4/4 OK, 54/54 candles fresh. Suite before: 2,596 passed / 0 failed.
 - D3: 3eabeac pushed 03:37:47 UTC, live 03:39:34; self-check 4/4 OK, 35/35 fresh, HEAD 200, app.js gzipped 236,854 bytes. Suite before: 2,599 passed / 0 failed. CI on D1 and D2: success.
+- After D3: 3 complete scans (3,450 s cold, 1,948 s and 1,964 s warm), 0 errors, 409-423 MB. Committed, NOT deployed: 20736c4 (CoinGecko retry cap) - ride along with the next needed deploy.

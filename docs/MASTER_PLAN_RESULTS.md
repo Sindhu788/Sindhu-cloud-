@@ -31,3 +31,14 @@ long-term average.
      so this means a new free service in Ohio with the same env vars, then pointing UptimeRobot at it.
   2. (code, later) Group each coin's database writes into one transaction (about 1 commit per coin instead of ~190).
 - Memory is steady at ~430 MB: under the 450 MB guard, but NOT at the ~350 MB target (P11 partial).
+
+## After D3 (3eabeac, live 2026-11-06 03:39 UTC)
+| Scan finished (UTC) | Duration | Coins / errors | DB statements + commits | Candle requests | RSS |
+|---|---|---|---|---|---|
+| 04:36 (cold start) | 3,450 s | 50 / 0 | 7,428 (830 s) + 7,185 (387 s) | 2,398 | 423 MB |
+| 05:10 | 1,948 s | 50 / 0 | 8,633 (975 s) + 8,272 (459 s) | 198 | 409 MB |
+| 05:43 | 1,964 s | 50 / 0 | 8,002 (867 s) + 7,745 (404 s) | 166 | 415 MB |
+
+Warm scans dropped from 2,128-2,616 s (D2) to ~1,950 s after the wallet settle cache. No stalls in these three scans.
+The CoinGecko retry cap (P5 follow-up, commit 20736c4) is committed but NOT deployed: a push restarts Cloud into a ~57-minute cold
+scan, so it waits for the next deploy that is needed anyway.
