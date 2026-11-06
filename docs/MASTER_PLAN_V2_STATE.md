@@ -1,9 +1,9 @@
 # MASTER_PLAN_V2_STATE
 plan_version: 2
 started_at: 2026-11-06 06:20 UTC
-last_update: 2026-11-06 06:48 UTC
-current_step: F2
-next_action: R5 DB latency
+last_update: 2026-11-06 06:52 UTC
+current_step: R5
+next_action: R6 log lines
 background_jobs: none
 
 Working copy: D:\sindhu_wtA (branch masterplan/partA); D:\sindhu_clean (recovery/clean) is fast-forwarded to it; pushes go through
@@ -18,7 +18,7 @@ D:\sindhu_merge to origin codex/trading-intelligence (fast-forward only). V1 sta
 | R2 | DONE | (this commit) | tests/test_refetch_budget.py (6 passed); live_candles/fetch_deadline/self_check tests 18 passed; /health/details refetch_queue + top_coins_cache | heavy = cold or backfill > 1000 candles; K = SINDHU_REFETCH_BUDGET (3); first scan after a start unlimited (all cold) |
 | R3 | DONE | (this commit) | docs/MEMORY_PROFILE_V2.md: import RSS 141 -> 106 MiB (lazy ccxt), ~-11 MiB candle cache; tests/test_lazy_ccxt.py 3 passed, candle tests 34 passed | Cloud RSS after: measured at G1 (target <= 400 MB) |
 | R4 | DONE | (this commit) | tests/test_wallet.py 17 passed (cap test changed on purpose 25 -> 15; risk test stop 95 -> 92); FORWARD_TEST_LOG entry | max_position_pct 15, range 5-25, self-check error outside |
-| R5 | TODO | | | |
+| R5 | IN_PROGRESS | (this commit, part 1) | tests/test_db_latency_probe.py 5 passed | part 1: [scan-db] scan-thread-only DB time + top statements per scan; [db-latency] SELECT 1 x20 hourly + /health/details db_latency. Part 2 (findings + fixes) needs Cloud numbers after G1 |
 | R6 | TODO | | | |
 | R7 | TODO | | | |
 | R8 | TODO | | | |

@@ -119,7 +119,12 @@ DB_STATS = {"queries": 0, "query_seconds": 0.0, "commits": 0, "commit_seconds": 
 _db_stats_lock = _stat_threading.Lock()
 
 
-def _db_note(kind, seconds):
+_tl_stats = _stat_threading.local()     # master plan V2 R5: the same counters for the CURRENT thread only (the scan thread)
+_SQL_TOP = {}                            # statement shape -> [count, seconds]; bounded, scan thread only while a scope is active
+_SQL_TOP_MAX = 300
+
+
+def _db_note(kind, seconds, sql=None):
     try:
         with _db_stats_lock:
             if kind == "query":
@@ -128,8 +133,78 @@ def _db_note(kind, seconds):
                 DB_STATS["commits"] += 1; DB_STATS["commit_seconds"] += seconds
             else:
                 DB_STATS["checkouts"] += 1; DB_STATS["checkout_seconds"] += seconds
+        mine = getattr(_tl_stats, "stats", None)
+        if mine is not None:
+            k = "queries" if kind == "query" else "commits" if kind == "commit" else "checkouts"
+            mine[k] += 1
+            mine[k[:-1] + "_seconds" if k != "queries" else "query_seconds"] += seconds
+            if kind == "query" and sql:
+                shape = " ".join(str(sql).split())[:70]
+                with _db_stats_lock:
+                    row = _SQL_TOP.get(shape)
+                    if row is None and len(_SQL_TOP) < _SQL_TOP_MAX:
+                        row = _SQL_TOP[shape] = [0, 0.0]
+                    if row is not None:
+                        row[0] += 1; row[1] += seconds
     except Exception:
         pass
+
+
+def thread_scope_begin():
+    """Start counting this thread's statements/commits/checkouts (and statement shapes) from zero."""
+    _tl_stats.stats = {"queries": 0, "query_seconds": 0.0, "commits": 0, "commit_seconds": 0.0, "checkouts": 0, "checkout_seconds": 0.0}
+    with _db_stats_lock:
+        _SQL_TOP.clear()
+
+
+def thread_scope_end(top=8):
+    """(this thread's counters, top statement shapes by time) and stop counting."""
+    mine = getattr(_tl_stats, "stats", None) or {}
+    _tl_stats.stats = None
+    with _db_stats_lock:
+        rows = sorted(_SQL_TOP.items(), key=lambda kv: -kv[1][1])[:top]
+        _SQL_TOP.clear()
+    return dict(mine), [(shape, n, round(s, 1)) for shape, (n, s) in rows]
+
+
+_latency = {"at": None, "samples": 0, "p50_ms": None, "p95_ms": None, "min_ms": None, "max_ms": None, "error": None}
+
+
+def probe_latency(n=20):
+    """Master plan V2 R5 (N2): n x `SELECT 1` round trips on ONE pooled connection (no table touched). Postgres only."""
+    if not IS_POSTGRES:
+        return None
+    times, err = [], None
+    conn = None
+    try:
+        conn = get_postgres_conn()
+        raw = conn._conn
+        for _ in range(n):
+            t0 = _stat_time.perf_counter()
+            cur = raw.cursor()
+            cur.execute("SELECT 1")
+            cur.fetchone()
+            times.append((_stat_time.perf_counter() - t0) * 1000)
+        raw.rollback()
+    except Exception as e:
+        err = type(e).__name__
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+    times.sort()
+    res = {"at": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime()), "samples": len(times), "error": err,
+           "p50_ms": round(times[len(times) // 2], 1) if times else None,
+           "p95_ms": round(times[min(len(times) - 1, int(len(times) * 0.95))], 1) if times else None,
+           "min_ms": round(times[0], 1) if times else None, "max_ms": round(times[-1], 1) if times else None}
+    _latency.update(res)
+    return res
+
+
+def latency_state():
+    return dict(_latency)
 
 
 def db_stats_snapshot():
@@ -160,7 +235,7 @@ class _PGConnection:
         try:
             cur.execute(_translate_placeholders(sql), _normalize_params(params))
         finally:
-            _db_note("query", _stat_time.perf_counter() - t0)
+            _db_note("query", _stat_time.perf_counter() - t0, sql)
         return _PGCursorResult(cur)
 
     def executemany(self, sql, seq_of_params):
@@ -169,7 +244,7 @@ class _PGConnection:
         try:
             cur.executemany(_translate_placeholders(sql), [_normalize_params(p) for p in seq_of_params])
         finally:
-            _db_note("query", _stat_time.perf_counter() - t0)
+            _db_note("query", _stat_time.perf_counter() - t0, sql)
         return _PGCursorResult(cur)
 
     def executescript(self, sql):

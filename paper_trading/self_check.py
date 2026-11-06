@@ -153,6 +153,18 @@ def start_background_self_check(delay_s=20):
         except Exception:
             pass
         run_self_check()
+        while True:                              # master plan V2 R5 (N2): database round-trip probe, at start and then hourly
+            try:
+                from data_engine import db_backend
+                r = db_backend.probe_latency(20)
+                if r:
+                    print(f"[db-latency] SELECT 1 x{r['samples']}: p50 {r['p50_ms']} ms, p95 {r['p95_ms']} ms, min {r['min_ms']} ms, "
+                          f"max {r['max_ms']} ms" + (f" ({r['error']})" if r.get("error") else ""), flush=True)
+                else:
+                    return
+            except Exception:
+                pass
+            time.sleep(3600)
     threading.Thread(target=run, daemon=True, name="self-check").start()
 
 
@@ -175,6 +187,14 @@ def safe_config_summary():
     out["flags"] = {k: os.environ.get(k, "") not in ("", "0") for k in _FLAG_ENVS}
     blob = json.dumps(out, sort_keys=True, default=str)
     return out, hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
+
+
+def _db_latency():
+    try:
+        from data_engine import db_backend
+        return db_backend.latency_state()
+    except Exception:
+        return None
 
 
 def details():
@@ -204,4 +224,5 @@ def details():
     except Exception:
         top_coins = None
     return {"candles": candles, "trading": trading_state(), "config_errors": config_errors(), "self_check": sc, "config_hash": h,
-            "config_summary": summary, "db_breaker": breaker, "refetch_queue": refetch, "top_coins_cache": top_coins}
+            "config_summary": summary, "db_breaker": breaker, "refetch_queue": refetch, "top_coins_cache": top_coins,
+            "db_latency": _db_latency()}

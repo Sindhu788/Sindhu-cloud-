@@ -686,6 +686,10 @@ class PaperTradingEngine:
         stages.add("before_coins", time.monotonic() - tick_started_monotonic)
         db_before = _db_backend.db_stats_snapshot()
         db_before['_candles'] = _fetch_stats_snapshot()
+        try:
+            _db_backend.thread_scope_begin()       # master plan V2 R5: this scan thread's own database time, not all threads
+        except Exception:
+            pass
         coin_mark = None
         for entry in shortlist:
             if coin_mark:
@@ -811,6 +815,17 @@ class PaperTradingEngine:
             self._log(f"[scan-stages] total {time.monotonic() - tick_started_monotonic:.0f}s | {stages.summary(order)} | "
                       f"{_db_backend.db_stats_summary(db_before)} | memory release x{mt['calls']} {mt['seconds']:.1f}s total (trimmed {mt['trimmed']}x) | "
                       f"{_candle_fetch_summary(db_before.get('_candles'))} | rss {memory_guard.rss_mb():.0f} MB")
+        except Exception:
+            pass
+        try:
+            mine, top = _db_backend.thread_scope_end()
+            if mine:
+                total = max(1e-9, time.monotonic() - tick_started_monotonic)
+                db_s = mine.get("query_seconds", 0.0) + mine.get("commit_seconds", 0.0) + mine.get("checkout_seconds", 0.0)
+                self._log(f"[scan-db] scan thread only: {mine.get('queries', 0)} statements {mine.get('query_seconds', 0.0):.1f}s, "
+                          f"{mine.get('commits', 0)} commits {mine.get('commit_seconds', 0.0):.1f}s, {mine.get('checkouts', 0)} checkouts "
+                          f"{mine.get('checkout_seconds', 0.0):.1f}s = {db_s:.0f}s of {total:.0f}s ({100 * db_s / total:.0f}%) | top: "
+                          + "; ".join(f"{n}x {s}s {shape}" for shape, n, s in top[:5]))
         except Exception:
             pass
 
