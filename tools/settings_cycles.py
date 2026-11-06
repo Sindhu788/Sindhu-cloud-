@@ -6,8 +6,8 @@ and checks:
 - valid   -> 200, read back via GET is the new value; every 10th cycle a FRESH Python process (a real restart) reads the saved
              settings and must see the same values; for risk_pct_default the effect is checked (risk-based size changes in proportion).
 - invalid -> 422 with a message for that field, and the OLD value is still there (GET and, every 10th cycle, the fresh process).
-Runs on SQLite in a throwaway data folder. Postgres: BLOCKED here (no local Postgres/Docker and no throwaway Neon branch available;
-never against the real Cloud database).
+Runs on SQLite in a throwaway data folder. With --postgres (master plan V2 R7) it runs against TEST_DATABASE_URL from the local .env
+(a throwaway Neon branch); it refuses when that URL has the same host and database as the production DATABASE_URL.
 Usage (stable venv): python tools/settings_cycles.py [--cycles 50] [--seed 20261105] [--write]
 """
 import argparse
@@ -61,10 +61,58 @@ def invalid_value(rng, field, rule):
     return (hi + 5) if kind == "int" else hi + 5.5, pick
 
 
+_PG_URL = {"url": None}   # master plan V2 R7: set only by --postgres (a throwaway TEST_DATABASE_URL, never production)
+
+
+def _dotenv(name):
+    val = os.environ.get(name, "")
+    try:
+        for line in open(os.path.join(ROOT, ".env"), encoding="utf-8"):
+            line = line.strip()
+            if line.startswith(name + "="):
+                val = line.split("=", 1)[1].strip().strip('"').strip("'")
+    except OSError:
+        pass
+    return val
+
+
+def _target(url):
+    """host + database name of a Postgres URL (no user, no password) for the production check."""
+    from urllib.parse import urlparse
+    u = urlparse(url)
+    return ((u.hostname or "").lower(), (u.path or "").lstrip("/").lower())
+
+
+def production_targets():
+    out = set()
+    for v in (os.environ.get("DATABASE_URL", ""), _dotenv("DATABASE_URL")):
+        if v:
+            out.add(_target(v))
+    try:
+        j = json.load(open(r"D:/sindhu/data/config/neon_runtime_connection.json", encoding="utf-8"))
+        if j.get("database_url"):
+            out.add(_target(j["database_url"]))
+    except Exception:
+        pass
+    return out
+
+
+def safe_test_url():
+    """TEST_DATABASE_URL, or SystemExit when missing or when it points at a production database (same host AND database)."""
+    url = _dotenv("TEST_DATABASE_URL")
+    if not url:
+        raise SystemExit("BLOCKED: TEST_DATABASE_URL is not set (local .env). See docs/OWNER_TODO.md (V2 R7). Nothing was run.")
+    if _target(url) in production_targets():
+        raise SystemExit("REFUSED: TEST_DATABASE_URL points at the production database. Use a Neon branch. Nothing was run.")
+    return url
+
+
 def fresh_process_read(data_dir):
     code = ("import json,sys; sys.path.insert(0, %r); from paper_trading import config as c; print(json.dumps(c.load()))" % ROOT)
     env = dict(os.environ, SINDHU_DATA_DIR=data_dir)
     env.pop("DATABASE_URL", None)
+    if _PG_URL["url"]:
+        env["DATABASE_URL"] = _PG_URL["url"]
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env, timeout=180)
     return json.loads(out.stdout.strip().splitlines()[-1])
 
@@ -152,10 +200,14 @@ if __name__ == "__main__":
     ap.add_argument("--cycles", type=int, default=50)
     ap.add_argument("--seed", type=int, default=20261105)
     ap.add_argument("--write", action="store_true")
+    ap.add_argument("--postgres", action="store_true", help="run against TEST_DATABASE_URL (throwaway Neon branch), never production")
     a = ap.parse_args()
     d = tempfile.mkdtemp(prefix="sindhu_settings_cycles_")
     os.environ["SINDHU_DATA_DIR"] = d
     os.environ.pop("DATABASE_URL", None)
+    if a.postgres:
+        _PG_URL["url"] = safe_test_url()
+        os.environ["DATABASE_URL"] = _PG_URL["url"]
     sys.path.insert(0, ROOT)
     from data_engine import storage
     storage.init_db()

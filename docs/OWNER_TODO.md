@@ -179,3 +179,12 @@ Aaj login ke 2 raste hain; dono alag-alag kaam karte hain:
    - Reset ke baad saare purane login sessions sign out ho jaate hain. Env login (`owner`) par koi asar nahi.
 3. 6 Nov 05:34-05:35 UTC ko ek IP se 5 galat login aaye (401). Agar woh tum thay: upar wala step 1 ya 2 karo. Agar tum nahi thay:
    password lamba rakho; 5 galat tries ke baad us IP ko 10 minute rok diya jaata hai.
+
+## Master plan V2 R7 (P9) - Postgres par settings test (BLOCKED: test database nahi hai)
+1. console.neon.tech -> apna project -> **Branches** -> **Create branch** (naam `settings-test`, parent `main`) -> Create.
+2. Us branch ka **Connection string** copy karo (production wala nahi!). Host naam mein branch ka alag `ep-...` hoga.
+3. Repo folder `D:\sindhu_clean` mein `.env` file kholo (na ho to banao) -> ek line: `TEST_DATABASE_URL=<woh string>` -> Save.
+   `.env` git mein nahi jaati. Yeh string kisi chat ya screenshot mein mat daalo.
+4. Ek baar: `D:\sindhu_venv_stable\Scripts\python.exe -m pip install psycopg2-binary`
+5. Chalao: `D:\sindhu_venv_stable\Scripts\python.exe tools\settings_cycles.py --postgres --write` (production URL ho to tool khud mana kar deta hai).
+6. Kaam ke baad Neon console mein `settings-test` branch **Delete** kar sakte ho (sirf woh branch, main nahi).

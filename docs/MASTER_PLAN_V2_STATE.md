@@ -1,7 +1,7 @@
 # MASTER_PLAN_V2_STATE
 plan_version: 2
 started_at: 2026-11-06 06:20 UTC
-last_update: 2026-11-06 07:00 UTC
+last_update: 2026-11-06 07:02 UTC
 current_step: R9
 next_action: G1 gate
 background_jobs: none
@@ -20,7 +20,7 @@ D:\sindhu_merge to origin codex/trading-intelligence (fast-forward only). V1 sta
 | R4 | DONE | (this commit) | tests/test_wallet.py 17 passed (cap test changed on purpose 25 -> 15; risk test stop 95 -> 92); FORWARD_TEST_LOG entry | max_position_pct 15, range 5-25, self-check error outside |
 | R5 | IN_PROGRESS | (this commit, part 1) | tests/test_db_latency_probe.py 5 passed | part 1: [scan-db] scan-thread-only DB time + top statements per scan; [db-latency] SELECT 1 x20 hourly + /health/details db_latency. Part 2 (findings + fixes) needs Cloud numbers after G1 |
 | R6 | DONE | (this commit) | tests/test_log_volume.py 5 passed; /health/details log_lines (hourly counter) | per-coin line only >= 60 s; memory-guard on change / 30 min; 2xx GET/HEAD access + websocket open/close not printed (errors, 4xx/5xx, non-GET kept); after-number from the counter at G1 |
-| R7 | TODO | | | |
+| R7 | BLOCKED | (this commit) | tools/settings_cycles.py --postgres (refuses production host+db); tests/test_settings_cycles_pg_guard.py 3 passed | no Neon branch / local Postgres / Docker / psycopg2 on the laptop; owner steps in OWNER_TODO (V2 R7) |
 | R8 | TODO | | | |
 | R9 | IN_PROGRESS | (this commit) | tests/test_soak.py 3 passed; manual run started 07:00 UTC -> D:\sindhu_runtime\soak\soak.csv (48 h) | ops/soak/soak_monitor.py, soak_report.py, install_soak_task.cmd (owner); /health/details memory + scans_finished; report built at X1 |
 | R10 | DONE | (this commit) | tests/test_reset_dashboard_user.py 4 passed (SQLite/JSON); OWNER_TODO + one-pager Hinglish steps | tools.reset_dashboard_user --list/--reset [--cloud]; never prints passwords or hashes; signs out old sessions; env login untouched |
