@@ -55,7 +55,8 @@ def get_top_market_cap_coins(limit=200):
     except requests.RequestException as exc:
         # Master plan P5 follow-up: ANY network failure (not only 429) falls back to a stale list when one exists; the top-50 by
         # market cap barely changes between scans. V2 R1: then the last good list on disk. Without either the error is raised.
-        _log_fallback(exc)
+        have = _cache["coins"] is not None or bool(_load_disk_cache())
+        _log_fallback(exc, have)
         if _cache["coins"] is not None:
             return _cache["coins"][:limit]
         disk = _load_disk_cache()
@@ -117,11 +118,11 @@ def disk_cache_info():
         return None
 
 
-def _log_fallback(exc):
+def _log_fallback(exc, have_list=True):
     try:
         from paper_trading import log_dedup
         log_dedup.maybe_log(print, "coingecko-top-coins", exc,
-                            f"[coingecko] top-coins fetch failed ({type(exc).__name__}); using the last good list", every=1800)
+                            f"[coingecko] top-coins fetch failed ({type(exc).__name__}); " + ("using the last good list" if have_list else "no saved list yet: the caller's fallback is used"), every=1800)
     except Exception:
         pass
 

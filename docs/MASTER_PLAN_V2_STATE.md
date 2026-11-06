@@ -49,3 +49,6 @@ D:\sindhu_merge to origin codex/trading-intelligence (fast-forward only). V1 sta
 | X3 | TODO | | | |
 
 ## Deploys
+- G1: merge ab38f58 (code b61a34c) pushed 07:39:01 UTC, live 07:40:41; HEAD /health 200, /wp-admin 404, self-check 4/4 ok, trading enabled.
+  Suite before: 2,637 passed / 0 failed (D:\sindhu_clean at b61a34c). After 44 min: 0 error lines, RSS 377.5 MB during the cold scan
+  (D3 cold scan: 423 MB), log lines 22 in 07:40-08:00 + 13 in 08:00-08:24 (about 33/h vs ~240/h at F2), db SELECT 1 p50 47.2 ms / p95 94.2 ms.
