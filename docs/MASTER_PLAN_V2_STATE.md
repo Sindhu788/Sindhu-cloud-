@@ -1,7 +1,7 @@
 # MASTER_PLAN_V2_STATE
 plan_version: 2
 started_at: 2026-11-06 06:20 UTC
-last_update: 2026-11-06 06:21 UTC
+last_update: 2026-11-06 06:31 UTC
 current_step: F2
 next_action: F2 baseline
 background_jobs: none
@@ -13,7 +13,7 @@ D:\sindhu_merge to origin codex/trading-intelligence (fast-forward only). V1 sta
 |---|---|---|---|---|
 | F1 | DONE | (this commit) | V1 state: no step IN_PROGRESS (current_step NONE); git status clean in D:\sindhu_wtA and D:\sindhu_clean at dfa9b84 | V1 leftovers carried into V2 (P5 etc.); 20736c4 not deployed yet, rides with G1 |
 | F2 | IN_PROGRESS |  |  |  |
-| F3 | TODO | | | |
+| F3 | DONE | (this commit) | docs/ui/FEATURE_MAP.md: 38 SPA pages, 36 menu entries, 461 route decorators, 3 static HTML pages, 6 global controls; every row has a new location | status per row TODO until PG8 |
 | R1 | TODO | | | |
 | R2 | TODO | | | |
 | R3 | TODO | | | |
