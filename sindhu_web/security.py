@@ -188,6 +188,12 @@ async def token_guard_middleware(request: Request, call_next):
     # before the session lookup below. That lookup is a database call: on Cloud every probe used to cost one (and a thread waiting
     # on a slow database), only to end in a redirect to /login. Known routes behave exactly as before.
     if not _matches_any_route(request):
+        try:                                              # master plan V2 PG9: a person gets a real page, a bot the tiny text
+            from sindhu_web import assets as _a
+            if _a.wants_html(request):
+                return _a.error_page(404)
+        except Exception:
+            pass
         return PlainTextResponse("not found", status_code=404)
 
     client_host = request.client.host if request.client else None

@@ -1,7 +1,7 @@
 # MASTER_PLAN_V2_STATE
 plan_version: 2
 started_at: 2026-11-06 06:20 UTC
-last_update: 2026-11-07 09:17 UTC
+last_update: 2026-11-07 09:22 UTC
 current_step: LG5
 next_action: G2
 background_jobs: none
@@ -40,8 +40,8 @@ D:\sindhu_merge to origin codex/trading-intelligence (fast-forward only). V1 sta
 | PG5 | TODO | | | |
 | PG6 | TODO | | | |
 | PG7 | TODO | | | |
-| PG8 | TODO | | | |
-| PG9 | TODO | | | |
+| PG8 | DONE | (this commit) | docs/ui/FEATURE_MAP.md: 0 TODO, 8 NEW, 15 MERGED, 24 LEGACY; /legacy keeps every old page; old hash links redirect | research tools stay in the old layout (LEGACY), with v2 tokens |
+| PG9 | DONE | (this commit) | static/error.html; browser 404 page vs tiny bot 404; HTML 500 page without traceback; offline + 'Cloud jaag raha hai' messages; tests test_browser_404..., test_html_500... |  |
 | PG10 | TODO | | | |
 | PG11 | TODO | | | |
 | X1 | TODO | | | |

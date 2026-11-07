@@ -148,9 +148,11 @@
     return `<div class="empty">${S2.icon(icon || "info")}<h4>${S2.esc(title)}</h4>${text ? `<p>${S2.esc(text)}</p>` : ""}</div>`;
   };
   S2.errorBlock = function (err, retryId) {
+    const offline = navigator.onLine === false;
     const slow = err && (err.timeout || err.status === 502 || err.status === 503);
-    const title = slow ? "Cloud jaag raha hai (free plan), 1 minute" : "Yeh data abhi load nahi hua";
-    const text = slow ? "Free server so jaata hai; pehli request par uthne mein ~1 minute lagta hai. Thodi der baad dobara try karo."
+    const title = offline ? "Internet nahi hai" : slow ? "Cloud jaag raha hai (free plan), 1 minute" : "Yeh data abhi load nahi hua";
+    const text = offline ? "Phone ya laptop ka internet band lag raha hai. Connection aate hi Dobara try karo dabao."
+      : slow ? "Free server so jaata hai; pehli request par uthne mein ~1 minute lagta hai. Thodi der baad dobara try karo."
       : "Server se jawab nahi aaya ya galti aayi. Baaki page chalta rahega.";
     return `<div class="err-block" role="alert">${S2.icon("triangle-alert")}<h4>${title}</h4><p>${text}</p>` +
       (err && err.message ? `<code>${S2.esc(String(err.message).slice(0, 160))}</code>` : "") +

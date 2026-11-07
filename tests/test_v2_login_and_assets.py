@@ -203,3 +203,28 @@ def test_wallet_settings_validate_with_the_self_check_limits(client, monkeypatch
     assert r.status_code == 200 and r.json()["settings"]["max_position_pct"] == 12
     from paper_trading import self_check
     assert "wallet.max_position_pct" not in self_check.validate_config()
+
+
+# ---------------------------------------------------------------- PG9 error pages
+def test_browser_404_is_a_page_and_bot_404_stays_tiny(client):
+    r = client.get("/no-such-page", headers={"accept": "text/html,application/xhtml+xml"})
+    assert r.status_code == 404 and "Yeh page nahi mila" in r.text and "content-security-policy" in r.headers
+    b = client.get("/wp-admin")
+    assert b.status_code == 404 and b.text == "not found"
+
+
+def test_html_500_never_shows_a_traceback(client, monkeypatch):
+    from sindhu_web import assets, auth
+    real = assets.render_html
+
+    def boom(name, extra=None):
+        if name == "app2.html":
+            raise RuntimeError("secret detail")
+        return real(name, extra)
+
+    monkeypatch.setattr(assets, "render_html", boom)
+    monkeypatch.setattr(auth, "is_valid_session", lambda t: True)
+    import cloud_runtime.app as cloud
+    c = TestClient(cloud.app, raise_server_exceptions=False, follow_redirects=False)
+    r = c.get("/", headers={"accept": "text/html"})
+    assert r.status_code == 500 and "Kuch galat ho gaya" in r.text and "secret detail" not in r.text and "Traceback" not in r.text

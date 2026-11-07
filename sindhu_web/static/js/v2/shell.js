@@ -189,6 +189,8 @@
       try { localStorage.setItem("sindhu_rail", shell.classList.contains("collapsed") ? "1" : "0"); } catch (e) { /* ignore */ }
     });
     window.addEventListener("hashchange", route);
+    window.addEventListener("offline", () => S2.toast("Internet chala gaya. Data purana ho sakta hai.", "warn"));
+    window.addEventListener("online", () => { S2.toast("Internet wapas aa gaya"); refreshStatus(); });
     document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshStatus(); });
     tickClock(); setInterval(tickClock, 15000);
     refreshStatus(); state.timer = setInterval(refreshStatus, 60000);

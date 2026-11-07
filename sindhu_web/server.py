@@ -301,6 +301,9 @@ def create_app():
     @app.exception_handler(Exception)
     async def _unhandled_exception_handler(request: Request, exc: Exception):
         log(f"API ERROR on {request.method} {request.url.path}: {exc!r}")
+        from sindhu_web import assets as _err_assets      # master plan V2 PG9: HTML pages get the error page, never a traceback
+        if _err_assets.wants_html(request):
+            return _err_assets.error_page(500)
         return JSONResponse({"detail": "internal error", "error": repr(exc)}, status_code=500)
 
     for router in (home.router, market.router, data.router, backtesting.router,

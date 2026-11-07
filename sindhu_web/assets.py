@@ -255,3 +255,23 @@ def register_pages(app, cloud):
         if not _logged_in(request):
             return RedirectResponse(url="/login")
         return RedirectResponse(url="/#/ui-kit")
+
+
+ERRORS = {
+    404: ("Yeh page nahi mila", "Link purana ho sakta hai ya address mein galti hai. Neeche se Home kholo."),
+    500: ("Kuch galat ho gaya", "Server par ek galti hui; woh log mein likh di gayi hai. Thodi der baad dobara try karo. "
+                                "Free server so raha ho to pehli request mein ~1 minute lagta hai (Cloud jaag raha hai)."),
+}
+
+
+def error_page(code):
+    """Master plan V2 PG9: on-brand HTML error page (no stack trace, no database)."""
+    title, text = ERRORS.get(code, ERRORS[500])
+    try:
+        return html_response("error.html", {"CODE": str(code), "TITLE": title, "TEXT": text}, status_code=code)
+    except Exception:
+        return PlainTextResponse(title, status_code=code)
+
+
+def wants_html(request):
+    return "text/html" in request.headers.get("accept", "") and not request.url.path.startswith(("/api/", "/ws", "/assets/", "/static/"))

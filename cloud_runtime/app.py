@@ -364,6 +364,9 @@ def create_app():
         # response never includes a traceback or any internal detail --
         # see cloud_runtime/README.md's security notes.
         log(f"[cloud-runtime] API ERROR on {request.method} {request.url.path}: {exc!r}")
+        from sindhu_web import assets as _err_assets      # master plan V2 PG9: HTML pages get the error page, never a traceback
+        if _err_assets.wants_html(request):
+            return _err_assets.error_page(500)
         return JSONResponse({"detail": "internal error"}, status_code=500)
 
     # Master Task Expansion, Part 6: system_api.router (uptime, CPU/RAM,
