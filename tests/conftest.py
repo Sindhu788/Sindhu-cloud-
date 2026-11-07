@@ -85,3 +85,31 @@ def _isolated_coingecko_disk_cache(monkeypatch, tmp_path):
         monkeypatch.setattr(_cg, "_disk_cache_path", lambda: str(tmp_path / "coingecko_top_coins_cache.json"))
     except Exception:
         pass
+
+
+@pytest.fixture(autouse=True)
+def _reset_cloud_setting_cache():
+    """Master plan V2 R5: cloud_settings reads are cached for 10 s; each test starts with an empty cache."""
+    try:
+        from data_engine import storage as _st
+        _st.clear_cloud_setting_cache()
+    except Exception:
+        pass
+    yield
+    try:
+        from data_engine import storage as _st
+        _st.clear_cloud_setting_cache()
+    except Exception:
+        pass
+
+
+@pytest.fixture(autouse=True)
+def _reset_login_throttle():
+    """Master plan V2 LG4: per-IP and per-username login throttles are in memory; tests must not inherit them."""
+    try:
+        from sindhu_web.api import auth as _auth_api
+        _auth_api._fails.clear()
+        _auth_api._user_fails.clear()
+    except Exception:
+        pass
+    yield

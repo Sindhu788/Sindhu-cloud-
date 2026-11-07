@@ -6,51 +6,51 @@ Counts at F3: 38 SPA pages, 36 menu entries, 461 route decorators.
 **More / Legacy** with the new shell and styles. Generated from `sindhu_web/api/home.py` NAV_PAGES, the `PAGES` router in
 `sindhu_web/static/js/app.js` and every `@router`/`@app` route decorator; statuses are updated by PG8.
 
-Status values: `TODO` (not migrated yet), `NEW` (rebuilt in the new section), `LEGACY` (reachable under More/Legacy, new styles),
+Final status (PG8, 2026-11-07): every row is NEW, MERGED or LEGACY; none removed. Status values: `TODO` (not migrated yet), `NEW` (rebuilt in the new section), `LEGACY` (reachable under More/Legacy, new styles),
 `MERGED` (its content lives in a new section and the old page is also kept under More/Legacy).
 
 ## 1. Pages (hash routes)
 
 | Old location (menu group / label) | Route | New location | Status |
 |---|---|---|---|
-| (not in menu; reached by link or MAIN_SECTIONS) | `#wallet` | Home (W4) | TODO |
-| CEO / Orchestrator / Dashboard | `#home` | More/Legacy (old Dashboard; key cards move to Home W4) | TODO |
-| Data / Market | `#market` | More/Legacy | TODO |
-| Data / Data | `#data` | More/Legacy | TODO |
-| Research / Backtesting | `#backtesting` | Backtests (W7) | TODO |
-| Reporting / Reports | `#reports` | More/Legacy | TODO |
-| Operations / System / Settings | `#settings` | Settings (W8) | TODO |
-| Research / Knowledge | `#knowledge` | More/Legacy | TODO |
-| Strategy / Strategies | `#strategies` | Strategies (W6) | TODO |
-| Trading / Execution / Paper Trading | `#paper_trading` | Trades (W5) | TODO |
-| Strategy / Knowledge Compiler | `#knowledge_compiler` | More/Legacy | TODO |
-| Strategy / AI Center | `#ai_center` | More/Legacy | TODO |
-| Research / Backtest History | `#backtest_history` | Backtests (W7) - history; page kept under More/Legacy | TODO |
-| Research / Pipeline History | `#pipeline_history` | More/Legacy | TODO |
-| Learning / Reflection / Evolution | `#evolution` | More/Legacy | TODO |
-| Learning / Reflection / Evolution History | `#evolution_history` | More/Legacy | TODO |
-| Strategy / SINDHU Strategy | `#sindhu_strategy` | More/Legacy | TODO |
-| Trading / Execution / Signal Tracker | `#signal_tracker` | Trades (W5) - Signals tab; page kept under More/Legacy | TODO |
-| Learning / Reflection / Strategy Lab | `#strategy_lab` | More/Legacy | TODO |
-| Learning / Reflection / Self-Learning Engine | `#self_learning` | More/Legacy | TODO |
-| Trading / Execution / Challenge Mode | `#challenge_mode` | More/Legacy | TODO |
-| (not in menu; reached by link or MAIN_SECTIONS) | `#strategy_wizard` | More/Legacy | TODO |
-| Research / Web-Sourced Strategies | `#web_sourced_strategies` | More/Legacy | TODO |
-| Operations / System / Control Center | `#control_center` | System (W9) | TODO |
-| Trading / Execution / Telegram Signals | `#telegram_dashboard` | More/Legacy | TODO |
-| CEO / Orchestrator / SINDHU CEO | `#ceo` | More/Legacy | TODO |
-| Strategy / Clarification | `#clarification_center` | More/Legacy | TODO |
-| Trading / Execution / External Signal Tracker | `#external_signals` | More/Legacy | TODO |
-| Research / Compare | `#compare` | Backtests (W7) - compare; page kept under More/Legacy | TODO |
-| Operations / System / Live Logs | `#live_logs` | System (W9) - logs link; page kept under More/Legacy | TODO |
-| Operations / System / Project Status | `#project_status` | System (W9) - versions; page kept under More/Legacy | TODO |
-| Operations / System / Incidents | `#incidents` | System (W9) - incidents; page kept under More/Legacy | TODO |
-| Learning / Reflection / Strategy Lifecycle | `#strategy_lifecycle` | Strategies (W6) - lifecycle badges; page kept under More/Legacy | TODO |
-| (not in menu; reached by link or MAIN_SECTIONS) | `#strategy_overview` | Strategies (W6) - overview; page kept under More/Legacy | TODO |
-| Risk / Risk | `#risk_department` | More/Legacy | TODO |
-| Memory Core / Memory Core | `#memory_core` | More/Legacy | TODO |
-| Operations / System / Configuration Panel | `#configuration_panel` | Settings (W8) - merged groups; page kept under More/Legacy | TODO |
-| Trading / Execution / Practice Mode | `#practice_mode` | More/Legacy | TODO |
+| (not in menu; reached by link or MAIN_SECTIONS) | `#wallet` | Home (W4) | NEW |
+| CEO / Orchestrator / Dashboard | `#home` | More/Legacy (old Dashboard; key cards move to Home W4) | MERGED |
+| Data / Market | `#market` | More/Legacy | LEGACY |
+| Data / Data | `#data` | More/Legacy | LEGACY |
+| Research / Backtesting | `#backtesting` | Backtests (W7) | MERGED |
+| Reporting / Reports | `#reports` | More/Legacy | LEGACY |
+| Operations / System / Settings | `#settings` | Settings (W8) | MERGED |
+| Research / Knowledge | `#knowledge` | More/Legacy | LEGACY |
+| Strategy / Strategies | `#strategies` | Strategies (W6) | MERGED |
+| Trading / Execution / Paper Trading | `#paper_trading` | Trades (W5) | MERGED |
+| Strategy / Knowledge Compiler | `#knowledge_compiler` | More/Legacy | LEGACY |
+| Strategy / AI Center | `#ai_center` | More/Legacy | LEGACY |
+| Research / Backtest History | `#backtest_history` | Backtests (W7) - history; page kept under More/Legacy | MERGED |
+| Research / Pipeline History | `#pipeline_history` | More/Legacy | LEGACY |
+| Learning / Reflection / Evolution | `#evolution` | More/Legacy | LEGACY |
+| Learning / Reflection / Evolution History | `#evolution_history` | More/Legacy | LEGACY |
+| Strategy / SINDHU Strategy | `#sindhu_strategy` | More/Legacy | LEGACY |
+| Trading / Execution / Signal Tracker | `#signal_tracker` | Trades (W5) - Signals tab; page kept under More/Legacy | MERGED |
+| Learning / Reflection / Strategy Lab | `#strategy_lab` | More/Legacy | LEGACY |
+| Learning / Reflection / Self-Learning Engine | `#self_learning` | More/Legacy | LEGACY |
+| Trading / Execution / Challenge Mode | `#challenge_mode` | More/Legacy | LEGACY |
+| (not in menu; reached by link or MAIN_SECTIONS) | `#strategy_wizard` | More/Legacy | LEGACY |
+| Research / Web-Sourced Strategies | `#web_sourced_strategies` | More/Legacy | LEGACY |
+| Operations / System / Control Center | `#control_center` | System (W9) | MERGED |
+| Trading / Execution / Telegram Signals | `#telegram_dashboard` | More/Legacy | LEGACY |
+| CEO / Orchestrator / SINDHU CEO | `#ceo` | More/Legacy | LEGACY |
+| Strategy / Clarification | `#clarification_center` | More/Legacy | LEGACY |
+| Trading / Execution / External Signal Tracker | `#external_signals` | More/Legacy | LEGACY |
+| Research / Compare | `#compare` | Backtests (W7) - compare; page kept under More/Legacy | MERGED |
+| Operations / System / Live Logs | `#live_logs` | System (W9) - logs link; page kept under More/Legacy | MERGED |
+| Operations / System / Project Status | `#project_status` | System (W9) - versions; page kept under More/Legacy | MERGED |
+| Operations / System / Incidents | `#incidents` | System (W9) - incidents; page kept under More/Legacy | MERGED |
+| Learning / Reflection / Strategy Lifecycle | `#strategy_lifecycle` | Strategies (W6) - lifecycle badges; page kept under More/Legacy | MERGED |
+| (not in menu; reached by link or MAIN_SECTIONS) | `#strategy_overview` | Strategies (W6) - overview; page kept under More/Legacy | MERGED |
+| Risk / Risk | `#risk_department` | More/Legacy | LEGACY |
+| Memory Core / Memory Core | `#memory_core` | More/Legacy | LEGACY |
+| Operations / System / Configuration Panel | `#configuration_panel` | Settings (W8) - merged groups; page kept under More/Legacy | MERGED |
+| Trading / Execution / Practice Mode | `#practice_mode` | More/Legacy | LEGACY |
 
 Menu entries without a router entry: concepts
 
@@ -58,20 +58,20 @@ Menu entries without a router entry: concepts
 
 | File | Route | New location | Status |
 |---|---|---|---|
-| sindhu_web/static/login.html | `/login` | Login v2 (LG1-LG3) | TODO |
-| sindhu_web/static/activity_log.html | `/static/activity_log.html` (no menu link) | More/Legacy | TODO |
-| sindhu_web/static/concepts.html | menu "Concepts" (external_url) | More/Legacy (Knowledge) | TODO |
+| sindhu_web/static/login.html | `/login` | Login v2 (LG1-LG3) | NEW |
+| sindhu_web/static/activity_log.html | `/static/activity_log.html` (no menu link) | More/Legacy | LEGACY |
+| sindhu_web/static/concepts.html | menu "Concepts" (external_url) | More/Legacy (Knowledge) | LEGACY |
 
 ## 3. Global controls
 
 | Control | Old location | New location | Status |
 |---|---|---|---|
-| Kill-switch button + confirm modal | ops banner (C2) | App shell banner (PG1) | TODO |
-| Paper-trading banner, freshness dot | ops banner (C2) | App shell banner (PG1) | TODO |
-| Logout | sidebar footer | user menu in shell (PG1) | TODO |
-| Lite mode toggle (lite_mode.js) | topbar | Settings > Appearance (PG6) + shell | TODO |
-| Session-expiry warning | topbar | shell (PG1) | TODO |
-| Live log websocket `/ws/logs` | Live Logs page | System (W9) | TODO |
+| Kill-switch button + confirm modal | ops banner (C2) | App shell banner (PG1) | NEW |
+| Paper-trading banner, freshness dot | ops banner (C2) | App shell banner (PG1) | NEW |
+| Logout | sidebar footer | user menu in shell (PG1) | NEW |
+| Lite mode toggle (lite_mode.js) | topbar | Settings > Appearance (PG6) + shell | NEW |
+| Session-expiry warning | topbar | shell (PG1) | NEW |
+| Live log websocket `/ws/logs` | Live Logs page | System (W9) | NEW |
 
 ## 4. API routes (unchanged by the redesign; listed so every UI call has a home)
 
@@ -538,3 +538,11 @@ Menu entries without a router entry: concepts
 | sindhu_web/server.py | GET | `/` |
 | sindhu_web/server.py | API_ROUTE | `/health` |
 | sindhu_web/server.py | GET | `/health/details` |
+
+## 5. Where things are now (PG8 summary)
+- New app at `/`: Home, Trades, Strategies, Backtests, Settings, System, More / Legacy, UI kit (`/ui-kit`), command palette (Ctrl/Cmd+K).
+- Old dashboard unchanged at **`/legacy`** (same app.js, now on the v2 colour tokens and fingerprinted assets). Every old hash link
+  (`/#paper_trading`, `/#evolution` ...) still works: pages rebuilt in v2 open the new page, all others redirect to `/legacy#<page>`.
+- MERGED = its main content is in the new section and the old page stays reachable under More / Legacy.
+- Not rebuilt as new pages (LEGACY): research tools such as Evolution, Strategy Lab, Knowledge, AI Center, Telegram dashboard, Risk
+  Department, Memory Core and the rest. They work as before, styled by the v2 tokens, but keep their old layout.

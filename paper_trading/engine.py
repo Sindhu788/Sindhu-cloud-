@@ -152,15 +152,17 @@ _SCANS_FINISHED = 0   # master plan V2 R2: scans finished since this process sta
 
 
 def _set_refetch_budget():
-    """V2 R2 (P27): no limit for the first scan after a start (every series is cold), then SINDHU_REFETCH_BUDGET (default 3)
+    """V2 R2 (P27): no limit for the first two scans after a start (every series is cold), then SINDHU_REFETCH_BUDGET (default 8)
     heavy downloads per scan."""
     try:
         from data_engine import live_candles
         try:
-            k = int(os.environ.get("SINDHU_REFETCH_BUDGET", "3"))
+            k = int(os.environ.get("SINDHU_REFETCH_BUDGET", "8"))
         except ValueError:
-            k = 3
-        live_candles.set_refetch_budget(None if _SCANS_FINISHED == 0 else k)
+            k = 8
+        # V2 R2 fix (G1 logs, 6 Nov): with K=3 coins whose first download was cut by a deadline waited many scans. First TWO scans
+        # unlimited, then 8 per scan by default.
+        live_candles.set_refetch_budget(None if _SCANS_FINISHED < 2 else k)
     except Exception:
         pass
 
@@ -708,6 +710,9 @@ class PaperTradingEngine:
                 with stages.stage("classify"):
                     snapshot = market_state.classify(exchange, symbol)
             except Exception as e:
+                if type(e).__name__ == "RefetchDeferred":          # V2 R2: a planned skip, not an error
+                    self._log_decision(exchange, symbol, {}, 'no_trade', 'Candle history still loading; queued for a later scan.', {})
+                    continue
                 self._log(f"[paper-trading] market state error {symbol}: {e!r}")
                 self._current_scan['errors'] += 1
                 reason=str(e) if isinstance(e,MarketDataRejected) else 'Market data unavailable; evaluation skipped.'
@@ -738,6 +743,9 @@ class PaperTradingEngine:
                 opened += o
                 rejected += r
             except Exception as e:
+                if type(e).__name__ == "RefetchDeferred":          # V2 R2: a planned skip, not an error
+                    self._log_decision(exchange, symbol, {}, 'no_trade', 'Candle history still loading; queued for a later scan.', snapshot)
+                    continue
                 self._log(f"[paper-trading] decision error {symbol}: {e!r}")
                 self._current_scan['errors'] += 1
 
@@ -816,6 +824,9 @@ class PaperTradingEngine:
             order = ["before_coins", "classify", "monitor_positions", "process_coin", "evaluate_strategies", "open_risk_db", "memory_release",
                      "flush_decisions", "orphan_positions", "housekeeping_full", "telegram_sweep"]
             mt = memory_trim.stats()
+            self._last_stages = {"at": _now_iso(), "total_s": round(time.monotonic() - tick_started_monotonic), "stages": stages.summary(order),
+                                 "db": _db_backend.db_stats_summary(db_before), "candles": _candle_fetch_summary(db_before.get('_candles')),
+                                 "rss_mb": round(memory_guard.rss_mb())}       # master plan V2 PG7 (System page)
             self._log(f"[scan-stages] total {time.monotonic() - tick_started_monotonic:.0f}s | {stages.summary(order)} | "
                       f"{_db_backend.db_stats_summary(db_before)} | memory release x{mt['calls']} {mt['seconds']:.1f}s total (trimmed {mt['trimmed']}x) | "
                       f"{_candle_fetch_summary(db_before.get('_candles'))} | rss {memory_guard.rss_mb():.0f} MB")
@@ -826,6 +837,12 @@ class PaperTradingEngine:
             if mine:
                 total = max(1e-9, time.monotonic() - tick_started_monotonic)
                 db_s = mine.get("query_seconds", 0.0) + mine.get("commit_seconds", 0.0) + mine.get("checkout_seconds", 0.0)
+                try:
+                    self._last_stages["scan_db"] = {"statements": mine.get("queries", 0), "statement_s": round(mine.get("query_seconds", 0.0), 1),
+                                                    "commits": mine.get("commits", 0), "commit_s": round(mine.get("commit_seconds", 0.0), 1),
+                                                    "share_pct": round(100 * db_s / total), "top": top[:5]}
+                except Exception:
+                    pass
                 self._log(f"[scan-db] scan thread only: {mine.get('queries', 0)} statements {mine.get('query_seconds', 0.0):.1f}s, "
                           f"{mine.get('commits', 0)} commits {mine.get('commit_seconds', 0.0):.1f}s, {mine.get('checkouts', 0)} checkouts "
                           f"{mine.get('checkout_seconds', 0.0):.1f}s = {db_s:.0f}s of {total:.0f}s ({100 * db_s / total:.0f}%) | top: "

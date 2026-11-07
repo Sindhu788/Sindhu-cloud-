@@ -36,12 +36,14 @@ try {
 } catch (e) {}
 """
 
-COLLECT = """() => {
+COLLECT = r"""() => {
   const res = performance.getEntriesByType('resource');
+  let js = 0, css = 0;
+  for (const r of res) { if (/\.m?js(\?|$)/.test(r.name)) js += (r.encodedBodySize || 0); else if (/\.css(\?|$)/.test(r.name)) css += (r.encodedBodySize || 0); }
   const nav = performance.getEntriesByType('navigation')[0];
   let bytes = nav ? (nav.transferSize || 0) : 0;
   for (const r of res) bytes += (r.transferSize || 0);
-  return {requests: res.length + 1, transfer_bytes: bytes, lcp_ms: Math.round(window.__lcp || 0),
+  return {requests: res.length + 1, transfer_bytes: bytes, js_bytes: js, css_bytes: css, lcp_ms: Math.round(window.__lcp || 0),
           cls: Math.round((window.__cls || 0) * 1000) / 1000,
           hscroll: document.documentElement.scrollWidth > document.documentElement.clientWidth + 2};
 }"""
@@ -67,6 +69,7 @@ def main():
     ap.add_argument("--pages", default=ALL_PAGES)
     ap.add_argument("--themes", default="")
     ap.add_argument("--settle-ms", type=int, default=4000)
+    ap.add_argument("--axe", default="", help="path to axe.min.js (axe-core) for an accessibility scan per page")
     a = ap.parse_args()
     from playwright.sync_api import sync_playwright
     os.makedirs(a.out, exist_ok=True)
@@ -78,7 +81,7 @@ def main():
         for theme in themes:
             for label, vp in (("phone", {"width": 390, "height": 844}), ("laptop", {"width": 1440, "height": 900})):
                 for pid in a.pages.split(","):
-                    ctx = b.new_context(viewport=vp, color_scheme=(theme or "dark") if theme else None)
+                    ctx = b.new_context(viewport=vp, color_scheme=(theme or "dark") if theme else None, bypass_csp=bool(a.axe))
                     ctx.add_cookies(cookies)
                     if theme:
                         ctx.add_init_script(f"try{{localStorage.setItem('sindhu_theme','{theme}')}}catch(e){{}}")
@@ -89,10 +92,17 @@ def main():
                     page.on("pageerror", lambda e: errs.append("PAGEERROR " + str(e)[:160]))
                     t0 = time.time()
                     try:
-                        page.goto(f"{a.base}/#{pid}", wait_until="load", timeout=60000)
+                        page.goto(f"{a.base}{pid}" if pid.startswith("/") and not pid.startswith("/#") else f"{a.base}/#{pid}", wait_until="load", timeout=60000)
                         page.wait_for_timeout(a.settle_ms)
                         m = page.evaluate(COLLECT)
-                        name = f"{pid}_{label}" + (f"_{theme}" if theme else "") + ".png"
+                        if a.axe:
+                            page.add_script_tag(path=a.axe)
+                            ax = page.evaluate("""async () => { const r = await axe.run(document, {resultTypes: ['violations']});
+                              return r.violations.map(v => ({id: v.id, impact: v.impact, nodes: v.nodes.length})); }""")
+                            m["axe_serious"] = [v for v in ax if v["impact"] in ("serious", "critical")]
+                            m["axe_other"] = [v for v in ax if v["impact"] not in ("serious", "critical")]
+                        safe = pid.strip("/#").replace("/", "_").replace("?", "_").replace("=", "-") or "root"
+                        name = f"{safe}_{label}" + (f"_{theme}" if theme else "") + ".png"
                         page.screenshot(path=os.path.join(a.out, name), full_page=False)
                     except Exception as e:  # keep auditing the other pages
                         m = {"error": str(e)[:200]}

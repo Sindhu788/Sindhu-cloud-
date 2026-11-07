@@ -96,6 +96,80 @@ def _login_ok(request: Request):
         _fails.pop(_client_key(request), None)
 
 
+# ---- master plan V2 LG4: login CSRF, per-username backoff, attempt log (no passwords, IP only as a short hash)
+import hashlib as _hashlib
+import hmac as _hmac
+import secrets as _secrets
+
+LOGIN_CSRF_COOKIE = "sindhu_login_csrf"
+_user_fails = {}         # sha256(username) -> [count, last failure time]
+_USER_FREE_TRIES = 3     # after 3 wrong tries for one username: wait 2, 4, 8 ... s (max 15 min) before the next try
+
+
+def _is_browser(request: Request) -> bool:
+    # CSRF is a browser attack: browsers send Origin (cross-origin and same-origin POST) and Sec-Fetch-Site on every fetch/form POST.
+    # Scripts and tests (no browser) send neither and are not exposed to CSRF.
+    h = request.headers
+    return "origin" in h or "sec-fetch-site" in h
+
+
+def _same_origin(request: Request) -> bool:
+    origin = request.headers.get("origin")
+    if origin is None:
+        return request.headers.get("sec-fetch-site", "same-origin") in ("same-origin", "none")
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host", "")
+    return origin.split("://", 1)[-1].rstrip("/") == host
+
+
+def _csrf_ok(request: Request) -> bool:
+    if not _is_browser(request):
+        return True
+    if not _same_origin(request):
+        return False
+    cookie = request.cookies.get(LOGIN_CSRF_COOKIE, "")
+    header = request.headers.get("x-login-csrf", "")
+    return bool(cookie) and _hmac.compare_digest(cookie.encode(), header.encode())
+
+
+def _user_key(username):
+    return _hashlib.sha256((username or "").strip().lower().encode("utf-8")).hexdigest()
+
+
+def _user_wait_s(username, now=None):
+    now = _time.time() if now is None else now
+    with _fail_lock:
+        n, last = _user_fails.get(_user_key(username), (0, 0.0))
+    if n < _USER_FREE_TRIES:
+        return 0
+    wait = min(900, 2 ** (n - _USER_FREE_TRIES + 1))
+    return max(0, int(last + wait - now + 0.999))
+
+
+def _user_failed(username):
+    with _fail_lock:
+        n, _ = _user_fails.get(_user_key(username), (0, 0.0))
+        _user_fails[_user_key(username)] = (n + 1, _time.time())
+
+
+def _user_ok(username):
+    with _fail_lock:
+        _user_fails.pop(_user_key(username), None)
+
+
+def _log_attempt(request: Request, result: str):
+    ip = _client_key(request)
+    print(f"[auth] login {result} ip#{_hashlib.sha256(ip.encode()).hexdigest()[:10]}", flush=True)
+
+
+@router.get("/api/auth/csrf")
+def auth_csrf(request: Request, response: Response):
+    """A fresh login CSRF token: also set as an HttpOnly, SameSite=Strict cookie (double submit; only this origin can read the JSON)."""
+    token = _secrets.token_urlsafe(24)
+    response.set_cookie(LOGIN_CSRF_COOKIE, token, httponly=True, samesite="strict", secure=_is_https(request), max_age=2 * 3600, path="/api/auth")
+    response.headers["Cache-Control"] = "no-store"
+    return {"csrf": token}
+
+
 @router.get("/api/auth/status")
 def auth_status(request: Request):
     token = request.cookies.get(auth.SESSION_COOKIE)
@@ -114,10 +188,12 @@ def auth_status(request: Request):
 
 
 @router.post("/api/auth/setup")
-def auth_setup(req: AuthPayload, response: Response):
+def auth_setup(req: AuthPayload, response: Response, request: Request):
     """First-run only -- creates the one account. Refuses once an account
     already exists (change it via /api/auth/change-password instead, which
     requires already being logged in)."""
+    if not _csrf_ok(request):
+        raise HTTPException(403, "Page purana ho gaya. Reload karke dobara try karo.")
     if auth.has_credentials():
         raise HTTPException(400, "An account is already configured -- use login instead.")
     # Master plan A16: on Cloud the very first visitor could otherwise create the only account. There, setup needs the owner's
@@ -134,21 +210,41 @@ def auth_setup(req: AuthPayload, response: Response):
         raise HTTPException(400, "Password must be at least 8 characters.")
     auth.set_credentials(username, req.password)
     token = auth.create_session()
-    _set_session_cookie(response, token)
+    _set_session_cookie(response, token, _is_https(request))
     return {"ok": True}
 
 
 @router.post("/api/auth/login")
 def auth_login(req: AuthPayload, response: Response, request: Request):
+    if not _csrf_ok(request):
+        _log_attempt(request, "rejected-csrf")
+        raise HTTPException(403, "Page purana ho gaya. Reload karke dobara try karo.")
     if _login_blocked(request):
+        _log_attempt(request, "blocked-ip")
         raise HTTPException(429, "Too many failed sign-in attempts. Wait 10 minutes and try again.")
-    owner_env_login = req.username.strip().lower() == "owner" and _matches_env_password(req.password)   # master plan A16
-    if not owner_env_login and not auth.verify_password(req.username.strip(), req.password):
+    wait = _user_wait_s(req.username)
+    if wait:
+        _log_attempt(request, "blocked-backoff")
+        raise HTTPException(429, f"Too many failed sign-in attempts. Try again in {wait} s.")
+    env_ok = _matches_env_password(req.password)                                   # always evaluated: same time either way
+    owner_env_login = req.username.strip().lower() == "owner" and env_ok            # master plan A16
+    account_ok = auth.verify_password(req.username.strip(), req.password)
+    if not owner_env_login and not account_ok:
         _login_failed(request)
+        _user_failed(req.username)
+        _log_attempt(request, "failed")
         raise HTTPException(401, "Incorrect username or password.")
     _login_ok(request)
+    _user_ok(req.username)
+    old = request.cookies.get(auth.SESSION_COOKIE)                                   # session rotation: the old token stops working
+    if old:
+        try:
+            auth.invalidate_session(old)
+        except Exception:
+            pass
     token = auth.create_session()
     _set_session_cookie(response, token, _is_https(request))
+    _log_attempt(request, "ok")
     return {"ok": True}
 
 

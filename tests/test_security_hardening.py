@@ -20,13 +20,15 @@ def test_login_is_throttled_per_client_and_expires(test_db, monkeypatch):
     monkeypatch.setattr(auth, "verify_password", lambda u, p: p == "right-password-1")
     c = TestClient(cloud.app)
     h = {"x-forwarded-for": "203.0.113.9"}
-    for _ in range(api._LOGIN_MAX_PER_CLIENT):
-        assert c.post("/api/auth/login", json={"username": "u", "password": "bad"}, headers=h).status_code == 401
+    for i in range(api._LOGIN_MAX_PER_CLIENT):      # V2 LG4: a different username each try, so only the per-client limit is exercised
+        assert c.post("/api/auth/login", json={"username": f"u{i}", "password": "bad"}, headers=h).status_code == 401
     assert c.post("/api/auth/login", json={"username": "u", "password": "right-password-1"}, headers=h).status_code == 429      # blocked even with the right password
     other = {"x-forwarded-for": "198.51.100.7"}
+    api._user_fails.clear()     # master plan V2 LG4 (changed on purpose): the per-username backoff would also slow this username; here only the per-client limit is tested
     monkeypatch.setattr(auth, "create_session", lambda: "tok")
     assert c.post("/api/auth/login", json={"username": "u", "password": "right-password-1"}, headers=other).status_code == 200  # other client unaffected
     monkeypatch.setattr(api, "_LOGIN_WINDOW_S", -1)                                                                            # window over -> allowed again
+    api._user_fails.clear()
     assert c.post("/api/auth/login", json={"username": "u", "password": "right-password-1"}, headers=h).status_code == 200
 
 

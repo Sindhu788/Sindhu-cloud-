@@ -1,0 +1,46 @@
+/* Login v2 (master plan V2 LG1/LG3). Desktop: asymmetric 40 / 60 split, form left, live scene right. Phone: the scene is a calm band
+   on top (or the still poster), the form below; nothing to scroll on 390 x 844. */
+.login { overflow-x: hidden; }
+.lg { display: grid; grid-template-columns: minmax(360px, 40%) 1fr; min-height: 100vh; }
+.lg-left { display: flex; flex-direction: column; padding: var(--space-6) clamp(24px, 5vw, 72px); background: var(--surface);
+  border-right: 1px solid var(--line); position: relative; z-index: 1; }
+.lg-brand { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: .18em; font-size: var(--fs-13); }
+.lg-brand .mark { width: 26px; height: 26px; border-radius: 6px; background: var(--accent); color: var(--on-accent); display: grid; place-items: center;
+  letter-spacing: 0; font-size: 13px; }
+.lg-form-wrap { margin: auto 0; width: 100%; max-width: 360px; padding: var(--space-6) 0; }
+.lg-form-wrap h1 { font-size: var(--fs-32); letter-spacing: -.02em; }
+.lg-purpose { color: var(--text-2); margin: 6px 0 var(--space-5) !important; }
+.lg-submit { width: 100%; height: var(--tap); font-size: var(--fs-16); }
+.lg-submit .spin { margin-right: 4px; }
+.lg-error { color: var(--loss); font-size: var(--fs-13); margin: 0; }
+.lg-caps { color: var(--warn); }
+.lg-link { background: none; border: 0; padding: 0; color: var(--accent); font: inherit; font-size: var(--fs-13); cursor: pointer; text-align: left;
+  min-height: 32px; }
+.lg-link:hover { text-decoration: underline; }
+.lg-help { font-size: var(--fs-13); color: var(--text-2); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: var(--space-3) var(--space-4);
+  background: var(--surface-2); }
+.lg-help ol { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 6px; }
+.lg-foot { display: grid; gap: 2px; font-size: var(--fs-12); }
+.lg-foot p { margin: 0; }
+.lg-paper { color: var(--warn); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; font-size: 11px; }
+.lg-right { position: relative; overflow: hidden; background: radial-gradient(120% 90% at 70% 40%, var(--surface-3) 0%, var(--bg) 70%); }
+.lg-right canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; opacity: 0; transition: opacity 600ms var(--ease); }
+.lg-right canvas.on { opacity: 1; }
+.lg-poster { position: absolute; inset: 0; background-image: url("img/login-poster.webp"); background-size: cover; background-position: center; opacity: .92; }
+.lg-poster.off { opacity: 0; transition: opacity 600ms var(--ease); }
+.lg-caption { position: absolute; left: var(--space-5); bottom: var(--space-4); margin: 0; font-family: var(--font-mono); font-size: 11px; color: var(--text-3); }
+:root[data-theme="light"] .lg-right { background: radial-gradient(120% 90% at 70% 40%, #ffffff 0%, var(--bg) 70%); }
+:root[data-theme="light"] .lg-poster { filter: invert(1) hue-rotate(180deg) brightness(1.05); opacity: .55; }
+
+@media (max-width: 760px) {
+  .lg { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+  .lg-right { order: -1; height: 26vh; min-height: 150px; max-height: 230px; border-bottom: 1px solid var(--line); }
+  .lg-left { border-right: 0; padding: var(--space-4) var(--space-5) var(--space-4); }
+  .lg-brand { display: none; }
+  .lg-form-wrap { padding: var(--space-3) 0 var(--space-4); margin: 0 auto 0 0; }
+  .lg-form-wrap h1 { font-size: var(--fs-24); }
+  .lg-purpose { margin-bottom: var(--space-4) !important; }
+  .lg-form-wrap .stack > * + * { margin-top: var(--space-3); }
+  .lg-caption { left: var(--space-4); bottom: var(--space-2); }
+}
+@media (max-height: 700px) and (max-width: 760px) { .lg-right { height: 18vh; min-height: 110px; } }

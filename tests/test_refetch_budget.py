@@ -74,7 +74,7 @@ def test_engine_gives_the_first_scan_no_limit_then_k(monkeypatch):
     monkeypatch.setattr(engine, "_SCANS_FINISHED", 0)
     engine._set_refetch_budget()
     assert lc.refetch_state()["limit"] is None
-    monkeypatch.setattr(engine, "_SCANS_FINISHED", 1)
+    monkeypatch.setattr(engine, "_SCANS_FINISHED", 2)
     monkeypatch.setenv("SINDHU_REFETCH_BUDGET", "3")
     engine._set_refetch_budget()
     assert lc.refetch_state()["limit"] == 3

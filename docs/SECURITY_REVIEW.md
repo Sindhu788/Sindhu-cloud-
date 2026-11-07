@@ -42,3 +42,24 @@ Scope: candle downloader, loader, quality/validation tools, experiment tracker, 
 | 13 | Old Render services may hold the bot token | Medium, **NOT VERIFIED** | the connector cannot list environment variables; the services show no log lines since 1-3 Nov | owner: check each service's Environment page (docs/OWNER_TODO.md, Day 7 readiness) |
 | 14 | Owner alert routing is off | Medium (operational) | Cloud log: "personal_chat_id not configured yet" | owner: enter the chat id |
 | 15 | The Telegram bot token is never on this laptop | Info (good) | local settings: token and chat ids empty | none |
+
+
+## Login (master plan V2 LG4, 2026-11-07)
+| Control | What it does | Where / test |
+|---|---|---|
+| Two ways in, no lockout | `owner` + DASHBOARD_PASSWORD (Render env) and the saved account both work; reset tool for the saved account | `sindhu_web/api/auth.py`, `tools/reset_dashboard_user.py`; tests `test_env_owner_login_works_from_a_browser_with_csrf`, `test_saved_account_login_works` |
+| Login CSRF | browser POSTs (Origin / Sec-Fetch-Site present) must be same-origin and carry `X-Login-CSRF` equal to the HttpOnly `sindhu_login_csrf` cookie (SameSite=Strict, path /api/auth). Scripts without browser headers are not exposed to CSRF and are not asked for it | `_csrf_ok`; tests `test_browser_login_without_csrf_is_rejected`, `test_cross_site_login_is_rejected_even_with_a_token` |
+| Every other write | needs the login session and `X-Sindhu-Token` (same-origin `/api/token`): unchanged | `sindhu_web/security.py` |
+| Guessing | per IP: 8 failures / 10 min (unchanged); per username: after 3 failures waits 2, 4, 8 ... s (max 15 min), for any username string, so it reveals nothing | `_user_wait_s`; `test_per_username_backoff_then_success_after_waiting`, `test_ip_rate_limit_still_triggers` |
+| Same answer for wrong user or password | one generic 401; the password hash is always computed and both values compared in constant time | `auth.verify_password`; `test_wrong_password_and_wrong_username_get_the_same_generic_error` |
+| Session cookie | HttpOnly, SameSite=Lax, Secure behind HTTPS (Render) | `_set_session_cookie`; `test_session_rotates_on_login_and_cookie_flags` |
+| Rotation | a new token on every login; the token sent with the login request stops working | `auth_login` |
+| Idle timeout | 12 h without use ends the session (sliding, written at most every 5 min); absolute cap 30 days | `auth.is_valid_session`; `test_idle_timeout_and_sliding_expiry` |
+| Logout | in the account menu on every v2 page | `shell.js` |
+| Attempt log | `[auth] login ok/failed/blocked-... ip#<10 hex of sha256(ip)>`: no username, no password | `_log_attempt` |
+| Headers on all HTML | CSP `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'`, X-Frame-Options DENY, nosniff, Referrer-Policy, Permissions-Policy | `security_headers_middleware`; `test_html_has_security_headers` |
+| No inline script | all `<script>` tags have `src` (or are JSON data blocks); the inline scripts of concepts.html and activity_log.html moved to files unchanged | `test_no_inline_script_or_inline_handlers` |
+| Public endpoints | `/health`, `/health/details` (no secrets), `/api/public/login-scene` (only 0-1 candle shapes + last candle time, cached 5 min, <= 4 KB) | `test_public_endpoints_stay_public_and_others_need_login` |
+
+Known limits (NOT VERIFIED / accepted): `style-src` allows inline styles because the old dashboard sets ~900 style attributes; the
+per-IP and per-username counters are in memory, so a restart clears them; 2FA is optional and off (LG6).

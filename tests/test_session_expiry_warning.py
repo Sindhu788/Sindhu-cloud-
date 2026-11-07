@@ -34,8 +34,9 @@ def test_expires_at_matches_what_create_session_wrote():
     expires_at = auth.session_expires_at(token)
     assert expires_at is not None
     parsed = datetime.fromisoformat(expires_at)
-    expected = datetime.now(timezone.utc) + timedelta(days=auth.SESSION_LIFETIME_DAYS)
-    # Within a minute of "now + 30 days" -- real, not a placeholder value.
+    # master plan V2 LG4 (changed on purpose): a new session ends after SESSION_IDLE_HOURS (12 h) without use (sliding, capped at
+    # SESSION_LIFETIME_DAYS); before it was a fixed 30 days.
+    expected = datetime.now(timezone.utc) + timedelta(hours=auth.SESSION_IDLE_HOURS)
     assert abs((parsed - expected).total_seconds()) < 60
 
 

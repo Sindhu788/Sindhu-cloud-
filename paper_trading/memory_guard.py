@@ -34,6 +34,12 @@ def level(rss=None):
 
 
 _log_state = {"level": "ok", "at": -1e9, "skipped": 0}
+import collections as _collections
+_history = _collections.deque(maxlen=288)   # master plan V2 PG7: (unix time, rss MB) once per check (~1/min): about 4.8 h
+
+
+def history():
+    return list(_history)
 
 
 def optional_work_allowed():
@@ -50,6 +56,7 @@ def check(log=print, send=None, now=None, rss=None):
     try:
         rss = rss_mb() if rss is None else rss
         lv = level(rss)
+        _history.append((int(time.time()), round(rss, 1)))
         _last.update(level=lv, rss=round(rss, 1))
         if lv == "ok":
             _log_state.update(level="ok", skipped=0)

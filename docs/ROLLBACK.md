@@ -28,3 +28,10 @@ git push origin HEAD:codex/trading-intelligence
 | 02d12c3 | 2026-11-05 23:07 | Master plan D2 (MAIN_WALLET, owner-only commands, Cloud password guard, self-check, /health/details) | /health/details: trading enabled, self-check 4/4; 2,596 tests passed |
 
 Safety: tag `pre-recovery-backup` (from before all this work) also still exists in git.
+
+## Master plan V2 deploys (G1 ab38f58; G2/G3 below)
+- Last good before V2: **3eabeac** (V1 D3). After G1: **ab38f58**.
+- Fast rollback of a V2 UI deploy (login problem, broken page): in `D:\sindhu_merge`:
+  `git revert --no-edit -m 1 <merge commit>` then `git push origin HEAD:codex/trading-intelligence` (no force push). Render redeploys
+  in about 2 minutes; check `/health` shows the expected commit.
+- The old dashboard never went away: `/legacy` serves the unchanged app.js even while the new pages are live.

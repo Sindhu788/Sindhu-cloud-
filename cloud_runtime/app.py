@@ -79,6 +79,7 @@ from sindhu_web.api import activity as activity_api
 from sindhu_web.api import ops_checks as ops_checks_api
 from sindhu_web.api import wallet as wallet_api
 from sindhu_web.api import summary as summary_api
+from sindhu_web.api import v2_pages as v2_pages_api
 # 2026-09-16 audit: the CEO Control Room (this deployment's default landing
 # page) has a Settings card that reads/writes /api/settings -- never mounted
 # here, so every field showed blank/default values and every Save failed
@@ -330,6 +331,11 @@ def create_app():
     async def _token_guard(request: Request, call_next):
         return await token_guard_middleware(request, call_next)
 
+    @app.middleware("http")
+    async def _security_headers(request: Request, call_next):     # master plan V2 LG4 (CSP etc. on every HTML page)
+        from sindhu_web.security import security_headers_middleware
+        return await security_headers_middleware(request, call_next)
+
     # Grand Master Prompt, Phase 3.11: API Monitor -- see sindhu_web/
     # server.py's identical middleware for the reasoning; each deployment
     # tracks its own in-memory counters.
@@ -358,6 +364,9 @@ def create_app():
         # response never includes a traceback or any internal detail --
         # see cloud_runtime/README.md's security notes.
         log(f"[cloud-runtime] API ERROR on {request.method} {request.url.path}: {exc!r}")
+        from sindhu_web import assets as _err_assets      # master plan V2 PG9: HTML pages get the error page, never a traceback
+        if _err_assets.wants_html(request):
+            return _err_assets.error_page(500)
         return JSONResponse({"detail": "internal error"}, status_code=500)
 
     # Master Task Expansion, Part 6: system_api.router (uptime, CPU/RAM,
@@ -386,7 +395,7 @@ def create_app():
     for router in (paper_trading_api.router, ws.router, auth_api.router, system_api.router, strategy_lifecycle_api.router,
                    risk_department_api.router, memory_core_api.router, dashboard_scores_api.router,
                    project_meta_api.router, timeline_compare_api.router, report_builder_api.router,
-                   activity_api.router, settings_api.router, ops_checks_api.router, wallet_api.router, summary_api.router):
+                   activity_api.router, settings_api.router, ops_checks_api.router, wallet_api.router, summary_api.router, v2_pages_api.router):
         app.include_router(router)
 
     @app.get("/api/token")
@@ -481,37 +490,14 @@ def create_app():
         session_token = request.cookies.get(auth.SESSION_COOKIE)
         if auth.is_valid_session(session_token):
             return RedirectResponse(url="/")
-        return FileResponse(os.path.join(_STATIC_DIR, "login.html"))
+        from sindhu_web import assets as _login_assets      # master plan V2 LG1: hashed asset URLs + build tag
+        return _login_assets.html_response("login.html")
 
-    @app.get("/")
-    def index(request: Request):
-        session_token = request.cookies.get(auth.SESSION_COOKIE)
-        if not auth.is_valid_session(session_token):
-            return RedirectResponse(url="/login")
-        index_path = os.path.join(_STATIC_DIR, "index.html")
-        with open(index_path, "r", encoding="utf-8") as f:
-            html = f.read()
-        js_path = os.path.join(_STATIC_DIR, "js", "app.js")
-        css_path = os.path.join(_STATIC_DIR, "css", "app.css")
-        js_v = int(os.path.getmtime(js_path)) if os.path.exists(js_path) else 0
-        css_v = int(os.path.getmtime(css_path)) if os.path.exists(css_path) else 0
-        html = html.replace('/static/js/app.js"', f'/static/js/app.js?v={js_v}"')
-        html = html.replace('/static/css/app.css"', f'/static/css/app.css?v={css_v}"')
-        # app.js's router defaults an empty location.hash to "#home", which
-        # calls endpoints this runner never mounts. Landing straight on
-        # Paper Trading is the one small, cloud-only HTML tweak needed to
-        # avoid that -- done here as a string substitution on the response,
-        # NOT as an edit to the shared index.html file, so the local app's
-        # own default page is completely untouched.
-        html = html.replace(
-            "<body>",
-            "<body><script>if(!location.hash){location.hash='#wallet';}</script>",   # master plan C2: MAIN_WALLET home
-            1,
-        )
-        return HTMLResponse(
-            html,
-            headers={"Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache"},
-        )
+    # Master plan V2 DS3/PG1: "/" is the new app (static/app2.html), "/legacy" the old dashboard (static/index.html), and
+    # /assets/... the fingerprinted, pre-compressed files (sindhu_web/assets.py).
+    from sindhu_web import assets as _assets
+    _assets.register(app)
+    _assets.register_pages(app, cloud=True)
 
     return app
 

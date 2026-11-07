@@ -314,7 +314,9 @@ def test_index_html_response_defaults_to_paper_trading_not_home(cloud_app, tmp_p
         raw_html = f.read()
     assert "<body>" in raw_html  # sanity: the substitution target really exists
 
-    index_route = next(r for r in cloud_app.app.routes if getattr(r, "path", None) == "/")
+    # Master plan V2 PG1 (changed on purpose): "/" is now the new app (its default page is Home = MAIN_WALLET); the old dashboard
+    # (index.html) moved to /legacy, where Cloud still lands on #wallet, now via data-default-hash (the CSP allows no inline script).
+    index_route = next(r for r in cloud_app.app.routes if getattr(r, "path", None) == "/legacy")
     from starlette.requests import Request as StarletteRequest
 
     class _FakeRequest:
@@ -323,7 +325,7 @@ def test_index_html_response_defaults_to_paper_trading_not_home(cloud_app, tmp_p
     response = index_route.endpoint(_FakeRequest())
     # Master plan C2: the Cloud landing page is now the MAIN_WALLET home (#wallet), still never #home; its only data call is the
     # cached /api/summary, which IS mounted on Cloud.
-    assert b"location.hash='#wallet'" in response.body
+    assert b'data-default-hash="wallet"' in response.body and b"legacy_boot." in response.body
     from fastapi.testclient import TestClient
     from sindhu_web import security, auth
     monkeypatch.setattr(security, "_is_lan_client", lambda h: True)

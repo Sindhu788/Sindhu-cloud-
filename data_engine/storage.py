@@ -4192,12 +4192,45 @@ def get_cloud_setting(key):
     that pattern normally uses. Returns None if the key has never been
     saved (caller merges over its own defaults, same contract as
     data_engine.config.load_or_seed)."""
-    with get_conn() as conn:
-        row = conn.execute("SELECT value_json FROM cloud_settings WHERE key=?", (key,)).fetchone()
-    return json.loads(row[0]) if row else None
+    # Master plan V2 R5: this read ran ~3,700 times per Cloud scan (about 390 s of statements plus as many commits, ~105 ms each
+    # Oregon -> Neon Ohio). The raw JSON is now kept in memory for _CLOUD_SETTING_TTL_S; this process's own saves update it at
+    # once, so only a write by ANOTHER process can be seen up to 10 s late. Every call still returns a fresh object.
+    now = _cs_time.monotonic()
+    with _cs_lock:
+        hit = _cs_cache.get(key)
+    if hit is not None and now - hit[0] < _CLOUD_SETTING_TTL_S:
+        raw = hit[1]
+    else:
+        with get_conn() as conn:
+            row = conn.execute("SELECT value_json FROM cloud_settings WHERE key=?", (key,)).fetchone()
+        raw = row[0] if row else None
+        with _cs_lock:
+            _cs_cache[key] = (now, raw)
+    return json.loads(raw) if raw is not None else None
+
+
+import threading as _cs_threading
+import time as _cs_time
+
+_CLOUD_SETTING_TTL_S = 10.0
+_cs_cache = {}
+_cs_lock = _cs_threading.Lock()
+
+
+def clear_cloud_setting_cache():
+    with _cs_lock:
+        _cs_cache.clear()
 
 
 def save_cloud_setting(key, data, now_iso):
+    with _cs_lock:
+        _cs_cache.pop(key, None)
+    _save_cloud_setting_db(key, data, now_iso)
+    with _cs_lock:
+        _cs_cache[key] = (_cs_time.monotonic(), json.dumps(data))
+
+
+def _save_cloud_setting_db(key, data, now_iso):
     with get_conn() as conn:
         conn.execute(
             """INSERT INTO cloud_settings (key, value_json, updated_at)

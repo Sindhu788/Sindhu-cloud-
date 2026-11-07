@@ -188,3 +188,11 @@ Aaj login ke 2 raste hain; dono alag-alag kaam karte hain:
 4. Ek baar: `D:\sindhu_venv_stable\Scripts\python.exe -m pip install psycopg2-binary`
 5. Chalao: `D:\sindhu_venv_stable\Scripts\python.exe tools\settings_cycles.py --postgres --write` (production URL ho to tool khud mana kar deta hai).
 6. Kaam ke baad Neon console mein `settings-test` branch **Delete** kar sakte ho (sirf woh branch, main nahi).
+
+## Master plan V2 - naya design live hone ke baad (G2/G3)
+1. **Login karke confirm karo ke andar ja sakte ho.** https://sindhu-cloud-1.onrender.com/login -> username `owner` + Render wala
+   `DASHBOARD_PASSWORD` (ya purana account). Agar andar na ja sako: mujhe batao, main turant rollback karunga (docs/ROLLBACK.md).
+2. Naya design dikhe: neeche footer mein `build <commit>-<hash>` likha hota hai. Purana design dikhe to page ek baar reload karo.
+3. Purana dashboard ab **/legacy** par hai (har purana page wahin, kuch delete nahi hua). Menu: "More / Legacy".
+4. Session 12 ghante bina use ke khatam ho jata hai: phir se login karna hoga (security ke liye).
+5. Agar kabhi sirf purana dashboard chahiye: https://sindhu-cloud-1.onrender.com/legacy
