@@ -1,9 +1,9 @@
 # MASTER_PLAN_V2_STATE
 plan_version: 2
 started_at: 2026-11-06 06:20 UTC
-last_update: 2026-11-06 07:37 UTC
-current_step: DS2
-next_action: finish DS2/DS3 tests, then LG1
+last_update: 2026-11-07 09:12 UTC
+current_step: LG5
+next_action: G2
 background_jobs: none
 
 Working copy: D:\sindhu_wtA (branch masterplan/partA); D:\sindhu_clean (recovery/clean) is fast-forwarded to it; pushes go through
@@ -25,13 +25,13 @@ D:\sindhu_merge to origin codex/trading-intelligence (fast-forward only). V1 sta
 | R9 | IN_PROGRESS | (this commit) | tests/test_soak.py 3 passed; manual run started 07:00 UTC -> D:\sindhu_runtime\soak\soak.csv (48 h) | ops/soak/soak_monitor.py, soak_report.py, install_soak_task.cmd (owner); /health/details memory + scans_finished; report built at X1 |
 | R10 | DONE | (this commit) | tests/test_reset_dashboard_user.py 4 passed (SQLite/JSON); OWNER_TODO + one-pager Hinglish steps | tools.reset_dashboard_user --list/--reset [--cloud]; never prints passwords or hashes; signs out old sessions; env login untouched |
 | DS1 | DONE | (this commit) | tokens.css v2 (dark+light, AA contrast computed: min 4.5 light accent, 4.8 dark loss), self-hosted Inter + JetBrains Mono, Lucide sprite 52 icons, motion + reduced-motion; docs/ui/DESIGN_SYSTEM.md; static/vendor/VENDOR.md (versions + SHA-256) | accent teal (amber = warning) |
-| DS2 | IN_PROGRESS |  |  | components + /ui-kit written; QA pending |
-| DS3 | TODO | | | |
-| LG1 | TODO | | | |
-| LG2 | TODO | | | |
-| LG3 | TODO | | | |
-| LG4 | TODO | | | |
-| LG5 | TODO | | | |
+| DS2 | DONE | (this commit) | ds.css + ds.js components; /ui-kit page; tests/test_v2_login_and_assets.py | uPlot 1.6.31 vendored (MIT, SHA-256 in static/vendor/VENDOR.md) |
+| DS3 | DONE | (this commit) | sindhu_web/assets.py; tests test_assets_are_fingerprinted_immutable_and_compressed, test_asset_memory_stays_small, build tag | gzip at first request (no build step on Render); brotli only if installed (not installed); Cloud check at G2 |
+| LG1 | DONE | (this commit) | static/login.html + login.css + js/v2/login.js; docs/ui/v2/after/login_*.png; no scroll at 390x844, focus on username, 0 console errors |  |
+| LG2 | DONE | (this commit) | js/v2/login_scene.js (three 0.160.1, 288 instances, 3 draw calls); /api/public/login-scene 3.1 KB, 96 candles 0-1 | live data on Cloud, demo locally (labelled) |
+| LG3 | DONE | (this commit) | fallbacks: reduced-motion, no WebGL, low-end (192 instances, 30 fps), frame watchdog >33 ms over 2 s -> poster (seen in headless + pane), pause hidden/off-screen, GPU freed on stop; poster 5.9 KB WebP (tools/login_poster.py) | LCP/form-interactive on a mid phone: NOT VERIFIED (lab only) |
+| LG4 | DONE | (this commit) | docs/SECURITY_REVIEW.md login section; CSRF, backoff, rotation, 12 h idle, headers, attempt log |  |
+| LG5 | IN_PROGRESS |  | tests/test_v2_login_and_assets.py 20 passed; test_security_hardening + test_cloud_runtime changed on purpose | full suite running; Postgres login test BLOCKED with R7 |
 | LG6 | TODO | | | |
 | PG1 | TODO | | | |
 | PG2 | TODO | | | |

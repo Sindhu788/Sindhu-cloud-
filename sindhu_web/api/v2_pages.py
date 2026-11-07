@@ -147,6 +147,7 @@ def save_wallet_settings(req: WalletSettings):
     errors = validate_wallet(fields)
     if errors:
         raise HTTPException(422, {"errors": errors})
+    wallet.ensure()                                   # tables exist even on a fresh database
     if not fields:
         return {"ok": True, "settings": wallet.settings()}
     with wallet._lock:
