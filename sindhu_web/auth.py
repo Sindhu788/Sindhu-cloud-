@@ -35,7 +35,9 @@ from data_engine import db_backend, storage
 _CRED_FILE = "auth_credentials.json"
 _SESSIONS_FILE = "auth_sessions.json"
 _PBKDF2_ITERATIONS = 200_000
-SESSION_LIFETIME_DAYS = 30
+SESSION_LIFETIME_DAYS = 30          # absolute cap (also the cookie's max-age)
+SESSION_IDLE_HOURS = 12             # master plan V2 LG4: a session ends after 12 h without use (sliding)
+_SESSION_TOUCH_S = 300              # extend at most every 5 min (one small write), not on every request
 
 SESSION_COOKIE = "sindhu_session"
 
@@ -101,17 +103,15 @@ def verify_password(username, password):
         if not row or not row[0] or not row[2]:
             return False
         db_username, salt, password_hash = row
-        if username != db_username:
-            return False
-        _, hash_hex = _hash_password(password, salt)
-        return secrets.compare_digest(hash_hex, password_hash)
+        _, hash_hex = _hash_password(password, salt)       # always hash: same time for a wrong username (master plan V2 LG4)
+        user_ok = secrets.compare_digest(str(username).encode("utf-8"), str(db_username).encode("utf-8"))
+        return secrets.compare_digest(hash_hex, password_hash) and user_ok
     creds = base_config.load_or_seed(_CRED_FILE, {})
     if not creds.get("username") or not creds.get("password_hash"):
         return False
-    if username != creds["username"]:
-        return False
     _, hash_hex = _hash_password(password, creds["salt"])
-    return secrets.compare_digest(hash_hex, creds["password_hash"])
+    user_ok = secrets.compare_digest(str(username).encode("utf-8"), str(creds["username"]).encode("utf-8"))
+    return secrets.compare_digest(hash_hex, creds["password_hash"]) and user_ok
 
 
 def change_password(current_password, new_password):
@@ -129,7 +129,7 @@ def _load_sessions():
 def create_session():
     token = secrets.token_hex(32)
     created_at = _now().isoformat()
-    expires_at = (_now() + timedelta(days=SESSION_LIFETIME_DAYS)).isoformat()
+    expires_at = (_now() + timedelta(hours=SESSION_IDLE_HOURS)).isoformat()
     if db_backend.IS_POSTGRES:
         with storage.get_conn() as conn:
             conn.execute(
@@ -143,21 +143,44 @@ def create_session():
     return token
 
 
+def _slide(created_at_iso, expires_at_iso):
+    """New expires_at when the session should be extended now, else None (master plan V2 LG4 idle timeout)."""
+    now = _now()
+    exp = datetime.fromisoformat(expires_at_iso)
+    if (exp - now).total_seconds() > SESSION_IDLE_HOURS * 3600 - _SESSION_TOUCH_S:
+        return None
+    cap = datetime.fromisoformat(created_at_iso) + timedelta(days=SESSION_LIFETIME_DAYS) if created_at_iso else now
+    new = min(now + timedelta(hours=SESSION_IDLE_HOURS), cap)
+    return new.isoformat() if new > exp else None
+
+
 def is_valid_session(token):
     if not token:
         return False
     if db_backend.IS_POSTGRES:
         with storage.get_conn() as conn:
             row = conn.execute(
-                "SELECT expires_at FROM auth_sessions WHERE token = ?", (token,)
+                "SELECT created_at, expires_at FROM auth_sessions WHERE token = ?", (token,)
             ).fetchone()
-        if not row:
-            return False
-        return _now() < datetime.fromisoformat(row[0])
-    entry = _load_sessions()["sessions"].get(token)
+            if not row:
+                return False
+            if _now() >= datetime.fromisoformat(row[1]):
+                return False
+            new = _slide(row[0], row[1])
+            if new:
+                conn.execute("UPDATE auth_sessions SET expires_at = ? WHERE token = ?", (new, token))
+        return True
+    sessions = _load_sessions()
+    entry = sessions["sessions"].get(token)
     if not entry:
         return False
-    return _now() < datetime.fromisoformat(entry["expires_at"])
+    if _now() >= datetime.fromisoformat(entry["expires_at"]):
+        return False
+    new = _slide(entry.get("created_at"), entry["expires_at"])
+    if new:
+        entry["expires_at"] = new
+        base_config.save_config(_SESSIONS_FILE, sessions)
+    return True
 
 
 def session_expires_at(token):

@@ -46,7 +46,8 @@ _EXEMPT_PATHS = {"/", "/api/token"}
 # below. A wrong/missing secret there returns 401 before the payload is
 # ever touched -- exempting this one path from the LOGIN gate does not
 # loosen that check at all.
-_LOGIN_EXEMPT_PATHS = {"/login", "/api/auth/status", "/api/auth/setup", "/api/auth/login", "/health", "/health/details",
+_LOGIN_EXEMPT_PATHS = {"/login", "/api/auth/status", "/api/auth/setup", "/api/auth/login", "/api/auth/csrf", "/health", "/health/details",
+                        "/api/public/login-scene",
                         "/api/paper-trading/strategy-sync/push",
                         # Master Task Expansion, Part 2: the LOCAL machine's cloud-aware
                         # auto-stop scheduler polls this from outside any browser session,
@@ -222,3 +223,22 @@ async def token_guard_middleware(request: Request, call_next):
     if provided != expected:
         return JSONResponse({"detail": "missing or invalid X-Sindhu-Token header"}, status_code=401)
     return await call_next(request)
+
+
+# ---- master plan V2 LG4: security headers on every HTML response (and nosniff everywhere)
+CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; "
+       "connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
+_HTML_HEADERS = {"Content-Security-Policy": CSP, "Referrer-Policy": "strict-origin-when-cross-origin",
+                 "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()", "X-Frame-Options": "DENY"}
+
+
+async def security_headers_middleware(request, call_next):
+    response = await call_next(request)
+    try:
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        if response.headers.get("content-type", "").startswith("text/html"):
+            for k, v in _HTML_HEADERS.items():
+                response.headers.setdefault(k, v)
+    except Exception:
+        pass
+    return response

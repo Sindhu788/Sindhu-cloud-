@@ -28,6 +28,7 @@ BUNDLE_FILES = ["js/v2/ds.js", "js/v2/shell.js", "js/v2/pages_home.js", "js/v2/p
                 "js/v2/uikit.js", "js/v2/palette.js"]
 LOGIN_BUNDLE_NAME = "js/login.bundle.js"
 LOGIN_BUNDLE_FILES = ["js/v2/login.js"]
+DYNAMIC_MODULES = ("js/v2/login_scene.js",)   # imported at runtime by a bundle, so its hashed URL must be in the page's asset map
 IMMUTABLE = "public, max-age=31536000, immutable"
 NO_CACHE = "no-cache"
 _TYPES = {".js": "text/javascript; charset=utf-8", ".mjs": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",
@@ -171,7 +172,9 @@ def render_html(name, extra=None):
     with open(os.path.join(STATIC_DIR, name), encoding="utf-8") as f:
         html = f.read()
     html = _STATIC_REF.sub(lambda mm: m[mm.group(1)]["url"] if mm.group(1) in m else mm.group(0), html)
-    public = {k: e["url"] for k, e in m.items() if k.startswith("vendor/") or k.endswith(".bundle.js") or k.startswith("css/")}
+    public = {k: e["url"] for k, e in m.items()
+              if (k.startswith("vendor/") and not k.endswith((".txt", ".md"))) or k.endswith(".bundle.js") or k.startswith("css/")
+              or k in DYNAMIC_MODULES}
     html = html.replace("{{ASSETS_JSON}}", json.dumps(public, separators=(",", ":")).replace("</", "<\\/"))
     html = html.replace("{{BUILD}}", build)
     for k, v in (extra or {}).items():

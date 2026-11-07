@@ -2,6 +2,7 @@
 
 /* ---------- base for v2 pages */
 .v2 *, .v2 *::before, .v2 *::after { box-sizing: border-box; }
+.v2 [hidden] { display: none !important; }
 .v2 { margin: 0; min-height: 100vh; background: var(--bg); color: var(--text); }
 .v2 h1, .v2 h2, .v2 h3, .v2 h4 { margin: 0; font-weight: 600; letter-spacing: -.01em; line-height: var(--lh-tight); }
 .v2 h1 { font-size: var(--fs-24); } .v2 h2 { font-size: var(--fs-20); } .v2 h3 { font-size: var(--fs-16); } .v2 h4 { font-size: var(--fs-14); }

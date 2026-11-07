@@ -331,6 +331,11 @@ def create_app():
     async def _token_guard(request: Request, call_next):
         return await token_guard_middleware(request, call_next)
 
+    @app.middleware("http")
+    async def _security_headers(request: Request, call_next):     # master plan V2 LG4 (CSP etc. on every HTML page)
+        from sindhu_web.security import security_headers_middleware
+        return await security_headers_middleware(request, call_next)
+
     # Grand Master Prompt, Phase 3.11: API Monitor -- see sindhu_web/
     # server.py's identical middleware for the reasoning; each deployment
     # tracks its own in-memory counters.
@@ -482,7 +487,8 @@ def create_app():
         session_token = request.cookies.get(auth.SESSION_COOKIE)
         if auth.is_valid_session(session_token):
             return RedirectResponse(url="/")
-        return FileResponse(os.path.join(_STATIC_DIR, "login.html"))
+        from sindhu_web import assets as _login_assets      # master plan V2 LG1: hashed asset URLs + build tag
+        return _login_assets.html_response("login.html")
 
     # Master plan V2 DS3/PG1: "/" is the new app (static/app2.html), "/legacy" the old dashboard (static/index.html), and
     # /assets/... the fingerprinted, pre-compressed files (sindhu_web/assets.py).

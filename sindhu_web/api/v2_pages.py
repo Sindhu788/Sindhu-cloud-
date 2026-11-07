@@ -204,3 +204,58 @@ def system():
             out["soak_report"] = None
         return out
     return _cached("system", 15, build)
+
+
+# ---------------------------------------------------------------- login scene (master plan V2 LG2 / L3): public, tiny, cached
+_SCENE_N = 96
+
+
+def _demo_series(n=_SCENE_N):
+    """Deterministic made-up candles (same every time) for when no fresh market data is in memory."""
+    import math
+    out, p = [], 0.5
+    for i in range(n):
+        o = p
+        p = 0.5 + 0.28 * math.sin(i / 9.0) + 0.08 * math.sin(i / 2.7)
+        hi, lo = max(o, p) + 0.02 + 0.015 * abs(math.sin(i * 1.7)), min(o, p) - 0.02 - 0.012 * abs(math.cos(i * 1.3))
+        out.append([o, hi, lo, p, 0.3 + 0.5 * abs(math.sin(i / 5.0))])
+    return out
+
+
+def _normalize(rows):
+    lo = min(r[2] for r in rows)
+    hi = max(r[1] for r in rows)
+    span = (hi - lo) or 1.0
+    vmax = max(r[4] for r in rows) or 1.0
+    return [[round((r[0] - lo) / span, 3), round((r[1] - lo) / span, 3), round((r[2] - lo) / span, 3), round((r[3] - lo) / span, 3),
+             round(r[4] / vmax, 3)] for r in rows]
+
+
+def _scene():
+    try:
+        from data_engine import live_candles
+        with live_candles._lock:
+            df = None
+            for key, frame in live_candles._cache.items():          # already in memory: no exchange call, no database
+                if key[1] == "BTC/USDT" and key[2] == "15m" and frame is not None and len(frame) >= _SCENE_N:
+                    df = frame
+                    break
+        if df is not None:
+            tail = df.tail(_SCENE_N)
+            last = tail.index[-1]
+            age_min = (time.time() - last.timestamp()) / 60
+            if age_min < 120:
+                rows = [[float(r.open), float(r.high), float(r.low), float(r.close), float(r.volume)] for r in tail.itertuples()]
+                return {"source": "live", "symbol": "BTC/USDT", "timeframe": "15m", "last_open_utc": last.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                        "candles": _normalize(rows)}
+    except Exception:
+        pass
+    return {"source": "demo", "symbol": "BTC/USDT", "timeframe": "15m", "last_open_utc": None, "candles": _normalize(_demo_series())}
+
+
+@router.get("/api/public/login-scene")
+def login_scene():
+    """Only normalized shapes (0-1) and the last candle time: no prices, no wallet, strategy or account data. Cached 5 min."""
+    from fastapi.responses import JSONResponse
+    data = _cached("login_scene", 300, _scene)
+    return JSONResponse(data, headers={"Cache-Control": "public, max-age=300"})

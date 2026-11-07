@@ -13,7 +13,8 @@
     if (o.stale()) return;
     document.getElementById("syRefresh").onclick = () => S2.route();
     const sc = det.self_check || {}, mem = det.memory || {}, ls = sys.last_stages || {}, db = ls.scan_db || {}, lat = det.db_latency || {};
-    const checks = Object.entries(sc.checks || sc).filter(([k, v]) => v && typeof v === "object" && "ok" in v);
+    const raw = sc.checks || [];
+    const checks = (Array.isArray(raw) ? raw.map(c => [c.name, c]) : Object.entries(raw)).filter(([k, v]) => v && typeof v === "object" && "ok" in v);
     el.innerHTML = `
       <div class="ds-grid">
         <div class="card span-3"><div class="stat"><span class="k">Trading</span><span class="v ${det.trading === "enabled" ? "up" : "down"}">${esc(det.trading || "--")}</span><span class="d">${Object.keys(det.config_errors || {}).length} config errors</span></div></div>
@@ -36,7 +37,7 @@
       <div class="ds-grid" style="margin-top:16px">
         <div class="card span-6"><div class="card-h"><h3>Data freshness</h3></div><div class="card-b" id="syFresh"></div></div>
         <div class="card span-6"><div class="card-h"><h3>Background checks</h3><span class="t-hint">self-check ${esc(f.ago(sc.at || sc.checked_at))}</span></div><div class="card-b">
-          ${checks.length ? `<dl class="kv">${checks.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${ok(v.ok)} <span class="t-3">${esc(v.detail || v.note || "")}</span></dd>`).join("")}</dl>` : S2.empty("Self-check abhi chala nahi", "Start ke ~20 s baad chalta hai.", "clock")}
+          ${checks.length ? `<dl class="kv">${checks.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${ok(v.ok)} <span class="t-3">${esc(typeof v.detail === "object" ? Object.entries(v.detail || {}).map(([a, b]) => a + " " + b).join(", ") : (v.detail || ""))}</span></dd>`).join("")}</dl>` : S2.empty("Self-check abhi chala nahi", "Start ke ~20 s baad chalta hai.", "clock")}
           <dl class="kv" style="margin-top:12px"><dt>Database breaker</dt><dd>${det.db_breaker ? (det.db_breaker.open ? '<span class="down">open</span>' : '<span class="up">closed</span>') : "--"}</dd>
           <dt>Full-refetch queue</dt><dd>${det.refetch_queue ? `${esc(det.refetch_queue.queue)} waiting (limit ${esc(det.refetch_queue.limit === null ? "none" : det.refetch_queue.limit)} per scan)` : "--"}</dd>
           <dt>Top-coins list on disk</dt><dd>${det.top_coins_cache ? `${esc(det.top_coins_cache.coins)} coins, saved ${esc(f.ago(det.top_coins_cache.saved_at_utc))}` : "--"}</dd>
