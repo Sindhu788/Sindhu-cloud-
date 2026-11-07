@@ -152,15 +152,17 @@ _SCANS_FINISHED = 0   # master plan V2 R2: scans finished since this process sta
 
 
 def _set_refetch_budget():
-    """V2 R2 (P27): no limit for the first scan after a start (every series is cold), then SINDHU_REFETCH_BUDGET (default 3)
+    """V2 R2 (P27): no limit for the first two scans after a start (every series is cold), then SINDHU_REFETCH_BUDGET (default 8)
     heavy downloads per scan."""
     try:
         from data_engine import live_candles
         try:
-            k = int(os.environ.get("SINDHU_REFETCH_BUDGET", "3"))
+            k = int(os.environ.get("SINDHU_REFETCH_BUDGET", "8"))
         except ValueError:
-            k = 3
-        live_candles.set_refetch_budget(None if _SCANS_FINISHED == 0 else k)
+            k = 8
+        # V2 R2 fix (G1 logs, 6 Nov): with K=3 coins whose first download was cut by a deadline waited many scans. First TWO scans
+        # unlimited, then 8 per scan by default.
+        live_candles.set_refetch_budget(None if _SCANS_FINISHED < 2 else k)
     except Exception:
         pass
 
@@ -708,6 +710,9 @@ class PaperTradingEngine:
                 with stages.stage("classify"):
                     snapshot = market_state.classify(exchange, symbol)
             except Exception as e:
+                if type(e).__name__ == "RefetchDeferred":          # V2 R2: a planned skip, not an error
+                    self._log_decision(exchange, symbol, {}, 'no_trade', 'Candle history still loading; queued for a later scan.', {})
+                    continue
                 self._log(f"[paper-trading] market state error {symbol}: {e!r}")
                 self._current_scan['errors'] += 1
                 reason=str(e) if isinstance(e,MarketDataRejected) else 'Market data unavailable; evaluation skipped.'
@@ -738,6 +743,9 @@ class PaperTradingEngine:
                 opened += o
                 rejected += r
             except Exception as e:
+                if type(e).__name__ == "RefetchDeferred":          # V2 R2: a planned skip, not an error
+                    self._log_decision(exchange, symbol, {}, 'no_trade', 'Candle history still loading; queued for a later scan.', snapshot)
+                    continue
                 self._log(f"[paper-trading] decision error {symbol}: {e!r}")
                 self._current_scan['errors'] += 1
 

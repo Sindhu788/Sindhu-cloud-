@@ -1,7 +1,7 @@
 # MASTER_PLAN_V2_STATE
 plan_version: 2
 started_at: 2026-11-06 06:20 UTC
-last_update: 2026-11-07 09:12 UTC
+last_update: 2026-11-07 09:17 UTC
 current_step: LG5
 next_action: G2
 background_jobs: none
@@ -15,10 +15,10 @@ D:\sindhu_merge to origin codex/trading-intelligence (fast-forward only). V1 sta
 | F2 | DONE | (this commit) | docs/MASTER_PLAN_V2_BASELINE.md; docs/ui/v2/before (76 screenshots + audit.json) | log lines/hour is an estimate from one 25-min window; LCP/CLS lab numbers without throttling |
 | F3 | DONE | (this commit) | docs/ui/FEATURE_MAP.md: 38 SPA pages, 36 menu entries, 461 route decorators, 3 static HTML pages, 6 global controls; every row has a new location | status per row TODO until PG8 |
 | R1 | DONE | (this commit) | tests/test_coingecko_deadline.py (5 passed, real slow local HTTP server) + test_coingecko_cache + test_coin_selection_fallback: 16 passed | deadline 20 s for the whole fetch, connect 5 s / read 10 s, last good list on disk (config/coingecko_top_coins_cache.json, atomic, timestamp), fallback logged once per 30 min; includes 20736c4 |
-| R2 | DONE | (this commit) | tests/test_refetch_budget.py (6 passed); live_candles/fetch_deadline/self_check tests 18 passed; /health/details refetch_queue + top_coins_cache | heavy = cold or backfill > 1000 candles; K = SINDHU_REFETCH_BUDGET (3); first scan after a start unlimited (all cold) |
+| R2 | DONE | (this commit) | tests/test_refetch_budget.py; G1 logs: budget 3 kept 6-14 coins waiting per scan -> fixed: 8 per scan, first 2 scans unlimited, deferral = no_trade 'candle history still loading', not an error | default changed after Cloud evidence |
 | R3 | DONE | (this commit) | docs/MEMORY_PROFILE_V2.md: import RSS 141 -> 106 MiB (lazy ccxt), ~-11 MiB candle cache; tests/test_lazy_ccxt.py 3 passed, candle tests 34 passed | Cloud RSS after: measured at G1 (target <= 400 MB) |
 | R4 | DONE | (this commit) | tests/test_wallet.py 17 passed (cap test changed on purpose 25 -> 15; risk test stop 95 -> 92); FORWARD_TEST_LOG entry | max_position_pct 15, range 5-25, self-check error outside |
-| R5 | IN_PROGRESS | (this commit, part 1) | tests/test_db_latency_probe.py 5 passed | part 1: [scan-db] scan-thread-only DB time + top statements per scan; [db-latency] SELECT 1 x20 hourly + /health/details db_latency. Part 2 (findings + fixes) needs Cloud numbers after G1 |
+| R5 | DONE | (this commit) | docs/DB_LATENCY_FINDINGS.md: SELECT 1 p50 47.2 ms; DB = 56-62 % of 10 warm scans (scan thread only); cloud_settings read 3,700x/scan cached (tests/test_db_round_trip_fixes.py 5 passed) | Ohio claim VERIFIED as main cost (gain estimated); effect of the cache measured after G2 |
 | R6 | DONE | (this commit) | tests/test_log_volume.py 5 passed; /health/details log_lines (hourly counter) | per-coin line only >= 60 s; memory-guard on change / 30 min; 2xx GET/HEAD access + websocket open/close not printed (errors, 4xx/5xx, non-GET kept); after-number from the counter at G1 |
 | R7 | BLOCKED | (this commit) | tools/settings_cycles.py --postgres (refuses production host+db); tests/test_settings_cycles_pg_guard.py 3 passed | no Neon branch / local Postgres / Docker / psycopg2 on the laptop; owner steps in OWNER_TODO (V2 R7) |
 | R8 | TODO | | | |
@@ -52,3 +52,5 @@ D:\sindhu_merge to origin codex/trading-intelligence (fast-forward only). V1 sta
 - G1: merge ab38f58 (code b61a34c) pushed 07:39:01 UTC, live 07:40:41; HEAD /health 200, /wp-admin 404, self-check 4/4 ok, trading enabled.
   Suite before: 2,637 passed / 0 failed (D:\sindhu_clean at b61a34c). After 44 min: 0 error lines, RSS 377.5 MB during the cold scan
   (D3 cold scan: 423 MB), log lines 22 in 07:40-08:00 + 13 in 08:00-08:24 (about 33/h vs ~240/h at F2), db SELECT 1 p50 47.2 ms / p95 94.2 ms.
+- After G1 (10 warm scans 11:59-17:08 UTC): 1,808-2,179 s, RSS 359-392 MB (<= 400 MB target met), 0 crash; outcome "partial" with 6-14
+  errors each = RefetchDeferred from the new R2 budget (not data errors). Fixed in the next commit (budget 8, not counted as errors).
